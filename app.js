@@ -169,26 +169,36 @@ if (wmUpload) {
                     width = MAX_WIDTH;
                 }
 
-                wmCanvas.width = width;
-                wmCanvas.height = height;
-                ctx.drawImage(img, 0, 0, width, height);
+                const borderSize = Math.max(width, height) * 0.05;
+                const bottomBorder = borderSize * 3;
+
+                const canvasWidth = width + borderSize * 2;
+                const canvasHeight = height + borderSize + bottomBorder;
+
+                wmCanvas.width = canvasWidth;
+                wmCanvas.height = canvasHeight;
+
+                // Fill white background for polaroid
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+                // Draw photo
+                ctx.drawImage(img, borderSize, borderSize, width, height);
 
                 const logo = new Image();
                 logo.onload = () => {
-                    let logoHeight = height * 0.10;
-                    let logoWidth = logo.width * (logoHeight / logo.height);
+                    const logoMaxHeight = bottomBorder * 0.7;
+                    const logoHeightPx = logoMaxHeight;
+                    const logoWidthPx = logo.width * (logoHeightPx / logo.height);
                     
-                    const margin = 20;
-                    const x = width - logoWidth - margin;
-                    const y = height - logoHeight - margin;
+                    const logoX = canvasWidth - borderSize - logoWidthPx;
+                    const logoY = height + borderSize + (bottomBorder - logoHeightPx) / 2;
 
-                    ctx.globalAlpha = 0.9;
-                    ctx.drawImage(logo, x, y, logoWidth, logoHeight);
-                    ctx.globalAlpha = 1.0;
+                    ctx.drawImage(logo, logoX, logoY, logoWidthPx, logoHeightPx);
 
                     const dataUrl = wmCanvas.toDataURL('image/jpeg', 0.9);
                     wmPreview.src = dataUrl;
-                    wmPreview.style.display = 'block';
+                    document.getElementById('wm-preview-container').style.display = 'block';
                     wmDownload.style.display = 'inline-block';
                 };
                 logo.src = 'bark-logo.jpeg';
@@ -200,10 +210,21 @@ if (wmUpload) {
 
     wmDownload.addEventListener('click', () => {
         const link = document.createElement('a');
-        link.download = 'bark-ranger-swag.jpg';
+        link.download = 'bark-ranger-swag-polaroid.jpg';
         link.href = wmCanvas.toDataURL('image/jpeg', 0.9);
         link.click();
     });
+
+    // Clear Button Logic
+    const wmClearBtn = document.getElementById('wm-clear');
+    if (wmClearBtn) {
+        wmClearBtn.addEventListener('click', () => {
+            wmUpload.value = '';
+            wmPreview.src = '';
+            document.getElementById('wm-preview-container').style.display = 'none';
+            wmDownload.style.display = 'none';
+        });
+    }
 }
 
 // Marker Color mapping

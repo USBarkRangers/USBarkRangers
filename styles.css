@@ -623,3 +623,17 @@ body, html {
     filter: brightness(1.5);
     z-index: 1000 !important;
 }
+
+/* Social Icon Links */
+.social-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    color: #333;
+}
+.social-link:hover {
+    color: #4CAF50;
+}

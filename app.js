@@ -169,16 +169,15 @@ if (wmUpload) {
                     width = MAX_WIDTH;
                 }
 
-                const borderSize = Math.max(width, height) * 0.05;
-                const bottomBorder = borderSize * 3;
-
+                const borderSize = Math.max(width, height) * 0.08;
+                
                 const canvasWidth = width + borderSize * 2;
-                const canvasHeight = height + borderSize + bottomBorder;
+                const canvasHeight = height + borderSize * 2;
 
                 wmCanvas.width = canvasWidth;
                 wmCanvas.height = canvasHeight;
 
-                // Fill white background for polaroid
+                // Fill white background for frame
                 ctx.fillStyle = "#ffffff";
                 ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
@@ -187,12 +186,12 @@ if (wmUpload) {
 
                 const logo = new Image();
                 logo.onload = () => {
-                    const logoMaxHeight = bottomBorder * 0.7;
-                    const logoHeightPx = logoMaxHeight;
-                    const logoWidthPx = logo.width * (logoHeightPx / logo.height);
+                    const logoWidthPx = Math.max(width, height) * 0.15;
+                    const logoHeightPx = logo.height * (logoWidthPx / logo.width);
                     
-                    const logoX = canvasWidth - borderSize - logoWidthPx;
-                    const logoY = height + borderSize + (bottomBorder - logoHeightPx) / 2;
+                    // Position logo so its center is exactly on the bottom-right corner of the photo
+                    const logoX = borderSize + width - (logoWidthPx / 2);
+                    const logoY = borderSize + height - (logoHeightPx / 2);
 
                     ctx.drawImage(logo, logoX, logoY, logoWidthPx, logoHeightPx);
 

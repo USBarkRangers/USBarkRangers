@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>USBarkRangers</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="styles.css">
+
+    <!-- PWA Manifest & App Icons -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#e5e5e5">
+    
+    <!-- iOS PWA Enhancements -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="USBarkRangers">
+    <link rel="apple-touch-icon" href="bark-logo.jpeg">
+    
+    <!-- GoatCounter Analytics -->
+    <script data-goatcounter="https://carterswarm.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <div id="filter-panel" class="glass-panel">
+        <div class="panel-header" id="panel-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; cursor: pointer;">
+            <h1>USBarkRangers</h1>
+            <button id="toggle-filter-btn" aria-label="Toggle Filters">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron-icon"><polyline points="18 15 12 9 6 15"></polyline></svg>
+            </button>
+        </div>
+
+        <div id="filter-content" class="filter-content">
+            <div class="search-container">
+                <input type="text" id="park-search" placeholder="Search by name (e.g. 'Acadia')...">
+            </div>
+
+            <div class="filter-group">
+                <select id="type-filter">
+                    <option value="all">All Park Types</option>
+                    <option value="National">National Parks/Sites</option>
+                    <option value="State">State Parks/Forests</option>
+                    <option value="Other">Local/Other</option>
+                </select>
+            </div>
+
+            <div class="filter-toggles">
+                <button class="filter-btn active" data-filter="Tag">
+                    <span class="dot blue"></span> Tags
+                </button>
+                <button class="filter-btn active" data-filter="Bandana">
+                    <span class="dot orange"></span> Bandanas
+                </button>
+                <button class="filter-btn active" data-filter="Certificate">
+                    <span class="dot green"></span> Certificates
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+
+    <div id="slide-panel">
+        <button id="close-slide-panel" aria-label="Close" class="close-btn">&times;</button>
+        <div class="panel-content">
+            <h2 id="panel-title" style="margin-bottom: 20px;">Park Name</h2>
+
+            <div class="panel-section" id="panel-location-section">
+                <div class="panel-label">Location</div>
+                <div id="panel-location" class="panel-value">Location</div>
+            </div>
+
+            <div class="panel-section" id="panel-type-section">
+                <div class="panel-label">Type</div>
+                <div class="panel-value"><span id="panel-swag-type" class="badge">Swag</span></div>
+            </div>
+
+            <div class="panel-section" id="panel-swag-cost" style="display: none;">
+                <div class="panel-label">Cost</div>
+                <div id="swag-cost-val" class="panel-value"></div>
+            </div>
+
+            <div class="panel-section" id="panel-info-section" style="display: none;">
+                <div class="panel-label">Updates & Reports</div>
+                <div id="panel-info" class="panel-value">Details...</div>
+            </div>
+            
+            <div id="media-links" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
+                <a id="panel-website" href="#" target="_blank" class="glass-btn" style="padding: 8px 16px; font-size: 14px; flex: 1; text-align: center;">Visit Website</a>
+                <div id="panel-pics" style="display: none; flex-wrap: wrap; flex: 1; align-items: center; justify-content: center;"></div>
+                <a id="panel-video" href="#" target="_blank" class="glass-btn" style="display: none; padding: 8px 16px; font-size: 14px; flex: 1; text-align: center;">Watch Video</a>
+            </div>
+        </div>
+        <a id="panel-website" href="#" target="_blank" class="glass-btn primary" style="display: none; margin-top: auto;">Visit Official Website</a>
+    </div>
+
+    <!-- UI Views -->
+    <div id="home-view" class="ui-view">
+        <div class="view-content glass-panel">
+            <h2>Welcome to #USBarkRangers!</h2>
+            <p>Join our community of nearly 50,000 members as we inspire amazing travel adventures with our best friends. Remember the B.A.R.K. principles: Bag your pet's waste, Always keep your pet on a leash, Respect the wildlife, and Know where you can go.</p>
+            
+            <hr class="view-divider">
+            
+            <h3>Watermark Your Swag Photo</h3>
+            <p class="tool-desc">Upload a photo to add the B.A.R.K. Ranger logo!</p>
+            
+            <div class="watermark-tool">
+                <input type="file" id="wm-upload" accept="image/*" class="custom-file-input" hidden>
+                <label for="wm-upload" class="glass-btn primary-btn">Select Photo</label>
+                
+                <canvas id="wm-canvas" width="0" height="0" style="display:none;"></canvas>
+                <div class="canvas-preview-container">
+                    <img id="wm-preview" style="display:none;" />
+                </div>
+                
+                <button id="wm-download" class="glass-btn primary-btn" style="display:none; margin-top: 15px;">Download Watermarked Image</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="add-location-view" class="ui-view">
+        <div class="view-content glass-panel">
+            <h2>Add a B.A.R.K. Ranger Location</h2>
+            <p>Your submissions help keep USBarkRangers alive! If you know of a location we're missing, please submit it below.</p>
+            <div class="iframe-container">
+                <iframe
+                    src="https://docs.google.com/forms/d/e/1FAIpQLScZjliA-yi-PAywc2UkX5zhunLh71BJK3HUZ73AKwmX5a9XSg/viewform?embedded=true"
+                    width="100%" height="500" frameborder="0" marginheight="0" marginwidth="0">Loading…</iframe>
+            </div>
+        </div>
+    </div>
+
+    <div id="profile-view" class="ui-view">
+        <div class="view-content glass-panel">
+            <h2>Profile</h2>
+            <p>Your B.A.R.K. Ranger profile features will appear here.</p>
+        </div>
+    </div>
+
+    <!-- Navigation Bar -->
+    <nav id="main-nav" class="glass-nav">
+        <button class="nav-item" data-target="home-view">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+            <span>Home</span>
+        </button>
+        <button class="nav-item active" data-target="map-view">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+            <span>USBarkRangers</span>
+        </button>
+        <button class="nav-item" data-target="add-location-view">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>Add</span>
+        </button>
+        <button class="nav-item" data-target="profile-view">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            <span>Profile</span>
+        </button>
+    </nav>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>

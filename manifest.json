@@ -1,0 +1,16 @@
+{
+  "name": "B.A.R.K. Map",
+  "short_name": "B.A.R.K.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#e5e5e5",
+  "theme_color": "#e5e5e5",
+  "icons": [
+    {
+      "src": "bark-logo.jpeg",
+      "sizes": "192x192 512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}

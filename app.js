@@ -160,7 +160,8 @@ if (wmUpload) {
             const img = new Image();
             img.onload = () => {
                 const ctx = wmCanvas.getContext('2d');
-                const MAX_WIDTH = 1200;
+                // Increased max width to 4k to preserve photo quality
+                const MAX_WIDTH = 4096;
                 let width = img.width;
                 let height = img.height;
 
@@ -186,21 +187,27 @@ if (wmUpload) {
 
                 const logo = new Image();
                 logo.onload = () => {
-                    const logoWidthPx = Math.max(width, height) * 0.15;
+                    // Make the watermark logo very small, matching the NPS badge scale (approx 7%)
+                    const logoWidthPx = width * 0.07;
                     const logoHeightPx = logo.height * (logoWidthPx / logo.width);
                     
-                    // Position logo so its center is exactly on the bottom-right corner of the photo
-                    const logoX = borderSize + width - (logoWidthPx / 2);
-                    const logoY = borderSize + height - (logoHeightPx / 2);
+                    const margin = width * 0.02; // Small tight margin
+                    // Position logo entirely inside the bottom-right corner of the photo
+                    const logoX = borderSize + width - logoWidthPx - margin;
+                    const logoY = borderSize + height - logoHeightPx - margin;
 
+                    // Force high-quality downscaling to prevent the logo from looking blurry
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
                     ctx.drawImage(logo, logoX, logoY, logoWidthPx, logoHeightPx);
 
-                    const dataUrl = wmCanvas.toDataURL('image/jpeg', 0.9);
+                    // Set JPEG quality mapping to extremely high
+                    const dataUrl = wmCanvas.toDataURL('image/jpeg', 1.0);
                     wmPreview.src = dataUrl;
                     document.getElementById('wm-preview-container').style.display = 'block';
                     wmDownload.style.display = 'inline-block';
                 };
-                logo.src = 'bark-logo.jpeg';
+                logo.src = 'WatermarkBARK.PNG';
             };
             img.src = event.target.result;
         };
@@ -210,7 +217,7 @@ if (wmUpload) {
     wmDownload.addEventListener('click', () => {
         const link = document.createElement('a');
         link.download = 'bark-ranger-swag-polaroid.jpg';
-        link.href = wmCanvas.toDataURL('image/jpeg', 0.9);
+        link.href = wmCanvas.toDataURL('image/jpeg', 1.0);
         link.click();
     });
 

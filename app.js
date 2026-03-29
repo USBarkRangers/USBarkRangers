@@ -187,8 +187,8 @@ if (wmUpload) {
 
                 const logo = new Image();
                 logo.onload = () => {
-                    // Make the watermark logo very small, matching the NPS badge scale (approx 7%)
-                    const logoWidthPx = width * 0.07;
+                    // Make the watermark logo slightly bigger, reaching a middle ground of approx 10%
+                    const logoWidthPx = width * 0.10;
                     const logoHeightPx = logo.height * (logoWidthPx / logo.width);
                     
                     const margin = width * 0.02; // Small tight margin

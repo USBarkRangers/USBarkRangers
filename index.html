@@ -112,11 +112,17 @@
             <div class="watermark-tool">
                 <input type="file" id="wm-upload" accept="image/*" class="custom-file-input" hidden>
                 <label for="wm-upload" class="glass-btn primary-btn">Select Photo</label>
-                
-                <canvas id="wm-canvas" width="0" height="0" style="display:none;"></canvas>
                 <div class="canvas-preview-container" id="wm-preview-container" style="display:none; position:relative; max-width: 100%;">
                     <button id="wm-clear" class="close-btn" style="position:absolute; top: 15px; right: 15px; width: 32px; height: 32px; font-size: 20px; z-index: 10;" aria-label="Clear Photo">&times;</button>
-                    <img id="wm-preview" style="display:block; max-width: 100%; border-radius: 8px;" />
+                    <canvas id="wm-canvas" style="display:block; max-width: 100%; height: auto; border-radius: 8px;"></canvas>
+                    
+                    <div id="wm-slider-container" style="display:none; width: 100%; margin-top: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <label for="wm-logo-size" style="font-weight: 600; color: #444; font-size: 14px;">Logo Size:</label>
+                            <span id="wm-logo-size-val" style="font-weight: 800; color: #4CAF50; font-size: 14px;">10%</span>
+                        </div>
+                        <input type="range" id="wm-logo-size" min="1" max="50" value="10" class="custom-slider">
+                    </div>
                 </div>
                 
                 <button id="wm-download" class="glass-btn primary-btn" style="display:none; margin-top: 15px;">Download Watermarked Image</button>

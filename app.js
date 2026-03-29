@@ -110,7 +110,6 @@ const leafletControls = document.querySelectorAll('.leaflet-control-container');
 // Watermark Tool Elements
 const wmUpload = document.getElementById('wm-upload');
 const wmCanvas = document.getElementById('wm-canvas');
-const wmPreview = document.getElementById('wm-preview');
 const wmDownload = document.getElementById('wm-download');
 
 // Stop Leaflet from stealing scroll/pan touches on the UI panels
@@ -150,7 +149,65 @@ navItems.forEach(btn => {
 });
 
 // Watermark Tool Logic
+const wmSliderContainer = document.getElementById('wm-slider-container');
+const wmLogoSize = document.getElementById('wm-logo-size');
+const wmLogoSizeVal = document.getElementById('wm-logo-size-val');
+let currentPhotoImg = null;
+let currentLogoImg = null;
+
 if (wmUpload) {
+    currentLogoImg = new Image();
+    currentLogoImg.src = 'WatermarkBARK.PNG';
+
+    function drawWatermark(logoScalePercent) {
+        if (!currentPhotoImg || !currentLogoImg) return;
+        
+        const ctx = wmCanvas.getContext('2d');
+        const MAX_WIDTH = 4096;
+        let width = currentPhotoImg.width;
+        let height = currentPhotoImg.height;
+
+        if (width > MAX_WIDTH) {
+            height = height * (MAX_WIDTH / width);
+            width = MAX_WIDTH;
+        }
+
+        const borderSize = Math.max(width, height) * 0.08;
+        const canvasWidth = width + borderSize * 2;
+        const canvasHeight = height + borderSize * 2;
+
+        wmCanvas.width = canvasWidth;
+        wmCanvas.height = canvasHeight;
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        ctx.drawImage(currentPhotoImg, borderSize, borderSize, width, height);
+
+        const scaleFactor = logoScalePercent / 100;
+        const logoWidthPx = width * scaleFactor;
+        const logoHeightPx = currentLogoImg.height * (logoWidthPx / currentLogoImg.width);
+        
+        const margin = width * 0.02;
+        const logoX = borderSize + width - logoWidthPx - margin;
+        const logoY = borderSize + height - logoHeightPx - margin;
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(currentLogoImg, logoX, logoY, logoWidthPx, logoHeightPx); // Eliminated expensive real-time JPEG encoding to fix slider lag
+        
+        document.getElementById('wm-preview-container').style.display = 'block';
+        if (wmSliderContainer) wmSliderContainer.style.display = 'block';
+        wmDownload.style.display = 'inline-block';
+    }
+
+    if (wmLogoSize) {
+        wmLogoSize.addEventListener('input', (e) => {
+            const val = e.target.value;
+            wmLogoSizeVal.textContent = val + '%';
+            drawWatermark(parseInt(val, 10));
+        });
+    }
+
     wmUpload.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -159,55 +216,12 @@ if (wmUpload) {
         reader.onload = (event) => {
             const img = new Image();
             img.onload = () => {
-                const ctx = wmCanvas.getContext('2d');
-                // Increased max width to 4k to preserve photo quality
-                const MAX_WIDTH = 4096;
-                let width = img.width;
-                let height = img.height;
-
-                if (width > MAX_WIDTH) {
-                    height = height * (MAX_WIDTH / width);
-                    width = MAX_WIDTH;
+                currentPhotoImg = img;
+                if (wmLogoSize) {
+                    wmLogoSize.value = 10;
+                    wmLogoSizeVal.textContent = '10%';
                 }
-
-                const borderSize = Math.max(width, height) * 0.08;
-                
-                const canvasWidth = width + borderSize * 2;
-                const canvasHeight = height + borderSize * 2;
-
-                wmCanvas.width = canvasWidth;
-                wmCanvas.height = canvasHeight;
-
-                // Fill white background for frame
-                ctx.fillStyle = "#ffffff";
-                ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-
-                // Draw photo
-                ctx.drawImage(img, borderSize, borderSize, width, height);
-
-                const logo = new Image();
-                logo.onload = () => {
-                    // Make the watermark logo slightly bigger, reaching a middle ground of approx 10%
-                    const logoWidthPx = width * 0.10;
-                    const logoHeightPx = logo.height * (logoWidthPx / logo.width);
-                    
-                    const margin = width * 0.02; // Small tight margin
-                    // Position logo entirely inside the bottom-right corner of the photo
-                    const logoX = borderSize + width - logoWidthPx - margin;
-                    const logoY = borderSize + height - logoHeightPx - margin;
-
-                    // Force high-quality downscaling to prevent the logo from looking blurry
-                    ctx.imageSmoothingEnabled = true;
-                    ctx.imageSmoothingQuality = 'high';
-                    ctx.drawImage(logo, logoX, logoY, logoWidthPx, logoHeightPx);
-
-                    // Set JPEG quality mapping to extremely high
-                    const dataUrl = wmCanvas.toDataURL('image/jpeg', 1.0);
-                    wmPreview.src = dataUrl;
-                    document.getElementById('wm-preview-container').style.display = 'block';
-                    wmDownload.style.display = 'inline-block';
-                };
-                logo.src = 'WatermarkBARK.PNG';
+                drawWatermark(10);
             };
             img.src = event.target.result;
         };
@@ -221,13 +235,15 @@ if (wmUpload) {
         link.click();
     });
 
-    // Clear Button Logic
     const wmClearBtn = document.getElementById('wm-clear');
     if (wmClearBtn) {
         wmClearBtn.addEventListener('click', () => {
             wmUpload.value = '';
-            wmPreview.src = '';
+            const ctx = wmCanvas.getContext('2d');
+            ctx.clearRect(0,0,wmCanvas.width,wmCanvas.height);
+            currentPhotoImg = null;
             document.getElementById('wm-preview-container').style.display = 'none';
+            if (wmSliderContainer) wmSliderContainer.style.display = 'none';
             wmDownload.style.display = 'none';
         });
     }

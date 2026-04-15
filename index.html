@@ -4,10 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>USBarkRangers</title>
+    <title>US BARK Rangers</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=1">
 
     <!-- PWA Manifest & App Icons -->
     <link rel="manifest" href="manifest.json">
@@ -16,7 +16,7 @@
     <!-- iOS PWA Enhancements -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="USBarkRangers">
+    <meta name="apple-mobile-web-app-title" content="US BARK Rangers">
     <link rel="apple-touch-icon" href="bark-logo.jpeg">
     
     <!-- GoatCounter Analytics -->
@@ -26,19 +26,22 @@
 <body>
     <div id="map"></div>
 
-    <div id="filter-panel" class="glass-panel">
-        <div class="panel-header" id="panel-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; cursor: pointer;">
-            <h1>US Bark Rangers&reg;</h1>
-            <button id="toggle-filter-btn" aria-label="Toggle Filters">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron-icon"><polyline points="18 15 12 9 6 15"></polyline></svg>
-            </button>
+    <div id="filter-panel" class="glass-panel collapsed">
+        <div class="panel-header" id="panel-header" style="text-align: center; width: 100%; cursor: default;">
+            <h1 style="margin-bottom: 12px; font-size: 18px;">US BARK RANGERS&reg;</h1>
+            <div class="search-bar-row" style="display: flex; gap: 10px; width: 100%; align-items: center;">
+                <div class="search-container" style="flex: 1; position: relative; display: flex; align-items: center;">
+                    <input type="text" id="park-search" placeholder="Search by name (e.g. 'Acadia')..." style="padding-right: 35px;">
+                    <button id="clear-search-btn" aria-label="Clear Search" style="display: none; position: absolute; right: 10px; background: none; border: none; font-size: 18px; color: #888; cursor: pointer; padding: 5px;">&times;</button>
+                    <div id="search-suggestions" class="suggestions-container" style="display: none;"></div>
+                </div>
+                <button id="toggle-filter-btn" aria-label="Toggle Filters" style="background: white; border: 1px solid rgba(0,0,0,0.1); border-radius: 12px; padding: 10px; min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="filter-icon" style="transition: transform 0.3s ease;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+                </button>
+            </div>
         </div>
 
         <div id="filter-content" class="filter-content">
-            <div class="search-container" style="position: relative; display: flex; align-items: center;">
-                <input type="text" id="park-search" placeholder="Search by name (e.g. 'Acadia')..." style="padding-right: 35px;">
-                <button id="clear-search-btn" aria-label="Clear Search" style="display: none; position: absolute; right: 10px; background: none; border: none; font-size: 18px; color: #888; cursor: pointer; padding: 5px;">&times;</button>
-            </div>
 
             <div class="filter-group">
                 <select id="type-filter">
@@ -50,16 +53,16 @@
             </div>
 
             <div class="filter-toggles">
-                <button class="filter-btn active" data-filter="Tag">
+                <button class="filter-btn" data-filter="Tag">
                     <span class="dot blue"></span> Tags
                 </button>
-                <button class="filter-btn active" data-filter="Bandana">
+                <button class="filter-btn" data-filter="Bandana">
                     <span class="dot orange"></span> Bandanas
                 </button>
-                <button class="filter-btn active" data-filter="Certificate">
+                <button class="filter-btn" data-filter="Certificate">
                     <span class="dot green"></span> Certificates
                 </button>
-                <button class="filter-btn active" data-filter="Other">
+                <button class="filter-btn" data-filter="Other">
                     <span class="dot gray"></span> Other
                 </button>
             </div>
@@ -252,9 +255,14 @@
         </button>
     </nav>
 
+    <div id="update-toast" class="update-toast">
+        <span>A new version of the map is available!</span>
+        <button id="refresh-btn">Refresh</button>
+    </div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-    <script src="app.js"></script>
+    <script src="app.js?v=1"></script>
 </body>
 
 </html>

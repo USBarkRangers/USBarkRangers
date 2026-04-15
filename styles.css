@@ -219,6 +219,7 @@ body, html {
 .dot.blue { background-color: var(--color-tag); }
 .dot.orange { background-color: var(--color-bandana); }
 .dot.green { background-color: var(--color-cert); }
+.dot.gray { background-color: var(--color-other); }
 
 
 
@@ -347,11 +348,10 @@ body, html {
 #panel-title { font-size: 26px; font-weight: 800; line-height: 1.2; }
 #panel-location { font-size: 16px; color: #555; font-weight: 700; }
 #panel-info { font-size: 16px; line-height: 1.6; color: #333; margin-top: 10px; padding: 20px; }
-#panel-website {
+.website-btn {
     display: block;
-    margin-top: 25px;
     background: #111;
-    color: white;
+    color: white !important;
     text-decoration: none;
     padding: 16px;
     text-align: center;
@@ -359,8 +359,9 @@ body, html {
     font-weight: 700;
     font-size: 16px;
     transition: background 0.2s;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
 }
-#panel-website:hover { background: #333; }
+.website-btn:hover { background: #333; }
 
 /* Navigation and UI Overlays */
 .ui-view {

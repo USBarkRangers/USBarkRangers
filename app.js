@@ -63,10 +63,9 @@ map.on('locationerror', function (e) {
 // Create a marker layer group for easy clearing
 const markerLayer = L.layerGroup().addTo(map);
 
-// Data structure
 let allPoints = [];
 let activePinMarker = null;
-let activeSwagFilters = new Set(['Tag', 'Bandana', 'Certificate']);
+let activeSwagFilters = new Set(['Tag', 'Bandana', 'Certificate', 'Other']);
 let activeSearchQuery = '';
 let activeTypeFilter = 'all';
 
@@ -90,13 +89,14 @@ const locEl = document.getElementById('panel-location');
 const typeEl = document.getElementById('panel-swag-type');
 const infoSection = document.getElementById('panel-info-section');
 const infoEl = document.getElementById('panel-info');
-const websiteEl = document.getElementById('panel-website');
+const websitesContainer = document.getElementById('websites-container');
 const costContainer = document.getElementById('panel-swag-cost');
 const costValEl = document.getElementById('swag-cost-val');
 const picsEl = document.getElementById('panel-pics');
 const videoEl = document.getElementById('panel-video');
 const filterBtns = document.querySelectorAll('.filter-btn');
 const searchInput = document.getElementById('park-search');
+const clearSearchBtn = document.getElementById('clear-search-btn');
 const typeSelect = document.getElementById('type-filter');
 
 const closeSlideBtn = document.getElementById('close-slide-panel');
@@ -281,142 +281,319 @@ function getSwagType(info) {
     return 'Other';
 }
 
-function loadData() {
-    const csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRMM2ZRU5lmT-ncrsil4W3qhrbo8NBxnQ-xC877TNkhLYOpTlnCocYA9gNg-dPRyaQr_8e0CWZ0WB2F/pub?output=csv' + '&t=' + Date.now();
+let isRendering = false; // Concurrency lock
+let pendingCSV = null;   // Queue if a render is in progress
 
-    Papa.parse(csvUrl, {
-        download: true,
+function processParsedResults(results) {
+    // Remember currently active pin location so we can restore it after rebuild
+    let activeLat = null, activeLng = null;
+    if (activePinMarker && activePinMarker._parkData) {
+        activeLat = activePinMarker._parkData.lat;
+        activeLng = activePinMarker._parkData.lng;
+    }
+    if (activePinMarker && activePinMarker._icon) {
+        activePinMarker._icon.classList.remove('active-pin');
+    }
+    activePinMarker = null;
+
+    markerLayer.clearLayers();
+    allPoints = [];
+    results.data.forEach(rawItem => {
+        // Sanitize keys and values
+        const item = {};
+        if (rawItem && typeof rawItem === 'object') {
+            Object.keys(rawItem).forEach(key => {
+                let val = rawItem[key];
+                if (typeof val === 'string') {
+                    val = val.trim();
+                }
+                item[key] = val;
+            });
+        }
+
+        // Map exact headers
+        const name = item['Location'];
+        const state = item['State'];
+        const cost = item['Swag Cost'];
+        const category = item['Type'];
+        const info = item[' Useful/Important/Other Info'];
+        const website = item['Website'];
+        const pics = item['Swag Pics - If available, and may not be current.'];
+        const video = item['Swearing-In Video. Not all sites do this, and ones that do only do it as time permits.'];
+        const lat = item['lat'];
+        const lng = item['lng'];
+
+        if (!lat || !lng) return;
+
+        const swagType = getSwagType(info);
+        const parkCategory = getParkCategory(category);
+
+        const iconFileName = (parkCategory === 'National') ? 'bark-logo.jpeg' : 'bark-tag.jpeg';
+        const icon = L.icon({
+            iconUrl: iconFileName,
+            iconSize: [32, 32],
+            iconAnchor: [16, 32]
+        });
+
+        const marker = L.marker([lat, lng], { icon });
+
+        // Store park data directly on the marker so it never goes stale
+        marker._parkData = { name, state, cost, swagType, info, website, pics, video, lat, lng };
+
+        marker.on('click', () => {
+            if (activePinMarker && activePinMarker._icon) {
+                activePinMarker._icon.classList.remove('active-pin');
+            }
+            if (marker._icon) {
+                marker._icon.classList.add('active-pin');
+            }
+            activePinMarker = marker;
+
+            // Read data from the marker itself, not from a closure
+            const d = marker._parkData;
+            titleEl.textContent = d.name || 'Unknown Park';
+            locEl.textContent = d.state || '';
+            typeEl.textContent = d.swagType;
+            typeEl.className = `badge ${getBadgeClass(d.swagType)}`;
+            
+            if (d.cost) {
+                costContainer.style.display = 'block';
+                costValEl.textContent = d.cost;
+            } else {
+                costContainer.style.display = 'none';
+            }
+
+            if (d.info) {
+                infoSection.style.display = 'block';
+                infoEl.innerHTML = d.info.replace(/\n/g, '<br>');
+            } else {
+                infoSection.style.display = 'none';
+                infoEl.innerHTML = '';
+            }
+
+            if (d.pics && typeof d.pics === 'string') {
+                const formattedPics = formatSwagLinks(d.pics);
+                if (formattedPics.includes('<a ')) {
+                    picsEl.style.display = 'flex';
+                    picsEl.innerHTML = formattedPics;
+                } else {
+                    picsEl.style.display = 'none';
+                }
+            } else {
+                picsEl.style.display = 'none';
+            }
+
+            if (d.video && typeof d.video === 'string' && d.video.startsWith('http')) {
+                videoEl.style.display = 'block';
+                videoEl.href = d.video;
+            } else {
+                videoEl.style.display = 'none';
+            }
+
+            websitesContainer.innerHTML = '';
+            if (d.website && typeof d.website === 'string') {
+                const urlRegex = /(https?:\/\/[^\s]+)/g;
+                const urls = d.website.match(urlRegex);
+                if (urls && urls.length > 0) {
+                    websitesContainer.style.display = 'flex';
+                    urls.forEach((url, index) => {
+                        const link = document.createElement('a');
+                        // Remove trailing quotes or commas that might be captured by the regex
+                        link.href = url.replace(/['",]+$/, ''); 
+                        link.target = '_blank';
+                        link.className = 'website-btn';
+                        link.style.cssText = 'flex: 1; min-width: 120px;';
+                        link.textContent = urls.length > 1 ? `Website ${index + 1}` : 'Visit Official Website';
+                        websitesContainer.appendChild(link);
+                    });
+                } else {
+                    websitesContainer.style.display = 'none';
+                }
+            } else {
+                websitesContainer.style.display = 'none';
+            }
+
+            let dirContainer = document.getElementById('panel-directions');
+            if (!dirContainer) {
+                dirContainer = document.createElement('div');
+                dirContainer.id = 'panel-directions';
+                dirContainer.className = 'directions-container';
+                document.querySelector('.panel-content').appendChild(dirContainer);
+            }
+            dirContainer.innerHTML = `
+                <a href="https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}" target="_blank" class="dir-btn">🗺️ Google Maps</a>
+                <a href="http://maps.apple.com/?daddr=${d.lat},${d.lng}" target="_blank" class="dir-btn">🧭 Apple Maps</a>
+            `;
+
+            slidePanel.classList.add('open');
+        });
+
+        allPoints.push({
+            name: name || '',
+            state: state || '',
+            swagType: swagType,
+            category: parkCategory,
+            marker: marker
+        });
+    });
+    updateMarkers();
+
+    // Restore the previously active pin if it still exists in the new data
+    if (activeLat !== null && activeLng !== null) {
+        const match = allPoints.find(p => {
+            const d = p.marker._parkData;
+            return d && parseFloat(d.lat) === parseFloat(activeLat) && parseFloat(d.lng) === parseFloat(activeLng);
+        });
+        if (match) {
+            activePinMarker = match.marker;
+            if (activePinMarker._icon) {
+                activePinMarker._icon.classList.add('active-pin');
+            }
+            // Panel stays open with currently displayed data — no flash
+        } else {
+            // Pin was removed from the sheet; close the panel
+            slidePanel.classList.remove('open');
+        }
+    }
+}
+
+function parseCSVString(csvString) {
+    // If a render is already in progress, replace any queued CSV with the newest one
+    if (isRendering) {
+        pendingCSV = csvString; // keep only the latest pending CSV
+        return;
+    }
+    isRendering = true;
+    Papa.parse(csvString, {
         header: true,
         dynamicTyping: true,
         complete: function(results) {
-            markerLayer.clearLayers();
-            allPoints = [];
-            results.data.forEach(rawItem => {
-                // Sanitize keys and values
-                const item = {};
-                if (rawItem && typeof rawItem === 'object') {
-                    Object.keys(rawItem).forEach(key => {
-                        let val = rawItem[key];
-                        if (typeof val === 'string') {
-                            val = val.trim();
-                        }
-                        item[key] = val; // Do not trim keys so ' Useful...' matches
-                    });
-                }
-
-                // Map exact headers
-                const name = item['Location'];
-                const state = item['State'];
-                const cost = item['Swag Cost'];
-                const category = item['Type'];
-                const info = item[' Useful/Important/Other Info'];
-                const website = item['Website'];
-                const pics = item['Swag Pics - If available, and may not be current.'];
-                const video = item['Swearing-In Video. Not all sites do this, and ones that do only do it as time permits.'];
-                const lat = item['lat'];
-                const lng = item['lng'];
-
-                // Safeguard: Skip blank rows or missing coordinates
-                if (!lat || !lng) return;
-
-                const swagType = getSwagType(info);
-                const parkCategory = getParkCategory(category);
-
-                const iconFileName = (parkCategory === 'National') ? 'bark-logo.jpeg' : 'bark-tag.jpeg';
-                const icon = L.icon({
-                    iconUrl: iconFileName,
-                    iconSize: [32, 32],
-                    iconAnchor: [16, 32]
-                });
-
-                const marker = L.marker([lat, lng], { icon });
-
-                marker.on('click', () => {
-                    if (activePinMarker && activePinMarker._icon) {
-                        activePinMarker._icon.classList.remove('active-pin');
-                    }
-                    if (marker._icon) {
-                        marker._icon.classList.add('active-pin');
-                    }
-                    activePinMarker = marker;
-
-                    titleEl.textContent = name || 'Unknown Park';
-                    locEl.textContent = state || '';
-                    typeEl.textContent = swagType;
-                    typeEl.className = `badge ${getBadgeClass(swagType)}`;
-                    
-                    if (cost) {
-                        costContainer.style.display = 'block';
-                        costValEl.textContent = cost;
-                    } else {
-                        costContainer.style.display = 'none';
-                    }
-
-                    if (info) {
-                        infoSection.style.display = 'block';
-                        infoEl.innerHTML = info.replace(/\n/g, '<br>');
-                    } else {
-                        infoSection.style.display = 'none';
-                        infoEl.innerHTML = '';
-                    }
-
-                    if (pics && typeof pics === 'string') {
-                        const formattedPics = formatSwagLinks(pics);
-                        if (formattedPics.includes('<a ')) {
-                            picsEl.style.display = 'flex';
-                            picsEl.innerHTML = formattedPics;
-                        } else {
-                            picsEl.style.display = 'none';
-                        }
-                    } else {
-                        picsEl.style.display = 'none';
-                    }
-
-                    if (video && typeof video === 'string' && video.startsWith('http')) {
-                        videoEl.style.display = 'block';
-                        videoEl.href = video;
-                    } else {
-                        videoEl.style.display = 'none';
-                    }
-
-                    if (website && typeof website === 'string' && website.startsWith('http')) {
-                        websiteEl.style.display = 'block';
-                        websiteEl.href = website;
-                    } else {
-                        websiteEl.style.display = 'none';
-                    }
-
-                    // Dynamically inject directions buttons at the bottom of the panel
-                    let dirContainer = document.getElementById('panel-directions');
-                    if (!dirContainer) {
-                        dirContainer = document.createElement('div');
-                        dirContainer.id = 'panel-directions';
-                        dirContainer.className = 'directions-container';
-                        document.querySelector('.panel-content').appendChild(dirContainer);
-                    }
-                    dirContainer.innerHTML = `
-                        <a href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank" class="dir-btn">🗺️ Google Maps</a>
-                        <a href="http://maps.apple.com/?daddr=${lat},${lng}" target="_blank" class="dir-btn">🧭 Apple Maps</a>
-                    `;
-
-                    slidePanel.classList.add('open');
-                });
-
-                allPoints.push({
-                    name: name || '',
-                    state: state || '',
-                    swagType: swagType,
-                    category: parkCategory,
-                    marker: marker
-                });
-            });
-            updateMarkers();
+            processParsedResults(results);
+            isRendering = false;
+            // Process the most recent pending CSV, if any
+            if (pendingCSV) {
+                const next = pendingCSV;
+                pendingCSV = null;
+                parseCSVString(next);
+            }
         },
         error: function(err) {
-            console.error("Error loading CSV data:", err);
+            console.error('Error parsing CSV data:', err);
+            isRendering = false;
         }
     });
 }
+
+// Simple hash function to reliably detect changes
+function quickHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const ch = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + ch;
+        hash |= 0;
+    }
+    return hash;
+}
+
+let lastDataHash = null;
+let pollInFlight = false; // Prevent overlapping fetches
+let latestRequestId = 0; // Incremented each poll to track newest fetch
+
+let seenHashes = new Map(); // tracks first-seen timestamp of each data hash
+
+function pollForUpdates() {
+    if (!navigator.onLine || pollInFlight) return;
+    pollInFlight = true;
+
+    const csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRMM2ZRU5lmT-ncrsil4W3qhrbo8NBxnQ-xC877TNkhLYOpTlnCocYA9gNg-dPRyaQr_8e0CWZ0WB2F/pub?output=csv';
+
+    // Prevent hanging requests from locking the polling system forever
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000); // 6-second timeout
+
+    fetch(csvUrl + '&t=' + Date.now() + '&r=' + Math.random(), {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' },
+        signal: controller.signal
+    })
+        .then(res => {
+            clearTimeout(timeoutId);
+            if (!res.ok) throw new Error('Network response was not ok');
+            // return the text and the final redirected URL which contains Google's internal revision timestamp
+            return res.text().then(text => ({ newCsv: text, url: res.url }));
+        })
+        .then(({ newCsv, url }) => {
+            if (!newCsv || newCsv.trim().length < 10) return;
+            const newHash = quickHash(newCsv);
+            
+            if (!seenHashes.has(newHash)) {
+                // Try to extract Google's exact internal revision timestamp from the redirected URL
+                // e.g. /1774762780000/
+                let revisionTime = Date.now();
+                const match = /\/([0-9]{13})\//.exec(url);
+                if (match) {
+                    revisionTime = parseInt(match[1], 10);
+                }
+                seenHashes.set(newHash, revisionTime);
+            }
+
+            if (newHash !== lastDataHash) {
+                const newHashTime = seenHashes.get(newHash);
+                const currentHashTime = lastDataHash && seenHashes.has(lastDataHash) ? seenHashes.get(lastDataHash) : 0;
+
+                // Stop eventual-consistency flip-flops from Google's distributed CDN servers.
+                if (lastDataHash !== null && newHashTime < currentHashTime) {
+                    console.log('Ignored stale edge cache (flip-flop detected across reload)');
+                    return;
+                }
+
+                console.log('Map data changed! Hash:', lastDataHash, '->', newHash);
+                lastDataHash = newHash;
+                localStorage.setItem('barkCSV', newCsv);
+                localStorage.setItem('barkCSV_time', newHashTime.toString());
+                parseCSVString(newCsv);
+            }
+        })
+        .catch(err => {
+            if (err.name === 'AbortError') {
+                console.warn('Poll request timed out after 6s. Retry next cycle.');
+            } else {
+                console.error('Poll Error:', err);
+            }
+        })
+        .finally(() => {
+            pollInFlight = false;
+        });
+}
+
+function loadData() {
+    const cachedCsv = localStorage.getItem('barkCSV');
+    const cachedTime = localStorage.getItem('barkCSV_time');
+    const isPremium = localStorage.getItem('premiumLoggedIn') === 'true';
+
+    if (cachedCsv) {
+        lastDataHash = quickHash(cachedCsv);
+        if (cachedTime) {
+            seenHashes.set(lastDataHash, parseInt(cachedTime, 10));
+        } else {
+            seenHashes.set(lastDataHash, Date.now()); // fallback
+        }
+        parseCSVString(cachedCsv);
+    }
+
+    if (!navigator.onLine) {
+        if (!isPremium && !cachedCsv) {
+            alert('Network disconnected. Log in via the Profile tab to enable Premium Offline Mode.');
+            markerLayer.clearLayers();
+        }
+        return;
+    }
+
+    pollForUpdates();
+}
+
+// Poll every 3 seconds for fastest possible Google Sheets sync
+setInterval(pollForUpdates, 3000);
 
 function updateMarkers() {
     markerLayer.clearLayers();
@@ -434,8 +611,23 @@ function updateMarkers() {
 // Event Listeners
 searchInput.addEventListener('input', (e) => {
     activeSearchQuery = e.target.value;
+    if (activeSearchQuery.length > 0) {
+        if (clearSearchBtn) clearSearchBtn.style.display = 'block';
+    } else {
+        if (clearSearchBtn) clearSearchBtn.style.display = 'none';
+    }
     updateMarkers();
 });
+
+if (clearSearchBtn) {
+    clearSearchBtn.addEventListener('click', () => {
+        searchInput.value = '';
+        activeSearchQuery = '';
+        clearSearchBtn.style.display = 'none';
+        updateMarkers();
+        searchInput.focus();
+    });
+}
 
 typeSelect.addEventListener('change', (e) => {
     activeTypeFilter = e.target.value;
@@ -455,6 +647,63 @@ filterBtns.forEach(btn => {
         updateMarkers();
     });
 });
+
+// Profile Authentication Logic
+const loginForm = document.getElementById('login-form');
+const loginContainer = document.getElementById('login-container');
+const offlineStatusContainer = document.getElementById('offline-status-container');
+const logoutBtn = document.getElementById('logout-btn');
+const loginError = document.getElementById('login-error');
+
+function updateAuthUI() {
+    const isPremium = localStorage.getItem('premiumLoggedIn') === 'true';
+    if (loginContainer && offlineStatusContainer) {
+        if (isPremium) {
+            loginContainer.style.display = 'none';
+            offlineStatusContainer.style.display = 'block';
+        } else {
+            loginContainer.style.display = 'block';
+            offlineStatusContainer.style.display = 'none';
+        }
+    }
+}
+
+if (loginForm) {
+    loginForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const user = document.getElementById('username-input').value;
+        const pass = document.getElementById('password-input').value;
+        if (user === 'USBarkRangers' && pass === 'Password') {
+            localStorage.setItem('premiumLoggedIn', 'true');
+            if (loginError) loginError.style.display = 'none';
+            updateAuthUI();
+            
+            if (localStorage.getItem('barkCSV')) {
+                parseCSVString(localStorage.getItem('barkCSV'));
+            }
+        } else {
+            if (loginError) loginError.style.display = 'block';
+        }
+    });
+}
+
+if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+        localStorage.removeItem('premiumLoggedIn');
+        const userInput = document.getElementById('username-input');
+        const passInput = document.getElementById('password-input');
+        if (userInput) userInput.value = '';
+        if (passInput) passInput.value = '';
+        updateAuthUI();
+        
+        if (!navigator.onLine) {
+             markerLayer.clearLayers();
+             alert("Logged out. Network disconnected.");
+        }
+    });
+}
+
+updateAuthUI();
 
 // Initial load
 loadData();

@@ -35,8 +35,9 @@
         </div>
 
         <div id="filter-content" class="filter-content">
-            <div class="search-container">
-                <input type="text" id="park-search" placeholder="Search by name (e.g. 'Acadia')...">
+            <div class="search-container" style="position: relative; display: flex; align-items: center;">
+                <input type="text" id="park-search" placeholder="Search by name (e.g. 'Acadia')..." style="padding-right: 35px;">
+                <button id="clear-search-btn" aria-label="Clear Search" style="display: none; position: absolute; right: 10px; background: none; border: none; font-size: 18px; color: #888; cursor: pointer; padding: 5px;">&times;</button>
             </div>
 
             <div class="filter-group">
@@ -57,6 +58,9 @@
                 </button>
                 <button class="filter-btn active" data-filter="Certificate">
                     <span class="dot green"></span> Certificates
+                </button>
+                <button class="filter-btn active" data-filter="Other">
+                    <span class="dot gray"></span> Other
                 </button>
             </div>
         </div>
@@ -90,12 +94,11 @@
             </div>
             
             <div id="media-links" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
-                <a id="panel-website" href="#" target="_blank" class="glass-btn" style="padding: 8px 16px; font-size: 14px; flex: 1; text-align: center;">Visit Website</a>
+                <div id="websites-container" style="display: flex; flex-wrap: wrap; gap: 10px; flex: 1;"></div>
                 <div id="panel-pics" style="display: none; flex-wrap: wrap; flex: 1; align-items: center; justify-content: center;"></div>
                 <a id="panel-video" href="#" target="_blank" class="glass-btn" style="display: none; padding: 8px 16px; font-size: 14px; flex: 1; text-align: center;">Watch Video</a>
             </div>
         </div>
-        <a id="panel-website" href="#" target="_blank" class="glass-btn primary" style="display: none; margin-top: auto;">Visit Official Website</a>
     </div>
 
     <!-- UI Views -->
@@ -202,9 +205,30 @@
     </div>
 
     <div id="profile-view" class="ui-view">
-        <div class="view-content glass-panel">
-            <h2>Profile</h2>
-            <p>Your B.A.R.K. Ranger profile features will appear here.</p>
+        <div class="view-content glass-panel" style="max-width: 500px;">
+            <h2>Profile Dashboard</h2>
+            <p>Log in to access Premium features like Offline Mode.</p>
+            
+            <div id="offline-status-container" style="display: none; background: rgba(76, 175, 80, 0.2); border: 1px solid #4CAF50; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: center;">
+                <h3 style="color: #2E7D32; margin-bottom: 5px;">Offline Mode: Enabled</h3>
+                <p style="font-size: 14px; margin-bottom: 0;">Your map data is secured for offline use.</p>
+                <button id="logout-btn" class="glass-btn" style="margin-top: 15px; width: 100%;">Log Out</button>
+            </div>
+
+            <div id="login-container" style="margin-top: 20px;">
+                <form id="login-form">
+                    <div style="margin-bottom: 15px;">
+                        <label for="username-input" style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 5px;">Username</label>
+                        <input type="text" id="username-input" class="custom-file-input" style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8);" required>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="password-input" style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 5px;">Password</label>
+                        <input type="password" id="password-input" class="custom-file-input" style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8);" required>
+                    </div>
+                    <p id="login-error" style="color: #d32f2f; font-size: 14px; display: none; margin-bottom: 10px; font-weight: 500;">Incorrect username or password.</p>
+                    <button type="submit" class="glass-btn primary-btn" style="width: 100%;">Log In</button>
+                </form>
+            </div>
         </div>
     </div>
 

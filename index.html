@@ -7,6 +7,10 @@
     <title>US BARK Rangers</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- QRCode JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <link rel="stylesheet" href="styles.css?v=1">
 
     <!-- PWA Manifest & App Icons -->
@@ -75,6 +79,22 @@
         <button id="close-slide-panel" aria-label="Close" class="close-btn">&times;</button>
         <div class="panel-content">
             <h2 id="panel-title" style="margin-bottom: 20px;">Park Name</h2>
+
+            <div class="panel-section" id="panel-visited-section" style="display: none; margin-bottom: 20px;">
+                <button id="verify-checkin-btn" class="glass-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; background: #FF9800; color: white; border: none; padding: 12px; border-radius: 50px; box-shadow: 0 4px 10px rgba(255, 152, 0, 0.3); margin-bottom: 10px; transition: all 0.2s ease-in-out;">
+                    <span style="font-size: 16px;">🐾</span>
+                    <span id="verify-checkin-text" style="color: white !important;">Verified Check-In</span>
+                </button>
+                <button id="mark-visited-btn" class="glass-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="heart-icon"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                    <span id="mark-visited-text">Mark as Visited</span>
+                </button>
+            </div>
+
+            <a id="suggest-edit-btn" href="#" class="glass-btn outline-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; text-decoration: none; margin-bottom: 20px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                Suggest an Edit
+            </a>
 
             <div class="panel-section" id="panel-location-section">
                 <div class="panel-label">Location</div>
@@ -192,7 +212,27 @@
                     <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33 2.78 2.78 0 0 0 1.94 2c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.33 29 29 0 0 0-.46-5.33z"></path><polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"></polygon></svg>
                 </a>
             </div>
+            
+            <div id="share-portal" style="margin-top: 30px; background: white; padding: 15px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.03); box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center;">
+                <h4 style="margin-bottom: 15px; color: #333; font-size: 15px;">🔗 Share the Adventure</h4>
+                <select id="share-link-select" style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8); margin-bottom: 20px; font-weight: 600;">
+                    <option value="https://usbarkrangers.github.io/USBarkRangers/">The Map</option>
+                    <option value="https://facebook.com/groups/usbarkrangers">Facebook Group</option>
+                    <option value="https://instagram.com/usbarkrangers">Instagram</option>
+                    <option value="https://youtube.com/usbarkrangers">YouTube</option>
+                </select>
+                <div style="background: white; border-radius: 12px; padding: 15px; display: inline-block; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 15px;">
+                    <div id="qr-code-container"></div>
+                </div>
+                <button id="download-qr-btn" class="glass-btn primary-btn" style="width: 100%; border-radius: 8px; padding: 10px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 8px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    Download QR Code
+                </button>
+            </div>
         </div>
+        
+        <div style="padding-bottom: 90px;"></div>
+
     </div>
 
     <div id="add-location-view" class="ui-view">
@@ -210,28 +250,108 @@
     <div id="profile-view" class="ui-view">
         <div class="view-content glass-panel" style="max-width: 500px;">
             <h2>Profile Dashboard</h2>
-            <p>Log in to access Premium features like Offline Mode.</p>
+            <p>Log in with Google to securely save your Visited Parks history.</p>
             
-            <div id="offline-status-container" style="display: none; background: rgba(76, 175, 80, 0.2); border: 1px solid #4CAF50; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: center;">
-                <h3 style="color: #2E7D32; margin-bottom: 5px;">Offline Mode: Enabled</h3>
-                <p style="font-size: 14px; margin-bottom: 0;">Your map data is secured for offline use.</p>
-                <button id="logout-btn" class="glass-btn" style="margin-top: 15px; width: 100%;">Log Out</button>
+            <div id="offline-status-container" style="display: none; background: rgba(33, 150, 243, 0.1); border: 1px solid #2196F3; padding: 15px; border-radius: 8px; margin-top: 15px;">
+                <h3 style="color: #1976D2; margin-bottom: 5px;">Welcome!</h3>
+                <p id="user-profile-name" style="font-weight: 600; margin-bottom: 15px; color: #333;"></p>
+                
+                <div id="reward-progress-container" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span id="reward-level-title" style="font-weight: 800; font-size: 14px; color: #1976D2;">Level 1</span>
+                        <span id="reward-level-status" style="font-size: 12px; font-weight: 600; color: #777;">0 / 10 Visits</span>
+                    </div>
+                    <div style="background: #E0E0E0; border-radius: 8px; height: 10px; width: 100%; overflow: hidden;">
+                        <div id="reward-progress-bar" style="background: #4CAF50; height: 100%; width: 0%; transition: width 0.5s ease-in-out;"></div>
+                    </div>
+                </div>
+
+                <div id="stats-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; text-align: center;">
+                    <div style="background: white; border-radius: 12px; padding: 15px 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03);">
+                        <div id="stat-score" style="font-size: 26px; font-weight: 800; color: #4CAF50;">0</div>
+                        <div style="font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; margin-top: 5px; letter-spacing: 0.5px;">Total Score</div>
+                    </div>
+                    <div style="background: white; border-radius: 12px; padding: 15px 5px; box-shadow: 0 4px 12px rgba(255, 152, 0, 0.15); border: 1px solid rgba(255,152,0,0.2); position: relative; overflow: hidden;">
+                        <span style="position: absolute; right: -5px; bottom: -10px; font-size: 40px; opacity: 0.05; pointer-events: none;">🐾</span>
+                        <div id="stat-verified" style="font-size: 26px; font-weight: 800; color: #FF9800; position: relative;">0</div>
+                        <div style="font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; margin-top: 5px; letter-spacing: 0.5px; position: relative;">🐾 Verified Visits</div>
+                    </div>
+                    <div style="background: white; border-radius: 12px; padding: 15px 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03);">
+                        <div id="stat-regular" style="font-size: 26px; font-weight: 800; color: #2196F3;">0</div>
+                        <div style="font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; margin-top: 5px; letter-spacing: 0.5px;">Regular Visits</div>
+                    </div>
+                    <div style="background: white; border-radius: 12px; padding: 15px 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03);">
+                        <div id="stat-states" style="font-size: 26px; font-weight: 800; color: #9C27B0;">0</div>
+                        <div style="font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; margin-top: 5px; letter-spacing: 0.5px;">States Visited</div>
+                    </div>
+                </div>
+
+                <div id="trophy-case-container" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
+                    <h3 style="color: #333; font-size: 16px; margin-bottom: 15px; text-align: center;">🏆 Trophy Case</h3>
+                    <div id="trophy-grid" class="trophy-grid">
+                        <!-- Badges rendered by evaluateAchievements() -->
+                    </div>
+                </div>
+
+                <div id="manage-places-portal" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
+                    <details>
+                        <summary style="color: #333; font-size: 14px; font-weight: 600; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none;">
+                            <div style="pointer-events: none;">View/Manage My Visited Places</div>
+                            <span id="manage-portal-count" style="background: rgba(33, 150, 243, 0.1); color: #1976D2; padding: 4px 8px; border-radius: 12px; font-size: 12px; pointer-events: none;">0</span>
+                        </summary>
+                        <div style="max-height: 200px; overflow-y: auto; margin-top: 15px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.05);">
+                            <ul id="manage-places-list" style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
+                                <!-- Reactively Rendered DOM elements here -->
+                            </ul>
+                        </div>
+                    </details>
+                </div>
+
+                <div id="leaderboard-container" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
+                    <h4 style="color: #333; margin-bottom: 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: center;">
+                        🏆 Global Leaderboard
+                        <span id="personal-rank-display" style="font-size: 11px; font-weight: 600; color: #FF9800; background: rgba(255, 152, 0, 0.1); padding: 3px 8px; border-radius: 10px;">Rank: --</span>
+                    </h4>
+                    <ul id="leaderboard-list" style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
+                        <li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">Loading Top 5...</li>
+                    </ul>
+                </div>
+
+                <label for="visited-filter" style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 5px;">Map Filter:</label>
+                <select id="visited-filter" style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8); margin-bottom: 15px;">
+                    <option value="all">Show All Places</option>
+                    <option value="visited">Show Places I Have Been</option>
+                    <option value="unvisited">Show Places I Have Not Been</option>
+                </select>
+
+                <button id="export-csv-btn" class="glass-btn primary-btn" style="width: 100%; margin-bottom: 15px; padding: 10px; border-radius: 8px; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    Download My Data
+                </button>
+
+                <label for="map-style-select" style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 5px; border-top: 1px solid rgba(0,0,0,0.1); padding-top: 15px;">Map Style (Premium):</label>
+                <select id="map-style-select" style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8); margin-bottom: 15px;">
+                    <option value="default">Default (OpenStreetMap)</option>
+                    <option value="terrain">Terrain (OpenTopoMap)</option>
+                    <option value="satellite">Satellite (Esri Imagery)</option>
+                </select>
+
+                <button id="logout-btn" class="glass-btn" style="width: 100%;">Log Out</button>
             </div>
 
             <div id="login-container" style="margin-top: 20px;">
-                <form id="login-form">
-                    <div style="margin-bottom: 15px;">
-                        <label for="username-input" style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 5px;">Username</label>
-                        <input type="text" id="username-input" class="custom-file-input" style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8);" required>
-                    </div>
-                    <div style="margin-bottom: 15px;">
-                        <label for="password-input" style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 5px;">Password</label>
-                        <input type="password" id="password-input" class="custom-file-input" style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8);" required>
-                    </div>
-                    <p id="login-error" style="color: #d32f2f; font-size: 14px; display: none; margin-bottom: 10px; font-weight: 500;">Incorrect username or password.</p>
-                    <button type="submit" class="glass-btn primary-btn" style="width: 100%;">Log In</button>
-                </form>
+                <button id="google-login-btn" class="glass-btn primary-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/><path d="M1 1h22v22H1z" fill="none"/></svg>
+                    Continue with Google
+                </button>
             </div>
+            
+            <div id="feedback-portal" style="margin-top: 30px; background: rgba(0,0,0,0.02); padding: 15px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.05);">
+                <h4 style="margin-bottom: 10px; color: #555; font-size: 14px;">Suggest an Improvement</h4>
+                <textarea id="feedback-text" placeholder="Tell us how we can make BarkRangerMap better..." style="width: 100%; height: 80px; padding: 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1); margin-bottom: 10px; font-family: inherit; font-size: 13px; resize: vertical; box-sizing: border-box;"></textarea>
+                <button id="submit-feedback-btn" class="glass-btn primary-btn" style="width: 100%; font-size: 13px; padding: 10px; border-radius: 8px; font-weight: 600;">Submit Feedback</button>
+            </div>
+
         </div>
     </div>
 
@@ -255,10 +375,39 @@
         </button>
     </nav>
 
+    <!-- Floating Trip UI -->
+    <div id="trip-fab" class="glass-btn" style="display: none; position: fixed; bottom: 90px; right: 20px; width: 50px; height: 50px; border-radius: 25px; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); z-index: 2000; cursor: pointer;">
+        🚗
+        <span id="trip-badge" style="position: absolute; top: -5px; right: -5px; background: #FF9800; color: white; border-radius: 12px; font-size: 11px; font-weight: 800; padding: 2px 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">1/5</span>
+    </div>
+
+    <!-- Trip Modal -->
+    <div id="trip-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; background: rgba(0,0,0,0.5); z-index: 4000; align-items: center; justify-content: center; backdrop-filter: blur(5px);">
+        <div style="background: white; border-radius: 20px; padding: 20px; width: 90%; max-width: 400px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); position: relative;">
+            <button id="close-trip-modal" style="position: absolute; top: 15px; right: 15px; background: none; border: none; font-size: 24px; cursor: pointer; color: #888;">&times;</button>
+            <h2 style="font-size: 18px; color: #333; margin-bottom: 5px;">Road Trip Builder</h2>
+            <p style="font-size: 13px; color: #666; margin-bottom: 20px;">Queue up to 5 destinations for an epic routing session.</p>
+            
+            <ul id="trip-queue-list" style="list-style: none; padding: 0; margin-bottom: 20px; max-height: 50vh; overflow-y: auto;">
+                <!-- JS populated -->
+            </ul>
+
+            <div style="display: flex; gap: 10px;">
+                <button id="clear-trip-btn" class="glass-btn" style="flex: 1; border-radius: 10px; background: #f5f5f5; color: #d32f2f; font-weight: 600; padding: 12px; border: 1px solid rgba(0,0,0,0.1);">Clear All</button>
+                <button id="start-route-btn" class="glass-btn primary-btn" style="flex: 2; border-radius: 10px; font-weight: 600; padding: 12px;">Start Route (Google Maps)</button>
+            </div>
+        </div>
+    </div>
+
     <div id="update-toast" class="update-toast">
         <span>A new version of the map is available!</span>
         <button id="refresh-btn">Refresh</button>
     </div>
+
+    <!-- Firebase SDK (Compat Version) -->
+    <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>

@@ -11,10 +11,25 @@ L.control.zoom({
 }).addTo(map);
 
 // Add OpenStreetMap tiles
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+let currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
     maxZoom: 18
 }).addTo(map);
+
+const mapStyleSelect = document.getElementById('map-style-select');
+if (mapStyleSelect) {
+    mapStyleSelect.addEventListener('change', (e) => {
+        if (currentTileLayer) map.removeLayer(currentTileLayer);
+        const style = e.target.value;
+        if (style === 'terrain') {
+            currentTileLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)', maxZoom: 17 }).addTo(map);
+        } else if (style === 'satellite') {
+            currentTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community', maxZoom: 18 }).addTo(map);
+        } else {
+            currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 18 }).addTo(map);
+        }
+    });
+}
 
 // Add Locate Control
 const LocateControl = L.Control.extend({
@@ -46,7 +61,7 @@ map.on('locationfound', function (e) {
     if (userLocationMarker) {
         map.removeLayer(userLocationMarker);
     }
-    
+
     userLocationMarker = L.circleMarker(e.latlng, {
         radius: 8,
         fillColor: '#2196F3',
@@ -71,6 +86,209 @@ let activePinMarker = null;
 let activeSwagFilters = new Set();
 let activeSearchQuery = '';
 let activeTypeFilter = 'all';
+
+let userVisitedPlaces = new Map();
+let tripQueue = [];
+let visitedFilterState = 'all';
+
+const generatePinId = (lat, lng) => `${parseFloat(lat).toFixed(2)}_${parseFloat(lng).toFixed(2)}`;
+
+const haversineDistance = (lat1, lon1, lat2, lon2) => {
+    const r = 6371; // km
+    const p = Math.PI / 180;
+    const a = 0.5 - Math.cos((lat2 - lat1) * p) / 2 + 
+              Math.cos(lat1 * p) * Math.cos(lat2 * p) * 
+              (1 - Math.cos((lon2 - lon1) * p)) / 2;
+    return 2 * r * Math.asin(Math.sqrt(a));
+};
+
+function renderManagePortal() {
+    const listEl = document.getElementById('manage-places-list');
+    const countEl = document.getElementById('manage-portal-count');
+    const portalConfig = document.getElementById('manage-places-portal');
+    
+    if (!listEl || !countEl || !portalConfig) return;
+    
+    countEl.textContent = userVisitedPlaces.size;
+    
+    if (userVisitedPlaces.size === 0) {
+        listEl.innerHTML = '<li style="color: #888; font-style: italic; padding: 10px 0;">You haven\'t marked any places yet. Get exploring!</li>';
+        return;
+    }
+    
+    listEl.innerHTML = '';
+    
+    // Sort alphabetically by name
+    const placesArray = Array.from(userVisitedPlaces.values()).sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+    
+    placesArray.forEach(place => {
+        const li = document.createElement('li');
+        li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,0.05);';
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = place.verified ? `🐾 ${place.name}` : place.name;
+        nameSpan.style.cssText = 'font-weight: 500; color: #444; flex: 1; padding-right: 10px; line-height: 1.4;';
+        
+        const removeBtn = document.createElement('button');
+        removeBtn.innerHTML = '&times; Remove';
+        removeBtn.style.cssText = 'background: rgba(244, 67, 54, 0.1); color: #D32F2F; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700; transition: background 0.2s; white-space: nowrap;';
+        
+        removeBtn.onmouseover = () => removeBtn.style.background = 'rgba(244, 67, 54, 0.2)';
+        removeBtn.onmouseout = () => removeBtn.style.background = 'rgba(244, 67, 54, 0.1)';
+        
+        removeBtn.onclick = () => {
+            if (window.confirm(`Are you sure you want to remove "${place.name}" from your visited list?`)) {
+                if (firebase.auth().currentUser) {
+                    const docRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
+                    docRef.set({ visitedPlaces: firebase.firestore.FieldValue.arrayRemove(place) }, { merge: true });
+                    
+                    userVisitedPlaces.delete(place.id);
+                    updateMarkers();
+                    updateStatsUI();
+                    
+                    if (activePinMarker && activePinMarker._parkData && activePinMarker._parkData.id === place.id) {
+                        const btn = document.getElementById('mark-visited-btn');
+                        const btnText = document.getElementById('mark-visited-text');
+                        if (btn && btnText) {
+                            btn.classList.remove('visited');
+                            btnText.textContent = 'Mark as Visited';
+                        }
+                    }
+                }
+            }
+        };
+        
+        li.appendChild(nameSpan);
+        li.appendChild(removeBtn);
+        listEl.appendChild(li);
+    });
+}
+
+function evaluateAchievements(visitedPlacesMap) {
+    const statesMap = {};
+    let totalUniqueStates = 0;
+    let maxStateVisits = 0;
+    
+    allPoints.forEach(p => {
+        if (visitedPlacesMap.has(p.id) && p.state) {
+            const st = p.state.toString().split(/[,/]/);
+            st.forEach(s => {
+                const trimmed = s.trim().toUpperCase();
+                if (trimmed) statesMap[trimmed] = (statesMap[trimmed] || 0) + 1;
+            });
+        }
+    });
+    
+    totalUniqueStates = Object.keys(statesMap).length;
+    for (let count of Object.values(statesMap)) {
+        if (count > maxStateVisits) maxStateVisits = count;
+    }
+    
+    let verifiedVisits = 0;
+    visitedPlacesMap.forEach((p) => {
+        if (p.verified) verifiedVisits++;
+    });
+    
+    const badges = [
+        { id: 'explorer', name: 'The Explorer', icon: '🗺️', desc: 'Visit 5+ unique states', unlocked: totalUniqueStates >= 5 },
+        { id: 'local-legend', name: 'The Local Legend', icon: '🏡', desc: 'Visit 3+ parks in a single state', unlocked: maxStateVisits >= 3 },
+        { id: 'golden-paw', name: 'The Golden Paw', icon: '🏆', desc: '10+ Verified Check-Ins', unlocked: verifiedVisits >= 10 }
+    ];
+    
+    const grid = document.getElementById('trophy-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    
+    badges.forEach(b => {
+        const card = document.createElement('div');
+        card.className = `trophy-card ${b.unlocked ? 'unlocked' : 'locked'}`;
+        card.innerHTML = `
+            <div class="trophy-icon">${b.icon}</div>
+            <div class="trophy-info">
+                <div class="trophy-name">${b.name} ${b.unlocked ? '' : '🔒'}</div>
+                <div class="trophy-desc">${b.desc}</div>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+function updateStatsUI() {
+    const scoreEl = document.getElementById('stat-score');
+    const verifiedEl = document.getElementById('stat-verified');
+    const regularEl = document.getElementById('stat-regular');
+    const statesEl = document.getElementById('stat-states');
+    
+    if (!scoreEl || !verifiedEl || !regularEl || !statesEl) return;
+    
+    const statesSet = new Set();
+    allPoints.forEach(p => {
+        if (userVisitedPlaces.has(p.id) && p.state) {
+            const st = p.state.toString().split(/[,/]/);
+            st.forEach(s => {
+                const trimmed = s.trim().toUpperCase();
+                if (trimmed) statesSet.add(trimmed);
+            });
+        }
+    });
+    
+    let totalScore = 0;
+    let verifiedCount = 0;
+    let regularCount = 0;
+    
+    userVisitedPlaces.forEach((p) => {
+        if (p.verified) {
+            verifiedCount++;
+        } else {
+            regularCount++;
+        }
+    });
+    
+    totalScore = (verifiedCount * 2) + regularCount;
+    
+    scoreEl.textContent = totalScore;
+    verifiedEl.textContent = verifiedCount;
+    regularEl.textContent = regularCount;
+    statesEl.textContent = statesSet.size;
+    
+    // Reward Progress Bar logic
+    let level = 1;
+    let max = 10;
+    if (totalScore >= 100) { level = 4; max = totalScore; }
+    else if (totalScore >= 51) { level = 3; max = 100; }
+    else if (totalScore >= 11) { level = 2; max = 50; }
+    
+    const pbTitle = document.getElementById('reward-level-title');
+    const pbStatus = document.getElementById('reward-level-status');
+    const pbBar = document.getElementById('reward-progress-bar');
+    if (pbTitle && pbStatus && pbBar) {
+        if (level === 4) {
+            pbTitle.textContent = "🏆 B.A.R.K. Master!";
+            pbStatus.textContent = totalScore + " Pts";
+            pbBar.style.width = "100%";
+        } else {
+            pbTitle.textContent = "Level " + level;
+            pbStatus.textContent = totalScore + " / " + max + " Pts";
+            const pct = Math.min(100, Math.round((totalScore / max) * 100));
+            pbBar.style.width = pct + "%";
+        }
+    }
+    
+    // Leaderboard sync
+    if (typeof firebase !== 'undefined' && firebase.auth().currentUser && totalScore > 0) {
+        const u = firebase.auth().currentUser;
+        firebase.firestore().collection('leaderboard').doc(u.uid).set({
+            displayName: u.displayName || 'Bark Ranger',
+            photoURL: u.photoURL || '',
+            totalVisited: totalScore,
+            hasVerified: (verifiedCount > 0),
+            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true }).catch(err => console.log('Leaderboard sync error:', err));
+    }
+    
+    evaluateAchievements(userVisitedPlaces);
+    renderManagePortal();
+}
 
 const normalizationDict = {
     'ft': 'fort',
@@ -121,7 +339,7 @@ function formatSwagLinks(text) {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const urls = text.match(urlRegex);
     if (!urls) return text;
-    
+
     let resultHTML = '';
     urls.forEach((url, index) => {
         resultHTML += `<a href="${url}" target="_blank" class="swag-link-btn">📷 Swag Pic ${index + 1}</a> `;
@@ -175,7 +393,7 @@ navItems.forEach(btn => {
         btn.classList.add('active');
 
         const targetId = btn.getAttribute('data-target');
-        
+
         if (targetId === 'map-view') {
             uiViews.forEach(v => v.classList.remove('active'));
             if (filterPanel) filterPanel.style.display = 'flex';
@@ -208,7 +426,7 @@ if (wmUpload) {
 
     function drawWatermark(logoScalePercent) {
         if (!currentPhotoImg || !currentLogoImg) return;
-        
+
         const ctx = wmCanvas.getContext('2d');
         const MAX_WIDTH = 4096;
         let width = currentPhotoImg.width;
@@ -233,7 +451,7 @@ if (wmUpload) {
         const scaleFactor = logoScalePercent / 100;
         const logoWidthPx = width * scaleFactor;
         const logoHeightPx = currentLogoImg.height * (logoWidthPx / currentLogoImg.width);
-        
+
         const margin = width * 0.02;
         const logoX = borderSize + width - logoWidthPx - margin;
         const logoY = borderSize + height - logoHeightPx - margin;
@@ -241,7 +459,7 @@ if (wmUpload) {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(currentLogoImg, logoX, logoY, logoWidthPx, logoHeightPx); // Eliminated expensive real-time JPEG encoding to fix slider lag
-        
+
         document.getElementById('wm-preview-container').style.display = 'block';
         if (wmSliderContainer) wmSliderContainer.style.display = 'block';
         wmDownload.style.display = 'inline-block';
@@ -287,7 +505,7 @@ if (wmUpload) {
         wmClearBtn.addEventListener('click', () => {
             wmUpload.value = '';
             const ctx = wmCanvas.getContext('2d');
-            ctx.clearRect(0,0,wmCanvas.width,wmCanvas.height);
+            ctx.clearRect(0, 0, wmCanvas.width, wmCanvas.height);
             currentPhotoImg = null;
             document.getElementById('wm-preview-container').style.display = 'none';
             if (wmSliderContainer) wmSliderContainer.style.display = 'none';
@@ -369,7 +587,7 @@ function processParsedResults(results) {
         const video = item['Swearing-In Video. Not all sites do this, and ones that do only do it as time permits.'];
         let lat = item['lat'];
         let lng = item['lng'];
-        
+
         // Fix incorrect geocoding for War in the Pacific (Guam) which defaults to Colorado
         if (name && name.includes('War in the Pacific')) {
             lat = 13.402746;
@@ -389,9 +607,10 @@ function processParsedResults(results) {
         });
 
         const marker = L.marker([lat, lng], { icon });
+        const id = generatePinId(lat, lng);
 
         // Store park data directly on the marker so it never goes stale
-        marker._parkData = { name, state, cost, swagType, info, website, pics, video, lat, lng };
+        marker._parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng };
 
         marker.on('click', () => {
             if (activePinMarker && activePinMarker._icon) {
@@ -408,7 +627,14 @@ function processParsedResults(results) {
             locEl.textContent = d.state || '';
             typeEl.textContent = d.swagType;
             typeEl.className = `badge ${getBadgeClass(d.swagType)}`;
-            
+
+            const suggestEditBtn = document.getElementById('suggest-edit-btn');
+            if (suggestEditBtn) {
+                const subject = encodeURIComponent(`B.A.R.K. Map Edit: ${d.name}`);
+                const body = encodeURIComponent(`Park Name: ${d.name}\nID: ${d.id}\n\n--- Please describe the update below ---\n`);
+                suggestEditBtn.href = `mailto:junior.ranger.423@gmail.com?subject=${subject}&body=${body}`;
+            }
+
             if (d.cost) {
                 costContainer.style.display = 'block';
                 costValEl.textContent = d.cost;
@@ -452,7 +678,7 @@ function processParsedResults(results) {
                     urls.forEach((url, index) => {
                         const link = document.createElement('a');
                         // Remove trailing quotes or commas that might be captured by the regex
-                        link.href = url.replace(/['",]+$/, ''); 
+                        link.href = url.replace(/['",]+$/, '');
                         link.target = '_blank';
                         link.className = 'website-btn';
                         link.style.cssText = 'flex: 1; min-width: 120px;';
@@ -476,12 +702,150 @@ function processParsedResults(results) {
             dirContainer.innerHTML = `
                 <a href="https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}" target="_blank" class="dir-btn">🗺️ Google Maps</a>
                 <a href="http://maps.apple.com/?daddr=${d.lat},${d.lng}" target="_blank" class="dir-btn">🧭 Apple Maps</a>
+                <button class="glass-btn btn-trip" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; color: #1976D2; border: 2px solid #1976D2; background: white; padding: 10px; border-radius: 50px; margin-top: 10px; font-size: 14px; cursor: pointer;">📍 Add to Trip</button>
             `;
+
+            const btnTrip = dirContainer.querySelector('.btn-trip');
+            if (btnTrip) {
+                btnTrip.onclick = (e) => {
+                    e.preventDefault();
+                    if (tripQueue.length >= 5) {
+                        alert("Trip limit reached! Maximum 5 stops allowed.");
+                        return;
+                    }
+                    if (tripQueue.find(stop => stop.lat === d.lat && stop.lng === d.lng)) {
+                        alert("This location is already in your trip!");
+                        return;
+                    }
+                    tripQueue.push({ id: d.id, name: d.name, lat: d.lat, lng: d.lng });
+                    updateTripUI();
+                };
+            }
+
+            const visitedSection = document.getElementById('panel-visited-section');
+            const markVisitedBtn = document.getElementById('mark-visited-btn');
+            const markVisitedText = document.getElementById('mark-visited-text');
+            const verifyBtn = document.getElementById('verify-checkin-btn');
+            const verifyBtnText = document.getElementById('verify-checkin-text');
+
+            if (visitedSection && markVisitedBtn && markVisitedText && verifyBtn) {
+                if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
+                    visitedSection.style.display = 'block';
+                    
+                    if (userVisitedPlaces.has(d.id)) {
+                        const cachedObj = userVisitedPlaces.get(d.id);
+                        
+                        markVisitedBtn.classList.add('visited');
+                        markVisitedText.textContent = '✓ Visited';
+                        markVisitedBtn.disabled = true;
+                        markVisitedBtn.style.cursor = 'default';
+                        markVisitedBtn.style.opacity = '0.7';
+                        
+                        if (cachedObj.verified) {
+                            verifyBtn.style.background = '#4CAF50';
+                            verifyBtnText.textContent = '🐾 Verified & Secured';
+                            verifyBtn.disabled = true;
+                            verifyBtn.style.cursor = 'default';
+                            verifyBtn.style.opacity = '0.7';
+                        } else {
+                            verifyBtn.style.background = '#FF9800';
+                            verifyBtnText.textContent = '🐾 Verified Check-In';
+                            verifyBtn.disabled = false;
+                            verifyBtn.style.cursor = 'pointer';
+                            verifyBtn.style.opacity = '1';
+                        }
+                    } else {
+                        markVisitedBtn.classList.remove('visited');
+                        markVisitedText.textContent = 'Mark as Visited';
+                        markVisitedBtn.disabled = false;
+                        markVisitedBtn.style.cursor = 'pointer';
+                        markVisitedBtn.style.opacity = '1';
+                        
+                        verifyBtn.style.background = '#FF9800';
+                        verifyBtnText.textContent = '🐾 Verified Check-In';
+                        verifyBtn.disabled = false;
+                        verifyBtn.style.cursor = 'pointer';
+                        verifyBtn.style.opacity = '1';
+                    }
+                    
+                    verifyBtn.onclick = () => {
+                        if (!navigator.geolocation) {
+                            alert("Geolocation is not supported by your browser.");
+                            return;
+                        }
+                        verifyBtnText.textContent = 'Locating...';
+                        
+                        navigator.geolocation.getCurrentPosition((position) => {
+                            const dist = haversineDistance(position.coords.latitude, position.coords.longitude, d.lat, d.lng);
+                            if (dist <= 25) {
+                                alert(`Check-in Verified! You earned 2 points.`);
+                                const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: true };
+                                
+                                const docRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
+                                if (userVisitedPlaces.has(d.id)) {
+                                    const oldObj = userVisitedPlaces.get(d.id);
+                                    docRef.set({ visitedPlaces: firebase.firestore.FieldValue.arrayRemove(oldObj) }, { merge: true });
+                                }
+                                
+                                userVisitedPlaces.set(d.id, newObj);
+                                docRef.set({ visitedPlaces: firebase.firestore.FieldValue.arrayUnion(newObj) }, { merge: true });
+                                
+                                verifyBtn.style.background = '#4CAF50';
+                                verifyBtnText.textContent = '🐾 Verified & Secured';
+                                verifyBtn.disabled = true;
+                                verifyBtn.style.cursor = 'default';
+                                verifyBtn.style.opacity = '0.7';
+                                
+                                markVisitedBtn.classList.add('visited');
+                                markVisitedText.textContent = '✓ Visited';
+                                markVisitedBtn.disabled = true;
+                                markVisitedBtn.style.cursor = 'default';
+                                markVisitedBtn.style.opacity = '0.7';
+                                
+                                updateMarkers();
+                                updateStatsUI();
+                            } else {
+                                alert(`Out of Range! You are ${dist.toFixed(1)} km away. You must be within 25 km to verify.`);
+                                verifyBtnText.textContent = '🐾 Verified Check-In';
+                            }
+                        }, (error) => {
+                            if (error.code === error.PERMISSION_DENIED) {
+                                alert("Location permission denied. GPS is required for verified check-ins.");
+                            } else {
+                                alert("Failed to get location. Try again later.");
+                            }
+                            verifyBtnText.textContent = '🐾 Verified Check-In';
+                        }, { enableHighAccuracy: true });
+                    };
+
+                    markVisitedBtn.onclick = () => {
+                        if (userVisitedPlaces.has(d.id)) return; // Prevent deletion
+                        
+                        const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: false };
+                        const docRef = firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid);
+                        
+                        userVisitedPlaces.set(d.id, newObj);
+                        docRef.set({ visitedPlaces: firebase.firestore.FieldValue.arrayUnion(newObj) }, { merge: true });
+                        
+                        markVisitedBtn.classList.add('visited');
+                        markVisitedText.textContent = '✓ Visited';
+                        markVisitedBtn.disabled = true;
+                        markVisitedBtn.style.cursor = 'default';
+                        markVisitedBtn.style.opacity = '0.7';
+                        
+                        updateMarkers();
+                        updateStatsUI();
+                    };
+                } else {
+                    visitedSection.style.display = 'none';
+                }
+            }
 
             slidePanel.classList.add('open');
         });
 
         allPoints.push({
+            id: id,
             name: name || '',
             state: state || '',
             swagType: swagType,
@@ -490,6 +854,7 @@ function processParsedResults(results) {
         });
     });
     updateMarkers();
+    updateStatsUI();
 
     // Restore the previously active pin if it still exists in the new data
     if (activeLat !== null && activeLng !== null) {
@@ -520,7 +885,7 @@ function parseCSVString(csvString) {
     Papa.parse(csvString, {
         header: true,
         dynamicTyping: true,
-        complete: function(results) {
+        complete: function (results) {
             processParsedResults(results);
             isRendering = false;
             // Process the most recent pending CSV, if any
@@ -530,7 +895,7 @@ function parseCSVString(csvString) {
                 parseCSVString(next);
             }
         },
-        error: function(err) {
+        error: function (err) {
             console.error('Error parsing CSV data:', err);
             isRendering = false;
         }
@@ -578,7 +943,7 @@ function pollForUpdates() {
         .then(({ newCsv, url }) => {
             if (!newCsv || newCsv.trim().length < 10) return;
             const newHash = quickHash(newCsv);
-            
+
             if (!seenHashes.has(newHash)) {
                 // Try to extract Google's exact internal revision timestamp from the redirected URL
                 // e.g. /1774762780000/
@@ -652,10 +1017,10 @@ function updateMarkers() {
     markerLayer.clearLayers();
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
-        
+
         const queryNorm = normalizeText(activeSearchQuery);
         const nameNorm = normalizeText(item.name);
-        
+
         let matchesSearch = false;
         if (!queryNorm) {
             matchesSearch = true;
@@ -666,16 +1031,30 @@ function updateMarkers() {
             const tokens = nameNorm.split(' ');
             for (const word of tokens) {
                 if (queryNorm.length > 2) {
-                     minDist = Math.min(minDist, levenshtein(queryNorm, word));
+                    minDist = Math.min(minDist, levenshtein(queryNorm, word));
                 }
             }
             if (minDist <= 2) matchesSearch = true;
         }
-        
+
         const matchesType = activeTypeFilter === 'all' || item.category === activeTypeFilter;
 
-        if (matchesSwag && matchesSearch && matchesType) {
+        let matchesVisited = true;
+        const isVisited = userVisitedPlaces.has(item.id);
+
+        if (visitedFilterState === 'visited' && !isVisited) matchesVisited = false;
+        if (visitedFilterState === 'unvisited' && isVisited) matchesVisited = false;
+
+        if (matchesSwag && matchesSearch && matchesType && matchesVisited) {
             markerLayer.addLayer(item.marker);
+
+            if (item.marker._icon) {
+                if (isVisited) {
+                    item.marker._icon.classList.add('visited-pin');
+                } else {
+                    item.marker._icon.classList.remove('visited-pin');
+                }
+            }
         }
     });
 }
@@ -686,13 +1065,13 @@ let searchTimeout = null;
 
 searchInput.addEventListener('input', (e) => {
     activeSearchQuery = e.target.value;
-    
+
     if (clearSearchBtn) {
         clearSearchBtn.style.display = activeSearchQuery.length > 0 ? 'block' : 'none';
     }
-    
+
     if (searchTimeout) clearTimeout(searchTimeout);
-    
+
     if (activeSearchQuery.trim() === '') {
         if (searchSuggestions) searchSuggestions.style.display = 'none';
         updateMarkers();
@@ -702,11 +1081,11 @@ searchInput.addEventListener('input', (e) => {
     searchTimeout = setTimeout(() => {
         const queryNorm = normalizeText(activeSearchQuery);
         let matches = [];
-        
+
         allPoints.forEach(item => {
             const nameNorm = normalizeText(item.name);
             let score = 999;
-            
+
             if (nameNorm.includes(queryNorm)) {
                 score = 0;
             } else {
@@ -719,15 +1098,15 @@ searchInput.addEventListener('input', (e) => {
                 }
                 if (minDist <= 2) score = minDist;
             }
-            
+
             if (score <= 2) {
                 matches.push({ item: item, score: score });
             }
         });
-        
+
         matches.sort((a, b) => a.score - b.score);
         const topMatches = matches.slice(0, 10);
-        
+
         if (topMatches.length > 0 && searchSuggestions) {
             searchSuggestions.innerHTML = '';
             topMatches.forEach(match => {
@@ -739,7 +1118,7 @@ searchInput.addEventListener('input', (e) => {
                     activeSearchQuery = match.item.name;
                     searchSuggestions.style.display = 'none';
                     updateMarkers();
-                    
+
                     if (match.item.marker && match.item.marker._parkData) {
                         map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, { animate: true });
                         match.item.marker.fire('click');
@@ -751,7 +1130,7 @@ searchInput.addEventListener('input', (e) => {
         } else if (searchSuggestions) {
             searchSuggestions.style.display = 'none';
         }
-        
+
         updateMarkers();
     }, 300);
 });
@@ -791,7 +1170,7 @@ typeSelect.addEventListener('change', (e) => {
 filterBtns.forEach(btn => {
     btn.addEventListener('click', () => {
         const type = btn.getAttribute('data-filter');
-        
+
         if (activeSwagFilters.size === 0) {
             activeSwagFilters.add(type);
             btn.classList.add('active');
@@ -804,71 +1183,108 @@ filterBtns.forEach(btn => {
                 btn.classList.add('active');
             }
         }
-        
+
         if (activeSwagFilters.size === 0) {
             filterBtns.forEach(b => b.classList.remove('active'));
         }
-        
+
         updateMarkers();
     });
 });
 
 // Profile Authentication Logic
-const loginForm = document.getElementById('login-form');
 const loginContainer = document.getElementById('login-container');
 const offlineStatusContainer = document.getElementById('offline-status-container');
 const logoutBtn = document.getElementById('logout-btn');
-const loginError = document.getElementById('login-error');
 
-function updateAuthUI() {
-    const isPremium = localStorage.getItem('premiumLoggedIn') === 'true';
-    if (loginContainer && offlineStatusContainer) {
-        if (isPremium) {
-            loginContainer.style.display = 'none';
-            offlineStatusContainer.style.display = 'block';
+let visitedSnapshotUnsubscribe = null;
+
+if (typeof firebase !== 'undefined') {
+    const firebaseConfig = {
+        apiKey: "AIzaSyDcBn2YQCAFrAjN27gIM9lBiu0PZsComO4",
+        authDomain: "barkrangermap-auth.firebaseapp.com",
+        projectId: "barkrangermap-auth",
+        storageBucket: "barkrangermap-auth.firebasestorage.app",
+        messagingSenderId: "564465144962",
+        appId: "1:564465144962:web:9e43dbc993b93a33d5d09b",
+        measurementId: "G-V2QCN2MFBZ"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+
+    firebase.auth().onAuthStateChanged((user) => {
+        const profileName = document.getElementById('user-profile-name');
+
+        if (user) {
+            if (loginContainer) loginContainer.style.display = 'none';
+            if (offlineStatusContainer) offlineStatusContainer.style.display = 'block';
+            if (profileName) profileName.textContent = user.displayName || user.email || 'Bark Ranger';
+
+            visitedSnapshotUnsubscribe = firebase.firestore().collection('users').doc(user.uid)
+                .onSnapshot((doc) => {
+                    if (doc.exists) {
+                        const placeList = doc.data().visitedPlaces || [];
+                        userVisitedPlaces = new Map();
+                        placeList.forEach(obj => {
+                            if (obj && obj.id) userVisitedPlaces.set(obj.id, obj);
+                        });
+                    } else {
+                        userVisitedPlaces = new Map();
+                    }
+                    updateMarkers();
+                    updateStatsUI();
+
+                    if (activePinMarker && activePinMarker._parkData && document.getElementById('mark-visited-btn')) {
+                        const d = activePinMarker._parkData;
+                        const btn = document.getElementById('mark-visited-btn');
+                        const btnText = document.getElementById('mark-visited-text');
+                        if (userVisitedPlaces.has(d.id)) {
+                            btn.classList.add('visited');
+                            btnText.textContent = 'Visited!';
+                        } else {
+                            btn.classList.remove('visited');
+                            btnText.textContent = 'Mark as Visited';
+                        }
+                    }
+                });
         } else {
-            loginContainer.style.display = 'block';
-            offlineStatusContainer.style.display = 'none';
+            if (loginContainer) loginContainer.style.display = 'block';
+            if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';
+            userVisitedPlaces.clear();
+            if (visitedSnapshotUnsubscribe) {
+                visitedSnapshotUnsubscribe();
+                visitedSnapshotUnsubscribe = null;
+            }
+            updateMarkers();
+            updateStatsUI();
         }
+    });
+
+    const googleBtn = document.getElementById('google-login-btn');
+    if (googleBtn) {
+        googleBtn.addEventListener('click', () => {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            firebase.auth().signInWithPopup(provider).catch(err => {
+                console.error("Login Error:", err);
+                alert("Login Error: " + err.message);
+            });
+        });
+    }
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            firebase.auth().signOut().catch(err => console.error("Logout Error:", err));
+        });
     }
 }
 
-if (loginForm) {
-    loginForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const user = document.getElementById('username-input').value;
-        const pass = document.getElementById('password-input').value;
-        if (user === 'USBarkRangers' && pass === 'Password') {
-            localStorage.setItem('premiumLoggedIn', 'true');
-            if (loginError) loginError.style.display = 'none';
-            updateAuthUI();
-            
-            if (localStorage.getItem('barkCSV')) {
-                parseCSVString(localStorage.getItem('barkCSV'));
-            }
-        } else {
-            if (loginError) loginError.style.display = 'block';
-        }
+const visitedFilterEl = document.getElementById('visited-filter');
+if (visitedFilterEl) {
+    visitedFilterEl.addEventListener('change', (e) => {
+        visitedFilterState = e.target.value;
+        updateMarkers();
     });
 }
-
-if (logoutBtn) {
-    logoutBtn.addEventListener('click', () => {
-        localStorage.removeItem('premiumLoggedIn');
-        const userInput = document.getElementById('username-input');
-        const passInput = document.getElementById('password-input');
-        if (userInput) userInput.value = '';
-        if (passInput) passInput.value = '';
-        updateAuthUI();
-        
-        if (!navigator.onLine) {
-             markerLayer.clearLayers();
-             alert("Logged out. Network disconnected.");
-        }
-    });
-}
-
-updateAuthUI();
 
 // Initial load
 loadData();
@@ -887,21 +1303,21 @@ document.getElementById('toggle-filter-btn').addEventListener('click', () => {
 // Update Manager 
 function checkForUpdates() {
     if (!navigator.onLine || window.location.protocol === 'file:') return;
-    
+
     fetch('version.json?cache_bypass=' + Date.now(), { cache: 'no-store' })
-    .then(res => {
-        if (!res.ok) throw new Error('version.json not found');
-        return res.json();
-    })
-    .then(data => {
-        if (data.version && data.version > APP_VERSION) {
-            const toast = document.getElementById('update-toast');
-            if (toast) {
-                toast.classList.add('show');
+        .then(res => {
+            if (!res.ok) throw new Error('version.json not found');
+            return res.json();
+        })
+        .then(data => {
+            if (data.version && data.version > APP_VERSION) {
+                const toast = document.getElementById('update-toast');
+                if (toast) {
+                    toast.classList.add('show');
+                }
             }
-        }
-    })
-    .catch(err => console.log('Skipping version check: ', err.message));
+        })
+        .catch(err => console.log('Skipping version check: ', err.message));
 }
 
 setInterval(checkForUpdates, 30000);
@@ -912,4 +1328,242 @@ if (refreshBtn) {
     refreshBtn.addEventListener('click', () => {
         window.location.reload(true);
     });
+}
+
+// CSV Export Logic
+const exportCsvBtn = document.getElementById('export-csv-btn');
+if (exportCsvBtn) {
+    exportCsvBtn.addEventListener('click', () => {
+        if (!allPoints || allPoints.length === 0) {
+            alert("Map data hasn't loaded fully yet. Please wait a moment and try again.");
+            return;
+        }
+
+        const exportData = allPoints.map(p => {
+            const data = p.marker._parkData;
+            return {
+                Name: data.name,
+                "Grid-Snap ID": data.id,
+                State: data.state,
+                Category: data.category || '',
+                Cost: data.cost || '',
+                "Swag Type": data.swagType || '',
+                Latitude: data.lat,
+                Longitude: data.lng,
+                Visited: userVisitedPlaces.has(data.id) ? 1 : 0
+            };
+        });
+
+        const csvString = Papa.unparse(exportData);
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'My_BarkRanger_Data.csv');
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    });
+}
+
+// Leaderboard Top 5 Listener
+if (typeof firebase !== 'undefined') {
+    firebase.firestore().collection('leaderboard')
+        .orderBy('totalVisited', 'desc')
+        .limit(50)
+        .onSnapshot(snapshot => {
+            const listEl = document.getElementById('leaderboard-list');
+            const rankEl = document.getElementById('personal-rank-display');
+            if (!listEl || !rankEl) return;
+            
+            listEl.innerHTML = '';
+            let rank = 1;
+            let personalRank = '--';
+            const uid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : null;
+            
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (doc.id === uid) personalRank = rank;
+                
+                if (rank <= 5) {
+                    const li = document.createElement('li');
+                    li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,0.05);';
+                    
+                    const nameSpan = document.createElement('span');
+                    nameSpan.style.cssText = 'font-weight: ' + (doc.id === uid ? '800; color: #2196F3;' : '600; color: #444;');
+                    nameSpan.textContent = `#${rank} ${data.displayName} ${data.hasVerified ? '🐾' : ''}`;
+                    
+                    const scoreSpan = document.createElement('span');
+                    scoreSpan.style.cssText = 'background: rgba(76, 175, 80, 0.1); color: #2E7D32; padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;';
+                    scoreSpan.textContent = data.totalVisited;
+                    
+                    li.appendChild(nameSpan);
+                    li.appendChild(scoreSpan);
+                    listEl.appendChild(li);
+                }
+                rank++;
+            });
+            
+            if (snapshot.empty) {
+                listEl.innerHTML = '<li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">No leaders yet. Be the first!</li>';
+            }
+            
+            rankEl.textContent = 'Rank: ' + personalRank;
+        }, err => console.log('Leaderboard err:', err));
+}
+
+// Public Feedback Portal Logic
+const submitFeedbackBtn = document.getElementById('submit-feedback-btn');
+if (submitFeedbackBtn && typeof firebase !== 'undefined') {
+    submitFeedbackBtn.addEventListener('click', () => {
+        const textArea = document.getElementById('feedback-text');
+        const text = textArea ? textArea.value : '';
+        if (!text || text.trim() === '') return;
+        
+        const user = firebase.auth().currentUser;
+        const sender = user ? (user.displayName || user.uid) : 'Anonymous Guest';
+        
+        submitFeedbackBtn.textContent = 'Submitting...';
+        submitFeedbackBtn.disabled = true;
+        
+        firebase.firestore().collection('feedback').add({
+            text: text,
+            sender: sender,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        }).then(() => {
+            submitFeedbackBtn.textContent = 'Feedback Sent!';
+            if (textArea) textArea.value = '';
+            setTimeout(() => {
+                submitFeedbackBtn.textContent = 'Submit Feedback';
+                submitFeedbackBtn.disabled = false;
+            }, 3000);
+        }).catch(err => {
+            console.error('Feedback error:', err);
+            submitFeedbackBtn.textContent = 'Error. Try again';
+            submitFeedbackBtn.disabled = false;
+        });
+    });
+}
+
+// Share & Connect QR Logic
+const shareSelect = document.getElementById('share-link-select');
+const qrContainer = document.getElementById('qr-code-container');
+const downloadQrBtn = document.getElementById('download-qr-btn');
+
+if (shareSelect && qrContainer && typeof QRCode !== 'undefined') {
+    let qrcode = new QRCode(qrContainer, {
+        text: "https://usbarkrangers.github.io/USBarkRangers/",
+        width: 160,
+        height: 160,
+        colorDark : "#1976D2",
+        colorLight : "#ffffff",
+        correctLevel : QRCode.CorrectLevel.H
+    });
+
+    shareSelect.addEventListener('change', (e) => {
+        let val = e.target.value;
+        if (val === 'app') val = "https://usbarkrangers.github.io/USBarkRangers/";
+        
+        qrcode.clear();
+        qrcode.makeCode(val);
+    });
+
+    if (downloadQrBtn) {
+        downloadQrBtn.addEventListener('click', () => {
+            const img = qrContainer.querySelector('img');
+            const canvas = qrContainer.querySelector('canvas');
+            let dataUrl = '';
+            
+            if (img && img.src && img.src.startsWith('data:')) {
+                dataUrl = img.src;
+            } else if (canvas) {
+                dataUrl = canvas.toDataURL("image/png");
+            }
+            
+            if (dataUrl) {
+                const link = document.createElement('a');
+                link.download = 'BarkRanger_QRCode.png';
+                link.href = dataUrl;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                alert('QR Code not ready yet.');
+            }
+        });
+    }
+}
+
+// ====== TRIP BUILDER LOGIC ======
+const tripFab = document.getElementById('trip-fab');
+const tripBadge = document.getElementById('trip-badge');
+const tripModal = document.getElementById('trip-modal');
+const tripQueueList = document.getElementById('trip-queue-list');
+const closeTripModal = document.getElementById('close-trip-modal');
+const clearTripBtn = document.getElementById('clear-trip-btn');
+const startRouteBtn = document.getElementById('start-route-btn');
+
+function updateTripUI() {
+    if (!tripFab || !tripBadge || !tripQueueList) return;
+    
+    if (tripQueue.length > 0) {
+        tripFab.style.display = 'flex';
+        tripBadge.textContent = `${tripQueue.length}/5`;
+    } else {
+        tripFab.style.display = 'none';
+        if (tripModal) tripModal.style.display = 'none';
+    }
+    
+    tripQueueList.innerHTML = '';
+    tripQueue.forEach((stop, index) => {
+        const li = document.createElement('li');
+        li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0,0,0,0.05); padding: 10px 0;';
+        li.innerHTML = `
+            <div style="display: flex; align-items: center;">
+                <span style="background: #1976D2; color: white; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; justify-content: center; align-items: center; font-size: 11px; margin-right: 8px;">${index + 1}</span>
+                <span style="font-weight: 600; color: #333; font-size: 13px;">${stop.name}</span>
+            </div>
+            <button class="remove-stop-btn" data-index="${index}" style="background: none; border: none; color: #d32f2f; font-weight: bold; font-size: 16px; cursor: pointer; padding: 5px;">&times;</button>
+        `;
+        tripQueueList.appendChild(li);
+    });
+    
+    document.querySelectorAll('.remove-stop-btn').forEach(btn => {
+        btn.onclick = (e) => {
+            const idx = parseInt(e.target.getAttribute('data-index'));
+            tripQueue.splice(idx, 1);
+            updateTripUI();
+        };
+    });
+}
+
+if (tripFab) {
+    tripFab.onclick = () => {
+        tripModal.style.display = 'flex';
+    };
+}
+
+if (closeTripModal) {
+    closeTripModal.onclick = () => {
+        tripModal.style.display = 'none';
+    };
+}
+
+if (clearTripBtn) {
+    clearTripBtn.onclick = () => {
+        tripQueue = [];
+        updateTripUI();
+    };
+}
+
+if (startRouteBtn) {
+    startRouteBtn.onclick = () => {
+        if (tripQueue.length === 0) return;
+        let routeUrl = "https://www.google.com/maps/dir/";
+        tripQueue.forEach(stop => {
+            routeUrl += `${stop.lat},${stop.lng}/`;
+        });
+        window.open(routeUrl, '_blank');
+    };
 }

@@ -91,7 +91,7 @@
                 </button>
             </div>
 
-            <a id="suggest-edit-btn" href="#" class="glass-btn outline-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; text-decoration: none; margin-bottom: 20px;">
+            <a id="suggest-edit-btn" href="mailto:usbarkrangers@gmail.com" class="glass-btn outline-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; text-decoration: none; margin-bottom: 20px;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                 Suggest an Edit
             </a>
@@ -139,7 +139,7 @@
                 <input type="file" id="wm-upload" accept="image/*" class="custom-file-input" hidden>
                 <label for="wm-upload" class="glass-btn primary-btn">Select Photo</label>
                 <div class="canvas-preview-container" id="wm-preview-container" style="display:none; position:relative; max-width: 100%;">
-                    <button id="wm-clear" class="close-btn" style="position:absolute; top: 15px; right: 15px; width: 32px; height: 32px; font-size: 20px; z-index: 10;" aria-label="Clear Photo">&times;</button>
+                    <button id="wm-clear" class="close-btn" style="position:absolute; top: 15px; right: 15px; z-index: 10;" aria-label="Clear Photo">&times;</button>
                     <canvas id="wm-canvas" style="display:block; max-width: 100%; height: auto; border-radius: 8px;"></canvas>
                     
                     <div id="wm-slider-container" style="display:none; width: 100%; margin-top: 15px;">
@@ -148,6 +148,11 @@
                             <span id="wm-logo-size-val" style="font-weight: 800; color: #4CAF50; font-size: 14px;">10%</span>
                         </div>
                         <input type="range" id="wm-logo-size" min="1" max="50" value="10" class="custom-slider">
+                        
+                        <div style="display: flex; align-items: center; gap: 10px; margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.03); border-radius: 8px;">
+                            <input type="checkbox" id="wm-high-res" style="width: 20px; height: 20px; cursor: pointer;">
+                            <label for="wm-high-res" style="font-size: 13px; font-weight: 600; color: #333; cursor: pointer;">Original Resolution (Print Quality)</label>
+                        </div>
                     </div>
                 </div>
                 
@@ -211,6 +216,11 @@
                 <a href="https://www.youtube.com/channel/UCxSm2WLFRaQYCdZSeHTI02w" target="_blank" class="social-link glass-btn" aria-label="YouTube">
                     <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33 2.78 2.78 0 0 0 1.94 2c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.33 29 29 0 0 0-.46-5.33z"></path><polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"></polygon></svg>
                 </a>
+                <a href="https://www.tiktok.com/@usbarkrangers?_r=1&_t=ZP-95DaSKf76sQ" target="_blank" class="social-link glass-btn" aria-label="TikTok">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tiktok-icon">
+                        <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"></path>
+                    </svg>
+                </a>
             </div>
             
             <div id="share-portal" style="margin-top: 30px; background: white; padding: 15px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.03); box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center;">
@@ -235,14 +245,35 @@
 
     </div>
 
-    <div id="add-location-view" class="ui-view">
-        <div class="view-content glass-panel">
-            <h2>Add a B.A.R.K. Ranger Location</h2>
-            <p>Your submissions help keep USBarkRangers alive! If you know of a location we're missing, please submit it below.</p>
-            <div class="iframe-container">
-                <iframe
-                    src="https://docs.google.com/forms/d/e/1FAIpQLScZjliA-yi-PAywc2UkX5zhunLh71BJK3HUZ73AKwmX5a9XSg/viewform?embedded=true"
-                    width="100%" height="500" frameborder="0" marginheight="0" marginwidth="0">Loading…</iframe>
+    <div id="planner-view" class="ui-view">
+        <div class="view-content glass-panel" style="max-width: 500px;">
+            <h2 style="font-size: 20px; color: #333; margin-bottom: 5px;">Road Trip Planner</h2>
+            <p style="font-size: 13px; color: #666; margin-bottom: 20px;">Plan your multi-day adventure with ease.</p>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="tripNameInput" style="display: block; font-size: 12px; font-weight: 700; color: #333; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Route Name</label>
+                <input type="text" id="tripNameInput" placeholder="e.g., Summer Road Trip 2024" style="width: 100%; padding: 12px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.1); font-size: 14px; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='#1976D2'" onblur="this.style.borderColor='rgba(0,0,0,0.1)'">
+            </div>
+            
+            <div style="margin-bottom: 20px; display: flex; flex-direction: column; gap: 8px;">
+                <button id="add-current-loc-btn" class="glass-btn" style="width: 100%; border-radius: 10px; font-size: 13px; padding: 10px; background: #e3f2fd; color: #1976D2; font-weight: 600; border: 1px solid rgba(25,118,210,0.1);">📍 Use My Location</button>
+                <div style="display: flex; gap: 5px;">
+                    <input type="text" id="town-search-input" placeholder="Search a town (e.g. Gainesville)" style="flex: 1; padding: 10px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.1); font-size: 13px;">
+                    <button id="add-town-btn" class="glass-btn primary-btn" style="padding: 10px 15px; border-radius: 10px; font-size: 13px;">Add</button>
+                </div>
+                <div id="town-disambiguation-container" style="display: none; background: #fff; border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; padding: 5px; max-height: 200px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.08);"></div>
+            </div>
+
+            <div id="route-telemetry" style="display: none; background: #f0f7ff; border: 1px solid rgba(25,118,210,0.1); border-radius: 12px; padding: 10px; margin-bottom: 15px; text-align: center;"></div>
+
+            <ul id="trip-queue-list" style="list-style: none; padding: 0; margin-bottom: 20px; max-height: 40vh; overflow-y: auto;"></ul>
+
+            <div id="day-notes-container" style="margin-bottom: 20px;"></div>
+
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; padding-bottom: 100px;">
+                <button id="clear-trip-btn" class="glass-btn" style="flex: 1; min-width: 80px; border-radius: 10px; background: #f5f5f5; color: #d32f2f; font-weight: 600; padding: 12px; border: 1px solid rgba(0,0,0,0.1);">Clear All</button>
+                <button id="save-route-btn" class="glass-btn" style="flex: 1; min-width: 80px; border-radius: 10px; background: #e8f5e9; color: #2E7D32; font-weight: 600; padding: 12px; border: 1px solid rgba(46,125,50,0.15);">💾 Save</button>
+                <button id="start-route-btn" class="glass-btn primary-btn" style="flex: 2; min-width: 120px; border-radius: 10px; font-weight: 600; padding: 12px;">Generate Route</button>
             </div>
         </div>
     </div>
@@ -251,6 +282,20 @@
         <div class="view-content glass-panel" style="max-width: 500px;">
             <h2>Profile Dashboard</h2>
             <p>Log in with Google to securely save your Visited Parks history.</p>
+            
+            <div id="add-location-portal" style="margin-top: 20px; background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03);">
+                <div style="text-align: center;">
+                    <h3 style="color: #333; font-size: 16px; font-weight: 700; margin-bottom: 10px;">➕ Suggest a Missing Location</h3>
+                    <p style="font-size: 13px; color: #666; margin-bottom: 15px;">Help grow the map! Tap below to send us the details via email.</p>
+                    
+                    <a id="email-suggest-btn" href="#" class="glass-btn primary-btn" style="text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; width: 100%; padding: 14px; border-radius: 12px;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                        Email Suggestion
+                    </a>
+                    
+                    <p style="font-size: 11px; color: #999; margin-top: 12px; font-style: italic;">We'll pre-fill the form for you—just add the details and attach photos! 🐾</p>
+                </div>
+            </div>
             
             <div id="offline-status-container" style="display: none; background: rgba(33, 150, 243, 0.1); border: 1px solid #2196F3; padding: 15px; border-radius: 8px; margin-top: 15px;">
                 <h3 style="color: #1976D2; margin-bottom: 5px;">Welcome!</h3>
@@ -315,6 +360,7 @@
                     <ul id="leaderboard-list" style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
                         <li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">Loading Top 5...</li>
                     </ul>
+                    <div id="leaderboard-controls" style="margin-top: 10px; text-align: center;"></div>
                 </div>
 
                 <label for="visited-filter" style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 5px;">Map Filter:</label>
@@ -336,8 +382,22 @@
                     <option value="satellite">Satellite (Esri Imagery)</option>
                 </select>
 
+
+                <div id="saved-routes-container" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
+                    <details>
+                        <summary style="color: #333; font-size: 14px; font-weight: 600; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none;">
+                            <div style="pointer-events: none;">🗺️ Saved Routes</div>
+                            <span id="saved-routes-count" style="background: rgba(25,118,210,0.1); color: #1976D2; padding: 4px 8px; border-radius: 12px; font-size: 12px; pointer-events: none;">0</span>
+                        </summary>
+                        <div id="saved-routes-list" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.05); max-height: 280px; overflow-y: auto; font-size: 13px;">
+                            <p style="color: #aaa; text-align: center; padding: 10px 0;">No saved routes yet.</p>
+                        </div>
+                    </details>
+                </div>
+
                 <button id="logout-btn" class="glass-btn" style="width: 100%;">Log Out</button>
             </div>
+
 
             <div id="login-container" style="margin-top: 20px;">
                 <button id="google-login-btn" class="glass-btn primary-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;">
@@ -365,39 +425,16 @@
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
             <span>USBarkRangers</span>
         </button>
-        <button class="nav-item" data-target="add-location-view">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            <span>Add</span>
+        <button class="nav-item" data-target="planner-view" style="position: relative;">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+            <span>Planner</span>
+            <span id="planner-badge" style="display: none; position: absolute; top: 5px; right: 15px; background: #FF9800; color: white; border-radius: 12px; font-size: 10px; font-weight: 800; padding: 2px 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">0</span>
         </button>
         <button class="nav-item" data-target="profile-view">
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
             <span>Profile</span>
         </button>
     </nav>
-
-    <!-- Floating Trip UI -->
-    <div id="trip-fab" class="glass-btn" style="display: none; position: fixed; bottom: 90px; right: 20px; width: 50px; height: 50px; border-radius: 25px; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); z-index: 2000; cursor: pointer;">
-        🚗
-        <span id="trip-badge" style="position: absolute; top: -5px; right: -5px; background: #FF9800; color: white; border-radius: 12px; font-size: 11px; font-weight: 800; padding: 2px 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">1/5</span>
-    </div>
-
-    <!-- Trip Modal -->
-    <div id="trip-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; background: rgba(0,0,0,0.5); z-index: 4000; align-items: center; justify-content: center; backdrop-filter: blur(5px);">
-        <div style="background: white; border-radius: 20px; padding: 20px; width: 90%; max-width: 400px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); position: relative;">
-            <button id="close-trip-modal" style="position: absolute; top: 15px; right: 15px; background: none; border: none; font-size: 24px; cursor: pointer; color: #888;">&times;</button>
-            <h2 style="font-size: 18px; color: #333; margin-bottom: 5px;">Road Trip Builder</h2>
-            <p style="font-size: 13px; color: #666; margin-bottom: 20px;">Queue up to 5 destinations for an epic routing session.</p>
-            
-            <ul id="trip-queue-list" style="list-style: none; padding: 0; margin-bottom: 20px; max-height: 50vh; overflow-y: auto;">
-                <!-- JS populated -->
-            </ul>
-
-            <div style="display: flex; gap: 10px;">
-                <button id="clear-trip-btn" class="glass-btn" style="flex: 1; border-radius: 10px; background: #f5f5f5; color: #d32f2f; font-weight: 600; padding: 12px; border: 1px solid rgba(0,0,0,0.1);">Clear All</button>
-                <button id="start-route-btn" class="glass-btn primary-btn" style="flex: 2; border-radius: 10px; font-weight: 600; padding: 12px;">Start Route (Google Maps)</button>
-            </div>
-        </div>
-    </div>
 
     <div id="update-toast" class="update-toast">
         <span>A new version of the map is available!</span>
@@ -408,10 +445,11 @@
     <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-functions-compat.js"></script>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-    <script src="app.js?v=1"></script>
+    <script src="app.js?v=3"></script>
 </body>
 
 </html>

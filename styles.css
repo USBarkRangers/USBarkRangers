@@ -22,7 +22,8 @@
 
 body, html {
     width: 100vw;
-    height: 100dvh;
+    height: 100vh; /* fallback for older browsers */
+    height: 100dvh; /* dynamic viewport height — adjusts for iOS keyboard */
     margin: 0;
     padding: 0;
     overflow: hidden;
@@ -328,6 +329,7 @@ body, html {
         left: 0;
         width: 400px;
         height: 100vh;
+        height: 100dvh;
         transform: translateX(-105%); /* Hidden */
     }
     #slide-panel.open {
@@ -373,6 +375,20 @@ body, html {
     width: 44px;
     height: 44px; /* Mobile accessibility minimum */
 }
+
+/* Phantom Hit Area for "Big Fingers" / Shaky hands */
+.close-btn::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 70px;
+    height: 70px;
+    transform: translate(-50%, -50%);
+    background: transparent;
+    border-radius: 50%;
+}
+
 .close-btn:hover, .close-btn:active {
     background: #e1e1e1;
 }
@@ -417,7 +433,8 @@ body, html {
     top: 0;
     left: 0;
     width: 100vw;
-    height: 100vh;
+    height: 100vh; /* fallback */
+    height: 100dvh;
     background-color: #e5e5e5;
     z-index: 2000;
     display: none;
@@ -425,6 +442,7 @@ body, html {
     padding: 20px;
     padding-bottom: 90px; /* Space for nav bar */
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
 }
 
@@ -594,6 +612,12 @@ body, html {
         width: 100vw;
         height: 75px;
         border-radius: 20px 20px 0 0;
+        transition: transform 0.25s ease;
+    }
+    /* Hide nav when iOS keyboard is open */
+    body.keyboard-open .glass-nav {
+        transform: translateY(100%);
+        pointer-events: none;
     }
     .nav-item {
         height: 100%;

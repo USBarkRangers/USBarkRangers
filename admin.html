@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Refinery - Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f1f5f9;
+            color: #1e293b;
+            margin: 0;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 900;
+        }
+
+        .back-btn {
+            background: #e2e8f0;
+            color: #475569;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            border: 1px solid rgba(0,0,0,0.05);
+            margin-bottom: 24px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* INTAKE UI */
+        .drop-zone {
+            width: 100%;
+            height: 200px;
+            border: 2px dashed #cbd5e1;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #f8fafc;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+        }
+        
+        .drop-zone:hover, .drop-zone.dragover {
+            background: #f1f5f9;
+            border-color: #3b82f6;
+            color: #3b82f6;
+        }
+
+        .drop-zone p {
+            margin: 0 0 10px 0;
+            font-weight: 600;
+        }
+
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+            font-family: inherit;
+            resize: vertical;
+            box-sizing: border-box;
+            outline: none;
+            margin-bottom: 20px;
+        }
+
+        .primary-btn {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+            transition: transform 0.2s;
+        }
+        
+        .primary-btn:active {
+            transform: scale(0.98);
+        }
+
+        .primary-btn:disabled {
+            background: #94a3b8;
+            box-shadow: none;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* LOADING SPINNER */
+        #loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8);
+            z-index: 999;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f1f5f9;
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        /* VERIFICATION UI */
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 13px;
+            font-weight: 800;
+            color: #64748b;
+            text-transform: uppercase;
+        }
+
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+            font-family: inherit;
+            box-sizing: border-box;
+            outline: none;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        
+        .form-group input:focus, .form-group select:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        /* DROPDOWN WITH SEARCH (FUSE) */
+        .search-dropdown {
+            position: relative;
+        }
+        
+        .search-dropdown-results {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 10;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            display: none;
+        }
+
+        .search-dropdown-item {
+            padding: 10px 15px;
+            cursor: pointer;
+            border-bottom: 1px solid #f1f5f9;
+            font-size: 14px;
+        }
+
+        .search-dropdown-item:hover, .search-dropdown-item.active {
+            background: #f8fafc;
+            color: #3b82f6;
+            font-weight: 600;
+        }
+        
+        .raw-json-view {
+            background: #1e293b;
+            color: #a5b4fc;
+            padding: 15px;
+            border-radius: 12px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            max-height: 400px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="header">
+            <h1>Data Refinery</h1>
+            <a href="index.html" class="back-btn">← Back to Map</a>
+        </div>
+
+        <div class="grid">
+            <!-- INTAKE -->
+            <div class="card">
+                <div style="margin-bottom: 20px;">
+                    <label for="engineSelector" style="font-size: 0.85em; font-weight: bold; color: #64748b; text-transform: uppercase;">AI Engine Routing</label>
+                    <select id="engineSelector" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-weight: 600; color: #1e293b; outline: none; margin-top: 5px;">
+                        <optgroup label="LIGHTWEIGHT (Best for 1-2 images)">
+                            <option value="free-31-lite">Account 1 (Free) - Gemini 3.1 Flash Lite</option>
+                            <option value="free-25-lite">Account 1 (Free) - Gemini 2.5 Flash Lite</option>
+                            <option value="free-20-lite">Account 1 (Free) - Gemini 2.0 Flash Lite</option>
+                        </optgroup>
+                        <optgroup label="HEAVYWEIGHT (Best for 3-5 image bundles)">
+                            <option value="free-3">Account 1 (Free) - Gemini 3 Flash</option>
+                            <option value="free-25">Account 1 (Free) - Gemini 2.5 Flash</option>
+                            <option value="free-20">Account 1 (Free) - Gemini 2.0 Flash</option>
+                        </optgroup>
+                        <optgroup label="UNLIMITED HEAVYWEIGHT">
+                            <option value="paid-3">Account 2 (Paid) - Gemini 3 Flash</option>
+                        </optgroup>
+                    </select>
+                    <div style="font-size: 0.75em; color: #64748b; margin-top: 8px; line-height: 1.4;">
+                        💡 <b>Pro-Tip:</b> Use <i>Lightweight</i> models for quick single screenshots. Use <i>Heavyweight</i> models when bundling 3-5 images at once.
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label for="bundleSelector" style="font-size: 0.85em; font-weight: bold; color: #64748b; text-transform: uppercase;">Images Per Request (Bundle Size)</label>
+                    <select id="bundleSelector" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-weight: 600; color: #1e293b; outline: none; margin-top: 5px;">
+                        <option value="1">1 Image (Highest Accuracy, Best for Lite models)</option>
+                        <option value="3" selected>3 Images (Balanced)</option>
+                        <option value="5">5 Images (Max for Heavyweight models)</option>
+                        <option value="all">All at Once (Proceed with caution)</option>
+                    </select>
+                </div>
+
+                <div class="drop-zone" id="drop-zone">
+                    <p>Drop screenshot here</p>
+                    <span style="font-size: 12px; color: #94a3b8;">or click to select</span>
+                    <input type="file" id="file-input" style="display: none;" accept="image/*">
+                </div>
+                
+                <div style="text-align: center; font-weight: 800; color: #cbd5e1; margin-bottom: 20px;">OR</div>
+
+                <textarea id="text-input" placeholder="Paste Bark Ranger post text here..."></textarea>
+                
+                <button id="process-btn" class="primary-btn">Process Data</button>
+            </div>
+
+            <!-- VERIFICATION -->
+            <div class="card">
+                <h2 style="margin-top: 0;">2. Verification & Sync</h2>
+                <p style="color: #64748b; font-size: 14px; margin-bottom: 10px;">Verify the extracted data and fuzzy-matched park before syncing.</p>
+                
+                <div id="sourceImageDisplay" style="margin-bottom: 15px; font-size: 0.85em; font-weight: bold; color: #0277bd; background: #e1f5fe; padding: 8px 12px; border-radius: 8px; display: none; align-items: center; gap: 8px;">
+                    📄 Source: Image 1
+                </div>
+                
+                <div id="queue-container" style="display: none; margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 800; color: #64748b; text-transform: uppercase;">Review Queue</label>
+                    <select id="park-queue-dropdown" style="width: 100%; padding: 12px; border-radius: 8px; border: 2px solid #10b981; background: #f0fdf4; font-family: inherit; font-weight: 700; color: #166534; outline: none;"></select>
+                </div>
+
+                <div class="form-group search-dropdown">
+                    <label>Park Name (Fuzzy Matched)</label>
+                    <input type="text" id="park-name-search" placeholder="Search park name..." autocomplete="off">
+                    <input type="hidden" id="park-id-hidden">
+                    <div id="search-results" class="search-dropdown-results"></div>
+                </div>
+
+                <div class="form-group">
+                    <label>Date of Info</label>
+                    <input type="text" id="date-input" placeholder="e.g. April 2026" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-size: 14px; font-weight: 600; box-sizing: border-box; outline: none;">
+                    
+                    <div style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="force-geocode" style="cursor: pointer; width: 14px; height: 14px;">
+                        <label for="force-geocode" style="font-size: 0.75em; color: #ef4444; font-weight: 800; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">
+                            Force Re-Geocode <span style="font-weight: 400; opacity: 0.7;">(Overwrites Lat/Long)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="grid" style="gap: 15px;">
+                    <div class="form-group">
+                        <label>Entrance Fee</label>
+                        <input type="text" id="entrance-fee" placeholder="e.g. Free, $35/vehicle">
+                    </div>
+                    <div class="form-group">
+                        <label>Swag Location</label>
+                        <input type="text" id="swag-location" placeholder="e.g. Visitor Center">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Approved Trails</label>
+                    <textarea id="approved-trails" placeholder="e.g. All trails except... / Specific trails" rows="3" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-size: 14px; font-weight: 600; resize: vertical; box-sizing: border-box; outline: none;"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Strict Rules</label>
+                    <textarea id="strict-rules" placeholder="e.g. 6ft leash max, remain on paved paths" rows="3" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-size: 14px; font-weight: 600; resize: vertical; box-sizing: border-box; outline: none;"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Hazards</label>
+                    <textarea id="hazards" placeholder="e.g. Ticks, Bears, Heat, Cyanobacteria" rows="3" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-size: 14px; font-weight: 600; resize: vertical; box-sizing: border-box; outline: none;"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Extra Swag</label>
+                    <textarea id="extra-swag" placeholder="e.g. Patch, Collar Tag, Bandana" rows="3" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-size: 14px; font-weight: 600; resize: vertical; box-sizing: border-box; outline: none;"></textarea>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button id="sync-btn" class="primary-btn" style="flex: 2; background: #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);">Sync to Map</button>
+                    <button id="discard-btn" class="primary-btn" style="flex: 1; background: #ef4444; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);">Discard</button>
+                </div>
+                
+                <details style="margin-top: 20px;">
+                    <summary style="font-size: 12px; font-weight: 800; color: #94a3b8; cursor: pointer; text-transform: uppercase;">Raw AI Output</summary>
+                    <div id="raw-json-output" class="raw-json-view" style="margin-top: 10px;">Waiting for data...</div>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <h3 style="margin-top: 20px; color: #1e293b;">Refining Data...</h3>
+        <p id="loadingSubtitle" style="color: #64748b; font-size: 14px;">Gemini is reading the image/text.</p>
+    </div>
+
+    <!-- Firebase SDK (Compat Version) -->
+    <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-functions-compat.js"></script>
+    
+    <!-- Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>
+    
+    <!-- Logic -->
+    <script type="module" src="admin.js"></script>
+</body>
+</html>

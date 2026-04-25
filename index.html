@@ -8,26 +8,34 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
     <!-- QRCode JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="styles.css?v=1">
+    <link rel="stylesheet" href="styles.css?v=2">
+    <link rel="stylesheet" href="mapStyles.css?v=2">
+    <link rel="stylesheet" href="trophyCase.css">
 
     <!-- PWA Manifest & App Icons -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#e5e5e5">
-    
+
     <!-- iOS PWA Enhancements -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="US BARK Rangers">
     <link rel="apple-touch-icon" href="bark-logo.jpeg">
-    
+
     <!-- GoatCounter Analytics -->
     <script data-goatcounter="https://carterswarm.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </head>
 
 <body>
+    <div id="bark-loader">
+        <div class="dog-spinner">🐾</div>
+        <p>US BARK Rangers Loading...</p>
+    </div>
     <div id="map"></div>
 
     <div id="filter-panel" class="glass-panel collapsed">
@@ -35,12 +43,19 @@
             <h1 style="margin-bottom: 12px; font-size: 18px;">US BARK RANGERS&reg;</h1>
             <div class="search-bar-row" style="display: flex; gap: 10px; width: 100%; align-items: center;">
                 <div class="search-container" style="flex: 1; position: relative; display: flex; align-items: center;">
-                    <input type="text" id="park-search" placeholder="Search by name (e.g. 'Acadia')..." style="padding-right: 35px;">
-                    <button id="clear-search-btn" aria-label="Clear Search" style="display: none; position: absolute; right: 10px; background: none; border: none; font-size: 18px; color: #888; cursor: pointer; padding: 5px;">&times;</button>
+                    <input type="text" id="park-search" placeholder="Search by name (e.g. 'Acadia')..."
+                        style="padding-right: 35px;">
+                    <button id="clear-search-btn" aria-label="Clear Search"
+                        style="display: none; position: absolute; right: 10px; background: none; border: none; font-size: 18px; color: #888; cursor: pointer; padding: 5px;">&times;</button>
                     <div id="search-suggestions" class="suggestions-container" style="display: none;"></div>
                 </div>
-                <button id="toggle-filter-btn" aria-label="Toggle Filters" style="background: white; border: 1px solid rgba(0,0,0,0.1); border-radius: 12px; padding: 10px; min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="filter-icon" style="transition: transform 0.3s ease;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+                <button id="toggle-filter-btn" aria-label="Toggle Filters"
+                    style="background: white; border: 1px solid rgba(0,0,0,0.1); border-radius: 12px; padding: 10px; min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" class="filter-icon"
+                        style="transition: transform 0.3s ease;">
+                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                    </svg>
                 </button>
             </div>
         </div>
@@ -69,6 +84,37 @@
                 <button class="filter-btn" data-filter="Other">
                     <span class="dot gray"></span> Other
                 </button>
+                <button class="filter-btn active" data-filter="VirtualTrail" id="toggle-virtual-trail">
+                    <span class="dot green" style="background: linear-gradient(90deg, #22c55e, #fee2e2);"></span> Active
+                    Trail
+                </button>
+                <button class="filter-btn" data-filter="CompletedTrails" id="toggle-completed-trails">
+                    <span class="dot green"
+                        style="background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.6);"></span> Conquered Trails
+                </button>
+            </div>
+
+            <div class="premium-filters-section premium-locked" id="premium-filters-wrap">
+                <div class="filter-divider"></div>
+
+                <div class="premium-label">
+                    <span>Premium Map Tools</span>
+                    <span id="premium-lock-icon">🔒</span>
+                </div>
+
+                <div class="premium-controls">
+                    <select id="visited-filter" class="premium-select" disabled>
+                        <option value="all">Show All Places</option>
+                        <option value="visited">Only Visited Places</option>
+                        <option value="unvisited">Only Unvisited Places</option>
+                    </select>
+
+                    <select id="map-style-select" class="premium-select" disabled>
+                        <option value="default">Default (OpenStreetMap)</option>
+                        <option value="terrain">Terrain (TopoMap)</option>
+                        <option value="satellite">Satellite (Esri)</option>
+                    </select>
+                </div>
             </div>
         </div>
     </div>
@@ -81,46 +127,57 @@
             <h2 id="panel-title" style="margin-bottom: 20px;">Park Name</h2>
 
             <div class="panel-section" id="panel-visited-section" style="display: none; margin-bottom: 20px;">
-                <button id="verify-checkin-btn" class="glass-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; background: #FF9800; color: white; border: none; padding: 12px; border-radius: 50px; box-shadow: 0 4px 10px rgba(255, 152, 0, 0.3); margin-bottom: 10px; transition: all 0.2s ease-in-out;">
+                <button id="verify-checkin-btn" class="glass-btn"
+                    style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; background: #FF9800; color: white; border: none; padding: 12px; border-radius: 50px; box-shadow: 0 4px 10px rgba(255, 152, 0, 0.3); margin-bottom: 10px; transition: all 0.2s ease-in-out;">
                     <span style="font-size: 16px;">🐾</span>
                     <span id="verify-checkin-text" style="color: white !important;">Verified Check-In</span>
                 </button>
-                <button id="mark-visited-btn" class="glass-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700;">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="heart-icon"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                <button id="mark-visited-btn" class="glass-btn"
+                    style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" class="heart-icon">
+                        <path
+                            d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z">
+                        </path>
+                    </svg>
                     <span id="mark-visited-text">Mark as Visited</span>
                 </button>
             </div>
 
-            <a id="suggest-edit-btn" href="mailto:usbarkrangers@gmail.com" class="glass-btn outline-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; text-decoration: none; margin-bottom: 20px;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+            <a id="suggest-edit-btn" href="mailto:usbarkrangers@gmail.com" class="glass-btn outline-btn"
+                style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; text-decoration: none; margin-bottom: 20px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20h9"></path>
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                </svg>
                 Suggest an Edit
             </a>
 
-            <div class="panel-section" id="panel-location-section">
-                <div class="panel-label">Location</div>
-                <div id="panel-location" class="panel-value">Location</div>
-            </div>
-
-            <div class="panel-section" id="panel-type-section">
-                <div class="panel-label">Type</div>
-                <div class="panel-value"><span id="panel-swag-type" class="badge">Swag</span></div>
-            </div>
-
-            <div class="panel-section" id="panel-swag-cost" style="display: none;">
-                <div class="panel-label">Cost</div>
-                <div id="swag-cost-val" class="panel-value"></div>
-            </div>
+            <!-- High-Density Quick-Info Bar -->
+            <div id="panel-meta-container" class="park-meta-bar"></div>
 
             <div class="panel-section" id="panel-info-section" style="display: none;">
                 <div class="panel-label">Updates & Reports</div>
-                <div id="panel-info" class="panel-value">Details...</div>
+                <div id="panel-info-container" class="report-container">
+                    <div id="panel-info" class="panel-value">Details...</div>
+                    <div class="report-fade-overlay"></div>
+                </div>
+                <button id="show-more-info" class="show-more-btn" style="display: none;">Show Full Reports ▾</button>
             </div>
-            
+
             <div id="media-links" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
                 <div id="websites-container" style="display: flex; flex-wrap: wrap; gap: 10px; flex: 1;"></div>
-                <div id="panel-pics" style="display: none; flex-wrap: wrap; flex: 1; align-items: center; justify-content: center;"></div>
-                <a id="panel-video" href="#" target="_blank" class="glass-btn" style="display: none; padding: 8px 16px; font-size: 14px; flex: 1; text-align: center;">Watch Video</a>
+                <div id="panel-pics"
+                    style="display: none; flex-wrap: wrap; flex: 1; align-items: center; justify-content: center;">
+                </div>
+                <a id="panel-video" href="#" target="_blank" class="glass-btn"
+                    style="display: none; padding: 8px 16px; font-size: 14px; flex: 1; text-align: center;">Watch
+                    Video</a>
             </div>
+
+            <!-- Command Center Sticky Footer -->
+            <div id="panel-sticky-footer" class="panel-sticky-footer" style="display: none;"></div>
         </div>
     </div>
 
@@ -128,46 +185,63 @@
     <div id="home-view" class="ui-view">
         <div class="view-content glass-panel">
             <h2>Welcome to #USBarkRangers!</h2>
-            <p>Join our community of nearly 50,000 members as we inspire amazing travel adventures with our best friends. Remember the B.A.R.K. principles: Bag your pet's waste, Always keep your pet on a leash, Respect the wildlife, and Know where you can go.</p>
-            
+            <p>Join our community of nearly 50,000 members as we inspire amazing travel adventures with our best
+                friends. Remember the B.A.R.K. principles: Bag your pet's waste, Always keep your pet on a leash,
+                Respect the wildlife, and Know where you can go.</p>
+
             <hr class="view-divider">
-            
+
             <h3>Watermark Your Swag Photo</h3>
             <p class="tool-desc">Upload a photo to add the B.A.R.K. Ranger logo!</p>
-            
+
             <div class="watermark-tool">
                 <input type="file" id="wm-upload" accept="image/*" class="custom-file-input" hidden>
                 <label for="wm-upload" class="glass-btn primary-btn">Select Photo</label>
-                <div class="canvas-preview-container" id="wm-preview-container" style="display:none; position:relative; max-width: 100%;">
-                    <button id="wm-clear" class="close-btn" style="position:absolute; top: 15px; right: 15px; z-index: 10;" aria-label="Clear Photo">&times;</button>
-                    <canvas id="wm-canvas" style="display:block; max-width: 100%; height: auto; border-radius: 8px;"></canvas>
-                    
+                <div class="canvas-preview-container" id="wm-preview-container"
+                    style="display:none; position:relative; max-width: 100%;">
+                    <button id="wm-clear" class="close-btn"
+                        style="position:absolute; top: 15px; right: 15px; z-index: 10;"
+                        aria-label="Clear Photo">&times;</button>
+                    <canvas id="wm-canvas"
+                        style="display:block; max-width: 100%; height: auto; border-radius: 8px;"></canvas>
+
                     <div id="wm-slider-container" style="display:none; width: 100%; margin-top: 15px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <label for="wm-logo-size" style="font-weight: 600; color: #444; font-size: 14px;">Logo Size:</label>
-                            <span id="wm-logo-size-val" style="font-weight: 800; color: #4CAF50; font-size: 14px;">10%</span>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <label for="wm-logo-size" style="font-weight: 600; color: #444; font-size: 14px;">Logo
+                                Size:</label>
+                            <span id="wm-logo-size-val"
+                                style="font-weight: 800; color: #4CAF50; font-size: 14px;">10%</span>
                         </div>
                         <input type="range" id="wm-logo-size" min="1" max="50" value="10" class="custom-slider">
-                        
-                        <div style="display: flex; align-items: center; gap: 10px; margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.03); border-radius: 8px;">
+
+                        <div
+                            style="display: flex; align-items: center; gap: 10px; margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.03); border-radius: 8px;">
                             <input type="checkbox" id="wm-high-res" style="width: 20px; height: 20px; cursor: pointer;">
-                            <label for="wm-high-res" style="font-size: 13px; font-weight: 600; color: #333; cursor: pointer;">Original Resolution (Print Quality)</label>
+                            <label for="wm-high-res"
+                                style="font-size: 13px; font-weight: 600; color: #333; cursor: pointer;">Original
+                                Resolution (Print Quality)</label>
                         </div>
                     </div>
                 </div>
-                
-                <button id="wm-download" class="glass-btn primary-btn" style="display:none; margin-top: 15px;">Download Watermarked Image</button>
+
+                <button id="wm-download" class="glass-btn primary-btn" style="display:none; margin-top: 15px;">Download
+                    Watermarked Image</button>
             </div>
         </div>
 
         <div class="view-content glass-panel" style="margin-top: 20px;">
             <h3>What is a B.A.R.K. Ranger?</h3>
-            <p style="font-size: 15px; line-height: 1.6;">If you take your pup to a park and follow the principles, they can join the ranks of the #USBarkRangers! Many park sites have an actual program where you and your pup complete fun activities to earn a badge, tag, or bandana. Some will even swear your dog in! Whether they have a full program or just sell the tags, it is a ton of fun and you'll make great memories.</p>
+            <p style="font-size: 15px; line-height: 1.6;">If you take your pup to a park and follow the principles, they
+                can join the ranks of the #USBarkRangers! Many park sites have an actual program where you and your pup
+                complete fun activities to earn a badge, tag, or bandana. Some will even swear your dog in! Whether they
+                have a full program or just sell the tags, it is a ton of fun and you'll make great memories.</p>
         </div>
 
         <div class="view-content glass-panel" style="margin-top: 20px;">
             <h3>The B.A.R.K. Principles</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 15px; margin-top: 15px; text-align: center;">
+            <div
+                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 15px; margin-top: 15px; text-align: center;">
                 <div class="glass-btn" style="padding: 15px; cursor: default;">
                     <div style="font-size: 28px; font-weight: 800; color: #4CAF50; margin-bottom: 5px;">B</div>
                     <div style="font-size: 13px; font-weight: 500;">Bag the poo and dispose of it</div>
@@ -185,232 +259,658 @@
                     <div style="font-size: 13px; font-weight: 500;">Know where they can go</div>
                 </div>
             </div>
-            <p style="font-size: 14px; text-align: center; margin-top: 15px; color: #666;">Following these rules preserves the environment and keeps your pup safe!</p>
+            <p style="font-size: 14px; text-align: center; margin-top: 15px; color: #666;">Following these rules
+                preserves the environment and keeps your pup safe!</p>
         </div>
 
         <div class="view-content glass-panel" style="margin-top: 20px;">
             <h3>Official B.A.R.K. Swag</h3>
-            <p>Show off your B.A.R.K. Ranger pride! Grab high-quality vinyl stickers, magnets, dye-sublimated patches, beautiful collar tags, and durable bandanas. Always Free Shipping!</p>
-            <a href="https://www.ebay.com/itm/404632413543" target="_blank" class="glass-btn primary-btn" style="text-decoration: none; display: inline-block; width: fit-content; margin-top: 10px;">Shop the Store</a>
+            <p>Show off your B.A.R.K. Ranger pride! Grab high-quality vinyl stickers, magnets, dye-sublimated patches,
+                beautiful collar tags, and durable bandanas. Always Free Shipping!</p>
+            <a href="https://www.ebay.com/itm/404632413543" target="_blank" class="glass-btn primary-btn"
+                style="text-decoration: none; display: inline-block; width: fit-content; margin-top: 10px;">Shop the
+                Store</a>
         </div>
 
         <div class="view-content glass-panel" style="margin-top: 20px;">
             <h3>Community Resources</h3>
             <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
-                <a href="https://usbarkrangers.com/safety-tips" target="_blank" class="glass-btn" style="flex: 1; min-width: 120px; text-align: center; padding: 10px; text-decoration: none;">Safety Tips</a>
-                <a href="https://usbarkrangers.com/meet-the-team-1" target="_blank" class="glass-btn" style="flex: 1; min-width: 120px; text-align: center; padding: 10px; text-decoration: none;">Meet the Team</a>
-                <a href="https://www.alltrails.com/plans?irclickid=1tU2C52IjxyZR2xVwpx5t3kRUkuw%3Alzpz0vIzo0&sharedid=&irpid=5451289&utm_source=affiliate&utm_medium=impact&irmpgroupname=%22Affiliate%22%2C%22Hiking%22%2C%22Pets%22%2C%22Social+Content%22&irgwc=1&afsrc=1&k=explorenow" target="_blank" class="glass-btn" style="flex: 1; min-width: 120px; text-align: center; padding: 10px; text-decoration: none;">AllTrails Trial</a>
+                <a href="https://usbarkrangers.com/safety-tips" target="_blank" class="glass-btn"
+                    style="flex: 1; min-width: 120px; text-align: center; padding: 10px; text-decoration: none;">Safety
+                    Tips</a>
+                <a href="https://usbarkrangers.com/meet-the-team-1" target="_blank" class="glass-btn"
+                    style="flex: 1; min-width: 120px; text-align: center; padding: 10px; text-decoration: none;">Meet
+                    the Team</a>
+                <a href="https://www.alltrails.com/plans?irclickid=1tU2C52IjxyZR2xVwpx5t3kRUkuw%3Alzpz0vIzo0&sharedid=&irpid=5451289&utm_source=affiliate&utm_medium=impact&irmpgroupname=%22Affiliate%22%2C%22Hiking%22%2C%22Pets%22%2C%22Social+Content%22&irgwc=1&afsrc=1&k=explorenow"
+                    target="_blank" class="glass-btn"
+                    style="flex: 1; min-width: 120px; text-align: center; padding: 10px; text-decoration: none;">AllTrails
+                    Trial</a>
             </div>
-            <p style="font-size: 14px; text-align: center; margin-top: 15px; color: #666;">Plan dog-friendly hikes with our partner.</p>
+            <p style="font-size: 14px; text-align: center; margin-top: 15px; color: #666;">Plan dog-friendly hikes with
+                our partner.</p>
         </div>
 
         <div class="view-content glass-panel" style="margin-top: 20px;">
             <h3>Join the Community</h3>
             <div style="display: flex; gap: 15px; justify-content: center; margin-top: 15px;">
-                <a href="https://www.facebook.com/share/g/1NEaDxEURR/" target="_blank" class="social-link glass-btn" aria-label="Facebook Group">
-                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg>
+                <a href="https://www.facebook.com/share/g/1NEaDxEURR/" target="_blank" class="social-link glass-btn"
+                    aria-label="Facebook Group">
+                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
+                    </svg>
                 </a>
-                <a href="https://www.instagram.com/usbarkrangers/" target="_blank" class="social-link glass-btn" aria-label="Instagram">
-                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+                <a href="https://www.instagram.com/usbarkrangers/" target="_blank" class="social-link glass-btn"
+                    aria-label="Instagram">
+                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                        <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                        <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                    </svg>
                 </a>
-                <a href="https://www.youtube.com/channel/UCxSm2WLFRaQYCdZSeHTI02w" target="_blank" class="social-link glass-btn" aria-label="YouTube">
-                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33 2.78 2.78 0 0 0 1.94 2c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.33 29 29 0 0 0-.46-5.33z"></path><polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"></polygon></svg>
+                <a href="https://www.youtube.com/channel/UCxSm2WLFRaQYCdZSeHTI02w" target="_blank"
+                    class="social-link glass-btn" aria-label="YouTube">
+                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path
+                            d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33 2.78 2.78 0 0 0 1.94 2c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.33 29 29 0 0 0-.46-5.33z">
+                        </path>
+                        <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"></polygon>
+                    </svg>
                 </a>
-                <a href="https://www.tiktok.com/@usbarkrangers?_r=1&_t=ZP-95DaSKf76sQ" target="_blank" class="social-link glass-btn" aria-label="TikTok">
-                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tiktok-icon">
+                <a href="https://www.tiktok.com/@usbarkrangers?_r=1&_t=ZP-95DaSKf76sQ" target="_blank"
+                    class="social-link glass-btn" aria-label="TikTok">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" class="tiktok-icon">
                         <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"></path>
                     </svg>
                 </a>
             </div>
-            
-            <div id="share-portal" style="margin-top: 30px; background: white; padding: 15px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.03); box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center;">
+
+            <div id="share-portal"
+                style="margin-top: 30px; background: white; padding: 15px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.03); box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center;">
                 <h4 style="margin-bottom: 15px; color: #333; font-size: 15px;">🔗 Share the Adventure</h4>
-                <select id="share-link-select" style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8); margin-bottom: 20px; font-weight: 600;">
+                <select id="share-link-select"
+                    style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8); margin-bottom: 20px; font-weight: 600;">
                     <option value="https://usbarkrangers.github.io/USBarkRangers/">The Map</option>
                     <option value="https://facebook.com/groups/usbarkrangers">Facebook Group</option>
                     <option value="https://instagram.com/usbarkrangers">Instagram</option>
                     <option value="https://youtube.com/usbarkrangers">YouTube</option>
                 </select>
-                <div style="background: white; border-radius: 12px; padding: 15px; display: inline-block; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 15px;">
+                <div
+                    style="background: white; border-radius: 12px; padding: 15px; display: inline-block; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 15px;">
                     <div id="qr-code-container"></div>
                 </div>
-                <button id="download-qr-btn" class="glass-btn primary-btn" style="width: 100%; border-radius: 8px; padding: 10px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 8px;">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <button id="download-qr-btn" class="glass-btn primary-btn"
+                    style="width: 100%; border-radius: 8px; padding: 10px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 8px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
                     Download QR Code
                 </button>
             </div>
         </div>
-        
+
         <div style="padding-bottom: 90px;"></div>
 
     </div>
 
     <div id="planner-view" class="ui-view">
-        <div class="view-content glass-panel" style="max-width: 500px;">
-            <h2 style="font-size: 20px; color: #333; margin-bottom: 5px;">Road Trip Planner</h2>
-            <p style="font-size: 13px; color: #666; margin-bottom: 20px;">Plan your multi-day adventure with ease.</p>
-            
-            <div style="margin-bottom: 15px;">
-                <label for="tripNameInput" style="display: block; font-size: 12px; font-weight: 700; color: #333; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Route Name</label>
-                <input type="text" id="tripNameInput" placeholder="e.g., Summer Road Trip 2024" style="width: 100%; padding: 12px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.1); font-size: 14px; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='#1976D2'" onblur="this.style.borderColor='rgba(0,0,0,0.1)'">
-            </div>
-            
-            <div style="margin-bottom: 20px; display: flex; flex-direction: column; gap: 8px;">
-                <button id="add-current-loc-btn" class="glass-btn" style="width: 100%; border-radius: 10px; font-size: 13px; padding: 10px; background: #e3f2fd; color: #1976D2; font-weight: 600; border: 1px solid rgba(25,118,210,0.1);">📍 Use My Location</button>
-                <div style="display: flex; gap: 5px;">
-                    <input type="text" id="town-search-input" placeholder="Search a town (e.g. Gainesville)" style="flex: 1; padding: 10px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.1); font-size: 13px;">
-                    <button id="add-town-btn" class="glass-btn primary-btn" style="padding: 10px 15px; border-radius: 10px; font-size: 13px;">Add</button>
+        <div class="view-content"
+            style="max-width: 500px; margin: 0 auto; background: transparent; box-shadow: none; border: none; padding: 0;">
+
+            <!-- Tile 1: Identity -->
+            <div
+                style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h2 style="font-size: 18px; color: #1e293b; margin: 0; font-weight: 900;">Route Planner</h2>
                 </div>
-                <div id="town-disambiguation-container" style="display: none; background: #fff; border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; padding: 5px; max-height: 200px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.08);"></div>
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px;">
+                    <input type="text" id="tripNameInput" placeholder="Route Name (e.g. Summer Road Trip 2024)"
+                        style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; font-weight: 700; color: #334155; outline: none; background: white; box-sizing: border-box;">
+                </div>
             </div>
 
-            <div id="route-telemetry" style="display: none; background: #f0f7ff; border: 1px solid rgba(25,118,210,0.1); border-radius: 12px; padding: 10px; margin-bottom: 15px; text-align: center;"></div>
+            <!-- Tile 2: The Itinerary -->
+            <div
+                style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 20px;">
+                <div id="route-telemetry"
+                    style="display: none; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px; margin-bottom: 16px; text-align: center; font-size: 12px; font-weight: 600; color: #15803d;">
+                </div>
 
-            <ul id="trip-queue-list" style="list-style: none; padding: 0; margin-bottom: 20px; max-height: 40vh; overflow-y: auto;"></ul>
+                <div id="itinerary-timeline-wrapper"
+                    style="background: transparent; border: none; padding: 0; margin: 0;">
+                    <ul id="trip-queue-list"
+                        style="list-style: none; padding: 0; margin: 0; max-height: 45vh; overflow-y: auto;"></ul>
+                </div>
+            </div>
 
-            <div id="day-notes-container" style="margin-bottom: 20px;"></div>
+            <!-- Tile 3: Tools & Actions -->
+            <div
+                style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 80px;">
+                <details
+                    style="margin-bottom: 20px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px;">
+                    <summary
+                        style="font-size: 11px; font-weight: 800; color: #64748b; cursor: pointer; text-transform: uppercase; outline: none; list-style: none; display: flex; align-items: center; justify-content: space-between;">
+                        <span>📝 Day Notes & Planning</span>
+                        <span style="font-size: 14px;">▾</span>
+                    </summary>
+                    <div id="day-notes-container" style="margin-top: 10px;"></div>
+                </details>
 
-            <div style="display: flex; gap: 8px; flex-wrap: wrap; padding-bottom: 100px;">
-                <button id="clear-trip-btn" class="glass-btn" style="flex: 1; min-width: 80px; border-radius: 10px; background: #f5f5f5; color: #d32f2f; font-weight: 600; padding: 12px; border: 1px solid rgba(0,0,0,0.1);">Clear All</button>
-                <button id="save-route-btn" class="glass-btn" style="flex: 1; min-width: 80px; border-radius: 10px; background: #e8f5e9; color: #2E7D32; font-weight: 600; padding: 12px; border: 1px solid rgba(46,125,50,0.15);">💾 Save</button>
-                <button id="start-route-btn" class="glass-btn primary-btn" style="flex: 2; min-width: 120px; border-radius: 10px; font-weight: 600; padding: 12px;">Generate Route</button>
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <div style="display: flex; gap: 8px;">
+                        <button onclick="autoSortDay()" class="glass-btn"
+                            style="flex: 1; border-radius: 8px; background: #fdf4ff; color: #c026d3; font-weight: 800; font-size: 12px; padding: 10px; border: 1px solid #f0abfc;">🪄
+                            Sort Day</button>
+                        <button id="optimize-trip-btn" class="glass-btn"
+                            style="flex: 1; border-radius: 8px; background: #faf5ff; color: #9333ea; font-weight: 800; font-size: 12px; padding: 10px; border: 1px solid #e9d5ff;">✨
+                            Optimize Trip</button>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
+                        <button id="clear-trip-btn" class="glass-btn"
+                            style="background: transparent; color: #ef4444; font-weight: 700; font-size: 12px; padding: 8px 0; border: none; text-decoration: underline; min-width: 44px; text-align: left;">Clear</button>
+                        <div style="display: flex; gap: 8px; flex: 1; align-items: center;">
+                            <button id="planner-load-btn" onclick="togglePlannerRoutes()" class="glass-btn"
+                                style="flex: 0.7; border-radius: 8px; background: #f8fafc; color: #475569; font-weight: 800; font-size: 13px; padding: 12px; border: 1px solid #cbd5e1;">📂
+                                Load</button>
+                            <button id="save-route-btn" class="glass-btn"
+                                style="flex: 1; border-radius: 8px; background: #f0fdf4; color: #15803d; font-weight: 800; font-size: 13px; padding: 12px; border: 1px solid #bbf7d0;">💾
+                                Save</button>
+                            <button id="start-route-btn" class="glass-btn primary-btn"
+                                style="flex: 1.5; border-radius: 8px; font-weight: 900; font-size: 14px; padding: 12px; box-shadow: 0 4px 12px rgba(34,197,94,0.3);">Generate
+                                Route</button>
+                        </div>
+                    </div>
+
+                    <div id="planner-saved-routes-container"
+                        style="display: none; border-top: 1px solid #f1f5f9; margin-top: 15px; padding-top: 15px;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <span
+                                style="font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">📂
+                                Your Saved Routes</span>
+                            <button onclick="togglePlannerRoutes()"
+                                style="background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer;">&times;</button>
+                        </div>
+                        <div id="planner-saved-routes-list"
+                            style="max-height: 250px; overflow-y: auto; padding-right: 4px;"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
-
     <div id="profile-view" class="ui-view">
-        <div class="view-content glass-panel" style="max-width: 500px;">
-            <h2>Profile Dashboard</h2>
-            <p>Log in with Google to securely save your Visited Parks history.</p>
-            
-            <div id="add-location-portal" style="margin-top: 20px; background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03);">
-                <div style="text-align: center;">
-                    <h3 style="color: #333; font-size: 16px; font-weight: 700; margin-bottom: 10px;">➕ Suggest a Missing Location</h3>
-                    <p style="font-size: 13px; color: #666; margin-bottom: 15px;">Help grow the map! Tap below to send us the details via email.</p>
-                    
-                    <a id="email-suggest-btn" href="#" class="glass-btn primary-btn" style="text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; width: 100%; padding: 14px; border-radius: 12px;">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-                        Email Suggestion
-                    </a>
-                    
-                    <p style="font-size: 11px; color: #999; margin-top: 12px; font-style: italic;">We'll pre-fill the form for you—just add the details and attach photos! 🐾</p>
-                </div>
-            </div>
-            
-            <div id="offline-status-container" style="display: none; background: rgba(33, 150, 243, 0.1); border: 1px solid #2196F3; padding: 15px; border-radius: 8px; margin-top: 15px;">
-                <h3 style="color: #1976D2; margin-bottom: 5px;">Welcome!</h3>
-                <p id="user-profile-name" style="font-weight: 600; margin-bottom: 15px; color: #333;"></p>
-                
-                <div id="reward-progress-container" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <span id="reward-level-title" style="font-weight: 800; font-size: 14px; color: #1976D2;">Level 1</span>
-                        <span id="reward-level-status" style="font-size: 12px; font-weight: 600; color: #777;">0 / 10 Visits</span>
+
+        <div class="view-content"
+            style="max-width: 500px; margin: 0 auto; background: transparent; box-shadow: none; border: none; padding: 0;">
+
+            <div id="offline-status-container"
+                style="display: none; background: transparent; border: none; padding: 0; margin-top: 0;">
+
+                <!-- 1. Identity: Stats & Title -->
+                <div class="profile-section-card"
+                    style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; margin-bottom: 24px; border: 1px solid rgba(0,0,0,0.05);">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                        <div>
+                            <h2 style="margin: 0; font-size: 22px; font-weight: 900; color: #1e293b;">Welcome!</h2>
+                            <p id="user-profile-name"
+                                style="font-weight: 600; margin: 0; color: #64748b; font-size: 14px;"></p>
+                        </div>
+                        <div id="streak-pill"
+                            style="background: #fef2f2; border: 1px solid #fee2e2; color: #ef4444; font-weight: 900; font-size: 12px; padding: 4px 10px; border-radius: 20px;">
+                            🔥 <span id="streak-count-label">0</span>
+                        </div>
                     </div>
-                    <div style="background: #E0E0E0; border-radius: 8px; height: 10px; width: 100%; overflow: hidden;">
-                        <div id="reward-progress-bar" style="background: #4CAF50; height: 100%; width: 0%; transition: width 0.5s ease-in-out;"></div>
+
+                    <div id="stats-grid"
+                        style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; text-align: center; margin-top: 16px;">
+                        <div
+                            style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9;">
+                            <div id="stat-score" style="font-size: 26px; font-weight: 900; color: #10b981;">0</div>
+                            <div
+                                style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">
+                                Total Score</div>
+                        </div>
+                        <div
+                            style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9; position: relative; overflow: hidden;">
+                            <span
+                                style="position: absolute; right: -5px; bottom: -10px; font-size: 40px; opacity: 0.05; pointer-events: none;">🐾</span>
+                            <div id="stat-verified"
+                                style="font-size: 26px; font-weight: 900; color: #f59e0b; position: relative;">0</div>
+                            <div
+                                style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px; position: relative;">
+                                🐾 Verified</div>
+                        </div>
+                        <div
+                            style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9;">
+                            <div id="stat-regular" style="font-size: 26px; font-weight: 900; color: #3b82f6;">0</div>
+                            <div
+                                style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">
+                                Regular Vis.</div>
+                        </div>
+                        <div
+                            style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9;">
+                            <div id="stat-states" style="font-size: 26px; font-weight: 900; color: #a855f7;">0</div>
+                            <div
+                                style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">
+                                States</div>
+                        </div>
+                    </div>
+
+                    <div class="banner-card"
+                        style="background: #f8fafc; border-radius: 12px; padding: 15px; border: 1px solid #f1f5f9;">
+                        <div class="banner-content">
+                            <div class="title-section">
+                                <div class="title-wrap" style="width: 100%;">
+                                    <div
+                                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                        <span class="title-eyebrow"
+                                            style="color: #94a3b8; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;">CURRENT
+                                            TITLE</span>
+                                        <button id="scoring-info-btn" class="info-pulse-btn" style="font-size: 11px;">ℹ️
+                                            Info</button>
+                                    </div>
+                                    <h2 id="current-title-label"
+                                        style="font-size: 20px; font-weight: 900; color: #1e293b; margin: 0;">B.A.R.K.
+                                        Trainee</h2>
+                                </div>
+                            </div>
+                            <div style="text-align: right; margin-bottom: 6px;">
+                                <span id="rank-progress-fraction"
+                                    style="font-size: 11px; font-weight: 800; color: #94a3b8; letter-spacing: 0.5px;"></span>
+                            </div>
+                            <div class="progress-bar-track"
+                                style="background: #e2e8f0; height: 8px; border-radius: 4px;">
+                                <div id="tier-progress-fill" class="progress-bar-fill"
+                                    style="width: 0%; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #3b82f6, #8b5cf6);">
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div id="stats-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; text-align: center;">
-                    <div style="background: white; border-radius: 12px; padding: 15px 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03);">
-                        <div id="stat-score" style="font-size: 26px; font-weight: 800; color: #4CAF50;">0</div>
-                        <div style="font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; margin-top: 5px; letter-spacing: 0.5px;">Total Score</div>
+                <!-- Unified Virtual Basecamp Module -->
+                <div class="profile-section-card" id="virtual-basecamp-module"
+                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b;">Virtual Expedition
+                            </h3>
+                            <span id="lifetime-miles-display"
+                                style="background: #eff6ff; color: #3b82f6; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 800;">0.0
+                                mi</span>
+                        </div>
+                        <span id="expedition-name"
+                            style="font-size: 11px; font-weight: 900; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.5px;"></span>
                     </div>
-                    <div style="background: white; border-radius: 12px; padding: 15px 5px; box-shadow: 0 4px 12px rgba(255, 152, 0, 0.15); border: 1px solid rgba(255,152,0,0.2); position: relative; overflow: hidden;">
-                        <span style="position: absolute; right: -5px; bottom: -10px; font-size: 40px; opacity: 0.05; pointer-events: none;">🐾</span>
-                        <div id="stat-verified" style="font-size: 26px; font-weight: 800; color: #FF9800; position: relative;">0</div>
-                        <div style="font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; margin-top: 5px; letter-spacing: 0.5px; position: relative;">🐾 Verified Visits</div>
+
+                    <div id="expedition-intro-state">
+                        <div
+                            style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 8px;">
+                            <div
+                                style="font-size: 40px; margin-bottom: 12px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));">
+                                🎒</div>
+                            <p
+                                style="font-size: 13px; color: #475569; line-height: 1.5; margin-bottom: 16px; font-weight: 600;">
+                                Experience America's greatest trails right from your neighborhood. Spin the wheel to
+                                receive your first expedition!
+                            </p>
+                            <button id="spin-wheel-btn" class="glass-btn primary-btn"
+                                style="width: 100%; font-size: 14px; padding: 14px; border-radius: 10px; font-weight: 900; box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);">
+                                🎡 Spin for a Trail
+                            </button>
+                        </div>
                     </div>
-                    <div style="background: white; border-radius: 12px; padding: 15px 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03);">
-                        <div id="stat-regular" style="font-size: 26px; font-weight: 800; color: #2196F3;">0</div>
-                        <div style="font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; margin-top: 5px; letter-spacing: 0.5px;">Regular Visits</div>
+
+                    <div id="expedition-complete-state" style="display: none;">
+                        <div id="expedition-celebration-state" style="text-align: center; padding: 24px 12px;">
+                            <div class="bounce-emoji"
+                                style="font-size: 50px; margin-bottom: 16px; text-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                                🏆</div>
+                            <h4 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 900; color: #1e293b;">Expedition
+                                Complete!</h4>
+                            <p style="font-size: 13px; color: #64748b; margin-bottom: 20px; line-height: 1.4;">
+                                Incredible work! You've conquered the <strong id="celebration-trail-name"
+                                    style="color: #f59e0b;"></strong>.
+                            </p>
+
+                            <div style="display: flex; gap: 8px; flex-direction: column;">
+                                <button id="share-single-expedition-btn" onclick="shareSingleExpedition()"
+                                    class="glass-btn"
+                                    style="width: 100%; padding: 12px; font-size: 13px; border-radius: 10px; font-weight: 800; background: #f8fafc; color: #1e293b; border: 1px solid #cbd5e1;">
+                                    📸 Share This Victory
+                                </button>
+                                <button id="claim-reward-btn" onclick="claimRewardAndReset()" class="glass-btn"
+                                    style="width: 100%; padding: 14px; font-size: 14px; border-radius: 10px; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; font-weight: 900; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);">
+                                    🎁 Claim +5 PTS & Reset
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                    <div style="background: white; border-radius: 12px; padding: 15px 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03);">
-                        <div id="stat-states" style="font-size: 26px; font-weight: 800; color: #9C27B0;">0</div>
-                        <div style="font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; margin-top: 5px; letter-spacing: 0.5px;">States Visited</div>
+
+                    <div id="expedition-active-state" style="display: none;">
+                        <div class="expedition-track">
+                            <div id="expedition-fill" class="expedition-fill" style="width: 0%;">
+                                <div id="expedition-avatar" class="expedition-avatar">🐕</div>
+                            </div>
+                        </div>
+                        <div style="text-align: right; margin-bottom: 20px;">
+                            <span id="expedition-progress-text"
+                                style="font-size: 11px; font-weight: 800; color: #94a3b8;">0.0 / 0.0 Miles (0%)</span>
+                        </div>
+
+                        <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+                            <button onclick="flyToActiveTrail()" class="glass-btn"
+                                style="flex: 1; padding: 8px; font-size: 11px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #1e293b;">
+                                🗺️ View on Map
+                            </button>
+                            <button onclick="document.getElementById('trail-education-modal').style.display='flex'"
+                                class="glass-btn"
+                                style="flex: 1; padding: 8px; font-size: 11px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #1e293b;">
+                                📖 Trail Brief
+                            </button>
+                        </div>
+
+                        <div
+                            style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="flex: 1; padding-right: 12px;">
+                                    <h4 style="margin: 0 0 4px 0; font-size: 13px; font-weight: 800; color: #1e293b;">
+                                        Live GPS Walk</h4>
+                                    <p id="training-desc"
+                                        style="margin: 0; font-size: 11px; color: #64748b; line-height: 1.4;">
+                                        Start walking away from home. Log your turnaround point to calculate total
+                                        distance and earn <strong style="color: #f59e0b;">+0.5 PTS</strong>.
+                                    </p>
+                                </div>
+                                <div style="display: flex; flex-direction: column; gap: 8px;">
+                                    <button id="training-action-btn" onclick="handleTrainingClick()"
+                                        class="glass-btn training-btn"
+                                        style="padding: 10px 16px; border-radius: 8px;">Start Walk</button>
+                                    <button id="cancel-training-btn" onclick="cancelTrainingWalk()"
+                                        style="display: none; background: transparent; color: #94a3b8; border: none; font-size: 10px; font-weight: 700; text-decoration: underline; cursor: pointer;">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <details class="premium-details"
+                            style="background: transparent; border: 1px solid #e2e8f0; border-radius: 12px;">
+                            <summary
+                                style="font-size: 12px; font-weight: 800; color: #64748b; cursor: pointer; padding: 12px; display: flex; justify-content: space-between; align-items: center; list-style: none;">
+                                <span>📋 Expedition Log & Manual Entry</span>
+                                <span class="chevron">▼</span>
+                            </summary>
+
+                            <div style="padding: 0 12px 12px 12px; border-top: 1px solid #f1f5f9; margin-top: 4px;">
+                                <ul id="expedition-history-list"
+                                    style="list-style: none; padding: 0; margin: 0 0 16px 0; max-height: 180px; overflow-y: auto;">
+                                    <li
+                                        style="color: #94a3b8; font-size: 11px; text-align: center; padding: 10px 0; font-style: italic;">
+                                        No miles logged yet.</li>
+                                </ul>
+
+                                <div
+                                    style="background: #fef2f2; border: 1px dashed #fca5a5; border-radius: 8px; padding: 12px;">
+                                    <div
+                                        style="font-size: 10px; font-weight: 800; color: #ef4444; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">
+                                        ⚠️ Honor System Override</div>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="number" id="miles-input" placeholder="Miles walked..." min="0.1"
+                                            step="0.1" max="15"
+                                            style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid #fca5a5; font-size: 12px; outline: none;">
+                                        <button id="log-manual-miles-btn" class="glass-btn"
+                                            style="background: #ef4444; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 800;">Add</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
                     </div>
                 </div>
 
-                <div id="trophy-case-container" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
-                    <h3 style="color: #333; font-size: 16px; margin-bottom: 15px; text-align: center;">🏆 Trophy Case</h3>
-                    <div id="trophy-grid" class="trophy-grid">
-                        <!-- Badges rendered by evaluateAchievements() -->
+                <!-- Digital Trophy Case (Expedition Rewards) -->
+                <div class="profile-section-card" id="expedition-trophy-case"
+                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px; overflow: hidden; display: none;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3
+                            style="margin: 0; font-size: 13px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">
+                            🏅 Completed Expeditions</h3>
+                        <button onclick="shareAllExpeditions()" class="glass-btn"
+                            style="font-size: 11px; padding: 6px 12px; border-radius: 8px; background: #eff6ff; color: #3b82f6; border: none; font-weight: 800;">📸
+                            Share All</button>
+                    </div>
+
+                    <div id="completed-expeditions-grid"
+                        style="display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding-bottom: 12px; -webkit-overflow-scrolling: touch; scroll-snap-type: x mandatory;">
+                        <div
+                            style="font-size: 11px; color: #94a3b8; font-style: italic; width: 100%; text-align: center; padding: 10px 0;">
+                            No expeditions completed yet. Spin the wheel to start!
+                        </div>
                     </div>
                 </div>
 
-                <div id="manage-places-portal" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
-                    <details>
-                        <summary style="color: #333; font-size: 14px; font-weight: 600; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none;">
-                            <div style="pointer-events: none;">View/Manage My Visited Places</div>
-                            <span id="manage-portal-count" style="background: rgba(33, 150, 243, 0.1); color: #1976D2; padding: 4px 8px; border-radius: 12px; font-size: 12px; pointer-events: none;">0</span>
+                <!-- 3. Gamification: Vault -->
+                <div class="profile-section-card"
+                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b;">🏆 Achievement Vault
+                        </h3>
+                        <button id="share-vault-btn" class="glass-btn"
+                            style="font-size: 11px; padding: 6px 12px; border-radius: 8px;"
+                            onclick="shareVaultCard()">📸 Share</button>
+                    </div>
+
+                    <div class="vault-tabs">
+                        <button class="tab-btn active" data-tab="rare-feats">Rare Feats</button>
+                        <button class="tab-btn" data-tab="paws">Paws</button>
+                        <button class="tab-btn" data-tab="states">States</button>
+                    </div>
+
+                    <div class="vault-drawer" id="vault-drawer" style="max-height: 400px; overflow-y: auto;">
+                        <div class="tab-content active" id="rare-feats-content">
+                            <div class="badge-grid" id="rare-feats-grid"
+                                style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"></div>
+                        </div>
+                        <div class="tab-content" id="paws-content">
+                            <div class="badge-grid" id="paws-grid"
+                                style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"></div>
+                        </div>
+                        <div class="tab-content" id="states-content">
+                            <div class="badge-grid" id="states-grid"
+                                style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. Gamification: Dossier -->
+                <div class="profile-section-card"
+                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                    <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 900; color: #1e293b;">👁️ Classified
+                        Dossier</h3>
+                    <p style="margin: 0 0 16px 0; font-size: 11px; color: #64748b;">Rumors gathered from the field.</p>
+                    <div class="badge-grid" id="mystery-feats-dossier"
+                        style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+                        <!-- JS injected dossiers -->
+                    </div>
+                </div>
+
+                <!-- 5. Gamification: Leaderboard -->
+                <div class="profile-section-card" id="leaderboard-container"
+                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b;">🏆 Global Leaderboard
+                        </h3>
+                        <span id="personal-rank-display"
+                            style="font-size: 11px; font-weight: 900; color: #f59e0b; background: #fffbeb; padding: 4px 10px; border-radius: 20px; border: 1px solid #fef3c7;">Rank:
+                            --</span>
+                    </div>
+                    <ul id="leaderboard-list" style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
+                        <li style="color: #94a3b8; font-style: italic; text-align: center; padding: 20px 0;">Loading Top
+                            5...</li>
+                    </ul>
+                    <div id="leaderboard-controls" style="margin-top: 15px; text-align: center;"></div>
+                </div>
+
+                <!-- 6. Utility: Data & Routes -->
+                <div class="profile-section-card"
+                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3
+                            style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                            🗃️ My Data & Routes</h3>
+                    </div>
+
+                    <div style="padding-top: 4px;">
+                        <details class="premium-details">
+                            <summary
+                                style="color: #1e293b; font-size: 14px; font-weight: 800; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none; padding: 12px; margin: -12px; border-radius: 12px; transition: all 0.2s ease;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 16px;">📂</span>
+                                    <div>Saved Itineraries</div>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span id="saved-routes-count"
+                                        style="background: #eff6ff; color: #2563eb; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 800;">0</span>
+                                    <span class="chevron"
+                                        style="font-size: 12px; color: #94a3b8; transition: transform 0.3s ease;">▼</span>
+                                </div>
+                            </summary>
+                            <div id="saved-routes-list"
+                                style="max-height: 350px; overflow-y: auto; margin-top: 24px; padding-top: 20px; border-top: 1px solid #f1f5f9; padding-right: 4px;">
+                            </div>
+                        </details>
+                    </div>
+
+                    <div style="border-top: 1px solid #f1f5f9; margin: 16px 0;"></div>
+
+                    <details id="manage-places-portal" class="premium-details">
+                        <summary
+                            style="color: #1e293b; font-size: 14px; font-weight: 800; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none; padding: 12px; margin: -12px; border-radius: 12px; transition: all 0.2s ease;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-size: 16px;">📍</span>
+                                <div>My Visited Places</div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span id="manage-portal-count"
+                                    style="background: #eff6ff; color: #3b82f6; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 900;">0</span>
+                                <span class="chevron"
+                                    style="font-size: 12px; color: #94a3b8; transition: transform 0.3s ease;">▼</span>
+                            </div>
                         </summary>
-                        <div style="max-height: 200px; overflow-y: auto; margin-top: 15px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.05);">
-                            <ul id="manage-places-list" style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
-                                <!-- Reactively Rendered DOM elements here -->
+                        <div
+                            style="max-height: 280px; overflow-y: auto; margin-top: 24px; padding-top: 20px; border-top: 1px solid #f1f5f9;">
+                            <ul id="manage-places-list"
+                                style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
                             </ul>
                         </div>
                     </details>
-                </div>
 
-                <div id="leaderboard-container" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
-                    <h4 style="color: #333; margin-bottom: 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: center;">
-                        🏆 Global Leaderboard
-                        <span id="personal-rank-display" style="font-size: 11px; font-weight: 600; color: #FF9800; background: rgba(255, 152, 0, 0.1); padding: 3px 8px; border-radius: 10px;">Rank: --</span>
-                    </h4>
-                    <ul id="leaderboard-list" style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
-                        <li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">Loading Top 5...</li>
-                    </ul>
-                    <div id="leaderboard-controls" style="margin-top: 10px; text-align: center;"></div>
-                </div>
+                    <div style="border-top: 1px solid #f1f5f9; margin: 16px 0;"></div>
 
-                <label for="visited-filter" style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 5px;">Map Filter:</label>
-                <select id="visited-filter" style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8); margin-bottom: 15px;">
-                    <option value="all">Show All Places</option>
-                    <option value="visited">Show Places I Have Been</option>
-                    <option value="unvisited">Show Places I Have Not Been</option>
-                </select>
-
-                <button id="export-csv-btn" class="glass-btn primary-btn" style="width: 100%; margin-bottom: 15px; padding: 10px; border-radius: 8px; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    Download My Data
-                </button>
-
-                <label for="map-style-select" style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 5px; border-top: 1px solid rgba(0,0,0,0.1); padding-top: 15px;">Map Style (Premium):</label>
-                <select id="map-style-select" style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8); margin-bottom: 15px;">
-                    <option value="default">Default (OpenStreetMap)</option>
-                    <option value="terrain">Terrain (OpenTopoMap)</option>
-                    <option value="satellite">Satellite (Esri Imagery)</option>
-                </select>
-
-
-                <div id="saved-routes-container" style="background: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.03);">
-                    <details>
-                        <summary style="color: #333; font-size: 14px; font-weight: 600; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none;">
-                            <div style="pointer-events: none;">🗺️ Saved Routes</div>
-                            <span id="saved-routes-count" style="background: rgba(25,118,210,0.1); color: #1976D2; padding: 4px 8px; border-radius: 12px; font-size: 12px; pointer-events: none;">0</span>
+                    <details id="manage-walks-portal" class="premium-details">
+                        <summary
+                            style="color: #1e293b; font-size: 14px; font-weight: 800; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none; padding: 12px; margin: -12px; border-radius: 12px; transition: all 0.2s ease;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-size: 16px;">🥾</span>
+                                <div>My Total Walks</div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span id="manage-walks-count"
+                                    style="background: #eff6ff; color: #3b82f6; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 900;">0</span>
+                                <span class="chevron"
+                                    style="font-size: 12px; color: #94a3b8; transition: transform 0.3s ease;">▼</span>
+                            </div>
                         </summary>
-                        <div id="saved-routes-list" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.05); max-height: 280px; overflow-y: auto; font-size: 13px;">
-                            <p style="color: #aaa; text-align: center; padding: 10px 0;">No saved routes yet.</p>
+                        <div
+                            style="max-height: 280px; overflow-y: auto; margin-top: 24px; padding-top: 20px; border-top: 1px solid #f1f5f9;">
+                            <div id="manage-walks-list">
+                                <!-- Grouped walk logs injected here -->
+                            </div>
                         </div>
                     </details>
+
+                    <div style="border-top: 1px solid #f1f5f9; margin: 16px 0;"></div>
+
+                    <button id="export-csv-btn" class="glass-btn"
+                        style="width: 100%; background: #f8fafc; color: #475569; border: 1px dashed #cbd5e1; padding: 14px; border-radius: 12px; font-weight: 700; display: flex; justify-content: center; gap: 8px; transition: all 0.2s ease;">📥
+                        Download Raw CSV Data</button>
                 </div>
 
-                <button id="logout-btn" class="glass-btn" style="width: 100%;">Log Out</button>
+                <!-- Admin Action Container injected by JS if user is admin -->
+                <div id="admin-controls-container" style="margin-bottom: 24px;"></div>
             </div>
 
 
+            <!-- Logged-Out State: Value Pitch -->
             <div id="login-container" style="margin-top: 20px;">
-                <button id="google-login-btn" class="glass-btn primary-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;">
-                    <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/><path d="M1 1h22v22H1z" fill="none"/></svg>
-                    Continue with Google
-                </button>
+                <div
+                    style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 24px; margin-bottom: 24px; border: 1px solid rgba(0,0,0,0.05); text-align: center;">
+                    <h2 style="margin-top: 0; margin-bottom: 8px; font-size: 20px; font-weight: 900; color: #1e293b;">
+                        Unlock Your Profile</h2>
+                    <p style="font-size: 14px; color: #64748b; margin-bottom: 24px; line-height: 1.5;">Sign in to track
+                        your park visits, climb the global leaderboard, earn exclusive achievements, and safely back up
+                        your road trip itineraries.</p>
+
+                    <button id="google-login-btn"
+                        style="width: 100%; background: #22c55e; color: white; border: none; padding: 14px; border-radius: 10px; font-weight: 800; font-size: 15px; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 10px; box-shadow: 0 4px 12px rgba(34,197,94,0.3);">
+                        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google"
+                            style="width: 18px; height: 18px; background: white; border-radius: 50%; padding: 2px;">
+                        Continue with Google
+                    </button>
+                </div>
             </div>
-            
-            <div id="feedback-portal" style="margin-top: 30px; background: rgba(0,0,0,0.02); padding: 15px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.05);">
-                <h4 style="margin-bottom: 10px; color: #555; font-size: 14px;">Suggest an Improvement</h4>
-                <textarea id="feedback-text" placeholder="Tell us how we can make BarkRangerMap better..." style="width: 100%; height: 80px; padding: 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1); margin-bottom: 10px; font-family: inherit; font-size: 13px; resize: vertical; box-sizing: border-box;"></textarea>
-                <button id="submit-feedback-btn" class="glass-btn primary-btn" style="width: 100%; font-size: 13px; padding: 10px; border-radius: 8px; font-weight: 600;">Submit Feedback</button>
+
+            <!-- Universal Footer: Community Tools -->
+            <div id="add-location-portal" class="profile-section-card"
+                style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; margin-bottom: 24px; border: 1px solid rgba(0,0,0,0.05);">
+                <div style="text-align: center;">
+                    <h3 style="color: #333; font-size: 16px; font-weight: 700; margin-bottom: 10px;">➕ Suggest a Missing
+                        Location</h3>
+                    <p style="font-size: 13px; color: #666; margin-bottom: 15px;">Help grow the map! Tap below to send
+                        us the details via email.</p>
+
+                    <a id="email-suggest-btn" href="#" class="glass-btn primary-btn"
+                        style="text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; width: 100%; padding: 14px; border-radius: 12px;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z">
+                            </path>
+                            <polyline points="22,6 12,13 2,6"></polyline>
+                        </svg>
+                        Email Suggestion
+                    </a>
+                </div>
             </div>
+
+            <div id="feedback-portal" class="profile-section-card"
+                style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                <h4 style="margin: 0 0 10px 0; color: #1e293b; font-size: 16px; font-weight: 800;">Suggest an
+                    Improvement</h4>
+                <p style="font-size: 12px; color: #64748b; margin-bottom: 15px;">Tell us how we can make BarkRangerMap
+                    better...</p>
+                <textarea id="feedback-text" placeholder="Your ideas..."
+                    style="width: 100%; height: 80px; padding: 12px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.08); margin-bottom: 12px; font-family: inherit; font-size: 14px; resize: vertical; box-sizing: border-box; background: #f8fafc; outline: none;"></textarea>
+                <button id="submit-feedback-btn" class="glass-btn primary-btn"
+                    style="width: 100%; font-size: 14px; padding: 12px; border-radius: 10px; font-weight: 800;">Submit
+                    Feedback</button>
+            </div>
+
+            <!-- Administrative: Final Exit -->
+            <button id="logout-btn" class="glass-btn"
+                style="width: 100%; margin-top: 32px; padding: 12px; border-radius: 12px; font-weight: 700; color: #ef4444; background: transparent; border: 1px solid rgba(239, 68, 68, 0.1); display: none;">🚪
+                Log Out of Session</button>
 
         </div>
     </div>
@@ -418,20 +918,40 @@
     <!-- Navigation Bar -->
     <nav id="main-nav" class="glass-nav">
         <button class="nav-item" data-target="home-view">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+            </svg>
             <span>Home</span>
         </button>
         <button class="nav-item active" data-target="map-view">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon>
+                <line x1="8" y1="2" x2="8" y2="18"></line>
+                <line x1="16" y1="6" x2="16" y2="22"></line>
+            </svg>
             <span>USBarkRangers</span>
         </button>
         <button class="nav-item" data-target="planner-view" style="position: relative;">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="1" y="3" width="15" height="13"></rect>
+                <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                <circle cx="18.5" cy="18.5" r="2.5"></circle>
+            </svg>
             <span>Planner</span>
-            <span id="planner-badge" style="display: none; position: absolute; top: 5px; right: 15px; background: #FF9800; color: white; border-radius: 12px; font-size: 10px; font-weight: 800; padding: 2px 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">0</span>
+            <span id="planner-badge"
+                style="display: none; position: absolute; top: 5px; right: 15px; background: #FF9800; color: white; border-radius: 12px; font-size: 10px; font-weight: 800; padding: 2px 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">0</span>
         </button>
         <button class="nav-item" data-target="profile-view">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+            </svg>
             <span>Profile</span>
         </button>
     </nav>
@@ -447,9 +967,150 @@
     <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-functions-compat.js"></script>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-    <script src="app.js?v=3"></script>
+    <script src="gamificationLogic.js?v=2"></script>
+    <script src="MapMarkerConfig.js?v=2"></script>
+    <script src="app.js?v=8"></script>
+    <!-- SCORING PROTOCOL MODAL -->
+    <div id="scoring-modal" class="scoring-modal-overlay">
+        <div class="scoring-modal-card">
+            <div class="modal-header">
+                <h3>🛡️ B.A.R.K. PROTOCOL</h3>
+                <button id="close-scoring-modal" class="modal-close-btn">&times; Close</button>
+            </div>
+
+            <div class="modal-section">
+                <h4 class="section-title">THE POINT SYSTEM</h4>
+                <div class="protocol-grid">
+                    <div class="protocol-item">
+                        <span class="p-icon">📝</span>
+                        <div class="protocol-item-details">
+                            <strong>Honor Code (Regular)</strong>
+                            <p>1 PT per visit</p>
+                        </div>
+                    </div>
+                    <div class="protocol-item">
+                        <span class="p-icon">🐾</span>
+                        <div class="protocol-item-details">
+                            <strong>Verified (GPS)</strong>
+                            <p>2 PTS + Unlocks Gold Badges</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-section">
+                <h4 class="section-title">THE STATUS LADDER</h4>
+                <div class="ladder-list">
+                    <div class="ladder-step"><span>0-9</span> <strong>Trainee</strong></div>
+                    <div class="ladder-step"><span>10-24</span> <strong>Ranger</strong></div>
+                    <div class="ladder-step"><span>25-49</span> <strong>Trail Blazer</strong></div>
+                    <div class="ladder-step"><span>50-99</span> <strong>B.A.R.K. Master</strong></div>
+                    <div class="ladder-step"><span>100-199</span> <strong>Trail Legend</strong></div>
+                    <div class="ladder-step"><span>200-299</span> <strong>Apex Ranger</strong></div>
+                    <div class="ladder-step"><span>300+</span> <strong>National Treasure</strong></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="optimizer-modal" class="scoring-modal-overlay">
+        <div class="scoring-modal-card">
+            <div class="modal-header">
+                <h3>✨ OPTIMIZER SETTINGS</h3>
+                <button onclick="document.getElementById('optimizer-modal').style.display='none'"
+                    class="modal-close-btn">&times; Cancel</button>
+            </div>
+            <div class="modal-section">
+                <p style="font-size: 12px; color: #94a3b8; margin-bottom: 20px;">How would you like to pace your road
+                    trip? The AI will group your stops accordingly.</p>
+
+                <label style="display:block; font-size:11px; font-weight:800; color:#f1f5f9; margin-bottom:8px;">Max
+                    Stops Per Day</label>
+                <input type="number" id="opt-max-stops" value="5" min="2" max="15"
+                    style="width:100%; padding:10px; border-radius:8px; border:none; margin-bottom:20px; background:#1e293b; color:white;">
+
+                <label style="display:block; font-size:11px; font-weight:800; color:#f1f5f9; margin-bottom:8px;">Max
+                    Estimated Drive Time (Hours / Day)</label>
+                <input type="number" id="opt-max-hours" value="4" min="1" max="12"
+                    style="width:100%; padding:10px; border-radius:8px; border:none; margin-bottom:20px; background:#1e293b; color:white;">
+
+                <button onclick="executeSmartOptimization()"
+                    style="width:100%; background:linear-gradient(135deg, #9333ea, #c026d3); color:white; font-weight:900; padding:12px; border-radius:8px; border:none; cursor:pointer; text-transform:uppercase; box-shadow: 0 4px 15px rgba(147, 51, 234, 0.4);">Run
+                    Global Optimizer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trail Education Modal -->
+    <div id="trail-education-modal" class="scoring-modal-overlay" style="display: none;">
+        <div class="scoring-modal-card">
+            <div class="modal-header">
+                <h3>📖 EXPEDITION BRIEF</h3>
+                <button onclick="document.getElementById('trail-education-modal').style.display='none'"
+                    class="modal-close-btn">&times;</button>
+            </div>
+
+            <div class="modal-section" style="text-align: left;">
+                <div
+                    style="font-size: 10px; font-weight: 800; color: #e2e8f0; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 1px;">
+                    LOCATION</div>
+                <div id="edu-park-name" style="font-size: 18px; font-weight: 900; color: #f8fafc; margin-bottom: 20px;">
+                    Loading...</div>
+
+                <div
+                    style="font-size: 10px; font-weight: 800; color: #e2e8f0; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 1px;">
+                    ABOUT THIS TRAIL</div>
+                <div id="edu-trail-desc"
+                    style="font-size: 15px; color: #cbd5e1; line-height: 1.6; margin-bottom: 24px;">Loading
+                    description...</div>
+
+                <div
+                    style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 28px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));">🥾</span>
+                    <div>
+                        <div style="font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase;">Total
+                            Distance</div>
+                        <div id="edu-trail-distance" style="font-size: 16px; font-weight: 900; color: #22c55e;">0.0
+                            Miles</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HIDDEN EXPORT STUDIO (Flex Engine) -->
+    <div id='vault-export-template'
+        style='position: absolute; left: -9999px; top: 0; width: 1080px; height: 1080px; background: radial-gradient(circle at top, #1e293b, #0f172a); color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: "Inter", sans-serif; box-sizing: border-box; padding: 60px;'>
+        <div
+            style='font-size: 24px; font-weight: 900; letter-spacing: 6px; color: #f59e0b; margin-bottom: 20px; text-transform: uppercase;'>
+            B.A.R.K. RANGER MAP</div>
+        <h1 id="export-title"
+            style="font-size: 80px; font-weight: 900; margin: 0 0 20px 0; color: #f8fafc; text-shadow: 0 10px 20px rgba(0,0,0,0.8);">
+            Trail Legend</h1>
+        <div id='export-score'
+            style='background: linear-gradient(135deg, #f59e0b, #d97706); color: white; font-weight: 900; font-size: 36px; padding: 15px 40px; border-radius: 50px; box-shadow: 0 10px 20px rgba(245, 158, 11, 0.4); margin-bottom: 80px;'>
+            122 PTS</div>
+        <div
+            style='font-size: 20px; font-weight: 700; color: #64748b; margin-bottom: 30px; letter-spacing: 2px; text-transform: uppercase;'>
+            TOP ACHIEVEMENTS</div>
+        <div id='export-badges-container' style='display: flex; gap: 40px; justify-content: center; width: 100%;'></div>
+        <div
+            style='position: absolute; bottom: 40px; font-size: 20px; font-weight: 800; color: #475569; letter-spacing: 2px;'>
+            START YOUR JOURNEY AT USBARKRANGERS.COM</div>
+    </div>
+
+    <!-- SINGLE MILESTONE FLEX ENGINE -->
+    <div id="single-export-template"
+        style="position: absolute; left: -9999px; top: 0; width: 1080px; height: 1080px; background: radial-gradient(circle at top, #1e293b, #0f172a); color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Inter', sans-serif; box-sizing: border-box; padding: 60px;">
+        <div
+            style="font-size: 28px; font-weight: 900; letter-spacing: 6px; color: #f59e0b; margin-bottom: 60px; text-transform: uppercase;">
+            NEW ACHIEVEMENT UNLOCKED</div>
+        <div id="single-export-card-container"></div>
+        <div
+            style="position: absolute; bottom: 60px; font-size: 24px; font-weight: 800; color: #475569; letter-spacing: 3px;">
+            TRACK YOUR PARKS AT USBARKRANGERS.COM</div>
+    </div>
 </body>
 
 </html>

@@ -1,4 +1,4 @@
-const APP_VERSION = 1;
+const APP_VERSION = 2;
 
 // ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
 // Prevent the long-press and double-tap-and-hold magnifying glass (loupe)

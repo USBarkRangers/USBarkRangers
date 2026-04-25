@@ -36,7 +36,7 @@ def update_version():
     with open(APP_FILE, 'r') as f:
         app_js = f.read()
         
-    app_js = re.sub(r'const APP_VERSION = \d+;', f'const APP_VERSION = {new_version};', app_js)
+    app_js = re.sub(r'const APP_VERSION = [\d\.]+;', f'const APP_VERSION = {new_version};', app_js)
     
     with open(APP_FILE, 'w') as f:
         f.write(app_js)

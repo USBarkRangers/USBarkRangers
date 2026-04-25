@@ -207,9 +207,11 @@ class GamificationEngine {
             
             const status = (percentComplete === 100) ? 'unlocked' : 'locked';
             const tier = (status === 'unlocked' && verified >= required) ? 'verified' : 'honor';
+            const stateName = this.statesMetadata[code];
+            const criteria = (status === 'unlocked') ? '100% cleared!!' : `Collect everything in ${stateName}!`;
             
             return {
-                id: `state-${code.toLowerCase()}`, name: this.statesMetadata[code], icon: '📍', status, percentComplete, tier, criteria: '100% Region Cleared',
+                id: `state-${code.toLowerCase()}`, name: stateName, icon: '📍', status, percentComplete, tier, criteria,
                 dateEarned: status === 'unlocked' ? new Date().toLocaleDateString() : null, dateEarnedTs: status === 'unlocked' ? Date.now() : 0
             };
         });

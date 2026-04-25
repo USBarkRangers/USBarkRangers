@@ -13,7 +13,7 @@
 
     <!-- QRCode JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="styles.css?v=2">
+    <link rel="stylesheet" href="styles.css?v=8">
     <link rel="stylesheet" href="mapStyles.css?v=2">
     <link rel="stylesheet" href="trophyCase.css">
 
@@ -113,6 +113,7 @@
                         <option value="default">Default (OpenStreetMap)</option>
                         <option value="terrain">Terrain (TopoMap)</option>
                         <option value="satellite">Satellite (Esri)</option>
+                        <option value="streets">Roads & Highways (Esri)</option>
                     </select>
                 </div>
             </div>
@@ -459,13 +460,33 @@
                     <div
                         style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
                         <div>
-                            <h2 style="margin: 0; font-size: 22px; font-weight: 900; color: #1e293b;">Welcome!</h2>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <h2 style="margin: 0; font-size: 22px; font-weight: 900; color: #1e293b;">Welcome!</h2>
+                                <button id="settings-gear-btn" style="background: none; border: none; font-size: 20px; cursor: pointer; padding: 0; transition: transform 0.2s;">⚙️</button>
+                            </div>
                             <p id="user-profile-name"
                                 style="font-weight: 600; margin: 0; color: #64748b; font-size: 14px;"></p>
                         </div>
                         <div id="streak-pill"
                             style="background: #fef2f2; border: 1px solid #fee2e2; color: #ef4444; font-weight: 900; font-size: 12px; padding: 4px 10px; border-radius: 20px;">
                             🔥 <span id="streak-count-label">0</span>
+                        </div>
+                    </div>
+
+                    <!-- Settings Modal Dropdown (Hidden initially) -->
+                    <div id="settings-modal" style="display: none; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 15px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); position: relative;">
+                        <button id="close-settings-btn" style="position: absolute; top: 10px; right: 15px; background: none; border: none; font-size: 16px; cursor: pointer; color: #94a3b8;">&times;</button>
+                        <h3 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 800; color: #334155; text-transform: uppercase;">Preferences</h3>
+                        
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                            <div>
+                                <div style="font-size: 14px; font-weight: 700; color: #1e293b;">Allow Unchecking Visited</div>
+                                <div style="font-size: 11px; color: #64748b; font-weight: 500; margin-top: 2px;">Enables removal of manual map check-ins. Verified visits remain permanent.</div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="allow-uncheck-setting">
+                                <span class="slider round"></span>
+                            </label>
                         </div>
                     </div>
 
@@ -970,7 +991,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script src="gamificationLogic.js?v=3"></script>
     <script src="MapMarkerConfig.js?v=3"></script>
-    <script src="app.js?v=9"></script>
+    <script src="app.js?v=8"></script>
     <!-- SCORING PROTOCOL MODAL -->
     <div id="scoring-modal" class="scoring-modal-overlay">
         <div class="scoring-modal-card">

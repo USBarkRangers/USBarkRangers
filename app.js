@@ -1,4 +1,4 @@
-const APP_VERSION = 2;
+const APP_VERSION = 8;
 
 // ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
 // Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
@@ -106,7 +106,7 @@ window.attemptDailyStreakIncrement = async function () {
 
     // Method 2: Focus/blur on input elements (fallback)
     document.addEventListener('focusin', (e) => {
-        if (e.target.matches('input, textarea, select')) {
+        if (e.target.matches('input, textarea')) {
             document.body.classList.add('keyboard-open');
 
             // Explicitly close slide panel on mobile if typing starts
@@ -123,7 +123,7 @@ window.attemptDailyStreakIncrement = async function () {
         }
     });
     document.addEventListener('focusout', (e) => {
-        if (e.target.matches('input, textarea, select')) {
+        if (e.target.matches('input, textarea')) {
             document.body.classList.remove('keyboard-open');
             // Force iOS to recalculate layout
             if (isIOS) {
@@ -191,6 +191,8 @@ if (mapStyleSelect) {
             currentTileLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)', maxZoom: 17 }).addTo(map);
         } else if (style === 'satellite') {
             currentTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community', maxZoom: 18 }).addTo(map);
+        } else if (style === 'streets') {
+            currentTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012', maxZoom: 18 }).addTo(map);
         } else {
             currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 18 }).addTo(map);
         }
@@ -238,10 +240,47 @@ map.on('locationfound', function (e) {
 
     userLocationMarker = L.marker(e.latlng, { icon: pulsingIcon }).addTo(map);
     userLocationMarker.bindPopup('You are here!').openPopup();
+
+    // 🎯 RE-CALCULATE AND RE-SORT ACHIEVEMENTS NOW THAT WE HAVE ACTUAL LOCATION
+    evaluateAchievements(userVisitedPlaces);
 });
 
 map.on('locationerror', function (e) {
-    alert("Could not access your location. Please check your browser permissions.");
+    console.warn("Could not access your location. Please check your browser permissions.");
+});
+
+// Prompt for location immediately on load
+setTimeout(() => {
+    map.locate({ setView: false, watch: false });
+}, 500); // Give the map engine a slight delay to settle before prompting
+
+// ====== SETTINGS UI LOGIC ======
+let allowUncheck = localStorage.getItem('barkAllowUncheck') === 'true';
+
+document.addEventListener('DOMContentLoaded', () => {
+    const settingsGearBtn = document.getElementById('settings-gear-btn');
+    const settingsModal = document.getElementById('settings-modal');
+    const closeSettingsBtn = document.getElementById('close-settings-btn');
+    const allowUncheckToggle = document.getElementById('allow-uncheck-setting');
+
+    if (settingsGearBtn && settingsModal) {
+        if (allowUncheckToggle) allowUncheckToggle.checked = allowUncheck;
+
+        settingsGearBtn.addEventListener('click', () => {
+            settingsModal.style.display = settingsModal.style.display === 'none' ? 'block' : 'none';
+        });
+
+        closeSettingsBtn.addEventListener('click', () => {
+            settingsModal.style.display = 'none';
+        });
+
+        if (allowUncheckToggle) {
+            allowUncheckToggle.addEventListener('change', (e) => {
+                allowUncheck = e.target.checked;
+                localStorage.setItem('barkAllowUncheck', allowUncheck ? 'true' : 'false');
+            });
+        }
+    }
 });
 
 // Create a marker layer group for easy clearing
@@ -532,7 +571,7 @@ async function evaluateAchievements(visitedPlacesMap) {
     const getSubtitle = (b) => {
         let s = b.desc || b.hint || '';
         if (!s && b.id.includes('Paw')) s = 'Verified Check-ins';
-        if (!s && b.id.includes('state')) s = '100% Region Cleared';
+        if (!s && b.id.includes('state')) s = '100% cleared!!';
         return s;
     };
 
@@ -629,6 +668,62 @@ async function evaluateAchievements(visitedPlacesMap) {
 
     if (gridRare) gridRare.innerHTML = achievements.rareFeats.map(renderCoin).join('');
     if (gridPaws) gridPaws.innerHTML = achievements.paws.map(renderCoin).join('');
+
+    // --- STATES SORT: DISTANCE & COMPLETION ---
+    const stateDistances = {};
+    const refLatLng = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
+    
+    if (allPoints && allPoints.length > 0) {
+        allPoints.forEach(p => {
+            if (p.state && p.lat && p.lng) {
+                const sts = String(p.state).split(/[,/]/);
+                const dist = haversineDistance(refLatLng.lat, refLatLng.lng, parseFloat(p.lat), parseFloat(p.lng));
+                sts.forEach(s => {
+                    const cleanSt = gamificationEngine.getNormalizedStateCode(s);
+                    if (cleanSt) {
+                        if (stateDistances[cleanSt] === undefined || dist < stateDistances[cleanSt]) {
+                            stateDistances[cleanSt] = dist;
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    let minOverallDist = Infinity;
+    let currentStateCode = null;
+    for (const [code, dist] of Object.entries(stateDistances)) {
+        if (dist < minOverallDist) {
+            minOverallDist = dist;
+            currentStateCode = code;
+        }
+    }
+
+    achievements.stateBadges.sort((a, b) => {
+        const aCode = a.id.replace('state-', '').toUpperCase();
+        const bCode = b.id.replace('state-', '').toUpperCase();
+
+        const aIsCurrent = aCode === currentStateCode;
+        const bIsCurrent = bCode === currentStateCode;
+
+        if (aIsCurrent && !bIsCurrent) return -1;
+        if (!aIsCurrent && bIsCurrent) return 1;
+
+        const aUnlocked = a.status === 'unlocked';
+        const bUnlocked = b.status === 'unlocked';
+
+        if (aUnlocked && !bUnlocked) return -1;
+        if (!aUnlocked && bUnlocked) return 1;
+
+        if (aUnlocked && bUnlocked) {
+             return (b.dateEarnedTs || 0) - (a.dateEarnedTs || 0); // newest first
+        }
+
+        const aDist = stateDistances[aCode] !== undefined ? stateDistances[aCode] : Infinity;
+        const bDist = stateDistances[bCode] !== undefined ? stateDistances[bCode] : Infinity;
+        
+        return aDist - bDist; // closest first
+    });
 
     // --- NATIONAL PROGRESS ANCHOR CARD ---
     const nationalCardHtml = `
@@ -1365,9 +1460,24 @@ function processParsedResults(results) {
 
                         markVisitedBtn.classList.add('visited');
                         markVisitedText.textContent = '✓ Visited';
-                        markVisitedBtn.disabled = true;
-                        markVisitedBtn.style.cursor = 'default';
-                        markVisitedBtn.style.opacity = '0.7';
+                        
+                        // Delete logic styling if setting is flipped
+                        if (allowUncheck && !cachedObj.verified) {
+                            markVisitedBtn.disabled = false;
+                            markVisitedBtn.style.cursor = 'pointer';
+                            markVisitedBtn.style.opacity = '1';
+                            markVisitedBtn.style.background = '#4CAF50';
+                            
+                            // Visual cue on hover to delete
+                            markVisitedBtn.onmouseenter = () => markVisitedText.textContent = '✖ Remove Check-in';
+                            markVisitedBtn.onmouseleave = () => markVisitedText.textContent = '✓ Visited';
+                        } else {
+                            markVisitedBtn.disabled = true;
+                            markVisitedBtn.style.cursor = 'default';
+                            markVisitedBtn.style.opacity = '0.7';
+                            markVisitedBtn.onmouseenter = null;
+                            markVisitedBtn.onmouseleave = null;
+                        }
 
                         if (cachedObj.verified) {
                             verifyBtn.style.background = '#4CAF50';
@@ -1388,6 +1498,8 @@ function processParsedResults(results) {
                         markVisitedBtn.disabled = false;
                         markVisitedBtn.style.cursor = 'pointer';
                         markVisitedBtn.style.opacity = '1';
+                        markVisitedBtn.onmouseenter = null;
+                        markVisitedBtn.onmouseleave = null;
 
                         verifyBtn.style.background = '#FF9800';
                         verifyBtnText.textContent = '🐾 Verified Check-In';
@@ -1446,7 +1558,28 @@ function processParsedResults(results) {
                     };
 
                     markVisitedBtn.onclick = async () => {
-                        if (userVisitedPlaces.has(d.id)) return;
+                        // Deletion execution logic
+                        if (userVisitedPlaces.has(d.id)) {
+                            const cachedObj = userVisitedPlaces.get(d.id);
+                            if (allowUncheck && !cachedObj.verified) {
+                                // Undo manual visit
+                                userVisitedPlaces.delete(d.id);
+                                markVisitedBtn.classList.remove('visited');
+                                markVisitedText.textContent = 'Mark as Visited';
+                                markVisitedBtn.onmouseenter = null;
+                                markVisitedBtn.onmouseleave = null;
+                                
+                                // Direct sync
+                                const updatedArray = Array.from(userVisitedPlaces.values());
+                                await firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid).update({ visitedPlaces: updatedArray });
+
+                                updateMarkers();
+                                updateStatsUI();
+                                evaluateAchievements();
+                            }
+                            return; 
+                        }
+
                         const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: false, ts: Date.now() };
                         userVisitedPlaces.set(d.id, newObj);
 
@@ -1487,6 +1620,8 @@ function processParsedResults(results) {
             state: state || '',
             swagType: swagType,
             category: parkCategory,
+            lat: lat,
+            lng: lng,
             marker: marker
         });
     });

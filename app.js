@@ -677,51 +677,39 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Ultra Low Toggle — uses the one already declared at line 413
+        // Ultra Low Toggle — uses the outer declaration from line 500
         if (ultraLowToggle) {
             ultraLowToggle.addEventListener('change', (e) => {
-                const isTurningOn = e.target.checked;
+                const isEnabled = e.target.checked;
 
-                if (isTurningOn) {
-                    // === ENTERING ULTRA LOW ===
-                    const confirmOn = window.confirm(
-                        "⚠️ ENABLE ULTRA-LOW GRAPHICS?\n\nThis will disable all animations, effects, and live updates.\nPage will reload to optimize the map engine."
-                    );
+                // 1. Confirm with user for safety since it results in a reload
+                const msg = isEnabled ?
+                    "⚠️ ENABLE ULTRA-LOW GRAPHICS?\n\nThis will disable all animations, effects, and live updates.\nPage will reload to optimize the map engine." :
+                    "Switching to High Graphics requires a page reload to restore all visual effects. Proceed?";
 
-                    if (confirmOn) {
-                        // Write ALL state to localStorage FIRST, then reload
-                        localStorage.setItem('barkUltraLowEnabled', 'true');
-                        localStorage.setItem('barkLowGfxEnabled', 'true');
-                        localStorage.setItem('barkStandardClustering', 'true');
-                        localStorage.setItem('barkPremiumClustering', 'false');
-                        localStorage.setItem('barkInstantNav', 'true');
-                        localStorage.setItem('barkSimplifyTrails', 'true');
-                        window.location.reload(); // Hard reset the Leaflet engine
-                    } else {
-                        // User cancelled — snap toggle back
-                        e.target.checked = false;
-                    }
-
-                } else {
-                    // === EXITING ULTRA LOW ===
-                    const confirmOff = window.confirm(
-                        "Switching to High Graphics requires a page reload to restore all visual effects. Proceed?"
-                    );
-
-                    if (confirmOff) {
-                        // Write ALL state to localStorage FIRST, then reload
-                        localStorage.setItem('barkUltraLowEnabled', 'false');
-                        localStorage.setItem('barkLowGfxEnabled', 'false');
-                        localStorage.setItem('barkStandardClustering', 'true');
-                        localStorage.setItem('barkPremiumClustering', 'false');
-                        localStorage.setItem('barkInstantNav', 'false');
-                        localStorage.setItem('barkSimplifyTrails', 'false');
-                        window.location.reload(); // Clean slate — Leaflet rebuilds smooth
-                    } else {
-                        // User cancelled — snap toggle back to ON
-                        e.target.checked = true;
-                    }
+                if (!window.confirm(msg)) {
+                    e.target.checked = !isEnabled;
+                    return;
                 }
+
+                // 2. Instantly update the window variable & synchronous save to local storage
+                window.ultraLowEnabled = isEnabled;
+                localStorage.setItem('barkUltraLowEnabled', isEnabled ? 'true' : 'false');
+
+                // 3. Add a visual warning
+                const label = e.target.closest('.setting-row') || e.target.parentElement;
+                if (label) {
+                    label.style.opacity = '0.5';
+                    label.innerHTML += "<br><span style='color:red; font-weight:bold; font-size:12px;'>RELOADING ENGINE...</span>";
+                }
+
+                // 4. Set a skip flag so Firebase doesn't wipe this change out upon reload
+                sessionStorage.setItem('skipCloudHydration', 'true');
+
+                // 5. Give the browser 150ms to finish writing to memory BEFORE killing the page thread
+                setTimeout(() => {
+                    window.location.reload(true); // forces hard refresh from server
+                }, 150);
             });
         }
 
@@ -3073,19 +3061,26 @@ if (typeof firebase !== 'undefined') {
                         // ☁️ LOAD SETTINGS FROM FIREBASE (Guarded & Force-Hydrated)
                         if (data.settings && !window._cloudSettingsLoaded) {
                             if (!doc.metadata.fromCache) {
-                                window._cloudSettingsLoaded = true; 
+                                window._cloudSettingsLoaded = true;
                             }
-                            const s = data.settings;
+                            
+                            // ✨ HYDRATION GUARD: If we just forced a local reload (e.g., Ultra Low),
+                            // skip cloud hydration for this one session to allow local memory to persist!
+                            if (sessionStorage.getItem('skipCloudHydration') === 'true') {
+                                sessionStorage.removeItem('skipCloudHydration');
+                                console.log("☁️ Cloud settings skipped: Preserving local force-reload state.");
+                            } else {
+                                const s = data.settings;
 
-                            // 1. Strict State Injection Tool (Updates memory AND forces physical CSS classes)
-                            const applySetting = (key, val, bodyClass = null) => {
-                                localStorage.setItem(key, val ? 'true' : 'false');
-                                if (bodyClass) {
-                                    if (val) document.body.classList.add(bodyClass);
-                                    else document.body.classList.remove(bodyClass);
-                                }
-                                return val;
-                            };
+                                // 1. Strict State Injection Tool (Updates memory AND forces physical CSS classes)
+                                const applySetting = (key, val, bodyClass = null) => {
+                                    localStorage.setItem(key, val ? 'true' : 'false');
+                                    if (bodyClass) {
+                                        if (val) document.body.classList.add(bodyClass);
+                                        else document.body.classList.remove(bodyClass);
+                                    }
+                                    return val;
+                                };
 
                             // 2. Hydrate Variables & Apply Core CSS Overrides
                             window.allowUncheck = applySetting('barkAllowUncheck', s.allowUncheck || false);
@@ -3164,14 +3159,16 @@ if (typeof firebase !== 'undefined') {
                                 window.syncState(); // Actually redraws the pins
                             }
 
-                            if (window.startNationalView && typeof map !== 'undefined') {
-                                map.setView([39.8283, -98.5795], 4, { animate: false });
-                            }
+                                if (window.startNationalView && typeof map !== 'undefined') {
+                                    map.setView([39.8283, -98.5795], 4, { animate: false });
+                                }
 
-                            console.log("☁️ Cloud settings loaded and injected perfectly!");
+                                console.log("☁️ Cloud settings loaded and injected perfectly!");
+                            }
                         }
 
                         const placeList = data.visitedPlaces || [];
+
 
 
                         // Admin Dashboard Reveal

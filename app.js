@@ -25,6 +25,8 @@ if (lowGfxSaved !== null) {
 window.simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
 window.instantNav = localStorage.getItem('barkInstantNav') === 'true';
 window.rememberMapPosition = localStorage.getItem('remember-map-toggle') === 'true';
+window.startNationalView = localStorage.getItem('barkNationalView') === 'true'; // ✨ NEW
+window.stopAutoMovements = localStorage.getItem('barkStopAutoMove') === 'true';
 
 // 🛑 REDUCE PIN SCALING / MOTION STATE
 window.reducePinMotion = localStorage.getItem('barkReducePinMotion') === 'true';
@@ -106,7 +108,9 @@ document.addEventListener('touchstart', function (e) {
 
 // ====== SAFETY & COST CONTROLS ======
 let globalRequestCounter = 0;
-const SESSION_MAX_REQUESTS = 10000; // Auto-shutdown background activity if hit
+window.SESSION_MAX_REQUESTS = 600;
+window._SESSION_REQUEST_COUNT = 0;
+window._cloudSettingsLoaded = false; // ✨ Guard flag for cloud sync feedback loops
 
 function incrementRequestCount() {
     globalRequestCounter++;
@@ -258,7 +262,9 @@ function setInitialMapView(defaultLat, defaultLng) {
         return true; // Use saved position
     } else {
         console.log("📍 Starting at default/current location...");
-        map.setView([defaultLat, defaultLng], parseInt(savedZoom), { animate: false });
+        // ✨ NEW: If National View is ON, start at Zoom 4. Otherwise, use Zoom 7.
+        const startZoom = window.startNationalView ? 4 : 7;
+        map.setView([defaultLat, defaultLng], startZoom, { animate: false });
         return false; // Use default position
     }
 }
@@ -270,7 +276,7 @@ setInitialMapView(39.8283, -98.5795);
 // Replaces Leaflet's native handler to guarantee execution without conflict
 map.on('dblclick', (e) => {
     if (window.disableDoubleTap) return; // Respect the settings toggle
-    
+
     // Zoom in smoothly around the cursor/tap point
     map.setZoomAround(e.containerPoint, map.getZoom() + 1);
 });
@@ -333,26 +339,33 @@ L.control.zoom({
     position: 'bottomleft'
 }).addTo(map);
 
-// Add OpenStreetMap tiles
-let currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
-    maxZoom: 18
-}).addTo(map);
-
+// 🌍 MAP STYLE PERSISTENCE
 const mapStyleSelect = document.getElementById('map-style-select');
+const savedMapStyle = localStorage.getItem('barkMapStyle') || 'default'; // Check memory
+
+let currentTileLayer;
+const loadLayer = (style) => {
+    if (currentTileLayer) map.removeLayer(currentTileLayer);
+    if (style === 'terrain') {
+        currentTileLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)', maxZoom: 17 }).addTo(map);
+    } else if (style === 'satellite') {
+        currentTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community', maxZoom: 18 }).addTo(map);
+    } else if (style === 'streets') {
+        currentTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012', maxZoom: 18 }).addTo(map);
+    } else {
+        currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 18 }).addTo(map);
+    }
+};
+
+// Load saved layer on boot
+loadLayer(savedMapStyle);
+
 if (mapStyleSelect) {
+    mapStyleSelect.value = savedMapStyle; // Update dropdown UI
     mapStyleSelect.addEventListener('change', (e) => {
-        if (currentTileLayer) map.removeLayer(currentTileLayer);
         const style = e.target.value;
-        if (style === 'terrain') {
-            currentTileLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)', maxZoom: 17 }).addTo(map);
-        } else if (style === 'satellite') {
-            currentTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community', maxZoom: 18 }).addTo(map);
-        } else if (style === 'streets') {
-            currentTileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012', maxZoom: 18 }).addTo(map);
-        } else {
-            currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 18 }).addTo(map);
-        }
+        localStorage.setItem('barkMapStyle', style); // Save choice to memory
+        loadLayer(style);
     });
 }
 
@@ -408,15 +421,17 @@ map.on('locationerror', function (e) {
 
 // Prompt for location immediately on load
 setTimeout(() => {
-    // Only auto-center if Remember Map Position is OFF
+    // ✨ NEW: Only let the GPS grab the camera if BOTH settings are OFF
     const usedSaved = window.rememberMapPosition && localStorage.getItem('mapLat');
-    if (!usedSaved) {
+
+    if (!usedSaved && !window.startNationalView) {
+        // Standard behavior: zoom to user
         map.locate({ setView: true, maxZoom: 10 });
     } else {
-        // Just locate without centering (to show the blue dot)
+        // Just drop the blue dot, DO NOT move the camera
         map.locate({ setView: false, watch: false });
     }
-}, 500); // Give the map engine a slight delay to settle before prompting
+}, 500);
 
 // Create a marker layer group for easy clearing
 const markerLayer = L.layerGroup().addTo(map);
@@ -504,10 +519,12 @@ document.addEventListener('DOMContentLoaded', () => {
         settingsGearBtn.addEventListener('click', () => {
             populateTrailWarpGrid(); // Lazy-load: TOP_10_TRAILS is defined later in the file
             settingsOverlay.classList.add('active');
+            document.body.style.overflow = 'hidden'; // 🔒 Lock background scroll
         });
 
         const closeSettings = () => {
             settingsOverlay.classList.remove('active');
+            document.body.style.overflow = ''; // 🔓 Restore background scroll
         };
 
         closeSettingsBtn.addEventListener('click', closeSettings);
@@ -613,7 +630,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setupPerfToggle('toggle-remove-shadows', 'removeShadows', 'barkRemoveShadows', 'remove-shadows');
         setupPerfToggle('toggle-stop-resizing', 'stopResizing', 'barkStopResizing', 'stop-resizing');
         setupPerfToggle('toggle-viewport-culling', 'viewportCulling', 'barkViewportCulling', 'viewport-culling');
-        
+
         const disableDoubleTapEl = document.getElementById('toggle-disable-double-tap');
         if (disableDoubleTapEl) {
             disableDoubleTapEl.checked = window.disableDoubleTap;
@@ -737,12 +754,142 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        const nationalViewToggle = document.getElementById('national-view-toggle');
         if (rememberMapToggle) {
             rememberMapToggle.addEventListener('change', (e) => {
                 window.rememberMapPosition = e.target.checked;
                 localStorage.setItem('remember-map-toggle', window.rememberMapPosition ? 'true' : 'false');
+
+                // 🔌 Mutual Exclusivity: Turn off National View if this is on
+                if (window.rememberMapPosition && nationalViewToggle) {
+                    nationalViewToggle.checked = false;
+                    window.startNationalView = false;
+                    localStorage.setItem('barkNationalView', 'false');
+                }
             });
         }
+
+        if (nationalViewToggle) {
+            nationalViewToggle.checked = window.startNationalView;
+            nationalViewToggle.addEventListener('change', (e) => {
+                window.startNationalView = e.target.checked;
+                localStorage.setItem('barkNationalView', window.startNationalView ? 'true' : 'false');
+
+                // 🔌 Mutual Exclusivity: Turn off Remember Position if this is on
+                if (window.startNationalView && rememberMapToggle) {
+                    rememberMapToggle.checked = false;
+                    window.rememberMapPosition = false;
+                    localStorage.setItem('remember-map-toggle', 'false');
+                }
+            });
+        }
+
+        const stopAutoMoveEl = document.getElementById('toggle-stop-auto-move');
+        if (stopAutoMoveEl) {
+            stopAutoMoveEl.checked = window.stopAutoMovements;
+            stopAutoMoveEl.addEventListener('change', (e) => {
+                window.stopAutoMovements = e.target.checked;
+                localStorage.setItem('barkStopAutoMove', window.stopAutoMovements ? 'true' : 'false');
+            });
+        }
+
+        // ☢️ TERMINATE & RELOAD ENGINE
+        const terminateBtn = document.getElementById('terminate-reload-btn');
+        if (terminateBtn) {
+            terminateBtn.addEventListener('click', async () => {
+                const proceed = window.confirm(
+                    "☢️ WARNING: NUCLEAR OPTION ☢️\n\n" +
+                    "This will completely wipe all local app memory, reset all map settings to default, and log you out.\n\n" +
+                    "Don't worry: Your verified visits, reward points, and expedition walks are safely backed up in the cloud and will restore when you log back in.\n\n" +
+                    "Are you absolutely sure you want to terminate and reload?"
+                );
+
+                if (proceed) {
+                    // 1. Change button state to show it's working
+                    terminateBtn.textContent = 'TERMINATING...';
+                    terminateBtn.style.opacity = '0.5';
+                    terminateBtn.disabled = true;
+
+                    try {
+                        // 2. Force a final sync to Firebase just to be absolutely safe (if logged in)
+                        if (typeof firebase !== 'undefined' && firebase.auth().currentUser && typeof syncUserProgress === 'function') {
+                            await syncUserProgress();
+                        }
+
+                        // 3. Log out of Firebase
+                        if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
+                            await firebase.auth().signOut();
+                        }
+                    } catch (e) {
+                        console.error("Non-fatal error during termination sync/logout", e);
+                    }
+
+                    // 4. Nuke the Local Storage (Wipes settings, CSV cache, map position, etc)
+                    localStorage.clear();
+
+                    // 5. Force a hard, cache-bypassing reload of the web app
+                    window.location.reload(true);
+                }
+            });
+        }
+
+        // ☁️ SAVE SETTINGS TO FIREBASE (1 Single Write)
+        const saveSettingsBtn = document.getElementById('save-settings-cloud-btn');
+        if (saveSettingsBtn) {
+            saveSettingsBtn.addEventListener('click', async () => {
+                // Ensure user is logged in
+                if (typeof firebase === 'undefined' || !firebase.auth().currentUser) {
+                    alert("You must be logged in to save settings to the cloud.");
+                    return;
+                }
+
+                // Button visual feedback
+                const originalText = saveSettingsBtn.innerHTML;
+                saveSettingsBtn.innerHTML = '⏳ SAVING...';
+                saveSettingsBtn.disabled = true;
+
+                // Bundle all settings into ONE payload
+                const settingsPayload = {
+                    allowUncheck: window.allowUncheck || false,
+                    rememberMapPosition: window.rememberMapPosition || false,
+                    startNationalView: window.startNationalView || false,
+                    instantNav: window.instantNav || false,
+                    premiumClustering: window.premiumClusteringEnabled || false,
+                    standardClustering: window.standardClusteringEnabled !== false,
+                    simplifyTrails: window.simplifyTrails || false,
+                    stopAutoMovements: window.stopAutoMovements || false,
+                    lowGfxEnabled: window.lowGfxEnabled || false,
+                    removeShadows: window.removeShadows || false,
+                    stopResizing: window.stopResizing || false,
+                    viewportCulling: window.viewportCulling || false,
+                    ultraLowEnabled: window.ultraLowEnabled || false,
+                    lockMapPanning: window.lockMapPanning || false,
+                    disablePinchZoom: window.disablePinchZoom || false,
+                    disable1fingerZoom: window.disable1fingerZoom || false,
+                    disableDoubleTap: window.disableDoubleTap || false,
+                    mapStyle: localStorage.getItem('barkMapStyle') || 'default',
+                    visitedFilter: localStorage.getItem('barkVisitedFilter') || 'all'
+                };
+
+                try {
+                    // Fire the single write to Firestore
+                    await firebase.firestore().collection('users')
+                        .doc(firebase.auth().currentUser.uid)
+                        .set({ settings: settingsPayload }, { merge: true });
+
+                    saveSettingsBtn.innerHTML = '✅ SAVED TO CLOUD';
+                    setTimeout(() => {
+                        saveSettingsBtn.innerHTML = originalText;
+                        saveSettingsBtn.disabled = false;
+                    }, 2000);
+                } catch (error) {
+                    console.error("Error saving settings to cloud:", error);
+                    saveSettingsBtn.innerHTML = '❌ ERROR SAVING';
+                    saveSettingsBtn.disabled = false;
+                }
+            });
+        }
+
     }
 });
 
@@ -798,7 +945,7 @@ let tripDays = [{ color: DAY_COLORS[0], stops: [], notes: "" }];
 let activeDayIdx = 0;
 window.tripStartNode = null;
 window.tripEndNode = null;
-let visitedFilterState = 'all';
+let visitedFilterState = localStorage.getItem('barkVisitedFilter') || 'all';
 
 const generatePinId = (lat, lng) => `${parseFloat(lat).toFixed(2)}_${parseFloat(lng).toFixed(2)}`;
 
@@ -2034,20 +2181,23 @@ function processParsedResults(results) {
                         markVisitedBtn.classList.add('visited');
                         markVisitedText.textContent = '✓ Visited';
 
-                        // Delete logic styling if setting is flipped
-                        if (window.allowUncheck && !cachedObj.verified) {
-                            markVisitedBtn.disabled = false;
-                            markVisitedBtn.style.cursor = 'pointer';
-                            markVisitedBtn.style.opacity = '1';
-                            markVisitedBtn.style.background = '#4CAF50';
-
-                            // Visual cue on hover to delete
-                            markVisitedBtn.onmouseenter = () => markVisitedText.textContent = '✖ Remove Check-in';
-                            markVisitedBtn.onmouseleave = () => markVisitedText.textContent = '✓ Visited';
-                        } else {
+                        // 🚨 FIX: Keep button enabled if unchecking is possible OR if we need to show the safety lock
+                        if (cachedObj.verified) {
                             markVisitedBtn.disabled = true;
                             markVisitedBtn.style.cursor = 'default';
                             markVisitedBtn.style.opacity = '0.7';
+                        } else {
+                            markVisitedBtn.disabled = false;
+                            markVisitedBtn.style.cursor = 'pointer';
+                            markVisitedBtn.style.opacity = '1';
+                        }
+
+                        // Style as removable only if uncheck is allowed
+                        if (window.allowUncheck && !cachedObj.verified) {
+                            markVisitedBtn.style.background = '#4CAF50';
+                            markVisitedBtn.onmouseenter = () => markVisitedText.textContent = '✖ Remove Check-in';
+                            markVisitedBtn.onmouseleave = () => markVisitedText.textContent = '✓ Visited';
+                        } else {
                             markVisitedBtn.onmouseenter = null;
                             markVisitedBtn.onmouseleave = null;
                         }
@@ -2134,20 +2284,28 @@ function processParsedResults(results) {
                         // Deletion execution logic
                         if (userVisitedPlaces.has(d.id)) {
                             const cachedObj = userVisitedPlaces.get(d.id);
-                            if (window.allowUncheck && !cachedObj.verified) {
-                                // Undo manual visit
-                                userVisitedPlaces.delete(d.id);
-                                markVisitedBtn.classList.remove('visited');
-                                markVisitedText.textContent = 'Mark as Visited';
-                                markVisitedBtn.onmouseenter = null;
-                                markVisitedBtn.onmouseleave = null;
 
-                                // Direct sync
-                                const updatedArray = Array.from(userVisitedPlaces.values());
-                                await firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid).update({ visitedPlaces: updatedArray });
+                            // Always block unchecking of GPS verified visits
+                            if (cachedObj.verified) return;
 
-                                window.syncState();
+                            // 🛡️ DATA SAFETY LOCK POPUP (New Code)
+                            if (!window.allowUncheck) {
+                                alert("🛡️ Data Safety Lock Active\n\nTo prevent you from accidentally losing your 'Date Visited' history, unchecking parks is disabled by default.\n\nYou can turn off this safety feature by opening Settings (⚙️) and enabling 'Allow Uncheck Visited'.");
+                                return; // 🛑 Stop execution here so it doesn't uncheck
                             }
+
+                            // Undo manual visit
+                            userVisitedPlaces.delete(d.id);
+                            markVisitedBtn.classList.remove('visited');
+                            markVisitedText.textContent = 'Mark as Visited';
+                            markVisitedBtn.onmouseenter = null;
+                            markVisitedBtn.onmouseleave = null;
+
+                            // Direct sync
+                            const updatedArray = Array.from(userVisitedPlaces.values());
+                            await firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid).update({ visitedPlaces: updatedArray });
+
+                            window.syncState();
                             return;
                         }
 
@@ -2155,7 +2313,12 @@ function processParsedResults(results) {
                         userVisitedPlaces.set(d.id, newObj);
 
                         markVisitedBtn.classList.add('visited');
-                        markVisitedBtn.disabled = true;
+                        markVisitedText.textContent = '✓ Visited';
+
+                        // 🚨 FIX: Don't disable here either, so they can trigger the uncheck popup immediately
+                        markVisitedBtn.disabled = false;
+                        markVisitedBtn.style.cursor = 'pointer';
+                        markVisitedBtn.style.opacity = '1';
 
                         await syncUserProgress();
                         window.syncState();
@@ -2167,23 +2330,18 @@ function processParsedResults(results) {
             }
 
             // 🎯 SMART AUTO-PAN (No Zoom, Correct Desktop Offset)
-            // Locks the current zoom level so it never zooms in or out
-            const currentZoom = map.getZoom();
+            if (!window.stopAutoMovements) {
+                const currentZoom = map.getZoom();
+                const xOffset = window.innerWidth >= 768 ? -250 : 0;
+                const yOffset = window.innerWidth < 768 ? 180 : 0;
+                const targetPoint = map.project([d.lat, d.lng], currentZoom).add([xOffset, yOffset]);
+                const targetLatLng = map.unproject(targetPoint, currentZoom);
 
-            // Negative X: Shifts camera left, pushing the pin RIGHT (out from under your left panel)
-            // Positive Y: Shifts camera down, pushing the pin UP (out from under mobile bottom panel)
-            const xOffset = window.innerWidth >= 768 ? -250 : 0;
-            const yOffset = window.innerWidth < 768 ? 180 : 0;
-
-            // Project coordinates to flat pixels, apply the offset, and unproject back to GPS
-            const targetPoint = map.project([d.lat, d.lng], currentZoom).add([xOffset, yOffset]);
-            const targetLatLng = map.unproject(targetPoint, currentZoom);
-
-            // Use panTo instead of setView to guarantee it only moves the camera X/Y
-            map.panTo(targetLatLng, {
-                animate: !window.instantNav,
-                duration: window.instantNav ? 0 : 0.5
-            });
+                map.panTo(targetLatLng, {
+                    animate: !window.instantNav,
+                    duration: window.instantNav ? 0 : 0.5
+                });
+            }
 
             slidePanel.classList.add('open');
         });
@@ -2462,7 +2620,9 @@ function updateMarkers() {
     const currentFilterState = activeSearchQuery + '|' + Array.from(activeSwagFilters).join(',');
     if (window._lastFilterState !== currentFilterState) {
         window._lastFilterState = currentFilterState;
-        if ((activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
+
+        // Add the stopAutoMovements block here
+        if (!window.stopAutoMovements && (activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
             map.flyToBounds(visibleBounds, {
                 padding: [50, 50],
                 maxZoom: 12,
@@ -2537,10 +2697,13 @@ searchInput.addEventListener('input', (e) => {
                     window.syncState();
 
                     if (match.item.marker && match.item.marker._parkData) {
-                        map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, {
-                            animate: !window.lowGfxEnabled,
-                            duration: window.lowGfxEnabled ? 0 : 1.5
-                        });
+                        // Wrap the view change
+                        if (!window.stopAutoMovements) {
+                            map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, {
+                                animate: !window.lowGfxEnabled,
+                                duration: window.lowGfxEnabled ? 0 : 1.5
+                            });
+                        }
                         match.item.marker.fire('click');
                     }
                 });
@@ -2906,7 +3069,110 @@ if (typeof firebase !== 'undefined') {
 
                     if (doc.exists) {
                         const data = doc.data();
+
+                        // ☁️ LOAD SETTINGS FROM FIREBASE (Guarded & Force-Hydrated)
+                        if (data.settings && !window._cloudSettingsLoaded) {
+                            if (!doc.metadata.fromCache) {
+                                window._cloudSettingsLoaded = true; 
+                            }
+                            const s = data.settings;
+
+                            // 1. Strict State Injection Tool (Updates memory AND forces physical CSS classes)
+                            const applySetting = (key, val, bodyClass = null) => {
+                                localStorage.setItem(key, val ? 'true' : 'false');
+                                if (bodyClass) {
+                                    if (val) document.body.classList.add(bodyClass);
+                                    else document.body.classList.remove(bodyClass);
+                                }
+                                return val;
+                            };
+
+                            // 2. Hydrate Variables & Apply Core CSS Overrides
+                            window.allowUncheck = applySetting('barkAllowUncheck', s.allowUncheck || false);
+                            window.rememberMapPosition = applySetting('remember-map-toggle', s.rememberMapPosition || false);
+                            window.startNationalView = applySetting('barkNationalView', s.startNationalView || false);
+                            window.instantNav = applySetting('barkInstantNav', s.instantNav || false);
+                            window.premiumClusteringEnabled = applySetting('barkPremiumClustering', s.premiumClustering || false);
+                            window.standardClusteringEnabled = applySetting('barkStandardClustering', s.standardClustering !== false);
+                            window.simplifyTrails = applySetting('barkSimplifyTrails', s.simplifyTrails || false);
+                            window.stopAutoMovements = applySetting('barkStopAutoMove', s.stopAutoMovements || false);
+
+                            // Hardware / Performance Modifiers
+                            window.lowGfxEnabled = applySetting('barkLowGfxEnabled', s.lowGfxEnabled || false, 'low-graphics');
+                            window.removeShadows = applySetting('barkRemoveShadows', s.removeShadows || false, 'remove-shadows');
+                            window.stopResizing = applySetting('barkStopResizing', s.stopResizing || false, 'stop-resizing');
+                            window.viewportCulling = applySetting('barkViewportCulling', s.viewportCulling || false, 'viewport-culling');
+                            window.ultraLowEnabled = applySetting('barkUltraLowEnabled', s.ultraLowEnabled || false, 'ultra-low');
+
+                            // Leaflet Core Settings (Map Interaction Locks)
+                            window.lockMapPanning = applySetting('barkLockMapPanning', s.lockMapPanning || false);
+                            if (typeof map !== 'undefined') {
+                                if (window.lockMapPanning) map.dragging.disable(); else map.dragging.enable();
+                            }
+
+                            window.disablePinchZoom = applySetting('barkDisablePinchZoom', s.disablePinchZoom || false);
+                            if (typeof map !== 'undefined') {
+                                if (window.disablePinchZoom) map.touchZoom.disable(); else map.touchZoom.enable();
+                            }
+
+                            window.disable1fingerZoom = applySetting('barkDisable1Finger', s.disable1fingerZoom || false);
+                            window.disableDoubleTap = applySetting('barkDisableDoubleTap', s.disableDoubleTap || false);
+
+                            // 3. Update all checkboxes visually in the UI Menu
+                            const ids = {
+                                'allow-uncheck-setting': window.allowUncheck,
+                                'remember-map-toggle': window.rememberMapPosition,
+                                'national-view-toggle': window.startNationalView,
+                                'instant-nav-toggle': window.instantNav,
+                                'premium-cluster-toggle': window.premiumClusteringEnabled,
+                                'standard-cluster-toggle': window.standardClusteringEnabled,
+                                'simplify-trail-toggle': window.simplifyTrails,
+                                'toggle-stop-auto-move': window.stopAutoMovements,
+                                'low-gfx-toggle': window.lowGfxEnabled,
+                                'toggle-remove-shadows': window.removeShadows,
+                                'toggle-stop-resizing': window.stopResizing,
+                                'toggle-viewport-culling': window.viewportCulling,
+                                'ultra-low-toggle': window.ultraLowEnabled,
+                                'toggle-lock-map-panning': window.lockMapPanning,
+                                'toggle-disable-pinch': window.disablePinchZoom,
+                                'toggle-disable-1finger': window.disable1fingerZoom,
+                                'toggle-disable-double-tap': window.disableDoubleTap
+                            };
+                            Object.keys(ids).forEach(id => {
+                                const el = document.getElementById(id);
+                                if (el) el.checked = ids[id];
+                            });
+
+                            // 4. Force Background & Dropdown Layers
+                            if (s.mapStyle) {
+                                localStorage.setItem('barkMapStyle', s.mapStyle);
+                                const styleEl = document.getElementById('map-style-select');
+                                if (styleEl) styleEl.value = s.mapStyle;
+                                if (typeof loadLayer === 'function') loadLayer(s.mapStyle);
+                            }
+                            if (s.visitedFilter) {
+                                localStorage.setItem('barkVisitedFilter', s.visitedFilter);
+                                const filterEl = document.getElementById('visited-filter');
+                                if (filterEl) filterEl.value = s.visitedFilter;
+                                visitedFilterState = s.visitedFilter;
+                            }
+
+                            // 5. Final Re-Renders
+                            window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
+
+                            if (typeof window.syncState === 'function' && window.parkLookup && window.parkLookup.size > 0) {
+                                window.syncState(); // Actually redraws the pins
+                            }
+
+                            if (window.startNationalView && typeof map !== 'undefined') {
+                                map.setView([39.8283, -98.5795], 4, { animate: false });
+                            }
+
+                            console.log("☁️ Cloud settings loaded and injected perfectly!");
+                        }
+
                         const placeList = data.visitedPlaces || [];
+
 
                         // Admin Dashboard Reveal
                         const adminContainer = document.getElementById('admin-controls-container');
@@ -3132,8 +3398,10 @@ if (typeof firebase !== 'undefined') {
 
 const visitedFilterEl = document.getElementById('visited-filter');
 if (visitedFilterEl) {
+    visitedFilterEl.value = visitedFilterState; // Set the UI dropdown to match memory
     visitedFilterEl.addEventListener('change', (e) => {
         visitedFilterState = e.target.value;
+        localStorage.setItem('barkVisitedFilter', visitedFilterState); // Save choice to memory
         window.syncState();
     });
 }
@@ -5192,10 +5460,12 @@ async function executeGeocode(query, targetType) {
                 window.syncState();
 
                 // Pan map to the new custom location
-                if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, {
-                    animate: !window.instantNav,
-                    duration: window.instantNav ? 0 : 0.4
-                });
+                if (typeof map !== 'undefined' && !window.stopAutoMovements) {
+                    map.setView([node.lat, node.lng], 10, {
+                        animate: !window.instantNav,
+                        duration: window.instantNav ? 0 : 0.4
+                    });
+                }
 
                 updateTripUI();
             } else {
@@ -5232,10 +5502,12 @@ async function executeGeocode(query, targetType) {
                             window.syncState();
 
                             // Pan map to the new custom location
-                            if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, {
-                                animate: !window.lowGfxEnabled,
-                                duration: window.lowGfxEnabled ? 0 : 1.5
-                            });
+                            if (typeof map !== 'undefined' && !window.stopAutoMovements) {
+                                map.setView([node.lat, node.lng], 10, {
+                                    animate: !window.lowGfxEnabled,
+                                    duration: window.lowGfxEnabled ? 0 : 1.5
+                                });
+                            }
 
                             disambiguationContainer.style.display = 'none';
                             updateTripUI();
@@ -6107,7 +6379,7 @@ if ('ontouchstart' in window) {
 
     mapContainer.addEventListener('touchmove', (e) => {
         if (window.disable1fingerZoom) return; // Safety check
-        
+
         // If we're in the hold-wait period, finger movement confirms zoom intent
         if (pendingDoubleTap && !isOneFingerZooming && e.touches.length === 1) {
             clearTimeout(holdTimer);

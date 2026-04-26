@@ -1158,6 +1158,7 @@ input:checked+.slider:before {
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.3s ease;
+    will-change: opacity; /* 🚀 Hardware accelerate the fade to stop lag */
 }
 
 .modal-overlay.active {
@@ -1184,6 +1185,7 @@ input:checked+.slider:before {
     flex-shrink: 0;
     margin-bottom: 20px;
     position: relative;
+    padding-right: 50px; /* Prevent title from overlapping the new X position */
 }
 
 .modal-body {
@@ -1222,23 +1224,23 @@ input:checked+.slider:before {
 
 .modal-close-btn {
     position: absolute;
-    top: -75px;
-    right: 0;
-    width: 60px;
-    height: 60px;
+    top: -10px; /* Pull it down inside the card bounds */
+    right: -10px;
+    width: 44px; /* Mobile safe tap target */
+    height: 44px;
     border-radius: 50%;
     background: #f1f5f9;
     border: none;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 42px;
+    font-size: 28px; /* Adjusted to fit the 44px button */
     font-weight: bold;
     color: #64748b;
     cursor: pointer;
     transition: background 0.2s, transform 0.1s, color 0.2s;
     z-index: 1002;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
 .modal-close-btn:active {

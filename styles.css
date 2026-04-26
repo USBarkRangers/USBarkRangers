@@ -1167,12 +1167,47 @@ input:checked + .slider:before {
     background: white;
     width: 100%;
     max-width: 400px;
+    max-height: 85vh;
     border-radius: 24px;
     padding: 30px;
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
     position: relative;
+    display: flex;
+    flex-direction: column;
     transform: translateY(20px);
     transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.modal-header {
+    flex-shrink: 0;
+    margin-bottom: 20px;
+    position: relative;
+}
+
+.modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 15px; /* Space for scrollbar */
+    margin-right: -5px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Custom Scrollbar for Premium Feel */
+.modal-body::-webkit-scrollbar {
+    width: 4px;
+}
+.modal-body::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 10px;
+}
+.modal-body::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+}
+.modal-body::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
 }
 
 .modal-overlay.active .modal-card {
@@ -1202,6 +1237,35 @@ input:checked + .slider:before {
     transform: scale(0.9);
 }
 
+.dev-warp-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 5px;
+}
+
+.dev-warp-btn {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    padding: 6px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.dev-warp-btn:hover {
+    background: #ef4444;
+    color: white;
+    border-color: #dc2626;
+    transform: translateY(-1px);
+}
+
+.dev-warp-btn:active {
+    transform: translateY(0);
+}
 @keyframes fade-in-up {
     from {
         opacity: 0;

@@ -1,4 +1,23 @@
-const APP_VERSION = 16;
+const APP_VERSION = 25;
+console.log("B.A.R.K. Engine v25: Performance Optimized");
+
+// ====== SETTINGS UI LOGIC ======
+let allowUncheck = localStorage.getItem('barkAllowUncheck') === 'true';
+let clusteringEnabled = localStorage.getItem('barkClusteringEnabled') === 'true';
+let lowGfxEnabled = localStorage.getItem('barkLowGfxEnabled') === 'true';
+let simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
+let instantNav = localStorage.getItem('barkInstantNav') === 'true';
+let devSearchEnabled = localStorage.getItem('barkDevSearchEnabled') === 'true';
+let devCacheEnabled = localStorage.getItem('barkDevCacheEnabled') === 'true';
+let devBatteryEnabled = localStorage.getItem('barkDevBatteryEnabled') === 'true';
+let devDebounceEnabled = localStorage.getItem('barkDevDebounceEnabled') === 'true';
+let devRegexEnabled = localStorage.getItem('barkDevRegexEnabled') === 'true';
+let rememberMapPosition = localStorage.getItem('remember-map-toggle') === 'true';
+
+let mapSaveTimeout; 
+
+// Apply initial Low Graphics class
+if (lowGfxEnabled) document.body.classList.add('low-graphics');
 
 // ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
 // Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
@@ -146,21 +165,50 @@ const map = L.map('map', {
 });
 
 // 🎯 MAP MEMORY INJECTION
-const savedView = JSON.parse(localStorage.getItem('barkMapView'));
-if (savedView && savedView.lat && savedView.lng && savedView.zoom) {
-    map.setView([savedView.lat, savedView.lng], savedView.zoom);
-} else {
-    map.setView([39.8283, -98.5795], 4); // Default US center
+function setInitialMapView(defaultLat, defaultLng) {
+    const savedLat = localStorage.getItem('mapLat');
+    const savedLng = localStorage.getItem('mapLng');
+    const savedZoom = localStorage.getItem('mapZoom') || 7;
+
+    if (rememberMapPosition && savedLat && savedLng) {
+        console.log("📍 Restoring last known map position...");
+        map.setView([parseFloat(savedLat), parseFloat(savedLng)], parseInt(savedZoom), { animate: false });
+        return true; // Use saved position
+    } else {
+        console.log("📍 Starting at default/current location...");
+        map.setView([defaultLat, defaultLng], parseInt(savedZoom), { animate: false });
+        return false; // Use default position
+    }
 }
+
+// Initial view set to US center as a placeholder during load
+setInitialMapView(39.8283, -98.5795);
 
 // Save the view every time the user stops dragging or zooming
 map.on('moveend', () => {
-    const center = map.getCenter();
-    localStorage.setItem('barkMapView', JSON.stringify({
-        lat: center.lat,
-        lng: center.lng,
-        zoom: map.getZoom()
-    }));
+    const saveState = () => {
+        const center = map.getCenter();
+        const zoom = map.getZoom();
+        localStorage.setItem('barkMapView', JSON.stringify({
+            lat: center.lat,
+            lng: center.lng,
+            zoom: zoom
+        }));
+        // Individual keys for setInitialMapView logic (compatibility)
+        localStorage.setItem('mapLat', center.lat);
+        localStorage.setItem('mapLng', center.lng);
+        localStorage.setItem('mapZoom', zoom);
+    };
+
+    if (devDebounceEnabled) {
+        clearTimeout(mapSaveTimeout);
+        mapSaveTimeout = setTimeout(() => {
+            saveState();
+            console.log("🛠️ Dev Test: Map state saved (Debounced)");
+        }, 500);
+    } else {
+        saveState();
+    }
 });
 
 // Helper to manually dismiss the cold-start loader exactly when we want to (e.g. after sync)
@@ -239,7 +287,7 @@ map.on('locationfound', function (e) {
     });
 
     userLocationMarker = L.marker(e.latlng, { icon: pulsingIcon }).addTo(map);
-    userLocationMarker.bindPopup('You are here!').openPopup();
+    userLocationMarker.bindPopup('You are here!', { autoPan: false }).openPopup();
 
     // 🎯 RE-CALCULATE AND RE-SORT ACHIEVEMENTS NOW THAT WE HAVE ACTUAL LOCATION
     evaluateAchievements(userVisitedPlaces);
@@ -251,7 +299,14 @@ map.on('locationerror', function (e) {
 
 // Prompt for location immediately on load
 setTimeout(() => {
-    map.locate({ setView: false, watch: false });
+    // Only auto-center if Remember Map Position is OFF
+    const usedSaved = rememberMapPosition && localStorage.getItem('mapLat');
+    if (!usedSaved) {
+        map.locate({ setView: true, maxZoom: 10 });
+    } else {
+        // Just locate without centering (to show the blue dot)
+        map.locate({ setView: false, watch: false });
+    }
 }, 500); // Give the map engine a slight delay to settle before prompting
 
 // Create a marker layer group for easy clearing
@@ -265,15 +320,7 @@ const markerClusterGroup = L.markerClusterGroup({
     animate: false // Turned off specifically to save CPU on older phones
 });
 
-// ====== SETTINGS UI LOGIC ======
-let allowUncheck = localStorage.getItem('barkAllowUncheck') === 'true';
-let clusteringEnabled = localStorage.getItem('barkClusteringEnabled') === 'true';
-let lowGfxEnabled = localStorage.getItem('barkLowGfxEnabled') === 'true';
-let simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
-let instantNav = localStorage.getItem('barkInstantNav') === 'true';
-
-// Apply initial Low Graphics class
-if (lowGfxEnabled) document.body.classList.add('low-graphics');
+// (Settings state moved to top of file)
 
 document.addEventListener('DOMContentLoaded', () => {
     const settingsGearBtn = document.getElementById('settings-gear-btn');
@@ -285,6 +332,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const lowGfxToggle = document.getElementById('low-gfx-toggle');
     const simplifyTrailToggle = document.getElementById('simplify-trail-toggle');
     const instantNavToggle = document.getElementById('instant-nav-toggle');
+    const devSearchToggle = document.getElementById('dev-search-toggle');
+    const devCacheToggle = document.getElementById('dev-cache-toggle');
+    const devBatteryToggle = document.getElementById('dev-battery-toggle');
+    const devDebounceToggle = document.getElementById('dev-debounce-toggle');
+    const devRegexToggle = document.getElementById('dev-regex-toggle');
+    const rememberMapToggle = document.getElementById('remember-map-toggle');
 
     if (settingsGearBtn && settingsOverlay) {
         if (allowUncheckToggle) allowUncheckToggle.checked = allowUncheck;
@@ -292,6 +345,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (lowGfxToggle) lowGfxToggle.checked = lowGfxEnabled;
         if (simplifyTrailToggle) simplifyTrailToggle.checked = simplifyTrails;
         if (instantNavToggle) instantNavToggle.checked = instantNav;
+        if (devSearchToggle) devSearchToggle.checked = devSearchEnabled;
+        if (devCacheToggle) devCacheToggle.checked = devCacheEnabled;
+        if (devBatteryToggle) devBatteryToggle.checked = devBatteryEnabled;
+        if (devDebounceToggle) devDebounceToggle.checked = devDebounceEnabled;
+        if (devRegexToggle) devRegexToggle.checked = devRegexEnabled;
+        if (rememberMapToggle) rememberMapToggle.checked = rememberMapPosition;
+
+        // Populate Trail Warp Grid once on load (it's static)
+        populateTrailWarpGrid();
 
         // Set version dinamically
         const versionLabel = document.getElementById('settings-app-version');
@@ -367,8 +429,83 @@ document.addEventListener('DOMContentLoaded', () => {
                 localStorage.setItem('barkInstantNav', instantNav ? 'true' : 'false');
             });
         }
+
+        if (devSearchToggle) {
+            devSearchToggle.addEventListener('change', (e) => {
+                devSearchEnabled = e.target.checked;
+                localStorage.setItem('barkDevSearchEnabled', devSearchEnabled ? 'true' : 'false');
+            });
+        }
+
+        if (devCacheToggle) {
+            devCacheToggle.addEventListener('change', (e) => {
+                devCacheEnabled = e.target.checked;
+                localStorage.setItem('barkDevCacheEnabled', devCacheEnabled ? 'true' : 'false');
+                if (!devCacheEnabled) cachedTrailsData = null; // Clear cache on disable
+            });
+        }
+
+        if (devBatteryToggle) {
+            devBatteryToggle.addEventListener('change', (e) => {
+                devBatteryEnabled = e.target.checked;
+                localStorage.setItem('barkDevBatteryEnabled', devBatteryEnabled ? 'true' : 'false');
+            });
+        }
+
+        if (devDebounceToggle) {
+            devDebounceToggle.addEventListener('change', (e) => {
+                devDebounceEnabled = e.target.checked;
+                localStorage.setItem('barkDevDebounceEnabled', devDebounceEnabled ? 'true' : 'false');
+            });
+        }
+
+        if (devRegexToggle) {
+            devRegexToggle.addEventListener('change', (e) => {
+                devRegexEnabled = e.target.checked;
+                localStorage.setItem('barkDevRegexEnabled', devRegexEnabled ? 'true' : 'false');
+            });
+        }
+
+        if (rememberMapToggle) {
+            rememberMapToggle.addEventListener('change', (e) => {
+                rememberMapPosition = e.target.checked;
+                localStorage.setItem('remember-map-toggle', rememberMapPosition ? 'true' : 'false');
+            });
+        }
     }
 });
+
+function populateTrailWarpGrid() {
+    const warpGrid = document.getElementById('dev-trail-warp-grid');
+    if (!warpGrid) return;
+
+    warpGrid.innerHTML = '';
+    TOP_10_TRAILS.forEach(trail => {
+        const btn = document.createElement('button');
+        btn.className = 'dev-warp-btn';
+        btn.textContent = trail.name;
+        btn.onclick = async () => {
+            const user = firebase.auth().currentUser;
+            if (!user) {
+                alert("Please sign in first!");
+                return;
+            }
+            
+            console.log(`🛠️ Dev Test: Warping to ${trail.name}...`);
+            
+            // 1. Assign trail to user
+            await assignTrailToUser(user.uid, trail);
+            
+            // 2. Fly to active trail
+            if (typeof flyToActiveTrail === 'function') flyToActiveTrail();
+            
+            // 3. Close settings modal
+            const settingsOverlay = document.getElementById('settings-overlay');
+            if (settingsOverlay) settingsOverlay.classList.remove('active');
+        };
+        warpGrid.appendChild(btn);
+    });
+}
 
 let allPoints = [];
 let activePinMarker = null;
@@ -919,6 +1056,21 @@ const normalizationDict = {
     'hist': 'historic'
 };
 
+let cachedTrailsData = null;
+
+async function getTrailsData() {
+    if (cachedTrailsData) return cachedTrailsData;
+    
+    try {
+        const response = await fetch('trails.json');
+        cachedTrailsData = await response.json();
+        return cachedTrailsData;
+    } catch (err) {
+        console.error("Failed to fetch trails:", err);
+        throw err;
+    }
+}
+
 function normalizeText(text) {
     if (!text) return '';
     let cleaned = String(text).toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").replace(/\s{2,}/g, " ").trim();
@@ -934,19 +1086,19 @@ function normalizeText(text) {
 function levenshtein(a, b) {
     if (a.length === 0) return b.length;
     if (b.length === 0) return a.length;
-    const matrix = [];
-    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-    for (let i = 1; i <= b.length; i++) {
-        for (let j = 1; j <= a.length; j++) {
-            if (b.charAt(i - 1) === a.charAt(j - 1)) {
-                matrix[i][j] = matrix[i - 1][j - 1];
-            } else {
-                matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
-            }
+    let v0 = new Array(b.length + 1);
+    let v1 = new Array(b.length + 1);
+    for (let i = 0; i <= b.length; i++) v0[i] = i;
+
+    for (let i = 0; i < a.length; i++) {
+        v1[0] = i + 1;
+        for (let j = 0; j < b.length; j++) {
+            const cost = (a[i] === b[j]) ? 0 : 1;
+            v1[j + 1] = Math.min(v1[j] + 1, v0[j + 1] + 1, v0[j] + cost);
         }
+        for (let j = 0; j <= b.length; j++) v0[j] = v1[j];
     }
-    return matrix[b.length][a.length];
+    return v1[b.length];
 }
 
 function formatSwagLinks(text) {
@@ -988,8 +1140,7 @@ async function renderCompletedTrailsOverlay(completedExpeditions) {
     if (!completedExpeditions || completedExpeditions.length === 0) return;
 
     try {
-        const response = await fetch('trails.json');
-        const trailsData = await response.json();
+        const trailsData = await getTrailsData();
 
         completedExpeditions.forEach(exp => {
             const trailId = exp.id || exp.trail_id;
@@ -1030,8 +1181,7 @@ async function renderCompletedTrailsOverlay(completedExpeditions) {
 async function renderVirtualTrailOverlay(trailId, milesCompleted) {
     virtualTrailLayerGroup.clearLayers();
     try {
-        const response = await fetch('trails.json');
-        const trailsData = await response.json();
+        const trailsData = await getTrailsData();
         const trailGeoJson = trailsData[trailId];
 
         if (!trailGeoJson) return;
@@ -1867,12 +2017,13 @@ function pollForUpdates() {
 
 // ── Safe Background Data Polling ──
 let dataPollErrorCount = 0;
+
+function getPollInterval() {
+    if (document.hidden) return 60000;
+    return dataPollErrorCount > 5 ? 60000 : 10000;
+}
+
 async function safeDataPoll() {
-    // 1. Check Visibility API (Save costs when tab is inactive)
-    if (document.hidden) {
-        setTimeout(safeDataPoll, 15000); // 15s when inactive
-        return;
-    }
     try {
         await pollForUpdates();
         dataPollErrorCount = 0;
@@ -1884,9 +2035,7 @@ async function safeDataPoll() {
         dataPollErrorCount++;
         console.error("Data poll failed, backing off...");
     }
-    // 2. Adaptive Back-off: If it fails 5 times, slow down to 1 minute
-    const interval = dataPollErrorCount > 5 ? 60000 : 3000;
-    setTimeout(safeDataPoll, interval);
+    setTimeout(safeDataPoll, getPollInterval());
 }
 safeDataPoll();
 
@@ -1928,7 +2077,7 @@ function updateMarkers() {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
 
         const queryNorm = normalizeText(activeSearchQuery);
-        const nameNorm = normalizeText(item.name);
+        const nameNorm = item._cachedNormalizedName || (item._cachedNormalizedName = normalizeText(item.name));
 
         let matchesSearch = false;
         if (!queryNorm) {
@@ -1940,7 +2089,8 @@ function updateMarkers() {
             const tokens = nameNorm.split(' ');
             for (const word of tokens) {
                 if (queryNorm.length > 2) {
-                    minDist = Math.min(minDist, levenshtein(queryNorm, word));
+                    const dist = levenshtein(queryNorm, word);
+                    minDist = Math.min(minDist, dist);
                 }
             }
             if (minDist <= 2) matchesSearch = true;
@@ -2028,7 +2178,7 @@ searchInput.addEventListener('input', (e) => {
         let matches = [];
 
         allPoints.forEach(item => {
-            const nameNorm = normalizeText(item.name);
+            const nameNorm = item._cachedNormalizedName || (item._cachedNormalizedName = normalizeText(item.name));
             let score = 999;
 
             if (nameNorm.includes(queryNorm)) {
@@ -2038,7 +2188,8 @@ searchInput.addEventListener('input', (e) => {
                 const tokens = nameNorm.split(' ');
                 for (const word of tokens) {
                     if (queryNorm.length > 2) {
-                        minDist = Math.min(minDist, levenshtein(queryNorm, word));
+                        const dist = levenshtein(queryNorm, word);
+                        minDist = Math.min(minDist, dist);
                     }
                 }
                 if (minDist <= 2) score = minDist;
@@ -2387,6 +2538,29 @@ if (typeof firebase !== 'undefined') {
         window.currentWalkPoints = window.currentWalkPoints || 0;
 
         const profileName = document.getElementById('user-profile-name');
+
+        // --- 🕵️‍♂️ Secret Handshake: 3s Long-Press to Unlock God Mode ---
+        let godModeTimer;
+        const triggerGodMode = () => {
+            const warpContainer = document.getElementById('dev-warp-container');
+            const settingsGear = document.getElementById('settings-gear-btn');
+            if (warpContainer && settingsGear) {
+                warpContainer.style.display = 'block';
+                settingsGear.click(); // Pop open settings to show it
+                console.log("🛠️ God Mode Unlocked: Trail Warp Grid Enabled");
+            }
+        };
+        
+        ['touchstart', 'mousedown'].forEach(evt => {
+            if (profileName) profileName.addEventListener(evt, () => {
+                godModeTimer = setTimeout(triggerGodMode, 3000);
+            });
+        });
+        ['touchend', 'mouseup', 'mouseleave', 'touchcancel'].forEach(evt => {
+            if (profileName) profileName.addEventListener(evt, () => {
+                clearTimeout(godModeTimer);
+            });
+        });
 
         if (user) {
             // Reset hydration locks on login

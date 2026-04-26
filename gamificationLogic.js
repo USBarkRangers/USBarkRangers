@@ -77,13 +77,17 @@ class GamificationEngine {
             });
         };
 
+        const sortedVisits = [...visitedParksArray]
+            .filter(p => p.ts)
+            .sort((a, b) => a.ts - b.ts);
+
         return {
             totalScore: totalScore,
             title: this.calculateTitle(totalScore),
             paws: sortBadges(this.calculatePaws(visitedParksArray.length, verifiedCount)),
             rareFeats: sortBadges(this.calculateRareFeats(stateVisitsTotalMap, stateVisitsVerifiedMap)),
             stateBadges: sortBadges(this.calculateStateBadges(stateVisitsTotalMap, stateVisitsVerifiedMap)),
-            mysteryFeats: this.calculateMysteryFeats(visitedParksArray, userRank),
+            mysteryFeats: this.calculateMysteryFeats(visitedParksArray, userRank, sortedVisits),
             nationalProgress: { 
                 totalVisited: visitedParksArray.length, 
                 totalParks: this.totalSystemParks || 1, 
@@ -217,19 +221,22 @@ class GamificationEngine {
         });
     }
 
-    calculateMysteryFeats(vArray, userRank) {
+    calculateMysteryFeats(vArray, userRank, sortedVisits = []) {
         const check = (cond, vCond) => ({ status: cond ? 'unlocked' : 'locked', tier: vCond ? 'verified' : 'honor' });
-        const tsV = vArray.filter(p => p.ts).sort((a, b) => a.ts - b.ts);
+        
+        // Use pre-sorted visits and linear sliding window for marathoner
         let marathoner = false;
         const MS_24H = 24 * 60 * 60 * 1000;
-        for(let i=0; i<tsV.length; i++){
-            let count = 1;
-            for(let j=i+1; j<tsV.length; j++){
-                if(tsV[j].ts - tsV[i].ts <= MS_24H) count++;
-                else break;
+        
+        if (sortedVisits.length >= 4) {
+            for (let i = 0; i <= sortedVisits.length - 4; i++) {
+                if (sortedVisits[i+3].ts - sortedVisits[i].ts <= MS_24H) {
+                    marathoner = true;
+                    break;
+                }
             }
-            if(count >= 4) { marathoner = true; break; }
         }
+
         let nightR = vArray.some(p => { let h = new Date(p.ts || 0).getHours(); return h >= 0 && h < 4; });
         let earlyB = vArray.some(p => { let h = new Date(p.ts || 0).getHours(); return h >= 4 && h < 7; });
         let loneW = vArray.some(p => { let d = new Date(p.ts || 0); return d.getMonth() === 11 && d.getDate() === 25; });

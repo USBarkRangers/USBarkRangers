@@ -778,3 +778,24 @@
 #day-management-bar button:hover:not(:disabled) {
     background: rgba(0,0,0,0.03) !important; color: #0f172a !important;
 }
+
+/* ── LOW GRAPHICS OVERRIDE ──
+ * Automatically strips GPU-heavy 3D layers when enabled 
+ */
+body.low-graphics .banner-card,
+body.low-graphics .badge-face,
+body.low-graphics .skeuo-badge,
+body.low-graphics .flip-scene,
+body.low-graphics .mystery-card {
+    transform-style: flat !important;
+    perspective: none !important;
+    backface-visibility: visible !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+body.low-graphics * {
+    /* Kills all glass effects globally */
+    backdrop-filter: none !important; 
+    -webkit-backdrop-filter: none !important;
+}

@@ -75,7 +75,9 @@ html {
 }
 
 /* Allow text selection in inputs and textareas */
-input, textarea, [contenteditable="true"] {
+input,
+textarea,
+[contenteditable="true"] {
     -webkit-user-select: text !important;
     -ms-user-select: text !important;
     user-select: text !important;
@@ -1118,14 +1120,14 @@ details[open] .chevron {
     bottom: 3px;
     background-color: white;
     transition: .3s;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-input:checked + .slider {
+input:checked+.slider {
     background-color: #4CAF50;
 }
 
-input:checked + .slider:before {
+input:checked+.slider:before {
     transform: translateX(20px);
 }
 
@@ -1187,7 +1189,8 @@ input:checked + .slider:before {
 .modal-body {
     flex: 1;
     overflow-y: auto;
-    padding-right: 15px; /* Space for scrollbar */
+    padding-right: 15px;
+    /* Space for scrollbar */
     margin-right: -5px;
     display: flex;
     flex-direction: column;
@@ -1198,14 +1201,17 @@ input:checked + .slider:before {
 .modal-body::-webkit-scrollbar {
     width: 4px;
 }
+
 .modal-body::-webkit-scrollbar-track {
     background: #f1f5f9;
     border-radius: 10px;
 }
+
 .modal-body::-webkit-scrollbar-thumb {
     background: #cbd5e1;
     border-radius: 10px;
 }
+
 .modal-body::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
 }
@@ -1216,21 +1222,23 @@ input:checked + .slider:before {
 
 .modal-close-btn {
     position: absolute;
-    top: 20px;
-    right: 20px;
-    width: 32px;
-    height: 32px;
+    top: -75px;
+    right: 0;
+    width: 60px;
+    height: 60px;
     border-radius: 50%;
     background: #f1f5f9;
     border: none;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
+    font-size: 42px;
     font-weight: bold;
     color: #64748b;
     cursor: pointer;
-    transition: background 0.2s, transform 0.1s;
+    transition: background 0.2s, transform 0.1s, color 0.2s;
+    z-index: 1002;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .modal-close-btn:active {
@@ -1266,26 +1274,33 @@ input:checked + .slider:before {
 .dev-warp-btn:active {
     transform: translateY(0);
 }
+
 @keyframes fade-in-up {
     from {
         opacity: 0;
         transform: translateY(20px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
     }
 }
+
 /* --- Performance Pin Grouping Styles --- */
-.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
-    background-color: rgba(45, 52, 54, 0.7) !important; /* Dark slate background */
-    border: 2px solid #fab1a0 !important; /* B.A.R.K. peach border */
+.marker-cluster-small,
+.marker-cluster-medium,
+.marker-cluster-large {
+    background-color: rgba(45, 52, 54, 0.7) !important;
+    /* Dark slate background */
+    border: 2px solid #fab1a0 !important;
+    /* B.A.R.K. peach border */
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
 }
 
 .marker-cluster div {
-    background-color: #fab1a0 !important; 
+    background-color: #fab1a0 !important;
     color: #2d3436 !important;
     font-weight: 800 !important;
     font-family: 'Inter', sans-serif !important;
@@ -1293,7 +1308,7 @@ input:checked + .slider:before {
 }
 
 /* Instantly strips expensive renders when the toggle is ON */
-body.low-graphics .profile-overlay, 
+body.low-graphics .profile-overlay,
 body.low-graphics .modal-overlay,
 body.low-graphics .modal-card,
 body.low-graphics .settings-trigger,
@@ -1308,3 +1323,123 @@ body.low-graphics .modal-card {
     background-color: #ffffff !important;
     border: 1px solid #cbd5e1 !important;
 }
+
+/* Ensure the Settings Modal stays "Dark" even in Ultra Low */
+body.ultra-low .modal-overlay {
+    background-color: rgba(0, 0, 0, 0.8) !important;
+    /* Force the darkness */
+    backdrop-filter: none !important;
+    /* Blur is too heavy for Ultra Low */
+}
+
+/* Red Ultra-Low Toggle Alert Styling */
+input#ultra-low-toggle:checked+.slider {
+    background-color: #ef4444 !important;
+}
+
+
+/* =========================================
+   REDUCED PIN SCALING / MOTION TOGGLE
+   ========================================= */
+
+/* 1. Kill ALL transitions and GPU reservations on our custom wrappers */
+body.reduce-pin-motion .enamel-pin-wrapper,
+body.reduce-pin-motion .cluster-enamel-wrapper {
+    transition: none !important;
+    animation: none !important;
+    will-change: auto !important;
+}
+
+/* 2. Kill hover/active scaling entirely — zero GPU pop calculations */
+body.reduce-pin-motion .enamel-pin-wrapper:hover,
+body.reduce-pin-motion .custom-bark-marker.active-pin .enamel-pin-wrapper {
+    transform: none !important;
+}
+
+/* 3. 🛠️ THE FIX: Freeze Leaflet's internal icon transitions but allow the pane to scale */
+body.reduce-pin-motion .leaflet-marker-icon,
+body.reduce-pin-motion .leaflet-marker-shadow {
+    transition: none !important;
+    animation: none !important;
+    /* Prevent Leaflet from attempting to dynamically shift the anchor point during a pinch */
+    transform-origin: center bottom !important;
+}
+
+/* =========================================================
+   B.A.R.K. PERFORMANCE MODIFIERS (V24 — 4 Toggles)
+   ========================================================= */
+
+/* 1. STOP SPINNING: Bulletproof animation paralysis */
+/* Kill all transitions/animations on the entire marker tree */
+body.stop-spinning .leaflet-marker-pane,
+body.stop-spinning .leaflet-marker-pane *,
+body.stop-spinning .custom-bark-marker,
+body.stop-spinning .custom-bark-marker * {
+    animation: none !important;
+    transition: none !important;
+    will-change: auto !important;
+}
+/* Force-lock the pin's visual state so there's nothing TO animate */
+body.stop-spinning .enamel-pin-wrapper {
+    animation: none !important;
+    transition: none !important;
+    transform: translateZ(0) !important; /* Keep GPU layer, kill scale effects */
+    opacity: 1 !important;
+    will-change: auto !important;
+}
+body.stop-spinning .enamel-pin-wrapper img {
+    animation: none !important;
+    transition: none !important;
+}
+body.stop-spinning .cluster-enamel-wrapper {
+    animation: none !important;
+    transition: none !important;
+    transform: translateZ(0) !important;
+    will-change: auto !important;
+}
+/* Kill hover pop completely */
+body.stop-spinning .enamel-pin-wrapper:hover,
+body.stop-spinning .cluster-enamel-wrapper:hover {
+    transform: translateZ(0) !important;
+}
+/* Kill the unvisited scale-down so all pins render at full size */
+body.stop-spinning .custom-bark-marker.unvisited-marker .enamel-pin-wrapper {
+    transform: translateZ(0) !important;
+    opacity: 1 !important;
+}
+
+/* 2. REMOVE SHADOWS: Strips heavy alpha-mask drop-shadow filters */
+body.remove-shadows .visited-pin {
+    filter: none !important;
+    box-shadow: 0 0 8px #4CAF50 !important;
+}
+body.remove-shadows .cat-national:not(.visited-pin),
+body.remove-shadows .cat-state:not(.visited-pin) {
+    filter: none !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* 3. STOP RESIZING: Snaps pins to final size instantly during zoom */
+body.stop-resizing .leaflet-marker-icon,
+body.stop-resizing .enamel-pin-wrapper,
+body.stop-resizing .custom-bark-marker * {
+    transition: none !important;
+    animation: none !important;
+}
+
+/* 🧊 TRACKPAD ZOOM DEBOUNCER
+   On desktop, Leaflet scroll-wheel zoom doesn't use standard GPU pane animation.
+   Instead, it continuously recalculates all math bounds hundreds of times per second.
+   If "Stop Resizing" is active, we completely hide the markers while scrolling,
+   so they don't stutter-resize, perfectly satisfying "slow resize untill zoom complete". */
+body.stop-resizing.map-is-zooming .leaflet-marker-pane {
+    visibility: hidden !important;
+    opacity: 0 !important;
+    transition: none !important;
+}
+
+/* 4. VIEWPORT CULLING: Subtle fade for pins entering the bounding box */
+body.viewport-culling .leaflet-marker-icon {
+    animation: barkFadeIn 0.15s ease-out;
+}
+@keyframes barkFadeIn { from { opacity: 0; } to { opacity: 1; } }

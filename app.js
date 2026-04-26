@@ -1,40 +1,103 @@
-const APP_VERSION = 25;
-console.log("B.A.R.K. Engine v25: Performance Optimized");
+let APP_VERSION = parseInt(localStorage.getItem('bark_seen_version') || '26');
+console.log(`B.A.R.K. Engine v${APP_VERSION}: Performance Optimized`);
 
 // ====== SETTINGS UI LOGIC ======
-let allowUncheck = localStorage.getItem('barkAllowUncheck') === 'true';
-let clusteringEnabled = localStorage.getItem('barkClusteringEnabled') === 'true';
-let lowGfxEnabled = localStorage.getItem('barkLowGfxEnabled') === 'true';
-let simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
-let instantNav = localStorage.getItem('barkInstantNav') === 'true';
-let devSearchEnabled = localStorage.getItem('barkDevSearchEnabled') === 'true';
-let devCacheEnabled = localStorage.getItem('barkDevCacheEnabled') === 'true';
-let devBatteryEnabled = localStorage.getItem('barkDevBatteryEnabled') === 'true';
-let devDebounceEnabled = localStorage.getItem('barkDevDebounceEnabled') === 'true';
-let devRegexEnabled = localStorage.getItem('barkDevRegexEnabled') === 'true';
-let rememberMapPosition = localStorage.getItem('remember-map-toggle') === 'true';
+window.allowUncheck = localStorage.getItem('barkAllowUncheck') === 'true';
 
-let mapSaveTimeout; 
+// 3-Way Bubble Logic
+window.standardClusteringEnabled = localStorage.getItem('barkStandardClustering') !== 'false'; // Default ON
+window.premiumClusteringEnabled = localStorage.getItem('barkPremiumClustering') === 'true';   // Default OFF
 
-// Apply initial Low Graphics class
-if (lowGfxEnabled) document.body.classList.add('low-graphics');
+// Master state for the engine
+window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
+
+// 🛡️ STRICT HARDWARE FIX: Only auto-detect if the user has NEVER touched the setting.
+// Once they flip the toggle, their choice is permanent. It does not matter the device.
+let lowGfxSaved = localStorage.getItem('barkLowGfxEnabled');
+window.lowGfxEnabled = false;
+
+if (lowGfxSaved !== null) {
+    window.lowGfxEnabled = lowGfxSaved === 'true';
+} else {
+    const deviceRAM = navigator.deviceMemory || 4;
+    window.lowGfxEnabled = (deviceRAM < 4);
+}
+window.simplifyTrails = localStorage.getItem('barkSimplifyTrails') === 'true';
+window.instantNav = localStorage.getItem('barkInstantNav') === 'true';
+window.rememberMapPosition = localStorage.getItem('remember-map-toggle') === 'true';
+
+// 🛑 REDUCE PIN SCALING / MOTION STATE
+window.reducePinMotion = localStorage.getItem('barkReducePinMotion') === 'true';
+
+if (window.reducePinMotion) {
+    document.body.classList.add('reduce-pin-motion');
+} else {
+    document.body.classList.remove('reduce-pin-motion');
+}
+
+// 🚀 B.A.R.K. PERFORMANCE MODIFIERS (V24 — 4 Toggles)
+window.removeShadows = localStorage.getItem('barkRemoveShadows') === 'true';
+window.stopResizing = localStorage.getItem('barkStopResizing') === 'true';
+window.viewportCulling = localStorage.getItem('barkViewportCulling') === 'true';
+
+if (window.removeShadows) document.body.classList.add('remove-shadows');
+if (window.stopResizing) document.body.classList.add('stop-resizing');
+if (window.viewportCulling) document.body.classList.add('viewport-culling');
+
+// 🔨 ULTRA-LOW SLEDGEHAMMER STATE
+window.ultraLowEnabled = localStorage.getItem('barkUltraLowEnabled') === 'true';
+
+// Master state for the engine
+window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
+
+// 1-Finger Zoom disabled state
+window.lockMapPanning = localStorage.getItem('barkLockMapPanning') === 'true';
+window.disable1fingerZoom = localStorage.getItem('barkDisable1Finger') === 'true';
+window.disableDoubleTap = localStorage.getItem('barkDisableDoubleTap') === 'true';
+window.disablePinchZoom = localStorage.getItem('barkDisablePinchZoom') === 'true';
+
+// Apply Master Override if Ultra Low is ON
+if (window.ultraLowEnabled) {
+    window.lowGfxEnabled = true;
+    window.standardClusteringEnabled = true;
+    window.instantNav = true;
+    window.simplifyTrails = true; // Added missing master-forced state
+    window.clusteringEnabled = true;
+    document.body.classList.add('ultra-low');
+    document.body.classList.add('low-graphics'); // Ensure both are on
+} else {
+    // Safety: Ensure class is gone if setting is off
+    document.body.classList.remove('ultra-low');
+}
+
+// Global Lookup Engine (v25 Performance)
+window.parkLookup = new Map();
+
+let mapSaveTimeout;
+
+// Apply initial Low Graphics class strictly based on the final setting
+if (window.lowGfxEnabled) {
+    document.body.classList.add('low-graphics');
+} else {
+    document.body.classList.remove('low-graphics');
+}
 
 // ====== iOS SAFARI MAGNIFIER & SELECTION HACK ======
 // Prevent the long-press and double-tap-and-hold magnifying glass (loupe)
-document.addEventListener('contextmenu', function(e) {
+document.addEventListener('contextmenu', function (e) {
     if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
     }
 });
 
 let lastTouchTime = 0;
-document.addEventListener('touchstart', function(e) {
+document.addEventListener('touchstart', function (e) {
     const time = new Date().getTime();
     const timeSince = time - lastTouchTime;
     // Intercept the second tap of a double tap (which can lead to a magnifying glass if held)
     if (timeSince < 300 && timeSince > 0) {
         if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && !e.target.isContentEditable) {
-            e.preventDefault(); 
+            e.preventDefault();
         }
     }
     lastTouchTime = time;
@@ -153,16 +216,35 @@ window.attemptDailyStreakIncrement = async function () {
 })();
 
 // Initialize map centered on the US
-const map = L.map('map', {
+const mapOptions = window.ultraLowEnabled ? {
+    preferCanvas: true,          // Use Canvas instead of SVG
+    updateWhenIdle: true,        // DO NOT update tiles while moving
+    updateWhenZooming: false,     // This is your "slow resize" fix
+    markerZoomAnimation: false,  // Stop pins from "growing" during zoom
+    zoomAnimation: false,        // Snap zoom instantly
+    fadeAnimation: false,        // No cross-fading tiles
+    inertia: false,              // Stop the map from "sliding" after a flick
+    zoomControl: false,
+    worldCopyJump: true,
+    renderer: L.canvas({ padding: 0.5 })
+} : {
     zoomControl: false,
     worldCopyJump: true,
     renderer: L.canvas({ padding: 0.5 }),
     preferCanvas: true,
-    zoomSnap: 0.5,              // Smooth enough for custom gestures, crisp for scroll wheel
-    zoomDelta: 1,               // Desktop scroll wheel zooms by 1 full level per tick
-    wheelDebounceTime: 40,      // Responsive trackpad feel
-    wheelPxPerZoomLevel: 120    // Natural scroll-to-zoom ratio
-});
+    zoomSnap: 0.5,
+    zoomDelta: 1,
+    wheelDebounceTime: 40,
+    wheelPxPerZoomLevel: 120,
+    doubleClickZoom: false, // 🛑 Managed by Custom Engine
+    touchZoom: !window.disablePinchZoom,
+    dragging: !window.lockMapPanning,
+
+    // Let Leaflet's native GPU scaling handle the tile stretch
+    markerZoomAnimation: true
+};
+
+const map = L.map('map', mapOptions);
 
 // 🎯 MAP MEMORY INJECTION
 function setInitialMapView(defaultLat, defaultLng) {
@@ -170,7 +252,7 @@ function setInitialMapView(defaultLat, defaultLng) {
     const savedLng = localStorage.getItem('mapLng');
     const savedZoom = localStorage.getItem('mapZoom') || 7;
 
-    if (rememberMapPosition && savedLat && savedLng) {
+    if (window.rememberMapPosition && savedLat && savedLng) {
         console.log("📍 Restoring last known map position...");
         map.setView([parseFloat(savedLat), parseFloat(savedLng)], parseInt(savedZoom), { animate: false });
         return true; // Use saved position
@@ -184,30 +266,57 @@ function setInitialMapView(defaultLat, defaultLng) {
 // Initial view set to US center as a placeholder during load
 setInitialMapView(39.8283, -98.5795);
 
-// Save the view every time the user stops dragging or zooming
-map.on('moveend', () => {
-    const saveState = () => {
-        const center = map.getCenter();
-        const zoom = map.getZoom();
-        localStorage.setItem('barkMapView', JSON.stringify({
-            lat: center.lat,
-            lng: center.lng,
-            zoom: zoom
-        }));
-        // Individual keys for setInitialMapView logic (compatibility)
-        localStorage.setItem('mapLat', center.lat);
-        localStorage.setItem('mapLng', center.lng);
-        localStorage.setItem('mapZoom', zoom);
-    };
+// 🎯 CUSTOM DOUBLE CLICK ZOOM ENGINE
+// Replaces Leaflet's native handler to guarantee execution without conflict
+map.on('dblclick', (e) => {
+    if (window.disableDoubleTap) return; // Respect the settings toggle
+    
+    // Zoom in smoothly around the cursor/tap point
+    map.setZoomAround(e.containerPoint, map.getZoom() + 1);
+});
 
-    if (devDebounceEnabled) {
-        clearTimeout(mapSaveTimeout);
-        mapSaveTimeout = setTimeout(() => {
-            saveState();
-            console.log("🛠️ Dev Test: Map state saved (Debounced)");
-        }, 500);
-    } else {
-        saveState();
+// 🚀 MAP POSITION SAVER
+map.on('moveend', () => {
+    clearTimeout(mapSaveTimeout);
+    mapSaveTimeout = setTimeout(() => {
+        const center = map.getCenter();
+        localStorage.setItem('mapLat', center.lat.toFixed(6));
+        localStorage.setItem('mapLng', center.lng.toFixed(6));
+        localStorage.setItem('mapZoom', map.getZoom());
+    }, 500);
+
+    // 🚀 VIEWPORT CULLING DYNAMIC RENDER (Throttled to prevent flash)
+    if (window.viewportCulling) {
+        if (!window._cullingTimeout) {
+            window._cullingTimeout = setTimeout(() => {
+                window._cullingTimeout = null;
+                window.syncState();
+            }, 300);
+        }
+    }
+});
+
+// 🧨 EXPLOSION TRIGGER: Re-evaluate pins every time the zoom changes
+map.on('zoomend', () => {
+    if (window.premiumClusteringEnabled) {
+        window.syncState();
+    }
+});
+
+// 🧊 TRACKPAD ZOOM DEBOUNCER: Native Leaflet on Mac trackpads fires 100s of continuous
+// zoom events per second instead of using a single GPU animation. This prevents the jitter.
+let trackpadZoomTimeout = null;
+map.on('zoomstart', () => {
+    if (window.stopResizing) {
+        document.body.classList.add('map-is-zooming');
+    }
+});
+map.on('zoomend', () => {
+    if (window.stopResizing) {
+        clearTimeout(trackpadZoomTimeout);
+        trackpadZoomTimeout = setTimeout(() => {
+            document.body.classList.remove('map-is-zooming');
+        }, 150); // Wait 150ms after the last scroll tick
     }
 });
 
@@ -290,7 +399,7 @@ map.on('locationfound', function (e) {
     userLocationMarker.bindPopup('You are here!', { autoPan: false }).openPopup();
 
     // 🎯 RE-CALCULATE AND RE-SORT ACHIEVEMENTS NOW THAT WE HAVE ACTUAL LOCATION
-    evaluateAchievements(userVisitedPlaces);
+    window.syncState();
 });
 
 map.on('locationerror', function (e) {
@@ -300,7 +409,7 @@ map.on('locationerror', function (e) {
 // Prompt for location immediately on load
 setTimeout(() => {
     // Only auto-center if Remember Map Position is OFF
-    const usedSaved = rememberMapPosition && localStorage.getItem('mapLat');
+    const usedSaved = window.rememberMapPosition && localStorage.getItem('mapLat');
     if (!usedSaved) {
         map.locate({ setView: true, maxZoom: 10 });
     } else {
@@ -314,52 +423,86 @@ const markerLayer = L.layerGroup().addTo(map);
 
 // Creates the clustering engine, but does NOT add it to the map yet.
 const markerClusterGroup = L.markerClusterGroup({
-    chunkedLoading: true, // Processes in batches so old phones don't freeze
+    // 🎯 Use Leaflet's internal bounding-block logic when toggled on
+    chunkedLoading: window.stopPinResizing,
+    chunkInterval: 200, // Process in blocks of 200ms
+    chunkDelay: 50,     // Yield to the CPU so the map doesn't freeze
+
     removeOutsideVisibleBounds: true, // Deletes off-screen pins to save RAM
     disableClusteringAtZoom: 16, // Ungroups when zoomed in close
-    animate: false // Turned off specifically to save CPU on older phones
+    animate: false, // Turned off specifically to save CPU on older phones
+
+    maxClusterRadius: function (zoom) {
+        if (window.premiumClusteringEnabled) {
+            // Aggressive grouping for country-level only
+            return 80;
+        }
+        if (window.standardClusteringEnabled) {
+            // Standard behavior
+            if (zoom <= 5) return 40;
+            if (zoom <= 8) return 60;
+            return 80;
+        }
+        return 80;
+    },
+
+    // ✨ THE PREMIUM B.A.R.K. LOGO CLUSTER ✨
+    iconCreateFunction: function (cluster) {
+        const childCount = cluster.getChildCount();
+
+        const markerHtml = `
+            <div class="cluster-enamel-wrapper">
+                <img src="bark-logo.jpeg" alt="B.A.R.K. Cluster" loading="lazy" />
+                <div class="cluster-count-badge">${childCount}</div>
+            </div>
+        `;
+
+        return L.divIcon({
+            html: markerHtml,
+            className: 'bark-cluster-marker',
+            iconSize: [46, 46],   // Slightly larger than standard pins
+            iconAnchor: [23, 23]  // Perfectly centered
+        });
+    }
 });
 
 // (Settings state moved to top of file)
 
 document.addEventListener('DOMContentLoaded', () => {
+    // 1. SELECT ALL ELEMENTS FIRST (Prevents ReferenceErrors)
     const settingsGearBtn = document.getElementById('settings-gear-btn');
     const settingsOverlay = document.getElementById('settings-overlay');
     const settingsModal = document.getElementById('settings-modal');
     const closeSettingsBtn = document.getElementById('close-settings-btn');
     const allowUncheckToggle = document.getElementById('allow-uncheck-setting');
-    const clusterToggle = document.getElementById('cluster-toggle');
+    const standardToggle = document.getElementById('standard-cluster-toggle');
+    const premiumToggle = document.getElementById('premium-cluster-toggle');
     const lowGfxToggle = document.getElementById('low-gfx-toggle');
     const simplifyTrailToggle = document.getElementById('simplify-trail-toggle');
     const instantNavToggle = document.getElementById('instant-nav-toggle');
-    const devSearchToggle = document.getElementById('dev-search-toggle');
-    const devCacheToggle = document.getElementById('dev-cache-toggle');
-    const devBatteryToggle = document.getElementById('dev-battery-toggle');
-    const devDebounceToggle = document.getElementById('dev-debounce-toggle');
-    const devRegexToggle = document.getElementById('dev-regex-toggle');
     const rememberMapToggle = document.getElementById('remember-map-toggle');
+    const motionToggle = document.getElementById('reduce-motion-toggle');
+    const ultraLowToggle = document.getElementById('ultra-low-toggle');
+    const mapSmoothnessToggle = document.getElementById('map-smoothness-toggle');
 
+    // 2. SYNC TOGGLE VISUALS TO SAVED STATE
     if (settingsGearBtn && settingsOverlay) {
-        if (allowUncheckToggle) allowUncheckToggle.checked = allowUncheck;
-        if (clusterToggle) clusterToggle.checked = clusteringEnabled;
-        if (lowGfxToggle) lowGfxToggle.checked = lowGfxEnabled;
-        if (simplifyTrailToggle) simplifyTrailToggle.checked = simplifyTrails;
-        if (instantNavToggle) instantNavToggle.checked = instantNav;
-        if (devSearchToggle) devSearchToggle.checked = devSearchEnabled;
-        if (devCacheToggle) devCacheToggle.checked = devCacheEnabled;
-        if (devBatteryToggle) devBatteryToggle.checked = devBatteryEnabled;
-        if (devDebounceToggle) devDebounceToggle.checked = devDebounceEnabled;
-        if (devRegexToggle) devRegexToggle.checked = devRegexEnabled;
-        if (rememberMapToggle) rememberMapToggle.checked = rememberMapPosition;
+        if (allowUncheckToggle) allowUncheckToggle.checked = window.allowUncheck;
+        if (lowGfxToggle) lowGfxToggle.checked = window.lowGfxEnabled;
+        if (standardToggle) standardToggle.checked = window.standardClusteringEnabled;
+        if (premiumToggle) premiumToggle.checked = window.premiumClusteringEnabled;
+        if (simplifyTrailToggle) simplifyTrailToggle.checked = window.simplifyTrails;
+        if (instantNavToggle) instantNavToggle.checked = window.instantNav;
+        if (rememberMapToggle) rememberMapToggle.checked = window.rememberMapPosition;
+        if (motionToggle) motionToggle.checked = window.reducePinMotion;
+        if (ultraLowToggle) ultraLowToggle.checked = window.ultraLowEnabled;
 
-        // Populate Trail Warp Grid once on load (it's static)
-        populateTrailWarpGrid();
-
-        // Set version dinamically
+        // Set version dynamically
         const versionLabel = document.getElementById('settings-app-version');
         if (versionLabel) versionLabel.textContent = APP_VERSION;
 
         settingsGearBtn.addEventListener('click', () => {
+            populateTrailWarpGrid(); // Lazy-load: TOP_10_TRAILS is defined later in the file
             settingsOverlay.classList.add('active');
         });
 
@@ -377,34 +520,198 @@ document.addEventListener('DOMContentLoaded', () => {
         if (allowUncheckToggle) {
             allowUncheckToggle.addEventListener('change', (e) => {
                 allowUncheck = e.target.checked;
-                localStorage.setItem('barkAllowUncheck', allowUncheck ? 'true' : 'false');
+                localStorage.setItem('barkAllowUncheck', window.allowUncheck ? 'true' : 'false');
             });
         }
 
-        if (clusterToggle) {
-            clusterToggle.addEventListener('change', (e) => {
-                clusteringEnabled = e.target.checked;
-                localStorage.setItem('barkClusteringEnabled', clusteringEnabled ? 'true' : 'false');
-                updateMarkers(); // Instant re-render
+        if (standardToggle) {
+            standardToggle.checked = window.standardClusteringEnabled;
+            standardToggle.addEventListener('change', (e) => {
+                window.standardClusteringEnabled = e.target.checked;
+                localStorage.setItem('barkStandardClustering', window.standardClusteringEnabled);
+
+                // If turning on standard, turn off premium to avoid math conflicts
+                if (window.standardClusteringEnabled && premiumToggle) {
+                    window.premiumClusteringEnabled = false;
+                    premiumToggle.checked = false;
+                    localStorage.setItem('barkPremiumClustering', false);
+                }
+
+                window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
+                window.syncState();
+            });
+        }
+
+        if (premiumToggle) {
+            premiumToggle.checked = window.premiumClusteringEnabled;
+            premiumToggle.addEventListener('change', (e) => {
+                window.premiumClusteringEnabled = e.target.checked;
+                localStorage.setItem('barkPremiumClustering', window.premiumClusteringEnabled);
+
+                // If turning on premium, turn off standard
+                if (window.premiumClusteringEnabled && standardToggle) {
+                    window.standardClusteringEnabled = false;
+                    standardToggle.checked = false;
+                    localStorage.setItem('barkStandardClustering', false);
+                }
+
+                window.clusteringEnabled = window.standardClusteringEnabled || window.premiumClusteringEnabled;
+                window.syncState();
             });
         }
 
         if (lowGfxToggle) {
             lowGfxToggle.addEventListener('change', (e) => {
-                lowGfxEnabled = e.target.checked;
-                localStorage.setItem('barkLowGfxEnabled', lowGfxEnabled ? 'true' : 'false');
-                if (lowGfxEnabled) {
+                window.lowGfxEnabled = e.target.checked;
+                localStorage.setItem('barkLowGfxEnabled', window.lowGfxEnabled ? 'true' : 'false');
+
+                if (window.lowGfxEnabled) {
                     document.body.classList.add('low-graphics');
                 } else {
                     document.body.classList.remove('low-graphics');
+                }
+
+                // Re-sync markers to apply/remove the new logic instantly
+                window.syncState();
+            });
+        }
+
+        if (motionToggle) {
+            motionToggle.checked = window.reducePinMotion;
+            motionToggle.addEventListener('change', (e) => {
+                const newVal = e.target.checked;
+
+                if (newVal !== window.reducePinMotion) {
+                    const msg = newVal
+                        ? "Enabling Reduced Pin Resizing requires a page reload to reconfigure the map engine. Proceed?"
+                        : "Restoring full pin animations requires a page reload. Proceed?";
+
+                    if (window.confirm(msg)) {
+                        localStorage.setItem('barkReducePinMotion', newVal ? 'true' : 'false');
+                        location.reload();
+                    } else {
+                        // User cancelled — snap toggle back
+                        e.target.checked = window.reducePinMotion;
+                    }
+                }
+            });
+        }
+
+        // 🚀 B.A.R.K. PERFORMANCE MODIFIERS (V24 — 4 Toggles)
+        const setupPerfToggle = (id, windowVar, storageKey, className) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.checked = window[windowVar];
+            el.addEventListener('change', (e) => {
+                window[windowVar] = e.target.checked;
+                localStorage.setItem(storageKey, window[windowVar] ? 'true' : 'false');
+                document.body.classList.toggle(className, window[windowVar]);
+                window.syncState(); // Force re-render for ALL toggles
+            });
+        };
+
+        setupPerfToggle('toggle-remove-shadows', 'removeShadows', 'barkRemoveShadows', 'remove-shadows');
+        setupPerfToggle('toggle-stop-resizing', 'stopResizing', 'barkStopResizing', 'stop-resizing');
+        setupPerfToggle('toggle-viewport-culling', 'viewportCulling', 'barkViewportCulling', 'viewport-culling');
+        
+        const disableDoubleTapEl = document.getElementById('toggle-disable-double-tap');
+        if (disableDoubleTapEl) {
+            disableDoubleTapEl.checked = window.disableDoubleTap;
+            disableDoubleTapEl.addEventListener('change', (e) => {
+                window.disableDoubleTap = e.target.checked;
+                localStorage.setItem('barkDisableDoubleTap', window.disableDoubleTap ? 'true' : 'false');
+            });
+        }
+
+        const disablePinchEl = document.getElementById('toggle-disable-pinch');
+        if (disablePinchEl) {
+            disablePinchEl.checked = window.disablePinchZoom;
+            disablePinchEl.addEventListener('change', (e) => {
+                window.disablePinchZoom = e.target.checked;
+                localStorage.setItem('barkDisablePinchZoom', window.disablePinchZoom ? 'true' : 'false');
+                if (window.disablePinchZoom) {
+                    map.touchZoom.disable();
+                } else {
+                    map.touchZoom.enable();
+                }
+            });
+        }
+
+        const disable1FingerEl = document.getElementById('toggle-disable-1finger');
+        if (disable1FingerEl) {
+            disable1FingerEl.checked = window.disable1fingerZoom;
+            disable1FingerEl.addEventListener('change', (e) => {
+                window.disable1fingerZoom = e.target.checked;
+                localStorage.setItem('barkDisable1Finger', window.disable1fingerZoom ? 'true' : 'false');
+            });
+        }
+
+        const lockMapPanningEl = document.getElementById('toggle-lock-map-panning');
+        if (lockMapPanningEl) {
+            lockMapPanningEl.checked = window.lockMapPanning;
+            lockMapPanningEl.addEventListener('change', (e) => {
+                window.lockMapPanning = e.target.checked;
+                localStorage.setItem('barkLockMapPanning', window.lockMapPanning ? 'true' : 'false');
+                if (window.lockMapPanning) {
+                    map.dragging.disable();
+                } else {
+                    map.dragging.enable();
+                }
+            });
+        }
+
+        // Ultra Low Toggle — uses the one already declared at line 413
+        if (ultraLowToggle) {
+            ultraLowToggle.addEventListener('change', (e) => {
+                const isTurningOn = e.target.checked;
+
+                if (isTurningOn) {
+                    // === ENTERING ULTRA LOW ===
+                    const confirmOn = window.confirm(
+                        "⚠️ ENABLE ULTRA-LOW GRAPHICS?\n\nThis will disable all animations, effects, and live updates.\nPage will reload to optimize the map engine."
+                    );
+
+                    if (confirmOn) {
+                        // Write ALL state to localStorage FIRST, then reload
+                        localStorage.setItem('barkUltraLowEnabled', 'true');
+                        localStorage.setItem('barkLowGfxEnabled', 'true');
+                        localStorage.setItem('barkStandardClustering', 'true');
+                        localStorage.setItem('barkPremiumClustering', 'false');
+                        localStorage.setItem('barkInstantNav', 'true');
+                        localStorage.setItem('barkSimplifyTrails', 'true');
+                        window.location.reload(); // Hard reset the Leaflet engine
+                    } else {
+                        // User cancelled — snap toggle back
+                        e.target.checked = false;
+                    }
+
+                } else {
+                    // === EXITING ULTRA LOW ===
+                    const confirmOff = window.confirm(
+                        "Switching to High Graphics requires a page reload to restore all visual effects. Proceed?"
+                    );
+
+                    if (confirmOff) {
+                        // Write ALL state to localStorage FIRST, then reload
+                        localStorage.setItem('barkUltraLowEnabled', 'false');
+                        localStorage.setItem('barkLowGfxEnabled', 'false');
+                        localStorage.setItem('barkStandardClustering', 'true');
+                        localStorage.setItem('barkPremiumClustering', 'false');
+                        localStorage.setItem('barkInstantNav', 'false');
+                        localStorage.setItem('barkSimplifyTrails', 'false');
+                        window.location.reload(); // Clean slate — Leaflet rebuilds smooth
+                    } else {
+                        // User cancelled — snap toggle back to ON
+                        e.target.checked = true;
+                    }
                 }
             });
         }
 
         if (simplifyTrailToggle) {
             simplifyTrailToggle.addEventListener('change', (e) => {
-                simplifyTrails = e.target.checked;
-                localStorage.setItem('barkSimplifyTrails', simplifyTrails ? 'true' : 'false');
+                window.simplifyTrails = e.target.checked;
+                localStorage.setItem('barkSimplifyTrails', window.simplifyTrails ? 'true' : 'false');
                 // Trigger re-render of trails if active
                 if (window.lastActiveTrailId) {
                     renderVirtualTrailOverlay(window.lastActiveTrailId, window.lastMilesCompleted || 0);
@@ -425,51 +732,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (instantNavToggle) {
             instantNavToggle.addEventListener('change', (e) => {
-                instantNav = e.target.checked;
-                localStorage.setItem('barkInstantNav', instantNav ? 'true' : 'false');
-            });
-        }
-
-        if (devSearchToggle) {
-            devSearchToggle.addEventListener('change', (e) => {
-                devSearchEnabled = e.target.checked;
-                localStorage.setItem('barkDevSearchEnabled', devSearchEnabled ? 'true' : 'false');
-            });
-        }
-
-        if (devCacheToggle) {
-            devCacheToggle.addEventListener('change', (e) => {
-                devCacheEnabled = e.target.checked;
-                localStorage.setItem('barkDevCacheEnabled', devCacheEnabled ? 'true' : 'false');
-                if (!devCacheEnabled) cachedTrailsData = null; // Clear cache on disable
-            });
-        }
-
-        if (devBatteryToggle) {
-            devBatteryToggle.addEventListener('change', (e) => {
-                devBatteryEnabled = e.target.checked;
-                localStorage.setItem('barkDevBatteryEnabled', devBatteryEnabled ? 'true' : 'false');
-            });
-        }
-
-        if (devDebounceToggle) {
-            devDebounceToggle.addEventListener('change', (e) => {
-                devDebounceEnabled = e.target.checked;
-                localStorage.setItem('barkDevDebounceEnabled', devDebounceEnabled ? 'true' : 'false');
-            });
-        }
-
-        if (devRegexToggle) {
-            devRegexToggle.addEventListener('change', (e) => {
-                devRegexEnabled = e.target.checked;
-                localStorage.setItem('barkDevRegexEnabled', devRegexEnabled ? 'true' : 'false');
+                window.instantNav = e.target.checked;
+                localStorage.setItem('barkInstantNav', window.instantNav ? 'true' : 'false');
             });
         }
 
         if (rememberMapToggle) {
             rememberMapToggle.addEventListener('change', (e) => {
-                rememberMapPosition = e.target.checked;
-                localStorage.setItem('remember-map-toggle', rememberMapPosition ? 'true' : 'false');
+                window.rememberMapPosition = e.target.checked;
+                localStorage.setItem('remember-map-toggle', window.rememberMapPosition ? 'true' : 'false');
             });
         }
     }
@@ -490,15 +761,15 @@ function populateTrailWarpGrid() {
                 alert("Please sign in first!");
                 return;
             }
-            
+
             console.log(`🛠️ Dev Test: Warping to ${trail.name}...`);
-            
+
             // 1. Assign trail to user
             await assignTrailToUser(user.uid, trail);
-            
+
             // 2. Fly to active trail
             if (typeof flyToActiveTrail === 'function') flyToActiveTrail();
-            
+
             // 3. Close settings modal
             const settingsOverlay = document.getElementById('settings-overlay');
             if (settingsOverlay) settingsOverlay.classList.remove('active');
@@ -620,7 +891,7 @@ async function syncUserProgress() {
     }, { merge: true });
 
     // Recalculate and Sync achievements
-    await evaluateAchievements(userVisitedPlaces);
+    window.syncState();
 }
 
 async function updateVisitDate(parkId, newTs) {
@@ -636,12 +907,12 @@ async function removeVisitedPlace(place) {
     if (window.confirm(`Remove ${place.name}?`)) {
         userVisitedPlaces.delete(place.id);
         await syncUserProgress();
-        updateMarkers();
+        window.syncState();
         renderManagePortal();
     }
 }
 
-const gamificationEngine = new GamificationEngine();
+window.gamificationEngine = new GamificationEngine();
 
 /**
  * 🛡️ FLOAT PRECISION GUARD 🛡️
@@ -722,7 +993,7 @@ async function evaluateAchievements(visitedPlacesMap) {
     // 🔥 THE FIX: Hydrate saved visits with missing State data from the master map 🔥
     visitedArray.forEach(visit => {
         if (!visit.state) {
-            const mapPoint = allPoints.find(p => p.id === visit.id);
+            const mapPoint = window.parkLookup.get(visit.id);
             if (mapPoint) {
                 visit.state = mapPoint.state;
             }
@@ -735,9 +1006,9 @@ async function evaluateAchievements(visitedPlacesMap) {
     }
 
     // Use our new bulletproof mapping logic to set the required totals per state
-    gamificationEngine.updateCanonicalCountsFromPoints(allPoints);
+    window.gamificationEngine.updateCanonicalCountsFromPoints(allPoints);
 
-    const achievements = await gamificationEngine.evaluateAndStoreAchievements(userId, visitedArray, null, window.currentWalkPoints || 0);
+    const achievements = await window.gamificationEngine.evaluateAndStoreAchievements(userId, visitedArray, null, window.currentWalkPoints || 0);
 
     // Update Banner
     const titleEl = document.getElementById('current-title-label');
@@ -887,13 +1158,13 @@ async function evaluateAchievements(visitedPlacesMap) {
     const gridStates = document.getElementById('states-grid');
     const gridDossier = document.getElementById('mystery-feats-dossier');
 
-    if (gridRare) gridRare.innerHTML = achievements.rareFeats.map(renderCoin).join('');
-    if (gridPaws) gridPaws.innerHTML = achievements.paws.map(renderCoin).join('');
+    safeUpdateHTML('rare-feats-grid', achievements.rareFeats.map(renderCoin).join(''));
+    safeUpdateHTML('paws-grid', achievements.paws.map(renderCoin).join(''));
 
     // --- STATES SORT: DISTANCE & COMPLETION ---
     const stateDistances = {};
     const refLatLng = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
-    
+
     if (allPoints && allPoints.length > 0) {
         allPoints.forEach(p => {
             if (p.state && p.lat && p.lng) {
@@ -937,12 +1208,12 @@ async function evaluateAchievements(visitedPlacesMap) {
         if (!aUnlocked && bUnlocked) return 1;
 
         if (aUnlocked && bUnlocked) {
-             return (b.dateEarnedTs || 0) - (a.dateEarnedTs || 0); // newest first
+            return (b.dateEarnedTs || 0) - (a.dateEarnedTs || 0); // newest first
         }
 
         const aDist = stateDistances[aCode] !== undefined ? stateDistances[aCode] : Infinity;
         const bDist = stateDistances[bCode] !== undefined ? stateDistances[bCode] : Infinity;
-        
+
         return aDist - bDist; // closest first
     });
 
@@ -959,8 +1230,8 @@ async function evaluateAchievements(visitedPlacesMap) {
             </div>
         </div>`;
 
-    if (gridStates) gridStates.innerHTML = nationalCardHtml + achievements.stateBadges.map(renderStateBadge).join('');
-    if (gridDossier) gridDossier.innerHTML = achievements.mysteryFeats.map(renderDossier).join('');
+    safeUpdateHTML('states-grid', nationalCardHtml + achievements.stateBadges.map(renderStateBadge).join(''));
+    safeUpdateHTML('mystery-feats-dossier', achievements.mysteryFeats.map(renderDossier).join(''));
 
     // Re-bind tab listeners (idempotent)
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1037,8 +1308,7 @@ function updateStatsUI() {
         }
     }
 
-    // Consistently update achievements when stats change
-    evaluateAchievements(userVisitedPlaces);
+    // Achievement evaluation is handled by syncState heartbeat
     renderManagePortal();
 }
 
@@ -1059,14 +1329,14 @@ const normalizationDict = {
 let cachedTrailsData = null;
 
 async function getTrailsData() {
-    if (cachedTrailsData) return cachedTrailsData;
-    
+    if (window._cachedTrailsData) return window._cachedTrailsData;
+
     try {
         const response = await fetch('trails.json');
-        cachedTrailsData = await response.json();
-        return cachedTrailsData;
+        window._cachedTrailsData = await response.json();
+        return window._cachedTrailsData;
     } catch (err) {
-        console.error("Failed to fetch trails:", err);
+        console.error("Failed to fetch trails (Singleton Error):", err);
         throw err;
     }
 }
@@ -1084,21 +1354,20 @@ function normalizeText(text) {
 }
 
 function levenshtein(a, b) {
-    if (a.length === 0) return b.length;
-    if (b.length === 0) return a.length;
-    let v0 = new Array(b.length + 1);
-    let v1 = new Array(b.length + 1);
-    for (let i = 0; i <= b.length; i++) v0[i] = i;
-
-    for (let i = 0; i < a.length; i++) {
-        v1[0] = i + 1;
-        for (let j = 0; j < b.length; j++) {
-            const cost = (a[i] === b[j]) ? 0 : 1;
-            v1[j + 1] = Math.min(v1[j] + 1, v0[j + 1] + 1, v0[j] + cost);
+    if (a === b) return 0;
+    if (a.length > b.length) [a, b] = [b, a];
+    let row = new Array(a.length + 1);
+    for (let i = 0; i <= a.length; i++) row[i] = i;
+    for (let i = 1; i <= b.length; i++) {
+        let prev = i;
+        for (let j = 1; j <= a.length; j++) {
+            let val = (b[i - 1] === a[j - 1]) ? row[j - 1] : Math.min(row[j - 1], row[j], prev) + 1;
+            row[j - 1] = prev;
+            prev = val;
         }
-        for (let j = 0; j <= b.length; j++) v0[j] = v1[j];
+        row[a.length] = prev;
     }
-    return v1[b.length];
+    return row[a.length];
 }
 
 function formatSwagLinks(text) {
@@ -1112,6 +1381,40 @@ function formatSwagLinks(text) {
         resultHTML += `<a href="${url}" target="_blank" class="swag-link-btn">📷 Swag Pic ${index + 1}</a> `;
     });
     return resultHTML.trim();
+}
+
+/**
+ * 💓 THE HEARTBEAT (v25)
+ * Batches DOM updates into a single frame buffer.
+ */
+let isSyncing = false;
+window.syncState = function () {
+    if (isSyncing || (!window.parkLookup || window.parkLookup.size === 0)) return;
+    isSyncing = true;
+    window.requestAnimationFrame(() => {
+        try {
+            updateMarkers();
+            if (window.gamificationEngine) {
+                evaluateAchievements(userVisitedPlaces);
+            }
+            updateStatsUI();
+        } catch (e) {
+            console.error("B.A.R.K. Sync Error:", e);
+        } finally {
+            isSyncing = false;
+        }
+    });
+};
+
+/**
+ * 🧊 DOM PROTECTION
+ * Prevents "Layout Thrashing" by verifying content changes before painting.
+ */
+function safeUpdateHTML(elementId, newHTML) {
+    const el = document.getElementById(elementId);
+    if (el && el.innerHTML !== newHTML) {
+        el.innerHTML = newHTML;
+    }
 }
 
 // DOM Elements
@@ -1149,7 +1452,7 @@ async function renderCompletedTrailsOverlay(completedExpeditions) {
                 // Drop the physical path
                 L.geoJSON(trailGeoJson, {
                     style: { color: '#22c55e', weight: 4, opacity: 0.8, lineCap: 'round', dashArray: '1, 6' },
-                    smoothFactor: simplifyTrails ? 5.0 : 1.0
+                    smoothFactor: window.simplifyTrails ? 5.0 : 1.0
                 }).addTo(completedTrailsLayerGroup);
 
                 // Calculate a center point on the line geometry and drop a massive Trophy pin
@@ -1197,7 +1500,7 @@ async function renderVirtualTrailOverlay(trailId, milesCompleted) {
             const completedLine = turf.lineSliceAlong(trailGeoJson, 0, geoSafeMiles, { units: 'miles' });
             L.geoJSON(completedLine, {
                 style: { color: '#22c55e', weight: 6, opacity: 0.9, lineCap: 'round' },
-                smoothFactor: simplifyTrails ? 5.0 : 1.0
+                smoothFactor: window.simplifyTrails ? 5.0 : 1.0
             }).addTo(virtualTrailLayerGroup);
         }
 
@@ -1205,7 +1508,7 @@ async function renderVirtualTrailOverlay(trailId, milesCompleted) {
             const remainingLine = turf.lineSliceAlong(trailGeoJson, geoSafeMiles, actualGeoLength, { units: 'miles' });
             L.geoJSON(remainingLine, {
                 style: { color: '#ef4444', weight: 4, opacity: 0.6, dashArray: '5, 10', lineCap: 'round' },
-                smoothFactor: simplifyTrails ? 5.0 : 1.0
+                smoothFactor: window.simplifyTrails ? 5.0 : 1.0
             }).addTo(virtualTrailLayerGroup);
         }
 
@@ -1241,10 +1544,10 @@ if (toggleVirtualBtn) {
         if (this.classList.contains('active')) {
             virtualTrailLayerGroup.addTo(map);
             if (virtualTrailLayerGroup.getLayers().length > 0) {
-                map.fitBounds(virtualTrailLayerGroup.getBounds(), { 
+                map.fitBounds(virtualTrailLayerGroup.getBounds(), {
                     padding: [50, 50],
-                    animate: !instantNav,
-                    duration: instantNav ? 0 : 0.5
+                    animate: !window.instantNav,
+                    duration: window.instantNav ? 0 : 0.5
                 });
             }
         } else {
@@ -1260,10 +1563,10 @@ if (toggleCompletedBtn) {
         if (this.classList.contains('active')) {
             completedTrailsLayerGroup.addTo(map);
             if (completedTrailsLayerGroup.getLayers().length > 0) {
-                map.fitBounds(completedTrailsLayerGroup.getBounds(), { 
+                map.fitBounds(completedTrailsLayerGroup.getBounds(), {
                     padding: [50, 50],
-                    animate: !instantNav,
-                    duration: instantNav ? 0 : 0.5
+                    animate: !window.instantNav,
+                    duration: window.instantNav ? 0 : 0.5
                 });
             }
         } else {
@@ -1299,16 +1602,28 @@ closeSlideBtn.addEventListener('click', () => {
 // Navigation Logic
 navItems.forEach(btn => {
     btn.addEventListener('click', () => {
+        const targetId = btn.getAttribute('data-target');
+
+        // 1. Immediate UI highlight feedback
         navItems.forEach(n => n.classList.remove('active'));
         btn.classList.add('active');
 
-        const targetId = btn.getAttribute('data-target');
-
         if (targetId === 'map-view') {
+            // 2a. STAGGERED SWITCH: Hide heavy views FIRST to clear GPU memory
             uiViews.forEach(v => v.classList.remove('active'));
-            if (filterPanel) filterPanel.style.display = 'flex';
-            if (leafletControls.length) leafletControls[0].style.display = 'block';
+
+            // 3. Wait for the next frame (let the browser breathe)
+            requestAnimationFrame(() => {
+                if (filterPanel) filterPanel.style.display = 'flex';
+                if (leafletControls.length) leafletControls[0].style.display = 'block';
+
+                // 4. Now that the CPU is free, wake up the map
+                if (window.map) {
+                    window.map.invalidateSize(); // Forces Leaflet to recalculate borders smoothly
+                }
+            });
         } else {
+            // 2b. Standard switch for other views
             uiViews.forEach(v => {
                 if (v.id === targetId) {
                     v.classList.add('active');
@@ -1530,8 +1845,18 @@ function processParsedResults(results) {
 
         const id = generatePinId(lat, lng);
         const parkData = { id, name, state, cost, swagType, info, website, pics, video, lat, lng, parkCategory };
+
+        // v25: Hydrate O(1) Lookup & Pre-Normalized Name
+        parkData._cachedNormalizedName = normalizeText(name);
+
         const isVisited = userVisitedPlaces.has(id);
         const marker = MapMarkerConfig.createCustomMarker(parkData, isVisited);
+
+        // Attach marker AFTER creation, then index
+        parkData.marker = marker;
+        parkData.category = parkCategory; // Compatibility with updateMarkers
+        window.parkLookup.set(id, parkData);
+        allPoints.push(parkData);
 
         // 🎯 THE DOM RECYCLING FIX
         // Scrub the HTML element clean before Leaflet throws it in the recycle bin
@@ -1708,14 +2033,14 @@ function processParsedResults(results) {
 
                         markVisitedBtn.classList.add('visited');
                         markVisitedText.textContent = '✓ Visited';
-                        
+
                         // Delete logic styling if setting is flipped
-                        if (allowUncheck && !cachedObj.verified) {
+                        if (window.allowUncheck && !cachedObj.verified) {
                             markVisitedBtn.disabled = false;
                             markVisitedBtn.style.cursor = 'pointer';
                             markVisitedBtn.style.opacity = '1';
                             markVisitedBtn.style.background = '#4CAF50';
-                            
+
                             // Visual cue on hover to delete
                             markVisitedBtn.onmouseenter = () => markVisitedText.textContent = '✖ Remove Check-in';
                             markVisitedBtn.onmouseleave = () => markVisitedText.textContent = '✓ Visited';
@@ -1788,7 +2113,7 @@ function processParsedResults(results) {
                                 markVisitedBtn.style.cursor = 'default';
                                 markVisitedBtn.style.opacity = '0.7';
 
-                                updateMarkers();
+                                window.syncState();
                                 updateStatsUI();
                                 window.attemptDailyStreakIncrement();
                             } else {
@@ -1809,23 +2134,21 @@ function processParsedResults(results) {
                         // Deletion execution logic
                         if (userVisitedPlaces.has(d.id)) {
                             const cachedObj = userVisitedPlaces.get(d.id);
-                            if (allowUncheck && !cachedObj.verified) {
+                            if (window.allowUncheck && !cachedObj.verified) {
                                 // Undo manual visit
                                 userVisitedPlaces.delete(d.id);
                                 markVisitedBtn.classList.remove('visited');
                                 markVisitedText.textContent = 'Mark as Visited';
                                 markVisitedBtn.onmouseenter = null;
                                 markVisitedBtn.onmouseleave = null;
-                                
+
                                 // Direct sync
                                 const updatedArray = Array.from(userVisitedPlaces.values());
                                 await firebase.firestore().collection('users').doc(firebase.auth().currentUser.uid).update({ visitedPlaces: updatedArray });
 
-                                updateMarkers();
-                                updateStatsUI();
-                                evaluateAchievements();
+                                window.syncState();
                             }
-                            return; 
+                            return;
                         }
 
                         const newObj = { id: d.id, name: d.name, lat: d.lat, lng: d.lng, verified: false, ts: Date.now() };
@@ -1835,7 +2158,7 @@ function processParsedResults(results) {
                         markVisitedBtn.disabled = true;
 
                         await syncUserProgress();
-                        updateMarkers();
+                        window.syncState();
                         window.attemptDailyStreakIncrement();
                     };
                 } else {
@@ -1857,34 +2180,21 @@ function processParsedResults(results) {
             const targetLatLng = map.unproject(targetPoint, currentZoom);
 
             // Use panTo instead of setView to guarantee it only moves the camera X/Y
-            map.panTo(targetLatLng, { 
-                animate: !instantNav, 
-                duration: instantNav ? 0 : 0.5 
+            map.panTo(targetLatLng, {
+                animate: !window.instantNav,
+                duration: window.instantNav ? 0 : 0.5
             });
 
             slidePanel.classList.add('open');
         });
 
-        allPoints.push({
-            id: id,
-            name: name || '',
-            state: state || '',
-            swagType: swagType,
-            category: parkCategory,
-            lat: lat,
-            lng: lng,
-            marker: marker
-        });
+        // (allPoints.push moved to top of loop for v1 O(1) indexing)
     });
-    updateMarkers();
-    updateStatsUI();
+    window.syncState();
 
     // Restore the previously active pin if it still exists in the new data
     if (activeLat !== null && activeLng !== null) {
-        const match = allPoints.find(p => {
-            const d = p.marker._parkData;
-            return d && parseFloat(d.lat) === parseFloat(activeLat) && parseFloat(d.lng) === parseFloat(activeLng);
-        });
+        const match = window.parkLookup.get(generatePinId(activeLat, activeLng));
         if (match) {
             activePinMarker = match.marker;
             if (activePinMarker._icon) {
@@ -2024,6 +2334,12 @@ function getPollInterval() {
 }
 
 async function safeDataPoll() {
+    // 🔨 DATA BLACKOUT: Background polling is disabled in Ultra Low to save RAM/Battery
+    if (window.ultraLowEnabled) {
+        console.log("Ultra Low Mode: Background polling disabled.");
+        return;
+    }
+
     try {
         await pollForUpdates();
         dataPollErrorCount = 0;
@@ -2068,67 +2384,73 @@ function loadData() {
 // (Replaced by safeDataPoll above)
 
 function updateMarkers() {
-    markerLayer.clearLayers();
-    markerClusterGroup.clearLayers();
-    
-    let visibleBounds = L.latLngBounds(); // 🎯 Track the boundaries
+    const currentZoom = map.getZoom();
+    // 🛑 PERFORMANCE BYPASS: MarkerClusterGroup internally destroys/rebuilds DOM nodes.
+    // When Stop Resizing is ON, force markers into simple markerLayer
+    // so DOM nodes stay alive permanently (no flash, no re-spin, no resize stutter).
+    let forceNoClustering = (window.premiumClusteringEnabled && currentZoom >= 7) || window.stopResizing;
+
+    let visibleBounds = L.latLngBounds();
+    const screenBounds = map.getBounds().pad(0.2); // 📦 20% buffer for culling
+    const activeMarkerIds = new Set();
 
     allPoints.forEach(item => {
         const matchesSwag = activeSwagFilters.size === 0 || activeSwagFilters.has(item.swagType);
-
         const queryNorm = normalizeText(activeSearchQuery);
-        const nameNorm = item._cachedNormalizedName || (item._cachedNormalizedName = normalizeText(item.name));
+        const nameNorm = item._cachedNormalizedName;
+        let matchesSearch = !queryNorm || nameNorm.includes(queryNorm);
 
-        let matchesSearch = false;
-        if (!queryNorm) {
-            matchesSearch = true;
-        } else if (nameNorm.includes(queryNorm)) {
-            matchesSearch = true;
-        } else {
+        if (!matchesSearch && queryNorm.length > 2) {
             let minDist = levenshtein(queryNorm, nameNorm);
-            const tokens = nameNorm.split(' ');
-            for (const word of tokens) {
-                if (queryNorm.length > 2) {
-                    const dist = levenshtein(queryNorm, word);
-                    minDist = Math.min(minDist, dist);
-                }
+            for (const word of nameNorm.split(' ')) {
+                minDist = Math.min(minDist, levenshtein(queryNorm, word));
             }
             if (minDist <= 2) matchesSearch = true;
         }
 
         const matchesType = activeTypeFilter === 'all' || item.category === activeTypeFilter;
-
         let matchesVisited = true;
         const isVisited = userVisitedPlaces.has(item.id);
-
         if (visitedFilterState === 'visited' && !isVisited) matchesVisited = false;
         if (visitedFilterState === 'unvisited' && isVisited) matchesVisited = false;
-
-        // --- DYNAMIC VISIBILITY GATE ---
         const isInTrip = Array.from(tripDays).some(day => day.stops.some(s => s.id === item.id));
 
-        if ((matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip) {
-            // THE STRICT FORK: Where does the pin go?
-            if (clusteringEnabled) {
-                markerClusterGroup.addLayer(item.marker);
-            } else {
-                markerLayer.addLayer(item.marker);
-            }
-            
-            visibleBounds.extend(item.marker.getLatLng()); // 🎯 Expand the invisible frame
+        const isVisible = (matchesSwag && matchesSearch && matchesType && matchesVisited) || isInTrip;
 
+        if (isVisible) {
+            // 🎯 VIEWPORT CULLING: Skip off-screen pins entirely
+            if (window.viewportCulling && !screenBounds.contains([item.lat, item.lng])) {
+                return;
+            }
+
+            activeMarkerIds.add(item.id);
+            if (!item.marker) item.marker = MapMarkerConfig.createCustomMarker(item, isVisited);
+
+            // 🛑 PERSISTENT MARKER: Only add if not already on map
+            const targetLayer = (forceNoClustering || !window.clusteringEnabled) ? markerLayer : markerClusterGroup;
+            if (!targetLayer.hasLayer(item.marker)) {
+                targetLayer.addLayer(item.marker);
+            }
+
+            visibleBounds.extend(item.marker.getLatLng());
             if (item.marker._icon) {
-                if (isVisited) {
-                    item.marker._icon.classList.add('visited-pin');
-                } else {
-                    item.marker._icon.classList.remove('visited-pin');
-                }
+                item.marker._icon.classList.toggle('visited-pin', isVisited);
             }
         }
     });
 
+    // 🧹 CLEANUP: Remove only stale markers (not matching current filters)
+    markerLayer.eachLayer(l => {
+        const id = l._parkData ? l._parkData.id : null;
+        if (!id || !activeMarkerIds.has(id)) markerLayer.removeLayer(l);
+    });
+    markerClusterGroup.eachLayer(l => {
+        const id = l._parkData ? l._parkData.id : null;
+        if (!id || !activeMarkerIds.has(id)) markerClusterGroup.removeLayer(l);
+    });
+
     // Handle Map Layer Assignment
-    if (clusteringEnabled) {
+    if (window.clusteringEnabled && !forceNoClustering) {
         if (!map.hasLayer(markerClusterGroup)) map.addLayer(markerClusterGroup);
         if (map.hasLayer(markerLayer)) map.removeLayer(markerLayer);
     } else {
@@ -2137,18 +2459,15 @@ function updateMarkers() {
     }
 
     // 🎯 SMART AUTO-FRAMING (Interrupt Protection)
-    // Only swoop the camera if the user actually changed the search/filter criteria
     const currentFilterState = activeSearchQuery + '|' + Array.from(activeSwagFilters).join(',');
-
     if (window._lastFilterState !== currentFilterState) {
         window._lastFilterState = currentFilterState;
-
         if ((activeSwagFilters.size > 0 || activeSearchQuery.length > 2) && visibleBounds.isValid()) {
-            map.flyToBounds(visibleBounds, { 
-                padding: [50, 50], 
-                maxZoom: 12, 
-                duration: instantNav ? 0 : 0.8,
-                animate: !instantNav
+            map.flyToBounds(visibleBounds, {
+                padding: [50, 50],
+                maxZoom: 12,
+                duration: window.lowGfxEnabled ? 0 : 0.8,
+                animate: !window.lowGfxEnabled
             });
         }
     }
@@ -2169,7 +2488,7 @@ searchInput.addEventListener('input', (e) => {
 
     if (activeSearchQuery.trim() === '') {
         if (searchSuggestions) searchSuggestions.style.display = 'none';
-        updateMarkers();
+        window.syncState();
         return;
     }
 
@@ -2178,7 +2497,7 @@ searchInput.addEventListener('input', (e) => {
         let matches = [];
 
         allPoints.forEach(item => {
-            const nameNorm = item._cachedNormalizedName || (item._cachedNormalizedName = normalizeText(item.name));
+            const nameNorm = item._cachedNormalizedName;
             let score = 999;
 
             if (nameNorm.includes(queryNorm)) {
@@ -2215,12 +2534,12 @@ searchInput.addEventListener('input', (e) => {
                     searchInput.value = match.item.name;
                     activeSearchQuery = match.item.name;
                     searchSuggestions.style.display = 'none';
-                    updateMarkers();
+                    window.syncState();
 
                     if (match.item.marker && match.item.marker._parkData) {
-                        map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, { 
-                            animate: !instantNav,
-                            duration: instantNav ? 0 : 0.4
+                        map.setView([match.item.marker._parkData.lat, match.item.marker._parkData.lng], 12, {
+                            animate: !window.lowGfxEnabled,
+                            duration: window.lowGfxEnabled ? 0 : 1.5
                         });
                         match.item.marker.fire('click');
                     }
@@ -2275,7 +2594,7 @@ searchInput.addEventListener('input', (e) => {
             searchSuggestions.style.display = 'none';
         }
 
-        updateMarkers();
+        window.syncState();
     }, 300);
 });
 
@@ -2301,14 +2620,14 @@ if (clearSearchBtn) {
         activeSearchQuery = '';
         clearSearchBtn.style.display = 'none';
         if (searchSuggestions) searchSuggestions.style.display = 'none';
-        updateMarkers();
+        window.syncState();
         searchInput.focus();
     });
 }
 
 typeSelect.addEventListener('change', (e) => {
     activeTypeFilter = e.target.value;
-    updateMarkers();
+    window.syncState();
 });
 
 filterBtns.forEach(btn => {
@@ -2332,7 +2651,7 @@ filterBtns.forEach(btn => {
             filterBtns.forEach(b => b.classList.remove('active'));
         }
 
-        updateMarkers();
+        window.syncState();
     });
 });
 
@@ -2399,7 +2718,7 @@ async function loadSavedRoutes(uid, isLoadMore = false) {
 
         const populateList = (list) => {
             if (!list) return;
-            
+
             if (snapshot.empty && !isLoadMore) {
                 list.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">No saved routes yet. Generate a route to save it here!</p>';
                 return;
@@ -2550,7 +2869,7 @@ if (typeof firebase !== 'undefined') {
                 console.log("🛠️ God Mode Unlocked: Trail Warp Grid Enabled");
             }
         };
-        
+
         ['touchstart', 'mousedown'].forEach(evt => {
             if (profileName) profileName.addEventListener(evt, () => {
                 godModeTimer = setTimeout(triggerGodMode, 3000);
@@ -2641,7 +2960,7 @@ if (typeof firebase !== 'undefined') {
 
                             // Trigger the map overlay
                             renderVirtualTrailOverlay(data.virtual_expedition.active_trail, miles);
-                            hydrateEducationModal(data.virtual_expedition.active_trail);
+                            if (typeof window.hydrateEducationModal === 'function') window.hydrateEducationModal(data.virtual_expedition.active_trail);
 
                             // Only complete if we have a valid total and miles >= total
                             const isComplete = total > 0 && miles >= total;
@@ -2689,7 +3008,7 @@ if (typeof firebase !== 'undefined') {
                     } else {
                         userVisitedPlaces = new Map();
                     }
-                    updateMarkers();
+                    window.syncState();
                     updateStatsUI();
 
                     // Only run leaderboard fetch AFTER the initial visitedPlaces map is hydrated
@@ -2739,7 +3058,7 @@ if (typeof firebase !== 'undefined') {
                 visitedSnapshotUnsubscribe();
                 visitedSnapshotUnsubscribe = null;
             }
-            updateMarkers();
+            window.syncState();
             updateStatsUI();
 
             // 🛑 HIDE LOADER HERE FOR GUESTS
@@ -2815,7 +3134,7 @@ const visitedFilterEl = document.getElementById('visited-filter');
 if (visitedFilterEl) {
     visitedFilterEl.addEventListener('change', (e) => {
         visitedFilterState = e.target.value;
-        updateMarkers();
+        window.syncState();
     });
 }
 
@@ -2881,9 +3200,20 @@ async function checkForUpdates() {
     if (!res.ok) throw new Error('version.json not found');
 
     const data = await res.json();
-    if (data.version && data.version > APP_VERSION) {
+    const remoteVersion = parseInt(data.version);
+    const seenVersion = parseInt(localStorage.getItem('bark_seen_version') || '0');
+
+    // Update the UI version labels everywhere
+    const versionLabel = document.getElementById('settings-app-version');
+    if (versionLabel) versionLabel.textContent = remoteVersion;
+
+    if (data.version && remoteVersion !== seenVersion) {
         const toast = document.getElementById('update-toast');
         if (toast) toast.classList.add('show');
+
+        // Mark this version as "notified/seen" so it won't trigger on every poll/refresh
+        localStorage.setItem('bark_seen_version', remoteVersion);
+        APP_VERSION = remoteVersion; // Sync the local session variable
     }
 }
 
@@ -3079,7 +3409,7 @@ function renderLeaderboard(topUsers) {
             const competitorScore = data[rank - 2].totalPoints !== undefined ? data[rank - 2].totalPoints : (data[rank - 2].totalVisited || 0);
             const myScore = user.totalPoints !== undefined ? user.totalPoints : (user.totalVisited || 0);
             const pointsToOvertake = parseFloat((competitorScore - myScore + 0.1).toFixed(1));
-            
+
             if (pointsToOvertake > 0) {
                 const rivalryPill = document.createElement('span');
                 rivalryPill.className = 'rivalry-pill';
@@ -3106,7 +3436,7 @@ function renderLeaderboard(topUsers) {
     }
 
     if (data.length === 0) {
-        listEl.innerHTML = '<li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">No leaderboard data yet.</li>';
+        safeUpdateHTML('leaderboard-list', '<li style="color: #888; font-style: italic; text-align: center; padding: 10px 0;">No leaderboard data yet.</li>');
     }
 
     // Handle "Show More" button logic pointing to the server-side fetcher
@@ -3176,7 +3506,7 @@ async function loadLeaderboard() {
                 const projectId = firebase.app().options.projectId;
                 const idToken = await firebase.auth().currentUser.getIdToken();
                 const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runAggregationQuery`;
-                
+
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: {
@@ -3204,7 +3534,7 @@ async function loadLeaderboard() {
                 // The API returns an array. We target the alias 'rankCount'
                 const countMatched = parseInt(countData[0].result.aggregateFields.rankCount.integerValue);
                 exactRank = countMatched + 1;
-            } catch(e) {
+            } catch (e) {
                 console.warn('REST API aggregate rank lookup failed.', e);
                 exactRank = null;
             }
@@ -3280,7 +3610,7 @@ async function loadMoreLeaderboard() {
                 const projectId = firebase.app().options.projectId;
                 const idToken = await firebase.auth().currentUser.getIdToken();
                 const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runAggregationQuery`;
-                
+
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: {
@@ -3307,7 +3637,7 @@ async function loadMoreLeaderboard() {
                 const countData = await response.json();
                 const countMatched = parseInt(countData[0].result.aggregateFields.rankCount.integerValue);
                 let exactRank = countMatched + 1;
-                
+
                 cachedLeaderboardData.push({
                     uid: user.uid,
                     displayName: user.displayName || 'Bark Ranger',
@@ -3317,7 +3647,7 @@ async function loadMoreLeaderboard() {
                     isPersonalFallback: true,
                     exactRank: exactRank
                 });
-            } catch(e) {
+            } catch (e) {
                 console.warn('REST API aggregate rank lookup failed in loadMore', e);
             }
         }
@@ -3474,8 +3804,8 @@ window.flyToActiveTrail = function () {
             map.flyToBounds(virtualTrailLayerGroup.getBounds(), {
                 padding: [50, 50],
                 maxZoom: 14,
-                animate: !instantNav,
-                duration: instantNav ? 0 : 1.5
+                animate: !window.lowGfxEnabled,
+                duration: window.lowGfxEnabled ? 0 : 1.5
             });
         }, 350);
     } else {
@@ -4105,7 +4435,7 @@ function updateTripMapVisuals() {
 
         day.stops.forEach((stop, stopIdx) => {
             latlngs.push([stop.lat, stop.lng]);
-            const point = allPoints.find(p => p.id === stop.id && p.id !== undefined);
+            const point = window.parkLookup.get(stop.id);
 
             let badgeContainer;
             if (point && point.marker && point.marker._icon) {
@@ -4859,12 +5189,12 @@ async function executeGeocode(query, targetType) {
                 if (clearBtn) clearBtn.style.display = 'none';
 
                 // Restore the normal map pins
-                if (typeof updateMarkers === 'function') updateMarkers();
+                window.syncState();
 
                 // Pan map to the new custom location
-                if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { 
-                    animate: !instantNav,
-                    duration: instantNav ? 0 : 0.4
+                if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, {
+                    animate: !window.instantNav,
+                    duration: window.instantNav ? 0 : 0.4
                 });
 
                 updateTripUI();
@@ -4899,12 +5229,12 @@ async function executeGeocode(query, targetType) {
                             if (clearBtn) clearBtn.style.display = 'none';
 
                             // Restore the normal map pins
-                            if (typeof updateMarkers === 'function') updateMarkers();
+                            window.syncState();
 
                             // Pan map to the new custom location
-                            if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, { 
-                                animate: !instantNav,
-                                duration: instantNav ? 0 : 0.4
+                            if (typeof map !== 'undefined') map.setView([node.lat, node.lng], 10, {
+                                animate: !window.lowGfxEnabled,
+                                duration: window.lowGfxEnabled ? 0 : 1.5
                             });
 
                             disambiguationContainer.style.display = 'none';
@@ -5118,10 +5448,10 @@ async function generateAndRenderTripRoute() {
 
     if (allBounds.length > 0) {
         const combined = allBounds.reduce((acc, b) => acc.extend(b), allBounds[0]);
-        map.fitBounds(combined, { 
+        map.fitBounds(combined, {
             padding: [50, 50],
-            animate: !instantNav,
-            duration: instantNav ? 0 : 0.5
+            animate: !window.instantNav,
+            duration: window.instantNav ? 0 : 0.5
         });
     }
 
@@ -5304,7 +5634,7 @@ const WalkTracker = {
 
     async start() {
         if (!navigator.geolocation) return alert('GPS not supported');
-        
+
         this.points = [];
         this.totalMiles = 0;
         this.lastValidLocation = null;
@@ -5326,7 +5656,7 @@ const WalkTracker = {
             // We overwrite the onclick to stop; initTrainingUI will restore it later
             btn.onclick = () => this.stopAndSave();
         }
-        
+
         const cancelBtn = document.getElementById('cancel-training-btn');
         if (cancelBtn) cancelBtn.style.display = 'block';
 
@@ -5352,7 +5682,7 @@ const WalkTracker = {
         const lng = pos.coords.longitude;
 
         // FILTER 1: Ignore garbage data (radius > 25 meters means weak signal)
-        if (accMeters > 25) return; 
+        if (accMeters > 25) return;
 
         if (!this.lastValidLocation) {
             this.lastValidLocation = { lat, lng, ts: Date.now() };
@@ -5368,7 +5698,7 @@ const WalkTracker = {
             this.totalMiles += miles;
             this.lastValidLocation = { lat, lng, ts: Date.now() };
             this.points.push(this.lastValidLocation);
-            
+
             // Update UI real-time
             this.updateDistanceUI();
         }
@@ -5383,10 +5713,10 @@ const WalkTracker = {
             // App came back to foreground
             this.isBlackedOut = false;
             const blackoutDurationMins = (Date.now() - this.blackoutStartTime) / 60000;
-            
+
             // Re-acquire Wake Lock if it was dropped (iOS Safari quirk)
             if ('wakeLock' in navigator) {
-                navigator.wakeLock.request('screen').then(wl => this.wakeLock = wl).catch(()=>{});
+                navigator.wakeLock.request('screen').then(wl => this.wakeLock = wl).catch(() => { });
             }
 
             // If they were locked out for more than 2 minutes, we likely missed a chunk of the loop
@@ -5398,7 +5728,7 @@ const WalkTracker = {
 
     triggerBlackoutFallback(minutesLost) {
         const manualMiles = prompt(`Welcome back! iOS paused your GPS for ${Math.round(minutesLost)} minutes while your screen was off.\n\nWe successfully tracked ${this.totalMiles.toFixed(2)} miles before the pause. How many missing miles did you walk while the screen was off? (Enter 0 if none)`);
-        
+
         const parsed = parseFloat(manualMiles);
         if (!isNaN(parsed) && parsed > 0) {
             this.totalMiles += parsed;
@@ -5416,7 +5746,7 @@ const WalkTracker = {
             alert(`Expedition Complete! You logged ${finalMiles.toFixed(2)} miles.`);
             await processMileageAddition(finalMiles, 'GPS Active Track');
         }
-        
+
         initTrainingUI(); // Resets UI and restores original onclick
     },
 
@@ -5429,10 +5759,10 @@ const WalkTracker = {
         if (this.watchId !== null) navigator.geolocation.clearWatch(this.watchId);
         if (this.boundVisibilityHandler) document.removeEventListener('visibilitychange', this.boundVisibilityHandler);
         if (this.wakeLock) {
-            this.wakeLock.release().catch(()=>{});
+            this.wakeLock.release().catch(() => { });
             this.wakeLock = null;
         }
-        
+
         // Hide the global banner
         this.hideFloatingBanner();
 
@@ -5475,7 +5805,7 @@ const WalkTracker = {
                 if (profileTab) profileTab.click();
             };
             document.body.appendChild(banner);
-            
+
             const style = document.createElement('style');
             style.innerHTML = `
                 @keyframes pulse {
@@ -5554,9 +5884,41 @@ initTrainingUI();
 // Force the planner UI to render immediately on load
 setTimeout(() => updateTripUI(), 500);
 
-// --- SHARE ENGINE LOGIC ---
+// --- SHARE ENGINE LOGIC (LAZY-LOADED) ---
+async function loadScreenshotEngine() {
+    if (typeof html2canvas !== 'undefined') return true;
+    if (window.isDownloadingCanvas) {
+        // Wait if another call is already downloading
+        return new Promise((resolve) => {
+            const check = setInterval(() => {
+                if (typeof html2canvas !== 'undefined') {
+                    clearInterval(check);
+                    resolve(true);
+                }
+            }, 100);
+        });
+    }
+
+    window.isDownloadingCanvas = true;
+    console.log("📥 Downloading screenshot engine...");
+
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        script.onload = () => {
+            window.isDownloadingCanvas = false;
+            resolve(true);
+        };
+        script.onerror = (err) => {
+            window.isDownloadingCanvas = false;
+            reject(err);
+        };
+        document.head.appendChild(script);
+    });
+}
 
 window.shareSingleExpedition = async function () {
+    await loadScreenshotEngine();
     const trailName = document.getElementById('celebration-trail-name').textContent;
     const template = document.getElementById('single-export-template');
     const container = document.getElementById('single-export-card-container');
@@ -5574,6 +5936,7 @@ window.shareSingleExpedition = async function () {
 };
 
 window.shareAllExpeditions = async function () {
+    await loadScreenshotEngine();
     const template = document.getElementById('single-export-template');
     const container = document.getElementById('single-export-card-container');
     const grid = document.getElementById('completed-expeditions-grid');
@@ -5657,22 +6020,22 @@ function showRankUpCelebration(oldTitle, newTitle) {
 
     // Spawn confetti particles
     const confettiColors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#ec4899'];
-    if (!lowGfxEnabled) {
+    if (!window.lowGfxEnabled) {
         for (let i = 0; i < 40; i++) {
             const particle = document.createElement('div');
-        const color = confettiColors[Math.floor(Math.random() * confettiColors.length)];
-        const left = Math.random() * 100;
-        const delay = Math.random() * 2;
-        const duration = 2 + Math.random() * 3;
-        const size = 6 + Math.random() * 8;
-        particle.style.cssText = `
+            const color = confettiColors[Math.floor(Math.random() * confettiColors.length)];
+            const left = Math.random() * 100;
+            const delay = Math.random() * 2;
+            const duration = 2 + Math.random() * 3;
+            const size = 6 + Math.random() * 8;
+            particle.style.cssText = `
             position: fixed; top: -20px; left: ${left}%; width: ${size}px; height: ${size}px;
             background: ${color}; border-radius: ${Math.random() > 0.5 ? '50%' : '2px'};
             z-index: 100000; pointer-events: none;
             animation: confettiFall ${duration}s ease-in ${delay}s forwards;
         `;
-        overlay.appendChild(particle);
-    }
+            overlay.appendChild(particle);
+        }
     }
 
     // Auto-dismiss after 8 seconds
@@ -5694,9 +6057,7 @@ if ('ontouchstart' in window) {
     let pendingDoubleTap = false;
     let zoomRAF = null; // requestAnimationFrame throttle
 
-    // Disable Leaflet's built-in double-tap zoom to prevent conflicts
-    map.doubleClickZoom.disable();
-
+    // Centralized cleanup — bulletproof against state corruption
     // Centralized cleanup — bulletproof against state corruption
     function resetZoomState() {
         clearTimeout(holdTimer);
@@ -5706,7 +6067,6 @@ if ('ontouchstart' in window) {
 
         if (isOneFingerZooming) {
             isOneFingerZooming = false;
-
             // Snap zoom to nearest 0.5 to prevent jarring jumps on next panTo
             const snappedZoom = Math.round(map.getZoom() * 2) / 2;
             map.setZoom(snappedZoom, { animate: false });
@@ -5714,34 +6074,40 @@ if ('ontouchstart' in window) {
 
         // ALWAYS restore these — safety net
         map.options.zoomSnap = 0.5;
-        map.dragging.enable();
+        if (!window.lockMapPanning) map.dragging.enable();
     }
 
     mapContainer.addEventListener('touchstart', (e) => {
+        // 🛑 Require 2-Finger Pan Engine (No touch interference needed, map.dragging.disable is live)
+
         if (e.touches.length !== 1) return;
         const currentTime = new Date().getTime();
         const tapLength = currentTime - lastTap;
 
-        // Detect Double-Tap, but WAIT for a hold before activating
+        // Detect Double-Tap gestures
         if (tapLength < 300 && tapLength > 0) {
             pendingDoubleTap = true;
             const startY = e.touches[0].clientY;
 
-            // Only activate zoom if finger stays down for 150ms (hold gate)
-            holdTimer = setTimeout(() => {
-                if (pendingDoubleTap) {
-                    isOneFingerZooming = true;
-                    zoomStartY = startY;
-                    initialZoom = map.getZoom();
-                    map.dragging.disable();
-                    map.options.zoomSnap = 0;
-                }
-            }, 150);
+            // Start the 150ms hold-gate for Google-style Drag Zoom, UNLESS disabled by the user
+            if (!window.disable1fingerZoom) {
+                holdTimer = setTimeout(() => {
+                    if (pendingDoubleTap) {
+                        isOneFingerZooming = true;
+                        zoomStartY = startY;
+                        initialZoom = map.getZoom();
+                        map.dragging.disable();
+                        map.options.zoomSnap = 0;
+                    }
+                }, 150);
+            }
         }
         lastTap = currentTime;
     }, { passive: false });
 
     mapContainer.addEventListener('touchmove', (e) => {
+        if (window.disable1fingerZoom) return; // Safety check
+        
         // If we're in the hold-wait period, finger movement confirms zoom intent
         if (pendingDoubleTap && !isOneFingerZooming && e.touches.length === 1) {
             clearTimeout(holdTimer);
@@ -5759,18 +6125,45 @@ if ('ontouchstart' in window) {
         const deltaY = currentY - zoomStartY;
         const targetZoom = Math.min(19, Math.max(2, initialZoom + deltaY / 150));
 
-        // 🛡️ RAF THROTTLE: Only update zoom once per animation frame (~60fps)
-        // Prevents canvas renderer overload that causes freezes
+        // 🛡️ CHUNKED THROTTLE: Updates in bounding blocks to prevent CPU melt
         if (!zoomRAF) {
-            zoomRAF = requestAnimationFrame(() => {
-                map.setZoom(targetZoom, { animate: false });
-                zoomRAF = null;
-            });
+            if (window.stopPinResizing) {
+                // THROW INTO CHUNKS: Wait and update everything at once in 250ms blocks
+                zoomRAF = setTimeout(() => {
+                    map.setZoom(targetZoom, { animate: false });
+                    zoomRAF = null;
+                }, 250);
+            } else {
+                // STANDARD: Try to render smoothly at 60fps
+                zoomRAF = requestAnimationFrame(() => {
+                    map.setZoom(targetZoom, { animate: false });
+                    zoomRAF = null;
+                });
+            }
         }
     }, { passive: false });
 
-    // Normal touch end
-    mapContainer.addEventListener('touchend', resetZoomState);
+    // 🎯 MOBILE DOUBLE-TAP ZOOM ENGINE
+    mapContainer.addEventListener('touchend', (e) => {
+        // If user lifted finger during pendingDoubleTap before the 150ms hold finished
+        // AND before they triggered `isOneFingerZooming` by dragging...
+        if (pendingDoubleTap && !isOneFingerZooming) {
+            if (!window.disableDoubleTap) {
+                // It was a rapid iPhone double tap! Zoom the mobile map!
+                const touch = e.changedTouches ? e.changedTouches[0] : null;
+                if (touch) {
+                    const rect = mapContainer.getBoundingClientRect();
+                    const x = touch.clientX - rect.left;
+                    const y = touch.clientY - rect.top;
+                    map.setZoomAround(L.point(x, y), map.getZoom() + 1);
+                } else {
+                    map.setZoomAround(map.getCenter(), map.getZoom() + 1);
+                }
+            }
+        }
+        resetZoomState();
+    });
+
     // Touch cancelled by browser (switching apps, gesture conflict, etc.)
     mapContainer.addEventListener('touchcancel', resetZoomState);
 }

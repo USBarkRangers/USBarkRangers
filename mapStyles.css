@@ -7,16 +7,72 @@
     border: none;
 }
 
+/* Optimized Enamel Pin Wrapper */
 .enamel-pin-wrapper {
     width: 32px;
     height: 32px;
     border-radius: 50%;
     overflow: hidden;
     position: relative;
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     display: flex;
     justify-content: center;
     align-items: center;
+
+    /* 💎 Keep the premium "All" transition for high-end devices */
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+
+    will-change: transform;
+    transform: translateZ(0);
+}
+
+/* Hover effects stay active for premium mode */
+.enamel-pin-wrapper:hover {
+    transform: scale(1.15) translateY(-2px);
+}
+
+
+/* =========================================
+   🛡️ LOW GRAPHICS OVERRIDE
+   ========================================= */
+
+/* 🚫 KILL SPINNING PINS IN REGULAR LOW-GFX */
+body.low-graphics .enamel-pin-wrapper,
+body.low-graphics .cluster-enamel-wrapper {
+    transition: none !important;
+    animation: none !important;
+    transform: none !important;
+    will-change: auto !important;
+}
+
+/* Ensure they appear instantly without the Leaflet "fade-in" */
+body.low-graphics .leaflet-marker-icon,
+body.low-graphics .leaflet-marker-shadow {
+    transition: none !important;
+    animation: none !important;
+}
+
+/* Kill Leaflet's own internal animation surfaces */
+body.low-graphics .leaflet-zoom-animated {
+    transition: none !important;
+}
+
+body.low-graphics .leaflet-marker-pane,
+body.low-graphics .leaflet-marker-pane * {
+    transition: none !important;
+    animation: none !important;
+    will-change: auto !important;
+}
+
+/* Kill the custom-bark-marker fade-in */
+body.low-graphics .custom-bark-marker,
+body.low-graphics .custom-bark-marker * {
+    transition: none !important;
+    animation: none !important;
+}
+
+/* Keep the pins flat and fast */
+body.low-graphics .enamel-pin-wrapper:hover {
+    transform: none !important;
 }
 
 .enamel-pin-wrapper img {
@@ -236,4 +292,140 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: #64748b;
+}
+
+/* =========================================
+    PREMIUM B.A.R.K. LOGO CLUSTERS (V2)
+   ========================================= */
+
+.bark-cluster-marker {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: transparent;
+    border: none;
+}
+
+/* The Main Enamel Pin (Flat Metal Style) */
+.cluster-enamel-wrapper {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    position: relative;
+
+    /* Heavy black metal base */
+    border: 3px solid #111111;
+    background-color: #111111;
+
+    /* THE FIX: Deep, heavy drop shadow + a microscopic dark inner shadow 
+       to create a physical "lip", making it look recessed like a coin. */
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4), inset 0 3px 6px rgba(0, 0, 0, 0.3);
+
+    /* Flexbox to keep the logo perfectly in the middle */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.25s ease;
+}
+
+/* The Logo Image */
+.cluster-enamel-wrapper img {
+    /* THE FIX: Scaled to 98% instead of 100%. 
+       This prevents the image from warping over the edges, 
+       keeping it completely flat in the center of the black rim. */
+    width: 98%;
+    height: 98%;
+    object-fit: cover;
+    border-radius: 50%;
+    display: block;
+    pointer-events: none;
+    margin: 0;
+    padding: 0;
+    border: none;
+}
+
+/* The Metallic Number Badge (Docked top-right) */
+.cluster-count-badge {
+    position: absolute;
+    top: -8px;
+    /* Slightly adjusted to clear the thicker border */
+    right: -8px;
+
+    background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+
+    /* 4. THE FIX: Match the badge border to the heavy black rim */
+    border: 2px solid #111111;
+    border-radius: 50%;
+
+    min-width: 24px;
+    height: 24px;
+    padding: 0 4px;
+
+    color: #ffffff;
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+    font-size: 12px;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    z-index: 2;
+}
+
+/* Hover "Pop" Effect */
+.cluster-enamel-wrapper:hover {
+    transform: scale(1.12);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+}
+
+/* Hardware Guard for Clusters */
+body.low-graphics .cluster-enamel-wrapper,
+body.low-graphics .cluster-count-badge {
+    box-shadow: none !important;
+    transform: none !important;
+    transition: none !important;
+}
+
+body.low-graphics .cluster-count-badge {
+    background: #1e293b !important;
+    /* Flat slate color instead of gradient */
+}
+
+/* =========================================
+    🛡️ ULTRA-LOW PERFORMANCE SLEDGEHAMMER
+   ========================================= */
+
+/* The Ultra-Low Sledgehammer: Kill every single animation and decorative effect */
+body.ultra-low * {
+    transition: none !important;
+    animation: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    border-radius: 0 !important;
+    /* Round corners are surprisingly expensive to render */
+}
+
+/* Stop smooth image scaling during zooms */
+body.ultra-low img {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+}
+
+/* Hide non-essential decorative UI */
+body.ultra-low .streak-badge,
+body.ultra-low .confetti-canvas,
+body.ultra-low .glass-overlay,
+body.ultra-low .cluster-count-badge {
+    display: none !important;
+}
+
+/* Hardware Guard for Clusters (Already handles some, but ultra-low is global) */
+body.ultra-low .cluster-enamel-wrapper {
+    box-shadow: none !important;
+    transform: none !important;
+    transition: none !important;
+    border-width: 1px !important;
 }

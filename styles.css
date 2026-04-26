@@ -1136,3 +1136,111 @@ input:checked + .slider:before {
 .slider.round:before {
     border-radius: 50%;
 }
+
+/* Premium Modal Overlay System */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.modal-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.modal-card {
+    background: white;
+    width: 100%;
+    max-width: 400px;
+    border-radius: 24px;
+    padding: 30px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+    position: relative;
+    transform: translateY(20px);
+    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.modal-overlay.active .modal-card {
+    transform: translateY(0);
+}
+
+.modal-close-btn {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: bold;
+    color: #64748b;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+}
+
+.modal-close-btn:active {
+    transform: scale(0.9);
+}
+
+@keyframes fade-in-up {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+/* --- Performance Pin Grouping Styles --- */
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
+    background-color: rgba(45, 52, 54, 0.7) !important; /* Dark slate background */
+    border: 2px solid #fab1a0 !important; /* B.A.R.K. peach border */
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+.marker-cluster div {
+    background-color: #fab1a0 !important; 
+    color: #2d3436 !important;
+    font-weight: 800 !important;
+    font-family: 'Inter', sans-serif !important;
+    border-radius: 50%;
+}
+
+/* Instantly strips expensive renders when the toggle is ON */
+body.low-graphics .profile-overlay, 
+body.low-graphics .modal-overlay,
+body.low-graphics .modal-card,
+body.low-graphics .settings-trigger,
+body.low-graphics #settings-gear-btn {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background-color: rgba(255, 255, 255, 0.98) !important;
+    box-shadow: none !important;
+}
+
+body.low-graphics .modal-card {
+    background-color: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+}

@@ -10,5 +10,33 @@
         "firebase-debug.*.log"
       ]
     }
-  ]
+  ],
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      ".firebaserc",
+      "**/.*",
+      "**/.DS_Store",
+      "**/node_modules/**",
+      "functions/**",
+      "raw_trails/**",
+      "data/**",
+      "scripts/**",
+      "legacy/**",
+      "tests/**",
+      "plans/**",
+      "docs/**",
+      "**/*.md",
+      "package.json",
+      "package-lock.json",
+      "BarkRangerMap Auth.json",
+      "*Service Account*.json",
+      "*service-account*.json",
+      "*service_account*.json",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      "*.log"
+    ]
+  }
 }

@@ -7,7 +7,7 @@
   "theme_color": "#e5e5e5",
   "icons": [
     {
-      "src": "bark-logo.jpeg",
+      "src": "assets/images/bark-logo.jpeg",
       "sizes": "192x192 512x512",
       "type": "image/jpeg",
       "purpose": "any maskable"

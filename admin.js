@@ -49,20 +49,24 @@ let fuse;
 // 1. Auth Bouncer
 auth.onAuthStateChanged(async (user) => {
     if (!user) {
-        window.location.replace('index.html');
+        window.location.replace('../index.html');
         return;
     }
-    
+
     const doc = await db.collection('users').doc(user.uid).get();
     if (!doc.exists || doc.data().isAdmin !== true) {
-        window.location.replace('index.html');
+        window.location.replace('../index.html');
+        return;
     }
+
+    populateAdminTrailWarpGrid();
+    initAdminSetPoints();
 });
 
 // 2. Fetch and Parse BARK Master List.csv
 async function loadMasterCSV() {
     try {
-        const response = await fetch('BARK Master List.csv');
+        const response = await fetch('../BARK Master List.csv');
         const csvText = await response.text();
         
         Papa.parse(csvText, {
@@ -506,10 +510,88 @@ syncBtn.addEventListener('click', async () => {
 discardBtn.addEventListener('click', () => {
     if (parkQueue.length > 0) {
         // Remove the current park from the front of the line
-        parkQueue.shift(); 
-        
+        parkQueue.shift();
+
         // Load the next one (or show the empty state)
-        loadNextPark(); 
+        loadNextPark();
         updateDropdown();
     }
 });
+
+// ====== DEV TOOLS ======
+const ADMIN_TRAILS = [
+    { id: 'half_dome', name: 'Half Dome', miles: 16.0, park: 'Yosemite National Park' },
+    { id: 'angels_landing', name: 'Angels Landing', miles: 5.0, park: 'Zion National Park' },
+    { id: 'zion_narrows', name: 'Zion Narrows', miles: 16.0, park: 'Zion National Park' },
+    { id: 'cascade_pass', name: 'Cascade Pass / Sahale Arm', miles: 12.1, park: 'North Cascades National Park' },
+    { id: 'highline_trail', name: 'Highline Trail', miles: 11.8, park: 'Glacier National Park' },
+    { id: 'harding_icefield', name: 'Harding Icefield', miles: 8.2, park: 'Kenai Fjords National Park' },
+    { id: 'old_rag', name: 'Old Rag Trail', miles: 9.3, park: 'Shenandoah National Park' },
+    { id: 'emerald_lake', name: 'Emerald Lake', miles: 3.2, park: 'Rocky Mountain National Park' },
+    { id: 'precipice_trail', name: 'Precipice Trail', miles: 2.1, park: 'Acadia National Park' },
+    { id: 'skyline_loop', name: 'Skyline Trail Loop', miles: 5.5, park: 'Mount Rainier National Park' },
+    { id: 'grand_canyon_rim2rim', name: 'Grand Canyon Rim to Rim', miles: 44.0, park: 'Grand Canyon National Park' }
+];
+
+function populateAdminTrailWarpGrid() {
+    const grid = document.getElementById('admin-trail-warp-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    ADMIN_TRAILS.forEach(trail => {
+        const btn = document.createElement('button');
+        btn.className = 'dev-warp-btn';
+        btn.textContent = trail.name;
+        btn.onclick = async () => {
+            const user = auth.currentUser;
+            if (!user) { alert('Not signed in.'); return; }
+            btn.disabled = true;
+            btn.textContent = 'Warping...';
+            try {
+                const userRef = db.collection('users').doc(user.uid);
+                const snap = await userRef.get();
+                const existing = (snap.data() && snap.data().virtual_expedition && snap.data().virtual_expedition.history) || [];
+                await userRef.set({
+                    virtual_expedition: {
+                        active_trail: trail.id,
+                        trail_name: trail.name,
+                        miles_logged: 0,
+                        trail_total_miles: trail.miles,
+                        history: existing
+                    }
+                }, { merge: true });
+                btn.textContent = `✅ ${trail.name}`;
+                setTimeout(() => { btn.textContent = trail.name; btn.disabled = false; }, 2000);
+            } catch (err) {
+                console.error('[admin] Trail warp failed:', err);
+                btn.textContent = '❌ Failed';
+                btn.disabled = false;
+            }
+        };
+        grid.appendChild(btn);
+    });
+}
+
+function initAdminSetPoints() {
+    const setBtn = document.getElementById('admin-set-points-btn');
+    const setInput = document.getElementById('admin-set-points-input');
+    const setStatus = document.getElementById('admin-set-points-status');
+    if (!setBtn || !setInput) return;
+
+    setBtn.addEventListener('click', async () => {
+        const user = auth.currentUser;
+        if (!user) { alert('Not signed in.'); return; }
+        const val = parseFloat(setInput.value);
+        if (isNaN(val)) { alert('Enter a valid number.'); return; }
+        setBtn.disabled = true;
+        if (setStatus) setStatus.textContent = 'Saving...';
+        try {
+            await db.collection('users').doc(user.uid).set({ walkPoints: val }, { merge: true });
+            if (setStatus) setStatus.textContent = `✅ Set to ${val}`;
+        } catch (err) {
+            console.error('[admin] Set points failed:', err);
+            if (setStatus) setStatus.textContent = '❌ Failed';
+        } finally {
+            setBtn.disabled = false;
+        }
+    });
+}

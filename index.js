@@ -3,39 +3,187 @@ const admin = require("firebase-admin");
 const axios = require("axios");
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { google } = require('googleapis');
+const { randomUUID } = require("crypto");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
+
+// Keep admin callables compatible with the current admin page. The backend
+// still enforces signed-in admin status plus per-admin rate limits.
+const ADMIN_CALLABLE_OPTIONS = {};
+
+const ADMIN_RATE_LIMITS = {
+    extractParkData: { maxRequests: 20, windowMs: 60 * 1000 },
+    syncToSpreadsheet: { maxRequests: 10, windowMs: 60 * 1000 }
+};
+
+function getCallableUid(context) {
+    return context && context.auth && context.auth.uid ? context.auth.uid : null;
+}
+
+async function isAdminUser(uid, token = {}) {
+    if (token.admin === true || token.isAdmin === true) return true;
+
+    const userDoc = await admin.firestore().collection("users").doc(uid).get();
+    return userDoc.exists && userDoc.data() && userDoc.data().isAdmin === true;
+}
+
+async function enforceAdminRateLimit(uid, action) {
+    const limit = ADMIN_RATE_LIMITS[action];
+    if (!limit) return;
+
+    const now = Date.now();
+    const windowStart = Math.floor(now / limit.windowMs) * limit.windowMs;
+    const windowEndsAt = windowStart + limit.windowMs;
+    const safeUid = encodeURIComponent(uid);
+    const safeAction = encodeURIComponent(action);
+    const ref = admin.firestore()
+        .collection("_adminRateLimits")
+        .doc(`${safeAction}_${safeUid}_${windowStart}`);
+
+    await admin.firestore().runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(ref);
+        const currentCount = snapshot.exists ? Number(snapshot.data().count || 0) : 0;
+
+        if (currentCount >= limit.maxRequests) {
+            const retrySeconds = Math.max(1, Math.ceil((windowEndsAt - now) / 1000));
+            throw new functions.https.HttpsError(
+                "resource-exhausted",
+                `Rate limit exceeded. Try again in ${retrySeconds} seconds.`
+            );
+        }
+
+        transaction.set(ref, {
+            uid,
+            action,
+            count: currentCount + 1,
+            windowStart: admin.firestore.Timestamp.fromMillis(windowStart),
+            windowEndsAt: admin.firestore.Timestamp.fromMillis(windowEndsAt),
+            expiresAt: admin.firestore.Timestamp.fromMillis(windowEndsAt + 24 * 60 * 60 * 1000),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    });
+}
+
+async function requireAdminCallable(context, action) {
+    const uid = getCallableUid(context);
+    if (!uid) {
+        throw new functions.https.HttpsError("unauthenticated", "Sign in is required.");
+    }
+
+    const adminAllowed = await isAdminUser(uid, context.auth.token || {});
+    if (!adminAllowed) {
+        throw new functions.https.HttpsError("permission-denied", "Admin access is required.");
+    }
+
+    await enforceAdminRateLimit(uid, action);
+}
+
+function requireAuthCallable(context) {
+    const uid = getCallableUid(context);
+    if (!uid) {
+        throw new functions.https.HttpsError("unauthenticated", "Sign in is required.");
+    }
+    return uid;
+}
+
+function throwHttpsError(error, fallbackMessage) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError("internal", fallbackMessage);
+}
+
+const CANONICAL_PARK_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function cleanSheetCell(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).trim();
+}
+
+function getCanonicalParkId(value) {
+    const parkId = cleanSheetCell(value);
+    return CANONICAL_PARK_ID_PATTERN.test(parkId) ? parkId : '';
+}
 
 // ============================================================================
 // 1. LEGACY MAP FUNCTIONS (ROUTING & LEADERBOARD)
 // ============================================================================
 
-exports.getPremiumRoute = functions.https.onCall(async (requestOrData, context) => {
-    const payload = requestOrData.data ? requestOrData.data : requestOrData;
-    const coordinates = payload.coordinates;
+exports.getPremiumRoute = functions
+    .runWith({ secrets: ["ORS_API_KEY"] })
+    .https.onCall(async (requestOrData, context) => {
+        requireAuthCallable(context);
 
-    if (!Array.isArray(coordinates) || coordinates.length < 2) {
-        throw new functions.https.HttpsError("invalid-argument", "Payload mismatch!");
-    }
+        const payload = requestOrData.data ? requestOrData.data : requestOrData;
+        const coordinates = payload.coordinates;
+        const radiuses = payload.radiuses;
 
-    const url = "https://api.openrouteservice.org/v2/directions/driving-car/geojson";
-    const hardcodedApiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ0YTM5ZTM2NTQ2NDRhNThhOWUxNDNjMmQyYTYzZDRkIiwiaCI6Im11cm11cjY0In0=";
+        if (!Array.isArray(coordinates) || coordinates.length < 2) {
+            throw new functions.https.HttpsError("invalid-argument", "Payload mismatch!");
+        }
 
-    try {
-        const response = await axios.post(url, { coordinates: coordinates }, {
-            headers: {
-                "Authorization": hardcodedApiKey,
-                "Content-Type": "application/json",
-                "Accept": "application/json, application/geo+json; charset=utf-8"
-            }
+        const apiKey = process.env.ORS_API_KEY;
+        if (!apiKey) {
+            throw new functions.https.HttpsError("failed-precondition", "Routing service is not configured.");
+        }
+
+        const url = "https://api.openrouteservice.org/v2/directions/driving-car/geojson";
+        const body = { coordinates };
+        if (Array.isArray(radiuses) && radiuses.length === coordinates.length) {
+            body.radiuses = radiuses;
+        }
+
+        try {
+            const response = await axios.post(url, body, {
+                headers: {
+                    "Authorization": apiKey,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, application/geo+json; charset=utf-8"
+                }
+            });
+            return response.data;
+        } catch (error) {
+            console.error("Networking/ORS Error:", error.message);
+            throw new functions.https.HttpsError("internal", "Failed to calculate route.");
+        }
+    });
+
+exports.getPremiumGeocode = functions
+    .runWith({ secrets: ["ORS_API_KEY"] })
+    .https.onCall(async (requestOrData, context) => {
+        requireAuthCallable(context);
+
+        const payload = requestOrData.data ? requestOrData.data : requestOrData;
+        const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+
+        if (!text) {
+            throw new functions.https.HttpsError("invalid-argument", "Search query is required.");
+        }
+
+        const apiKey = process.env.ORS_API_KEY;
+        if (!apiKey) {
+            throw new functions.https.HttpsError("failed-precondition", "Geocoding service is not configured.");
+        }
+
+        const requestedSize = parseInt(payload.size, 10);
+        const size = Number.isFinite(requestedSize) ? Math.min(Math.max(requestedSize, 1), 10) : 5;
+
+        const params = new URLSearchParams({
+            api_key: apiKey,
+            text,
+            size: String(size)
         });
-        return response.data;
-    } catch (error) {
-        console.error("Networking/ORS Error:", error.message);
-        throw new functions.https.HttpsError("internal", "Failed to calculate route.");
-    }
-});
+        if (payload.country) {
+            params.set('boundary.country', String(payload.country));
+        }
+
+        try {
+            const response = await axios.get(`https://api.openrouteservice.org/geocode/search?${params.toString()}`);
+            return response.data;
+        } catch (error) {
+            console.error("Networking/ORS Geocode Error:", error.message);
+            throw new functions.https.HttpsError("internal", "Failed to perform geocode.");
+        }
+    });
 
 exports.generateHourlyLeaderboard = functions.pubsub.schedule("0 * * * *")
     .timeZone("America/New_York")
@@ -73,11 +221,14 @@ exports.generateHourlyLeaderboard = functions.pubsub.schedule("0 * * * *")
 // 1. DATA REFINERY: GEMINI AI EXTRACTION (The "Bouncer")
 // ============================================================================
 exports.extractParkData = functions
-    .runWith({ secrets: ["GEMINI_API_KEY"], memory: '1GB' })
+    .runWith({ ...ADMIN_CALLABLE_OPTIONS, secrets: ["GEMINI_API_KEY", "GEMINI_PAID_API_KEY"], memory: '1GB' })
     .https.onCall(async (data, context) => {
+        await requireAdminCallable(context, "extractParkData");
+
         try {
+            const payload = data || {};
             // Read the route from the frontend, default to free-3
-            const engineRoute = data.engineRoute || "free-3";
+            const engineRoute = payload.engineRoute || "free-3";
             
             let targetApiKey = "";
             let targetModelName = "";
@@ -108,9 +259,12 @@ exports.extractParkData = functions
                 targetModelName = "gemini-2.0-flash-lite";
             }
             else if (engineRoute === "paid-3") {
-                // Account 2 - Unlimited Pay-As-You-Go Key
-                targetApiKey = "AIzaSyD57GI_72OIRhsz3Ccnl7r_J4znhWsxMLM"; 
+                targetApiKey = process.env.GEMINI_PAID_API_KEY;
                 targetModelName = "gemini-3-flash-preview";
+            }
+
+            if (!targetApiKey) {
+                throw new functions.https.HttpsError("failed-precondition", "AI extraction key is not configured for the selected engine.");
             }
 
             // Initialize the AI with the dynamically selected key and model
@@ -151,8 +305,8 @@ exports.extractParkData = functions
             let parts = [];
             
             // 1. TRUE BUNDLE BATCHING: Now with filenames
-            if (data.images && data.images.length > 0) {
-                data.images.forEach((imgObj) => {
+            if (payload.images && payload.images.length > 0) {
+                payload.images.forEach((imgObj) => {
                     const cleanBase64 = imgObj.data.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
                     
                     // We label the part so the AI knows which name belongs to which image
@@ -163,13 +317,13 @@ exports.extractParkData = functions
                 parts.push(prompt);
             } 
             // 2. Fallback for a single image
-            else if (data.image) {
-                const base64String = data.image.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
+            else if (payload.image) {
+                const base64String = payload.image.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
                 parts = [{ inlineData: { data: base64String, mimeType: "image/jpeg" } }, prompt];
             } 
             // 3. Fallback for raw text
             else {
-                parts = [data.text, prompt];
+                parts = [payload.text, prompt];
             }
 
             const result = await model.generateContent(parts);
@@ -180,31 +334,35 @@ exports.extractParkData = functions
             return aiData;
         } catch (error) {
             console.error("AI Error:", error);
-            throw new functions.https.HttpsError('internal', error.message);
+            throwHttpsError(error, error.message || "AI extraction failed.");
         }
     });
 
 // ============================================================================
 // 2. SPREADSHEET BRIDGE: THE NEW SITE GUARDRAIL
 // ============================================================================
-exports.syncToSpreadsheet = functions.https.onCall(async (data, context) => {
-    try {
-        const auth = new google.auth.GoogleAuth({
-            scopes: ['https://www.googleapis.com/auth/spreadsheets']
-        });
-        const sheets = google.sheets({ version: 'v4', auth });
+exports.syncToSpreadsheet = functions
+    .runWith(ADMIN_CALLABLE_OPTIONS)
+    .https.onCall(async (data, context) => {
+        await requireAdminCallable(context, "syncToSpreadsheet");
 
-        const spreadsheetId = '1fnlZfRbfQIy-o2Df6FgEdTMw9OWTR3-JX011s-7oWlE'; 
-        const sheetName = 'National B.A.R.K Ranger'; 
-        const newPark = data; 
+        try {
+            const auth = new google.auth.GoogleAuth({
+                scopes: ['https://www.googleapis.com/auth/spreadsheets']
+            });
+            const sheets = google.sheets({ version: 'v4', auth });
 
-        // 1. Fetch the ENTIRE row (A through O) so we can see existing data
-        const response = await sheets.spreadsheets.values.get({
-            spreadsheetId: spreadsheetId,
-            range: `'${sheetName}'!A:O`, 
-        });
+            const spreadsheetId = '1fnlZfRbfQIy-o2Df6FgEdTMw9OWTR3-JX011s-7oWlE'; 
+            const sheetName = 'National B.A.R.K Ranger'; 
+            const newPark = data; 
 
-        const rows = response.data.values || [];
+            // 1. Fetch the ENTIRE row through Park ID so updates can preserve it.
+            const response = await sheets.spreadsheets.values.get({
+                spreadsheetId: spreadsheetId,
+                range: `'${sheetName}'!A:P`,
+            });
+
+            const rows = response.data.values || [];
         
         // --- HIGH-PRECISION MATCHING ENGINE ---
         const superNormalize = (str) => {
@@ -271,15 +429,19 @@ exports.syncToSpreadsheet = functions.https.onCall(async (data, context) => {
         // Only Geocode if missing OR forceGeocode is true
         if (!existingLat || !existingLng || newPark.forceGeocode === true) {
             try {
-                console.log(`Geocoding: ${newPark.parkName}...`);
-                const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(newPark.parkName)}&key=${process.env.GOOGLE_MAPS_API_KEY || "AIzaSy..."}`; // Placeholder for key safety
-                // Using axios since it's already imported
-                const geoResponse = await axios.get(geoUrl);
-                if (geoResponse.data.results && geoResponse.data.results.length > 0) {
-                    const location = geoResponse.data.results[0].geometry.location;
-                    newPark.lat = location.lat;
-                    newPark.lng = location.lng;
-                    console.log(`Found Coords: ${newPark.lat}, ${newPark.lng}`);
+                const googleMapsKey = process.env.GOOGLE_MAPS_API_KEY;
+                if (!googleMapsKey) {
+                    console.warn(`GOOGLE_MAPS_API_KEY not configured; skipping geocoding for ${newPark.parkName}`);
+                } else {
+                    console.log(`Geocoding: ${newPark.parkName}...`);
+                    const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(newPark.parkName)}&key=${googleMapsKey}`;
+                    const geoResponse = await axios.get(geoUrl);
+                    if (geoResponse.data.results && geoResponse.data.results.length > 0) {
+                        const location = geoResponse.data.results[0].geometry.location;
+                        newPark.lat = location.lat;
+                        newPark.lng = location.lng;
+                        console.log(`Found Coords: ${newPark.lat}, ${newPark.lng}`);
+                    }
                 }
             } catch (e) {
                 console.error("Geocoding failed:", e.message);
@@ -294,7 +456,10 @@ exports.syncToSpreadsheet = functions.https.onCall(async (data, context) => {
         if (bestMatch.rowIndex !== -1 && bestMatch.score >= 80) {
             const existingRow = rows[bestMatch.rowIndex - 1] || [];
             
-            // Map the spreadsheet columns: H=7, I=8, J=9, K=10, L=11, M=12, N=13, O=14, P=15
+            const existingParkId = cleanSheetCell(existingRow[15]); // Column P
+
+            // Map the spreadsheet columns: H=7, I=8, J=9, K=10, L=11, M=12, N=13, O=14.
+            // Column P is Park ID and must never be overwritten by refinery updates.
             const updateData = [
                 newPark.lat || existingLat || '',  // H
                 newPark.lng || existingLng || '',  // I
@@ -303,17 +468,16 @@ exports.syncToSpreadsheet = functions.https.onCall(async (data, context) => {
                 mergeCell(existingRow[11], newPark.approvedTrails), // L
                 mergeCell(existingRow[12], newPark.strictRules), // M
                 mergeCell(existingRow[13], newPark.hazards), // N
-                mergeCell(existingRow[14], newPark.extraSwag), // O
-                newPark.dateUpdated // P
+                mergeCell(existingRow[14], newPark.extraSwag) // O
             ];
 
             await sheets.spreadsheets.values.update({
                 spreadsheetId: spreadsheetId,
-                range: `'${sheetName}'!H${bestMatch.rowIndex}:P${bestMatch.rowIndex}`,
+                range: `'${sheetName}'!H${bestMatch.rowIndex}:O${bestMatch.rowIndex}`,
                 valueInputOption: 'USER_ENTERED',
                 resource: { values: [updateData] }
             });
-            return { success: true, action: 'updated', row: bestMatch.rowIndex, confidence: bestMatch.score };
+            return { success: true, action: 'updated', row: bestMatch.rowIndex, confidence: bestMatch.score, parkIdPreserved: existingParkId || null };
         } else {
             // NEW GUARDRAIL: Only append if the frontend explicitly gave permission
             if (newPark.allowAppend !== true) {
@@ -324,13 +488,14 @@ exports.syncToSpreadsheet = functions.https.onCall(async (data, context) => {
                 };
             }
 
+            const appendParkId = getCanonicalParkId(newPark.parkId) || randomUUID();
             const appendData = [
                 newPark.parkName, "", "", "", "", "", "", 
                 newPark.lat || '', 
                 newPark.lng || '', 
                 newPark.entranceFee, newPark.swagLocation, newPark.approvedTrails, 
                 newPark.strictRules, newPark.hazards, newPark.extraSwag,
-                newPark.dateUpdated // <--- Add the timestamp (Col P)
+                appendParkId
             ];
             await sheets.spreadsheets.values.append({
                 spreadsheetId: spreadsheetId,
@@ -339,10 +504,10 @@ exports.syncToSpreadsheet = functions.https.onCall(async (data, context) => {
                 insertDataOption: 'INSERT_ROWS',
                 resource: { values: [appendData] }
             });
-            return { success: true, action: 'appended' };
+            return { success: true, action: 'appended', parkId: appendParkId };
         }
     } catch (error) {
         console.error("Spreadsheet Error:", error);
-        throw new functions.https.HttpsError('internal', 'Failed to sync to Sheets');
+        throwHttpsError(error, 'Failed to sync to Sheets');
     }
 });

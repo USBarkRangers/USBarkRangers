@@ -17,9 +17,9 @@
 
     <!-- QRCode JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="styles.css?v=25">
-    <link rel="stylesheet" href="mapStyles.css?v=2">
-    <link rel="stylesheet" href="trophyCase.css">
+    <link rel="stylesheet" href="styles.css?v=31">
+    <link rel="stylesheet" href="styles/mapStyles.css?v=3">
+    <link rel="stylesheet" href="styles/trophyCase.css">
 
     <!-- PWA Manifest & App Icons -->
     <link rel="manifest" href="manifest.json">
@@ -29,10 +29,19 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="US BARK Rangers">
-    <link rel="apple-touch-icon" href="bark-logo.jpeg">
+    <link rel="apple-touch-icon" href="assets/images/bark-logo.jpeg">
+    <link rel="icon" type="image/jpeg" href="assets/images/bark-logo.jpeg">
 
     <!-- GoatCounter Analytics -->
-    <script data-goatcounter="https://carterswarm.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+    <script>
+        if (!['localhost', '127.0.0.1', '::1'].includes(window.location.hostname) && window.location.protocol !== 'file:') {
+            const goatCounterScript = document.createElement('script');
+            goatCounterScript.async = true;
+            goatCounterScript.dataset.goatcounter = 'https://carterswarm.goatcounter.com/count';
+            goatCounterScript.src = '//gc.zgo.at/count.js';
+            document.head.appendChild(goatCounterScript);
+        }
+    </script>
 </head>
 
 <body>
@@ -41,6 +50,15 @@
         <p>US BARK Rangers Loading...</p>
     </div>
     <div id="map"></div>
+    <div id="map-unavailable-message" class="map-unavailable-notice" role="alert" aria-live="assertive" hidden>
+        <div class="map-unavailable-card">
+            <div class="map-unavailable-kicker">Map Status</div>
+            <h2>Map unavailable</h2>
+            <p>Try refreshing. If this keeps happening, the map library may be blocked or the network may be offline.</p>
+            <p id="map-unavailable-detail" class="map-unavailable-detail">The app could not start the map.</p>
+            <button id="map-unavailable-refresh" class="map-unavailable-action" type="button">Refresh</button>
+        </div>
+    </div>
 
     <div id="filter-panel" class="glass-panel collapsed">
         <div class="panel-header" id="panel-header" style="text-align: center; width: 100%; cursor: default;">
@@ -88,14 +106,6 @@
                 <button class="filter-btn" data-filter="Other">
                     <span class="dot gray"></span> Other
                 </button>
-                <button class="filter-btn active" data-filter="VirtualTrail" id="toggle-virtual-trail">
-                    <span class="dot green" style="background: linear-gradient(90deg, #22c55e, #fee2e2);"></span> Active
-                    Trail
-                </button>
-                <button class="filter-btn" data-filter="CompletedTrails" id="toggle-completed-trails">
-                    <span class="dot green"
-                        style="background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.6);"></span> Conquered Trails
-                </button>
             </div>
 
             <div class="premium-filters-section premium-locked" id="premium-filters-wrap">
@@ -104,6 +114,25 @@
                 <div class="premium-label">
                     <span>Premium Map Tools</span>
                     <span id="premium-lock-icon">🔒</span>
+                </div>
+
+                <div class="premium-trail-controls">
+                    <button class="filter-btn premium-trail-btn" data-filter="VirtualTrail" id="toggle-virtual-trail"
+                        disabled aria-disabled="true">
+                        <span class="dot green" style="background: linear-gradient(90deg, #22c55e, #fee2e2);"></span>
+                        Active Trail
+                    </button>
+                    <button class="filter-btn premium-trail-btn" data-filter="CompletedTrails"
+                        id="toggle-completed-trails" disabled aria-disabled="true">
+                        <span class="dot green"
+                            style="background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.6);"></span>
+                        Conquered Trails
+                    </button>
+                </div>
+
+                <div id="premium-trail-login-notice" class="premium-login-notice">
+                    Tracking your virtual trail is a premium feature.
+                    <button type="button" id="premium-login-jump">Log in</button>
                 </div>
 
                 <div class="premium-controls">
@@ -131,14 +160,12 @@
         <div class="panel-content">
             <h2 id="panel-title" style="margin-bottom: 20px;">Park Name</h2>
 
-            <div class="panel-section" id="panel-visited-section" style="display: none; margin-bottom: 20px;">
-                <button id="verify-checkin-btn" class="glass-btn"
-                    style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; background: #FF9800; color: white; border: none; padding: 12px; border-radius: 50px; box-shadow: 0 4px 10px rgba(255, 152, 0, 0.3); margin-bottom: 10px; transition: all 0.2s ease-in-out;">
-                    <span style="font-size: 16px;">🐾</span>
-                    <span id="verify-checkin-text" style="color: white !important;">Verified Check-In</span>
+            <div class="panel-section" id="panel-visited-section" style="display: none;">
+                <button id="verify-checkin-btn" class="glass-btn panel-visit-action">
+                    <span class="panel-action-icon">🐾</span>
+                    <span id="verify-checkin-text">Verified Check-In</span>
                 </button>
-                <button id="mark-visited-btn" class="glass-btn"
-                    style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700;">
+                <button id="mark-visited-btn" class="glass-btn panel-visit-action">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         stroke-linecap="round" stroke-linejoin="round" class="heart-icon">
                         <path
@@ -149,8 +176,7 @@
                 </button>
             </div>
 
-            <a id="suggest-edit-btn" href="mailto:usbarkrangers@gmail.com" class="glass-btn outline-btn"
-                style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; text-decoration: none; margin-bottom: 20px;">
+            <a id="suggest-edit-btn" href="mailto:usbarkrangers@gmail.com" class="glass-btn outline-btn panel-secondary-action">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                     stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 20h9"></path>
@@ -390,7 +416,7 @@
                 <div id="itinerary-timeline-wrapper"
                     style="background: transparent; border: none; padding: 0; margin: 0;">
                     <ul id="trip-queue-list"
-                        style="list-style: none; padding: 0; margin: 0; max-height: 45vh; overflow-y: auto;"></ul>
+                        style="list-style: none; padding: 0; margin: 0; max-height: 35dvh; overflow-y: auto;"></ul>
                 </div>
             </div>
 
@@ -407,30 +433,33 @@
                     <div id="day-notes-container" style="margin-top: 10px;"></div>
                 </details>
 
-                <div style="display: flex; flex-direction: column; gap: 12px;">
-                    <div style="display: flex; gap: 8px;">
-                        <button onclick="autoSortDay()" class="glass-btn"
-                            style="flex: 1; border-radius: 8px; background: #fdf4ff; color: #c026d3; font-weight: 800; font-size: 12px; padding: 10px; border: 1px solid #f0abfc;">🪄
-                            Sort Day</button>
-                        <button id="optimize-trip-btn" class="glass-btn"
-                            style="flex: 1; border-radius: 8px; background: #faf5ff; color: #9333ea; font-weight: 800; font-size: 12px; padding: 10px; border: 1px solid #e9d5ff;">✨
-                            Optimize Trip</button>
+                <div class="planner-actions">
+                    <div class="planner-actions-grid planner-actions-grid-secondary">
+                        <button id="auto-sort-day-btn" class="planner-action-btn planner-action-purple">
+                            <span class="planner-action-icon">🪄</span>
+                            <span>Sort Day</span>
+                        </button>
+                        <button id="optimize-trip-btn" class="planner-action-btn planner-action-violet">
+                            <span class="planner-action-icon">✨</span>
+                            <span>Optimize Trip</span>
+                        </button>
                     </div>
 
-                    <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
-                        <button id="clear-trip-btn" class="glass-btn"
-                            style="background: transparent; color: #ef4444; font-weight: 700; font-size: 12px; padding: 8px 0; border: none; text-decoration: underline; min-width: 44px; text-align: left;">Clear</button>
-                        <div style="display: flex; gap: 8px; flex: 1; align-items: center;">
-                            <button id="planner-load-btn" onclick="togglePlannerRoutes()" class="glass-btn"
-                                style="flex: 0.7; border-radius: 8px; background: #f8fafc; color: #475569; font-weight: 800; font-size: 13px; padding: 12px; border: 1px solid #cbd5e1;">📂
-                                Load</button>
-                            <button id="save-route-btn" class="glass-btn"
-                                style="flex: 1; border-radius: 8px; background: #f0fdf4; color: #15803d; font-weight: 800; font-size: 13px; padding: 12px; border: 1px solid #bbf7d0;">💾
-                                Save</button>
-                            <button id="start-route-btn" class="glass-btn primary-btn"
-                                style="flex: 1.5; border-radius: 8px; font-weight: 900; font-size: 14px; padding: 12px; box-shadow: 0 4px 12px rgba(34,197,94,0.3);">Generate
-                                Route</button>
-                        </div>
+                    <div class="planner-actions-grid planner-actions-grid-main">
+                        <button id="planner-load-btn" class="planner-action-btn planner-action-neutral">
+                            <span class="planner-action-icon">📂</span>
+                            <span>Load</span>
+                        </button>
+                        <button id="save-route-btn" class="planner-action-btn planner-action-save">
+                            <span class="planner-action-icon">💾</span>
+                            <span>Save</span>
+                        </button>
+                        <button id="start-route-btn" class="planner-action-btn planner-action-primary">
+                            <span>Generate Route</span>
+                        </button>
+                        <button id="clear-trip-btn" class="planner-action-btn planner-action-clear">
+                            <span>Clear</span>
+                        </button>
                     </div>
 
                     <div id="planner-saved-routes-container"
@@ -440,7 +469,7 @@
                             <span
                                 style="font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">📂
                                 Your Saved Routes</span>
-                            <button onclick="togglePlannerRoutes()"
+                            <button id="planner-routes-close-btn"
                                 style="background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer;">&times;</button>
                         </div>
                         <div id="planner-saved-routes-list"
@@ -531,26 +560,13 @@
 
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Premium Bubble Mode</div>
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Auto Movements</div>
                                 <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Semantic Zooming: Explodes clusters as you zoom in. Keeps high-level map clean.
+                                    Prevents the map from automatically panning during search, filtering, and pin selection.
                                 </div>
                             </div>
                             <label class="switch">
-                                <input type="checkbox" id="premium-cluster-toggle">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Standard Bubble Mode</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Groups aggressively to keep the screen clean. Recommended for older devices.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="standard-cluster-toggle">
+                                <input type="checkbox" id="toggle-stop-auto-move">
                                 <span class="slider round"></span>
                             </label>
                         </div>
@@ -619,82 +635,35 @@
                         <!-- 🔬 ADVANCED OPTIMIZATION -->
                         <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px; margin-bottom: 15px;">Advanced Optimization</div>
 
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                        <div id="performance-settings-master" style="display: flex; flex-direction: column; gap: 15px;"></div>
+
+                        <div data-cluster-setting="premium" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Simplify Trails</div>
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Premium Bubble Mode</div>
                                 <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Reduces trail detail to prevent map stuttering.
+                                    Semantic Zooming: Explodes clusters as you zoom in. Keeps high-level map clean.
                                 </div>
                             </div>
                             <label class="switch">
-                                <input type="checkbox" id="simplify-trail-toggle">
+                                <input type="checkbox" id="premium-cluster-toggle">
                                 <span class="slider round"></span>
                             </label>
                         </div>
 
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                        <div data-cluster-setting="standard" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
                             <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Viewport Culling</div>
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Standard Bubble Mode</div>
                                 <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Only renders on-screen pins. Max CPU savings for country views.
+                                    Groups aggressively to keep the screen clean. Recommended for older devices.
                                 </div>
                             </div>
                             <label class="switch">
-                                <input type="checkbox" id="toggle-viewport-culling">
+                                <input type="checkbox" id="standard-cluster-toggle">
                                 <span class="slider round"></span>
                             </label>
                         </div>
 
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Low Graphics Mode</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Disables blurs and particle effects for speed.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="low-gfx-toggle">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Remove Shadows</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Strips heavy GPU shadow filters from all pins.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-remove-shadows">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Resizing</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Pin size stays locked during zoom. No micro-calculations.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-stop-resizing">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Auto Movements</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Prevents the map from automatically panning during search, filtering, and pin selection.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-stop-auto-move">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
+                        <div id="performance-settings-registry" style="display: flex; flex-direction: column; gap: 15px;"></div>
 
                         <!-- 🔨 ULTRA-LOW SLEDGEHAMMER -->
                         <div style="border-top: 1px solid rgba(0,0,0,0.1); margin: 5px 0;"></div>
@@ -711,16 +680,6 @@
                                 <input type="checkbox" id="ultra-low-toggle">
                                 <span class="slider round sledgehammer-slider"></span>
                             </label>
-                        </div>
-
-                        <!-- Developer tests removed -->
-
-                        <div id="dev-warp-container" style="display: none; margin-top: 20px;">
-                            <div style="font-size: 14px; font-weight: 800; color: #ef4444; margin-bottom: 8px;">[Dev]
-                                Trail Warp (Jump to Expedition)</div>
-                            <div id="dev-trail-warp-grid" class="dev-warp-grid">
-                                <!-- Populated via JS -->
-                            </div>
                         </div>
 
                         <div style="border-top: 1px solid rgba(0,0,0,0.1); margin: 25px 0 15px 0;"></div>
@@ -888,12 +847,12 @@
                             </p>
 
                             <div style="display: flex; gap: 8px; flex-direction: column;">
-                                <button id="share-single-expedition-btn" onclick="shareSingleExpedition()"
+                                <button id="share-single-expedition-btn"
                                     class="glass-btn"
                                     style="width: 100%; padding: 12px; font-size: 13px; border-radius: 10px; font-weight: 800; background: #f8fafc; color: #1e293b; border: 1px solid #cbd5e1;">
                                     📸 Share This Victory
                                 </button>
-                                <button id="claim-reward-btn" onclick="claimRewardAndReset()" class="glass-btn"
+                                <button id="claim-reward-btn" class="glass-btn"
                                     style="width: 100%; padding: 14px; font-size: 14px; border-radius: 10px; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; font-weight: 900; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);">
                                     🎁 Claim +5 PTS & Reset
                                 </button>
@@ -913,11 +872,11 @@
                         </div>
 
                         <div style="display: flex; gap: 8px; margin-bottom: 20px;">
-                            <button onclick="flyToActiveTrail()" class="glass-btn"
+                            <button id="fly-active-trail-btn" class="glass-btn"
                                 style="flex: 1; padding: 8px; font-size: 11px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #1e293b;">
                                 🗺️ View on Map
                             </button>
-                            <button onclick="document.getElementById('trail-education-modal').style.display='flex'"
+                            <button id="trail-brief-btn"
                                 class="glass-btn"
                                 style="flex: 1; padding: 8px; font-size: 11px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #1e293b;">
                                 📖 Trail Brief
@@ -937,10 +896,10 @@
                                     </p>
                                 </div>
                                 <div style="display: flex; flex-direction: column; gap: 8px;">
-                                    <button id="training-action-btn" onclick="handleTrainingClick()"
+                                    <button id="training-action-btn"
                                         class="glass-btn training-btn"
                                         style="padding: 10px 16px; border-radius: 8px;">Start Walk</button>
-                                    <button id="cancel-training-btn" onclick="cancelTrainingWalk()"
+                                    <button id="cancel-training-btn"
                                         style="display: none; background: transparent; color: #94a3b8; border: none; font-size: 10px; font-weight: 700; text-decoration: underline; cursor: pointer;">Cancel</button>
                                 </div>
                             </div>
@@ -988,7 +947,7 @@
                         <h3
                             style="margin: 0; font-size: 13px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">
                             🏅 Completed Expeditions</h3>
-                        <button onclick="shareAllExpeditions()" class="glass-btn"
+                        <button id="share-all-expeditions-btn" class="glass-btn"
                             style="font-size: 11px; padding: 6px 12px; border-radius: 8px; background: #eff6ff; color: #3b82f6; border: none; font-weight: 800;">📸
                             Share All</button>
                     </div>
@@ -1010,8 +969,7 @@
                         <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b;">🏆 Achievement Vault
                         </h3>
                         <button id="share-vault-btn" class="glass-btn"
-                            style="font-size: 11px; padding: 6px 12px; border-radius: 8px;"
-                            onclick="shareVaultCard()">📸 Share</button>
+                            style="font-size: 11px; padding: 6px 12px; border-radius: 8px;">📸 Share</button>
                     </div>
 
                     <div class="vault-tabs">
@@ -1272,9 +1230,41 @@
     <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-functions-compat.js"></script>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Core Dependencies (load before modules) -->
+    <script src="utils/geoUtils.js?v=1" defer></script>
+    <script src="utils/scoringUtils.js?v=1" defer></script>
     <script src="gamificationLogic.js?v=3" defer></script>
     <script src="MapMarkerConfig.js?v=3" defer></script>
-    <script src="app.js?v=25" defer></script>
+
+    <!-- NEW: Modular Architecture (strict load order) -->
+    <script src="modules/settingsRegistry.js?v=1" defer></script>
+    <script src="modules/barkState.js?v=1" defer></script>
+    <script src="modules/barkConfig.js?v=2" defer></script>
+    <script src="config/domRefs.js?v=1" defer></script>
+    <script src="state/settingsStore.js?v=1" defer></script>
+    <script src="state/appState.js?v=1" defer></script>
+    <script src="services/orsService.js?v=2" defer></script>
+    <script src="services/firebaseService.js?v=1" defer></script>
+    <script src="renderers/routeRenderer.js?v=1" defer></script>
+    <script src="services/checkinService.js?v=1" defer></script>
+    <script src="services/authService.js?v=4" defer></script>
+    <script src="modules/markerLayerPolicy.js?v=1" defer></script>
+    <script src="modules/MarkerLayerManager.js?v=2" defer></script>
+    <script src="modules/TripLayerManager.js?v=1" defer></script>
+    <script src="modules/mapEngine.js?v=1" defer></script>
+    <script src="modules/renderEngine.js?v=2" defer></script>
+    <script src="renderers/panelRenderer.js?v=2" defer></script>
+    <script src="modules/searchEngine.js?v=4" defer></script>
+    <script src="modules/dataService.js?v=2" defer></script>
+    <script src="modules/profileEngine.js?v=1" defer></script>
+    <script src="modules/expeditionEngine.js?v=2" defer></script>
+    <script src="engines/tripPlannerCore.js?v=4" defer></script>
+    <script src="modules/shareEngine.js?v=1" defer></script>
+    <script src="modules/settingsController.js?v=1" defer></script>
+    <script src="modules/uiController.js?v=9" defer></script>
+
+    <!-- ENTRY POINT: Bootstrap Orchestrator (must load LAST) -->
+    <script src="core/app.js?v=28" defer></script>
     <!-- SCORING PROTOCOL MODAL -->
     <div id="scoring-modal" class="scoring-modal-overlay">
         <div class="scoring-modal-card">
@@ -1322,7 +1312,7 @@
         <div class="scoring-modal-card">
             <div class="modal-header">
                 <h3>✨ OPTIMIZER SETTINGS</h3>
-                <button onclick="document.getElementById('optimizer-modal').style.display='none'"
+                <button id="optimizer-modal-close-btn"
                     class="modal-close-btn">&times; Cancel</button>
             </div>
             <div class="modal-section">
@@ -1339,7 +1329,7 @@
                 <input type="number" id="opt-max-hours" value="4" min="1" max="12"
                     style="width:100%; padding:10px; border-radius:8px; border:none; margin-bottom:20px; background:#1e293b; color:white;">
 
-                <button onclick="executeSmartOptimization()"
+                <button id="execute-smart-optimization-btn"
                     style="width:100%; background:linear-gradient(135deg, #9333ea, #c026d3); color:white; font-weight:900; padding:12px; border-radius:8px; border:none; cursor:pointer; text-transform:uppercase; box-shadow: 0 4px 15px rgba(147, 51, 234, 0.4);">Run
                     Global Optimizer</button>
             </div>
@@ -1351,7 +1341,7 @@
         <div class="scoring-modal-card">
             <div class="modal-header">
                 <h3>📖 EXPEDITION BRIEF</h3>
-                <button onclick="document.getElementById('trail-education-modal').style.display='none'"
+                <button id="trail-education-close-btn"
                     class="modal-close-btn">&times;</button>
             </div>
 

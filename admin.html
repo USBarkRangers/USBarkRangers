@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Data Refinery - Admin</title>
+    <link rel="icon" type="image/jpeg" href="../assets/images/bark-logo.jpeg">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
         body {
@@ -233,6 +234,34 @@
             overflow-x: auto;
             max-height: 400px;
         }
+
+        /* DEV TOOLS */
+        .dev-warp-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .dev-warp-btn {
+            background: #1e293b;
+            color: #a5b4fc;
+            border: 1px solid #334155;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .dev-warp-btn:hover {
+            background: #334155;
+        }
+
+        .dev-warp-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -240,7 +269,7 @@
     <div class="container">
         <div class="header">
             <h1>Data Refinery</h1>
-            <a href="index.html" class="back-btn">← Back to Map</a>
+            <a href="../index.html" class="back-btn">← Back to Map</a>
         </div>
 
         <div class="grid">
@@ -364,6 +393,27 @@
                     <summary style="font-size: 12px; font-weight: 800; color: #94a3b8; cursor: pointer; text-transform: uppercase;">Raw AI Output</summary>
                     <div id="raw-json-output" class="raw-json-view" style="margin-top: 10px;">Waiting for data...</div>
                 </details>
+            </div>
+        </div>
+        <!-- DEV TOOLS -->
+        <div class="card">
+            <h2 style="margin-top: 0; color: #dc2626;">Dev Tools</h2>
+            <p style="color: #64748b; font-size: 14px; margin-bottom: 24px;">Admin-only testing utilities. Changes are immediate and live.</p>
+
+            <div style="margin-bottom: 30px;">
+                <h3 style="margin: 0 0 6px 0; font-size: 16px; color: #374151;">Trail Warp Grid</h3>
+                <p style="color: #64748b; font-size: 13px; margin: 0 0 12px 0;">Instantly assign an expedition trail to your account for testing. Resets miles to 0.</p>
+                <div id="admin-trail-warp-grid" class="dev-warp-grid"></div>
+            </div>
+
+            <div>
+                <h3 style="margin: 0 0 6px 0; font-size: 16px; color: #374151;">Set Walk Points</h3>
+                <p style="color: #64748b; font-size: 13px; margin: 0 0 12px 0;">Override your walk points for testing scoring and badge thresholds.</p>
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <input type="number" id="admin-set-points-input" placeholder="e.g. 500" style="padding: 10px 14px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-family: inherit; font-weight: 600; width: 150px; outline: none;">
+                    <button id="admin-set-points-btn" class="primary-btn" style="width: auto; padding: 10px 20px; font-size: 14px;">Set Points</button>
+                    <span id="admin-set-points-status" style="font-size: 14px; font-weight: 700; color: #64748b;"></span>
+                </div>
             </div>
         </div>
     </div>

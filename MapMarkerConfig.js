@@ -4,6 +4,27 @@
  */
 
 class MapMarkerConfig {
+    static getPinStyle(parkData, isVisited = false) {
+        if (isVisited) {
+            return {
+                iconUrl: (parkData.parkCategory === 'National') ? 'assets/images/bark-logo.jpeg' : 'assets/images/bark-tag.jpeg',
+                ringColor: '#4CAF50',
+                pinColor: '#4CAF50',
+                pinShadowColor: '#4CAF50',
+                categoryClass: (parkData.parkCategory === 'National') ? 'cat-national' : 'cat-state'
+            };
+        }
+
+        const isNational = (parkData.parkCategory === 'National');
+        return {
+            iconUrl: isNational ? 'assets/images/bark-logo.jpeg' : 'assets/images/bark-tag.jpeg',
+            ringColor: isNational ? '#000' : '#2196F3',
+            pinColor: isNational ? '#000' : '#2196F3',
+            pinShadowColor: isNational ? 'rgba(0, 0, 0, 0.4)' : 'rgba(33, 150, 243, 0.4)',
+            categoryClass: isNational ? 'cat-national' : 'cat-state'
+        };
+    }
+
     /**
      * Generates a Leaflet L.marker with appropriate HTML structure and classes for CSS binding.
      * @param {Object} parkData - Data payload for the park (needs lat, lng, and parkCategory)
@@ -11,23 +32,14 @@ class MapMarkerConfig {
      * @returns {L.marker} The constructed Leaflet marker instance
      */
     static createCustomMarker(parkData, isVisited) {
-        // Decide which base JPEG to use depending on category
-        const isNational = (parkData.parkCategory === 'National');
-        const iconUrl = isNational ? 'bark-logo.jpeg' : 'bark-tag.jpeg';
+        const style = MapMarkerConfig.getPinStyle(parkData, isVisited);
 
         // Always create markers in neutral state — visited styling is applied dynamically
         // by updateMarkers() via the 'visited-pin' class to prevent recycling bugs
         const stateClass = 'unvisited-marker';
-        const catClass = isNational ? 'cat-national' : 'cat-state';
+        const catClass = style.categoryClass;
 
-        // Create the DivIcon HTML string
-        // The wrapper handles the geometry (50% border radius) and the premium halo (via padding+box-shadow)
-        // The img scales to fill the circle identically.
-        const markerHtml = `
-            <div class="enamel-pin-wrapper">
-                <img src="${iconUrl}" alt="Park Pin" loading="lazy" />
-            </div>
-        `;
+        const markerHtml = `<div class="enamel-pin-wrapper"><img src="${style.iconUrl}" alt="Park Pin" loading="lazy" /></div>`;
 
         // Initialize Leaflet divIcon
         const divIcon = L.divIcon({

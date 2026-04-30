@@ -74,6 +74,37 @@ html {
     background-color: #e5e5e5;
 }
 
+/* ====== APP-WIDE SCROLLBAR STYLING ====== */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #020617 transparent;
+}
+
+*::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 6px;
+}
+
+*::-webkit-scrollbar-thumb {
+    background-color: #020617;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background-color: #111827;
+}
+
+*::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
 /* Allow text selection in inputs and textareas */
 input,
 textarea,
@@ -94,6 +125,82 @@ textarea,
     z-index: 1;
     /* Lowest z-index */
     touch-action: none;
+}
+
+.map-unavailable-notice[hidden] {
+    display: none !important;
+}
+
+.map-unavailable-notice {
+    position: fixed;
+    inset: 0;
+    z-index: 1800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.62), rgba(15, 23, 42, 0.32)),
+        rgba(229, 229, 229, 0.86);
+    pointer-events: auto;
+}
+
+.map-unavailable-card {
+    width: min(100%, 380px);
+    padding: 24px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    box-shadow: 0 18px 42px rgba(15, 23, 42, 0.22);
+    text-align: center;
+    color: #1e293b;
+}
+
+.map-unavailable-kicker {
+    margin-bottom: 8px;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.map-unavailable-card h2 {
+    margin: 0 0 10px 0;
+    font-size: 24px;
+    font-weight: 900;
+    color: #0f172a;
+}
+
+.map-unavailable-card p {
+    margin: 0;
+    color: #475569;
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.map-unavailable-detail {
+    margin-top: 12px !important;
+    color: #64748b !important;
+    font-size: 12px !important;
+    font-weight: 700;
+}
+
+.map-unavailable-action {
+    width: 100%;
+    margin-top: 18px;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 8px;
+    background: #2563eb;
+    color: white;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.28);
+}
+
+.map-unavailable-action:active {
+    transform: translateY(1px);
 }
 
 /* Glassmorphism Utilities */
@@ -348,7 +455,7 @@ textarea,
 /* Slide-Out Info Panel */
 #slide-panel {
     position: absolute;
-    z-index: 9999;
+    z-index: 1800;
     width: 100%;
     background: white;
     box-shadow: -4px 0 25px rgba(0, 0, 0, 0.15);
@@ -365,6 +472,12 @@ textarea,
     will-change: transform, opacity;
     transform: translateZ(0);
     backface-visibility: hidden;
+}
+
+body.app-tab-active #slide-panel {
+    visibility: hidden !important;
+    pointer-events: none !important;
+    transform: translate3d(0, calc(100% + env(safe-area-inset-bottom, 0px) + 64px), 0) !important;
 }
 
 .panel-content {
@@ -423,19 +536,23 @@ textarea,
 
 /* Mobile: Bottom */
 @media (max-width: 767px) {
+    :root {
+        --mobile-nav-height: 75px;
+    }
+
     #slide-panel {
-        bottom: 0;
+        bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px));
         left: 0;
         width: 100%;
-        height: 55vh;
+        height: min(55vh, calc(100dvh - var(--mobile-nav-height) - env(safe-area-inset-bottom, 0px) - 16px));
         border-top-left-radius: 28px;
         border-top-right-radius: 28px;
-        transform: translateY(105%);
+        transform: translate3d(0, calc(100% + env(safe-area-inset-bottom, 0px) + 32px), 0);
         /* Hidden */
     }
 
     #slide-panel.open {
-        transform: translateY(0);
+        transform: translate3d(0, 0, 0);
     }
 
     /* Ensure Leaflet controls don't overlap with the nav bar on mobile */
@@ -566,6 +683,7 @@ textarea,
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
+    overscroll-behavior-y: none;
 }
 
 .ui-view.active {
@@ -625,6 +743,105 @@ textarea,
     color: white;
 }
 
+.planner-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.planner-actions-grid {
+    display: grid;
+    gap: 10px;
+}
+
+.planner-actions-grid-secondary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.planner-actions-grid-main {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: stretch;
+}
+
+.planner-action-btn {
+    min-height: 48px;
+    padding: 11px 12px;
+    border: 1px solid #d8e0ea;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #334155;
+    box-shadow: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 850;
+    line-height: 1.1;
+    text-align: center;
+    white-space: normal;
+    transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+.planner-action-btn:hover,
+.planner-action-btn:active {
+    transform: translateY(-1px);
+}
+
+.planner-action-icon {
+    flex: 0 0 auto;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.planner-action-purple {
+    background: #fdf4ff;
+    border-color: #f0abfc;
+    color: #a21caf;
+}
+
+.planner-action-violet {
+    background: #faf5ff;
+    border-color: #ddd6fe;
+    color: #7e22ce;
+}
+
+.planner-action-neutral {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    color: #475569;
+}
+
+.planner-action-save {
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+    color: #047857;
+}
+
+.planner-action-primary {
+    background: #43a947;
+    border-color: #43a947;
+    color: white;
+    box-shadow: 0 6px 16px rgba(67, 169, 71, 0.22);
+}
+
+.planner-action-clear {
+    background: #fff7f7;
+    border-color: #fecaca;
+    color: #dc2626;
+}
+
+@media (max-width: 430px) {
+    .planner-actions-grid-main {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .planner-action-primary {
+        grid-column: span 2;
+    }
+}
+
 .watermark-tool {
     background: rgba(255, 255, 255, 0.5);
     border-radius: 12px;
@@ -678,6 +895,8 @@ textarea,
     display: flex;
     justify-content: space-around;
     align-items: center;
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
 }
 
 .nav-item {
@@ -746,7 +965,7 @@ textarea,
     /* Hide nav and slide panel when iOS keyboard is open */
     body.keyboard-open .glass-nav,
     body.keyboard-open #slide-panel {
-        transform: translateY(110%) !important;
+        transform: translate3d(0, 110%, 0) !important;
         pointer-events: none;
     }
 
@@ -775,32 +994,40 @@ textarea,
 }
 
 .visited-pin {
-    filter: brightness(1.35) drop-shadow(0 0 10px #4CAF50);
+    --ring-color: #4CAF50;
+    --pin-color: #4CAF50;
+    filter: brightness(1.35) drop-shadow(0 0 10px var(--pin-color, #4CAF50));
     z-index: 500 !important;
 }
 
 .visited-pin img {
-    border: 3px solid #4CAF50;
+    border: 3px solid var(--ring-color, #4CAF50);
     border-radius: 50%;
 }
 
 /* Unvisited National Parks — same green ring style but in BLACK */
 .cat-national:not(.visited-pin) {
-    filter: drop-shadow(0 0 7px rgba(0, 0, 0, 0.4));
+    --ring-color: #000;
+    --pin-color: #000;
+    --pin-shadow-color: rgba(0, 0, 0, 0.4);
+    filter: drop-shadow(0 0 7px var(--pin-shadow-color, rgba(0, 0, 0, 0.4)));
 }
 
 .cat-national:not(.visited-pin) img {
-    border: 3px solid #000;
+    border: 3px solid var(--ring-color, #000);
     border-radius: 50%;
 }
 
 /* Unvisited State/Other Parks — same green ring style but in BLUE */
 .cat-state:not(.visited-pin) {
-    filter: drop-shadow(0 0 7px rgba(33, 150, 243, 0.4));
+    --ring-color: #2196F3;
+    --pin-color: #2196F3;
+    --pin-shadow-color: rgba(33, 150, 243, 0.4);
+    filter: drop-shadow(0 0 7px var(--pin-shadow-color, rgba(33, 150, 243, 0.4)));
 }
 
 .cat-state:not(.visited-pin) img {
-    border: 3px solid #2196F3;
+    border: 3px solid var(--ring-color, #2196F3);
     border-radius: 50%;
 }
 
@@ -1164,6 +1391,7 @@ input:checked+.slider:before {
 .modal-overlay.active {
     opacity: 1;
     pointer-events: auto;
+    overscroll-behavior: none;
 }
 
 .modal-card {
@@ -1199,23 +1427,9 @@ input:checked+.slider:before {
     gap: 20px;
 }
 
-/* Custom Scrollbar for Premium Feel */
-.modal-body::-webkit-scrollbar {
-    width: 4px;
-}
-
-.modal-body::-webkit-scrollbar-track {
-    background: #f1f5f9;
-    border-radius: 10px;
-}
-
-.modal-body::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 10px;
-}
-
-.modal-body::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
+/* Contain modal scroll so it never bleeds through to the view behind */
+.modal-body {
+    overscroll-behavior: contain;
 }
 
 .modal-overlay.active .modal-card {
@@ -1440,8 +1654,210 @@ body.stop-resizing.map-is-zooming .leaflet-marker-pane {
     transition: none !important;
 }
 
-/* 4. VIEWPORT CULLING: Subtle fade for pins entering the bounding box */
-body.viewport-culling .leaflet-marker-icon {
-    animation: barkFadeIn 0.15s ease-out;
+/* 3b. SIMPLIFY WHILE MOVING: temporary effect budget for pan/zoom only */
+body.simplify-pins-while-moving.map-is-moving .leaflet-marker-icon,
+body.simplify-pins-while-moving.map-is-moving .leaflet-marker-pane *,
+body.simplify-pins-while-moving.map-is-moving .custom-bark-marker,
+body.simplify-pins-while-moving.map-is-moving .custom-bark-marker * {
+    transition: none !important;
+    animation: none !important;
+    will-change: auto !important;
 }
-@keyframes barkFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+body.simplify-pins-while-moving.map-is-moving .visited-pin,
+body.simplify-pins-while-moving.map-is-moving .cat-national,
+body.simplify-pins-while-moving.map-is-moving .cat-state {
+    filter: none !important;
+}
+
+body.simplify-pins-while-moving.map-is-moving .enamel-pin-wrapper:hover,
+body.simplify-pins-while-moving.map-is-moving .custom-bark-marker.active-pin .enamel-pin-wrapper {
+    transform: none !important;
+}
+
+/* 4. VIEWPORT CULLING: No fade — instant snap to prevent spin/sideways glitch with CSS toggle */
+body.viewport-culling .leaflet-marker-icon {
+    animation: none !important;
+}
+
+/* ============================================================
+ * TRIP OVERLAY (Fix #19) — owned by modules/TripLayerManager.js
+ * Lives on a dedicated, never-clustered, never-culled layer.
+ * Performance toggles inherit from existing body classes.
+ * ============================================================ */
+
+/* Badge: official round BARK route pin. Orange ring, centered logo, bottom number. */
+.trip-overlay-badge-wrapper {
+    background: transparent !important;
+    border: none !important;
+    pointer-events: auto;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.trip-overlay-badge {
+    box-sizing: border-box;
+    position: relative;
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    border-radius: 50%;
+    background: #f97316;
+    border: 2px solid #111827;
+    color: #fff;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow:
+        0 3px 7px rgba(0, 0, 0, 0.36),
+        0 0 0 1px rgba(249, 115, 22, 0.42);
+    user-select: none;
+}
+.trip-overlay-badge-face {
+    position: relative;
+    z-index: 2;
+    box-sizing: border-box;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #05070b;
+    border: 2px solid #111827;
+    overflow: hidden;
+}
+.trip-overlay-badge-face img {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+}
+.trip-overlay-badge-number {
+    position: absolute;
+    left: 50%;
+    bottom: 1px;
+    z-index: 3;
+    display: inline-flex;
+    min-width: 20px;
+    height: 16px;
+    padding: 0 3px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #172033;
+    border: 1px solid #f97316;
+    color: #fffdf5;
+    font-size: 11px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+    transform: translateX(-50%);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.34);
+    text-shadow:
+        0 1px 1px rgba(0, 0, 0, 0.45),
+        0 0 5px rgba(255, 255, 255, 0.18);
+}
+
+/* Bookend: A / B / 🔄, owned by trip overlay (replaces inline-styled bookend-icon). */
+.trip-overlay-bookend-wrapper {
+    background: transparent !important;
+    border: none !important;
+    pointer-events: auto;
+    cursor: pointer;
+}
+.trip-overlay-bookend {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--bookend-color, #22c55e);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+    user-select: none;
+}
+
+.trip-overlay-popup {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 120px;
+}
+.trip-overlay-popup strong {
+    color: #1e293b;
+    font-size: 13px;
+    line-height: 1.25;
+}
+.trip-overlay-popup span {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.trip-overlay-popup-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+.trip-overlay-popup-btn {
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #334155;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+    padding: 7px 8px;
+}
+.trip-overlay-popup-details {
+    border-color: #fed7aa;
+    background: #fff7ed;
+    color: #c2410c;
+}
+.trip-overlay-popup-remove {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #dc2626;
+}
+
+/* Hide the inner park pin shape at trip stops so the badge becomes the only
+ * visible marker at that location. Class is applied by MarkerLayerManager;
+ * TripLayerManager never touches park marker DOM. */
+.custom-bark-marker.park-pin--in-trip .enamel-pin-wrapper {
+    visibility: hidden;
+}
+
+/* Honor existing performance toggles. No animation while in motion or under
+ * low-gfx / ultra-low / reduce-pin-motion modes. */
+body.reduce-pin-motion .trip-overlay-badge,
+body.low-gfx .trip-overlay-badge,
+body.ultra-low .trip-overlay-badge,
+body.simplify-pins-while-moving.map-is-moving .trip-overlay-badge,
+body.stop-resizing.map-is-zooming .trip-overlay-badge {
+    transition: none !important;
+}
+body.reduce-pin-motion .trip-overlay-badge-wrapper:hover .trip-overlay-badge,
+body.low-gfx .trip-overlay-badge-wrapper:hover .trip-overlay-badge,
+body.ultra-low .trip-overlay-badge-wrapper:hover .trip-overlay-badge,
+body.simplify-pins-while-moving.map-is-moving .trip-overlay-badge-wrapper:hover .trip-overlay-badge {
+    transform: none !important;
+}
+body.remove-shadows .trip-overlay-badge,
+body.ultra-low .trip-overlay-badge,
+body.remove-shadows .trip-overlay-bookend,
+body.ultra-low .trip-overlay-bookend {
+    box-shadow: none !important;
+}

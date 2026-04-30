@@ -1003,10 +1003,7 @@ body.app-tab-active #slide-panel {
 
 .custom-bark-marker.visited-pin .enamel-pin-wrapper {
     opacity: 1 !important;
-    box-shadow:
-        0 1px 2px rgba(15, 23, 42, 0.16),
-        0 4px 8px rgba(15, 23, 42, 0.1),
-        0 0 10px rgba(76, 175, 80, 0.34) !important;
+    box-shadow: none !important;
 }
 
 .visited-pin img {
@@ -1745,10 +1742,7 @@ body.viewport-culling .leaflet-marker-icon {
 }
 .trip-overlay-badge-wrapper--visited .trip-overlay-badge--official {
     filter: none;
-    box-shadow:
-        0 1px 2px rgba(15, 23, 42, 0.16),
-        0 4px 8px rgba(15, 23, 42, 0.1),
-        0 0 10px rgba(76, 175, 80, 0.34);
+    box-shadow: none;
 }
 .trip-overlay-badge-face img {
     width: 100%;

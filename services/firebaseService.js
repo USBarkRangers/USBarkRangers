@@ -58,6 +58,12 @@ function readCompletedExpeditionsFromUserData(data) {
 }
 
 const pendingVisitedPlaceMutations = new Map();
+const CANONICAL_PARK_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function cleanValue(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).trim();
+}
 
 function cloneVisitedPlace(place) {
     return place && typeof place === 'object' ? { ...place } : place;
@@ -79,6 +85,215 @@ function makeVisitedPlaceMap(placeList) {
 
 function getVisitedPlacesArray() {
     return Array.from((window.BARK.userVisitedPlaces || new Map()).values()).map(cloneVisitedPlace);
+}
+
+function getLegacyParkIdFromCoords(lat, lng) {
+    const parsedLat = Number(lat);
+    const parsedLng = Number(lng);
+    if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return null;
+    return `${parsedLat.toFixed(2)}_${parsedLng.toFixed(2)}`;
+}
+
+function coordsMatch(leftLat, leftLng, rightLat, rightLng) {
+    const aLat = Number(leftLat);
+    const aLng = Number(leftLng);
+    const bLat = Number(rightLat);
+    const bLng = Number(rightLng);
+    if (![aLat, aLng, bLat, bLng].every(Number.isFinite)) return false;
+    return Math.abs(aLat - bLat) < 0.0001 && Math.abs(aLng - bLng) < 0.0001;
+}
+
+function getVisitedPlaceEntries(placeOrId) {
+    const visitedPlaces = window.BARK.userVisitedPlaces;
+    if (!(visitedPlaces instanceof Map)) return [];
+
+    const place = placeOrId && typeof placeOrId === 'object' ? placeOrId : { id: placeOrId };
+    const entries = [];
+    const seenIds = new Set();
+
+    function addEntry(visitedId) {
+        if (!visitedId || seenIds.has(visitedId) || !visitedPlaces.has(visitedId)) return;
+        seenIds.add(visitedId);
+        entries.push({ id: visitedId, record: visitedPlaces.get(visitedId) });
+    }
+
+    const candidateIds = [place.id, getLegacyParkIdFromCoords(place.lat, place.lng)]
+        .filter(id => id !== undefined && id !== null && id !== '');
+
+    for (const candidateId of candidateIds) {
+        addEntry(candidateId);
+    }
+
+    if (place && Number.isFinite(Number(place.lat)) && Number.isFinite(Number(place.lng))) {
+        for (const [visitedId, visitedRecord] of visitedPlaces.entries()) {
+            if (coordsMatch(place.lat, place.lng, visitedRecord && visitedRecord.lat, visitedRecord && visitedRecord.lng)) {
+                addEntry(visitedId);
+            }
+        }
+    }
+
+    return entries;
+}
+
+function getVisitedPlaceEntry(placeOrId) {
+    const entries = getVisitedPlaceEntries(placeOrId);
+    return entries.length > 0 ? entries[0] : null;
+}
+
+function isParkVisited(placeOrId) {
+    return getVisitedPlaceEntries(placeOrId).length > 0;
+}
+
+function getCanonicalParkCandidates(visit) {
+    const points = Array.isArray(window.BARK.allPoints) ? window.BARK.allPoints : [];
+    if (!visit || points.length === 0) return [];
+
+    const visitId = cleanValue(visit.id);
+    const legacyId = getLegacyParkIdFromCoords(visit.lat, visit.lng);
+    const visitName = cleanValue(visit.name).toLowerCase();
+    const normalizedVisitName = visitName.replace(/[^a-z0-9]/g, '');
+
+    return points.filter(point => {
+        if (!point || !point.id) return false;
+        if (point.id === visitId) return true;
+        if (visitId && getLegacyParkIdFromCoords(point.lat, point.lng) === visitId) return true;
+        if (legacyId && getLegacyParkIdFromCoords(point.lat, point.lng) === legacyId) return true;
+        if (coordsMatch(visit.lat, visit.lng, point.lat, point.lng)) return true;
+        if (normalizedVisitName) {
+            const normalizedPointName = cleanValue(point.name).toLowerCase().replace(/[^a-z0-9]/g, '');
+            return normalizedPointName === normalizedVisitName;
+        }
+        return false;
+    });
+}
+
+function pickCanonicalParkForVisit(visit) {
+    const candidates = getCanonicalParkCandidates(visit);
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0];
+
+    const normalizedVisitName = cleanValue(visit && visit.name).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (normalizedVisitName) {
+        const exact = candidates.find(point => cleanValue(point.name).toLowerCase().replace(/[^a-z0-9]/g, '') === normalizedVisitName);
+        if (exact) return exact;
+    }
+
+    return null;
+}
+
+function canonicalizeVisitRecord(visit, point) {
+    return {
+        id: point.id,
+        name: point.name,
+        lat: point.lat,
+        lng: point.lng,
+        state: point.state || visit.state || '',
+        verified: Boolean(visit.verified),
+        ts: Number.isFinite(Number(visit.ts)) ? Number(visit.ts) : Date.now()
+    };
+}
+
+function mergeCanonicalVisitRecords(existing, incoming) {
+    if (!existing) return incoming;
+    const existingTs = Number(existing.ts);
+    const incomingTs = Number(incoming.ts);
+    return {
+        ...existing,
+        ...incoming,
+        verified: Boolean(existing.verified || incoming.verified),
+        ts: Number.isFinite(existingTs) && Number.isFinite(incomingTs)
+            ? Math.min(existingTs, incomingTs)
+            : (Number.isFinite(existingTs) ? existing.ts : incoming.ts)
+    };
+}
+
+function canonicalizeVisitedPlacesMap(options = {}) {
+    const visitedPlaces = window.BARK.userVisitedPlaces;
+    if (!(visitedPlaces instanceof Map)) {
+        return { changed: false, unresolvedLegacyIds: [], nextMap: new Map() };
+    }
+
+    const points = Array.isArray(window.BARK.allPoints) ? window.BARK.allPoints : [];
+    if (points.length === 0) {
+        return { changed: false, unresolvedLegacyIds: [], nextMap: visitedPlaces };
+    }
+
+    const dropUnresolved = options.dropUnresolved === true;
+    const nextMap = new Map();
+    const unresolvedLegacyIds = [];
+    let changed = false;
+
+    visitedPlaces.forEach((rawVisit, sourceId) => {
+        const visit = { ...(rawVisit || {}), id: cleanValue((rawVisit && rawVisit.id) || sourceId) };
+        const point = pickCanonicalParkForVisit(visit);
+
+        if (!point) {
+            const legacy = !CANONICAL_PARK_ID_PATTERN.test(cleanValue(visit.id));
+            if (legacy) {
+                unresolvedLegacyIds.push(visit.id);
+                if (dropUnresolved) {
+                    changed = true;
+                    return;
+                }
+            }
+            nextMap.set(sourceId, rawVisit);
+            return;
+        }
+
+        const canonicalRecord = canonicalizeVisitRecord(visit, point);
+        nextMap.set(point.id, mergeCanonicalVisitRecords(nextMap.get(point.id), canonicalRecord));
+        if (sourceId !== point.id || visit.id !== point.id) changed = true;
+        if (
+            visit.name !== canonicalRecord.name ||
+            Number(visit.lat) !== Number(canonicalRecord.lat) ||
+            Number(visit.lng) !== Number(canonicalRecord.lng) ||
+            (visit.state || '') !== (canonicalRecord.state || '')
+        ) {
+            changed = true;
+        }
+    });
+
+    if (nextMap.size !== visitedPlaces.size) changed = true;
+    return { changed, unresolvedLegacyIds, nextMap };
+}
+
+async function normalizeLocalVisitedPlacesToCanonical(options = {}) {
+    const result = canonicalizeVisitedPlacesMap(options);
+    if (!result.changed) return result;
+
+    replaceLocalVisitedPlaces(result.nextMap);
+
+    if (options.writeBack === true && result.unresolvedLegacyIds.length === 0) {
+        await updateCurrentUserVisitedPlaces(getVisitedPlacesArray());
+    }
+
+    return result;
+}
+
+function getVisitedPlaceIdsFromArray(placeList) {
+    return new Set((Array.isArray(placeList) ? placeList : [])
+        .filter(hasVisitedPlaceId)
+        .map(place => place.id));
+}
+
+function assertVisitedWriteIsNotDestructive(nextVisitedArray) {
+    const currentVisitedPlaces = window.BARK.userVisitedPlaces;
+    if (!(currentVisitedPlaces instanceof Map)) return;
+
+    const currentIds = new Set(currentVisitedPlaces.keys());
+    const nextIds = getVisitedPlaceIdsFromArray(nextVisitedArray);
+    const stagedDeleteIds = new Set();
+    pendingVisitedPlaceMutations.forEach((mutation, placeId) => {
+        if (mutation && mutation.type === 'delete') stagedDeleteIds.add(placeId);
+    });
+
+    const unexpectedDrops = Array.from(currentIds)
+        .filter(placeId => !nextIds.has(placeId) && !stagedDeleteIds.has(placeId));
+    const destructiveDropThreshold = Math.max(3, Math.ceil(currentIds.size * 0.25));
+
+    if (currentIds.size >= 3 && unexpectedDrops.length >= destructiveDropThreshold) {
+        throw new Error(`Refusing destructive visitedPlaces write: ${unexpectedDrops.length} unstaged visit(s) would be removed.`);
+    }
 }
 
 function stringifyVisitValue(value) {
@@ -154,11 +369,34 @@ function reconcileVisitedPlacesSnapshot(placeList, metadata = {}) {
     return nextMap;
 }
 
+function refreshVisitedVisualState() {
+    const markerManager = window.BARK.markerManager;
+    if (markerManager && typeof markerManager.refreshMarkerStyles === 'function') {
+        markerManager.refreshMarkerStyles();
+    }
+    const tripLayer = window.BARK.tripLayer;
+    if (tripLayer && typeof tripLayer.refreshBadgeStyles === 'function') {
+        tripLayer.refreshBadgeStyles();
+    }
+}
+
 function replaceLocalVisitedPlaces(visitedMap) {
-    window.BARK.userVisitedPlaces = visitedMap instanceof Map ? visitedMap : new Map();
+    const nextMap = visitedMap instanceof Map ? visitedMap : new Map();
+    const currentMap = window.BARK.userVisitedPlaces;
+
+    if (currentMap instanceof Map) {
+        currentMap.clear();
+        nextMap.forEach((place, placeId) => {
+            currentMap.set(placeId, cloneVisitedPlace(place));
+        });
+    } else {
+        window.BARK.userVisitedPlaces = nextMap;
+    }
+
     if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
         window.BARK.invalidateVisitedIdsCache();
     }
+    refreshVisitedVisualState();
 }
 
 async function attemptDailyStreakIncrement() {
@@ -235,6 +473,7 @@ async function updateCurrentUserVisitedPlaces(visitedArray) {
         if (!user) return;
 
         nextVisitedArray = Array.isArray(visitedArray) ? visitedArray.map(cloneVisitedPlace) : [];
+        assertVisitedWriteIsNotDestructive(nextVisitedArray);
         nextVisitedArray.forEach(stageVisitedPlaceUpsert);
         window.BARK.incrementRequestCount();
         await firebase.firestore().collection('users').doc(user.uid).update({ visitedPlaces: nextVisitedArray });
@@ -248,13 +487,14 @@ async function updateCurrentUserVisitedPlaces(visitedArray) {
 async function updateVisitDate(parkId, newTs) {
     const previousVisitedPlaces = new Map(window.BARK.userVisitedPlaces || new Map());
     try {
-        if (window.BARK.userVisitedPlaces.has(parkId)) {
+        const visitedEntry = getVisitedPlaceEntry(parkId);
+        if (visitedEntry) {
             const nextVisitedPlaces = new Map(window.BARK.userVisitedPlaces);
             const updatedPlace = {
-                ...nextVisitedPlaces.get(parkId),
+                ...visitedEntry.record,
                 ts: newTs
             };
-            nextVisitedPlaces.set(parkId, updatedPlace);
+            nextVisitedPlaces.set(visitedEntry.id, updatedPlace);
             replaceLocalVisitedPlaces(nextVisitedPlaces);
             stageVisitedPlaceUpsert(updatedPlace);
             await updateCurrentUserVisitedPlaces(getVisitedPlacesArray());
@@ -294,11 +534,19 @@ async function removeVisitedPlace(placeOrId) {
         }
 
         if (window.confirm(`Remove ${latestPlace.name || 'this visit'}?`)) {
-            window.BARK.userVisitedPlaces.delete(placeId);
-            stageVisitedPlaceDelete(placeId);
+            const matchingEntries = getVisitedPlaceEntries(latestPlace);
+            const entriesToRemove = matchingEntries.length > 0
+                ? matchingEntries
+                : [{ id: placeId, record: latestPlace }];
+
+            entriesToRemove.forEach(entry => {
+                window.BARK.userVisitedPlaces.delete(entry.id);
+                stageVisitedPlaceDelete(entry.id);
+            });
             if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
                 window.BARK.invalidateVisitedIdsCache();
             }
+            refreshVisitedVisualState();
             await syncUserProgress();
             window.syncState();
             window.BARK.renderManagePortal();
@@ -420,6 +668,11 @@ const firebaseService = {
     removeVisitedPlace,
     reconcileVisitedPlacesSnapshot,
     replaceLocalVisitedPlaces,
+    refreshVisitedVisualState,
+    getVisitedPlaceEntry,
+    getVisitedPlaceEntries,
+    isParkVisited,
+    normalizeLocalVisitedPlacesToCanonical,
     stageVisitedPlaceUpsert,
     stageVisitedPlaceDelete,
     clearVisitedPlacePendingMutation,
@@ -438,6 +691,10 @@ window.BARK.syncUserProgress = syncUserProgress;
 window.BARK.updateCurrentUserVisitedPlaces = updateCurrentUserVisitedPlaces;
 window.BARK.updateVisitDate = updateVisitDate;
 window.BARK.removeVisitedPlace = removeVisitedPlace;
+window.BARK.getVisitedPlaceEntry = getVisitedPlaceEntry;
+window.BARK.getVisitedPlaceEntries = getVisitedPlaceEntries;
+window.BARK.isParkVisited = isParkVisited;
+window.BARK.normalizeLocalVisitedPlacesToCanonical = normalizeLocalVisitedPlacesToCanonical;
 window.BARK.getCompletedExpeditions = getCompletedExpeditions;
 window.BARK.saveUserSettings = saveUserSettings;
 window.adminEditPoints = adminEditPoints;

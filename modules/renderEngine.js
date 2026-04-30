@@ -342,7 +342,9 @@ function updateMarkers() {
 
         const matchesType = activeTypeFilter === 'all' || item.category === activeTypeFilter;
         let matchesVisited = true;
-        const isVisited = userVisitedPlaces.has(item.id);
+        const isVisited = typeof window.BARK.isParkVisited === 'function'
+            ? window.BARK.isParkVisited(item)
+            : userVisitedPlaces.has(item.id);
         if (visitedFilterState === 'visited' && !isVisited) matchesVisited = false;
         if (visitedFilterState === 'unvisited' && isVisited) matchesVisited = false;
 
@@ -386,7 +388,13 @@ function updateMarkers() {
     // 🏭 BATCH: Apply visited-pin class (avoids interleaved read/write layout thrash)
     markerClassUpdates.forEach(({ icon, isVisited }) => {
         icon.classList.toggle('visited-pin', isVisited);
+        icon.classList.toggle('visited-marker', isVisited);
+        icon.classList.toggle('unvisited-marker', !isVisited);
     });
+
+    if (window.BARK.tripLayer && typeof window.BARK.tripLayer.refreshBadgeStyles === 'function') {
+        window.BARK.tripLayer.refreshBadgeStyles();
+    }
 
     window.BARK._lastLayerType = targetLayerType;
 

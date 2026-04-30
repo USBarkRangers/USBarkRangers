@@ -218,6 +218,12 @@ function processParsedResults(results) {
 
     window.BARK._markerDataRevision = (window.BARK._markerDataRevision || 0) + 1;
 
+    const firebaseService = window.BARK.services && window.BARK.services.firebase;
+    if (firebaseService && typeof firebaseService.normalizeLocalVisitedPlacesToCanonical === 'function') {
+        firebaseService.normalizeLocalVisitedPlacesToCanonical({ writeBack: true })
+            .catch(error => console.error('[dataService] visited-place canonicalization failed:', error));
+    }
+
     window.syncState();
     return true;
 }

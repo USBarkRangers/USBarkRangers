@@ -450,7 +450,10 @@ function updateStatsUI() {
 
     const statesSet = new Set();
     allPoints.forEach(p => {
-        if (userVisitedPlaces.has(p.id) && p.state) {
+        const isVisited = typeof window.BARK.isParkVisited === 'function'
+            ? window.BARK.isParkVisited(p)
+            : userVisitedPlaces.has(p.id);
+        if (isVisited && p.state) {
             const st = p.state.toString().split(/[,/]/);
             st.forEach(s => {
                 const trimmed = s.trim().toUpperCase();

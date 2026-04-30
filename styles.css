@@ -994,15 +994,22 @@ body.app-tab-active #slide-panel {
 }
 
 .visited-pin {
-    --ring-color: #4CAF50;
-    --pin-color: #4CAF50;
-    filter: brightness(1.35) drop-shadow(0 0 10px var(--pin-color, #4CAF50));
+    --ring-color: #4CAF50 !important;
+    --pin-color: #4CAF50 !important;
+    --pin-shadow-color: rgba(76, 175, 80, 0.5) !important;
+    filter: none !important;
     z-index: 500 !important;
 }
 
+.custom-bark-marker.visited-pin .enamel-pin-wrapper {
+    opacity: 1 !important;
+    box-shadow: 0 3px 8px rgba(15, 23, 42, 0.36) !important;
+}
+
 .visited-pin img {
-    border: 3px solid var(--ring-color, #4CAF50);
+    border: 3px solid var(--ring-color, #4CAF50) !important;
     border-radius: 50%;
+    box-sizing: border-box;
 }
 
 /* Unvisited National Parks — same green ring style but in BLACK */
@@ -1627,7 +1634,10 @@ body.stop-spinning .custom-bark-marker.unvisited-marker .enamel-pin-wrapper {
 /* 2. REMOVE SHADOWS: Strips heavy alpha-mask drop-shadow filters */
 body.remove-shadows .visited-pin {
     filter: none !important;
-    box-shadow: 0 0 8px #4CAF50 !important;
+    box-shadow: none !important;
+}
+body.remove-shadows .custom-bark-marker.visited-pin .enamel-pin-wrapper {
+    box-shadow: none !important;
 }
 body.remove-shadows .cat-national:not(.visited-pin),
 body.remove-shadows .cat-state:not(.visited-pin) {
@@ -1722,13 +1732,20 @@ body.viewport-culling .leaflet-marker-icon {
     align-items: center;
     justify-content: center;
     background: #05070b;
-    border: 2px solid #111827;
+    border: 3px solid var(--ring-color, #111827);
     overflow: hidden;
-    box-shadow: 0 3px 7px rgba(0, 0, 0, 0.36);
+    box-shadow: 0 3px 7px var(--pin-shadow-color, rgba(0, 0, 0, 0.36));
+}
+.trip-overlay-badge--official {
+    filter: drop-shadow(0 0 7px var(--pin-shadow-color, rgba(0, 0, 0, 0.4)));
+}
+.trip-overlay-badge-wrapper--visited .trip-overlay-badge--official {
+    filter: none;
+    box-shadow: 0 3px 8px rgba(15, 23, 42, 0.36);
 }
 .trip-overlay-badge-face img {
-    width: 30px;
-    height: 30px;
+    width: 100%;
+    height: 100%;
     border-radius: 50%;
     object-fit: cover;
     display: block;

@@ -20,7 +20,17 @@ function getFirebaseService() {
 }
 
 function getCurrentVisitedPlaces(userVisitedPlaces) {
-    return userVisitedPlaces || window.BARK.userVisitedPlaces;
+    const liveVisitedPlaces = window.BARK && window.BARK.userVisitedPlaces;
+    if (liveVisitedPlaces && typeof liveVisitedPlaces.has === 'function') {
+        return liveVisitedPlaces;
+    }
+    return userVisitedPlaces;
+}
+
+function refreshVisitedVisualState(firebaseService) {
+    if (firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function') {
+        firebaseService.refreshVisitedVisualState();
+    }
 }
 
 function createVisitRecord(parkData, verified) {
@@ -110,10 +120,8 @@ function verifyAndProcessCheckin(parkData, userLocation, userVisitedPlaces) {
 }
 
 async function verifyGpsCheckin(parkData, userVisitedPlaces) {
-    const visitedPlaces = getCurrentVisitedPlaces(userVisitedPlaces);
     const firebaseService = getFirebaseService();
 
-    if (!visitedPlaces) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
     if (!firebaseService || typeof firebaseService.updateCurrentUserVisitedPlaces !== 'function') {
         return { success: false, error: 'SERVICE_UNAVAILABLE' };
     }
@@ -133,9 +141,22 @@ async function verifyGpsCheckin(parkData, userVisitedPlaces) {
 
     let previousVisitedPlaces = null;
     try {
+        const visitedPlaces = getCurrentVisitedPlaces(userVisitedPlaces);
+        if (!visitedPlaces) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
+
         previousVisitedPlaces = new Map(visitedPlaces);
         const checkinResult = verifyAndProcessCheckin(parkData, position.coords, visitedPlaces);
         if (!checkinResult.success) return checkinResult;
+
+        const existingEntry = typeof window.BARK.getVisitedPlaceEntry === 'function'
+            ? window.BARK.getVisitedPlaceEntry(parkData)
+            : null;
+        if (existingEntry && existingEntry.id !== parkData.id) {
+            visitedPlaces.delete(existingEntry.id);
+            if (typeof firebaseService.stageVisitedPlaceDelete === 'function') {
+                firebaseService.stageVisitedPlaceDelete(existingEntry.id);
+            }
+        }
 
         visitedPlaces.set(parkData.id, checkinResult.visitRecord);
         if (typeof firebaseService.stageVisitedPlaceUpsert === 'function') {
@@ -143,6 +164,10 @@ async function verifyGpsCheckin(parkData, userVisitedPlaces) {
         }
         if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
             window.BARK.invalidateVisitedIdsCache();
+        }
+        refreshVisitedVisualState(firebaseService);
+        if (typeof window.syncState === 'function') {
+            window.syncState();
         }
         await firebaseService.updateCurrentUserVisitedPlaces(Array.from(visitedPlaces.values()));
         queueDailyStreakIncrement(firebaseService);
@@ -164,29 +189,41 @@ async function verifyGpsCheckin(parkData, userVisitedPlaces) {
 }
 
 async function markAsVisited(parkData, userVisitedPlaces) {
-    const visitedPlaces = getCurrentVisitedPlaces(userVisitedPlaces);
     const firebaseService = getFirebaseService();
 
-    if (!visitedPlaces) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
     if (!firebaseService) return { success: false, error: 'SERVICE_UNAVAILABLE' };
 
     let previousVisitedPlaces = null;
     try {
+        const visitedPlaces = getCurrentVisitedPlaces(userVisitedPlaces);
+        if (!visitedPlaces) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
+
         previousVisitedPlaces = new Map(visitedPlaces);
-        if (visitedPlaces.has(parkData.id)) {
-            const cachedObj = visitedPlaces.get(parkData.id);
-            if (cachedObj.verified) return { success: false, error: 'ALREADY_VERIFIED' };
+        const visitedEntries = typeof window.BARK.getVisitedPlaceEntries === 'function'
+            ? window.BARK.getVisitedPlaceEntries(parkData)
+            : (visitedPlaces.has(parkData.id) ? [{ id: parkData.id, record: visitedPlaces.get(parkData.id) }] : []);
+
+        if (visitedEntries.length > 0) {
+            if (visitedEntries.some(entry => entry.record && entry.record.verified)) {
+                return { success: false, error: 'ALREADY_VERIFIED' };
+            }
             if (!window.allowUncheck) return { success: false, error: 'UNCHECK_LOCKED' };
             if (typeof firebaseService.updateCurrentUserVisitedPlaces !== 'function') {
                 return { success: false, error: 'SERVICE_UNAVAILABLE' };
             }
 
-            visitedPlaces.delete(parkData.id);
-            if (typeof firebaseService.stageVisitedPlaceDelete === 'function') {
-                firebaseService.stageVisitedPlaceDelete(parkData.id);
-            }
+            visitedEntries.forEach(entry => {
+                visitedPlaces.delete(entry.id);
+                if (typeof firebaseService.stageVisitedPlaceDelete === 'function') {
+                    firebaseService.stageVisitedPlaceDelete(entry.id);
+                }
+            });
             if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
                 window.BARK.invalidateVisitedIdsCache();
+            }
+            refreshVisitedVisualState(firebaseService);
+            if (typeof window.syncState === 'function') {
+                window.syncState();
             }
             await firebaseService.updateCurrentUserVisitedPlaces(Array.from(visitedPlaces.values()));
             return { success: true, action: 'removed' };
@@ -205,6 +242,10 @@ async function markAsVisited(parkData, userVisitedPlaces) {
         }
         if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
             window.BARK.invalidateVisitedIdsCache();
+        }
+        refreshVisitedVisualState(firebaseService);
+        if (typeof window.syncState === 'function') {
+            window.syncState();
         }
 
         if (canSyncProgress) {

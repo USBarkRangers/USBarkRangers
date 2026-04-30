@@ -217,13 +217,26 @@ function handleVisitedPlacesSync(placeList, metadata = {}) {
                     firebaseService.reconcileVisitedPlacesSnapshot(placeList, metadata)
                 );
             } else {
-                window.BARK.userVisitedPlaces = new Map();
+                const visitedPlaces = window.BARK.userVisitedPlaces instanceof Map
+                    ? window.BARK.userVisitedPlaces
+                    : new Map();
+                visitedPlaces.clear();
                 placeList.forEach(obj => {
-                    if (obj && obj.id) window.BARK.userVisitedPlaces.set(obj.id, obj);
+                    if (obj && obj.id) visitedPlaces.set(obj.id, obj);
                 });
+                if (!(window.BARK.userVisitedPlaces instanceof Map)) {
+                    window.BARK.userVisitedPlaces = visitedPlaces;
+                }
                 if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
                     window.BARK.invalidateVisitedIdsCache();
                 }
+                if (firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function') {
+                    firebaseService.refreshVisitedVisualState();
+                }
+            }
+            if (firebaseService && typeof firebaseService.normalizeLocalVisitedPlacesToCanonical === 'function') {
+                firebaseService.normalizeLocalVisitedPlacesToCanonical({ writeBack: true })
+                    .catch(error => console.error('[authService] visited-place canonicalization failed:', error));
             }
         }
     } catch (error) {
@@ -366,12 +379,19 @@ function resetVisitedAndPanelState() {
         firebaseService.clearVisitedPlacePendingMutations();
     }
 
-    window.BARK.userVisitedPlaces = new Map();
+    if (window.BARK.userVisitedPlaces instanceof Map) {
+        window.BARK.userVisitedPlaces.clear();
+    } else {
+        window.BARK.userVisitedPlaces = new Map();
+    }
 
     if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
         window.BARK.invalidateVisitedIdsCache();
     } else if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
         window.BARK.invalidateMarkerVisibility();
+    }
+    if (firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function') {
+        firebaseService.refreshVisitedVisualState();
     }
 
     if (typeof window.BARK.clearActivePin === 'function') window.BARK.clearActivePin();
@@ -425,6 +445,8 @@ function restoreGuestMarkerLayer() {
         if (point.marker._icon) {
             point.marker._icon.classList.remove('marker-filter-hidden');
             point.marker._icon.classList.remove('visited-pin');
+            point.marker._icon.classList.remove('visited-marker');
+            point.marker._icon.classList.add('unvisited-marker');
         }
     });
 
@@ -578,7 +600,10 @@ function initFirebase() {
                                 const d = window.BARK.activePinMarker._parkData;
                                 const btn = document.getElementById('mark-visited-btn');
                                 const btnText = document.getElementById('mark-visited-text');
-                                if (window.BARK.userVisitedPlaces.has(d.id)) {
+                                const isVisited = typeof window.BARK.isParkVisited === 'function'
+                                    ? window.BARK.isParkVisited(d)
+                                    : window.BARK.userVisitedPlaces.has(d.id);
+                                if (isVisited) {
                                     btn.classList.add('visited');
                                     btnText.textContent = 'Visited!';
                                 } else {
@@ -616,6 +641,11 @@ function initFirebase() {
                     if (typeof window.BARK.invalidateVisitedIdsCache === 'function') {
                         window.BARK.invalidateVisitedIdsCache();
                     }
+                    const firebaseService = window.BARK.services && window.BARK.services.firebase;
+                    if (firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function') {
+                        firebaseService.refreshVisitedVisualState();
+                    }
+                    if (typeof window.BARK.clearActivePin === 'function') window.BARK.clearActivePin();
                     applyGuestZoomLimitDefault();
                     resetMapViewToGuestDefault();
                     window.syncState();

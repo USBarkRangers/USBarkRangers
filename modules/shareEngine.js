@@ -242,11 +242,13 @@ function initCSVExport() {
     if (exportCsvBtn) {
         exportCsvBtn.addEventListener('click', () => {
             const allPoints = window.BARK.allPoints;
-            const userVisitedPlaces = window.BARK.userVisitedPlaces;
             if (!allPoints || allPoints.length === 0) { alert("Map data hasn't loaded fully yet."); return; }
             const exportData = allPoints.map(p => {
                 const data = p.marker._parkData;
-                return { Name: data.name, "Grid-Snap ID": data.id, State: data.state, Category: data.category || '', Cost: data.cost || '', "Swag Type": data.swagType || '', Latitude: data.lat, Longitude: data.lng, Visited: userVisitedPlaces.has(data.id) ? 1 : 0 };
+                const isVisited = typeof window.BARK.isParkVisited === 'function'
+                    ? window.BARK.isParkVisited(data)
+                    : Boolean(window.BARK.userVisitedPlaces && window.BARK.userVisitedPlaces.has(data.id));
+                return { Name: data.name, "Grid-Snap ID": data.id, State: data.state, Category: data.category || '', Cost: data.cost || '', "Swag Type": data.swagType || '', Latitude: data.lat, Longitude: data.lng, Visited: isVisited ? 1 : 0 };
             });
             const csvString = Papa.unparse(exportData);
             const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });

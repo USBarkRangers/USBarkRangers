@@ -31,6 +31,7 @@ class MarkerLayerManager {
     }
 
     getVisitedState(parkData) {
+        if (typeof window.BARK.isParkVisited === 'function') return window.BARK.isParkVisited(parkData);
         return Boolean(window.BARK.userVisitedPlaces && window.BARK.userVisitedPlaces.has(parkData.id));
     }
 
@@ -49,6 +50,8 @@ class MarkerLayerManager {
             if (this._icon) {
                 this._icon.classList.remove('active-pin');
                 this._icon.classList.remove('visited-pin');
+                this._icon.classList.remove('visited-marker');
+                this._icon.classList.remove('unvisited-marker');
                 this._icon.classList.remove('marker-filter-hidden');
             }
         });
@@ -99,6 +102,8 @@ class MarkerLayerManager {
         marker._icon.classList.toggle('cat-national', style.categoryClass === 'cat-national');
         marker._icon.classList.toggle('cat-state', style.categoryClass === 'cat-state');
         marker._icon.classList.toggle('visited-pin', Boolean(isVisited));
+        marker._icon.classList.toggle('visited-marker', Boolean(isVisited));
+        marker._icon.classList.toggle('unvisited-marker', !isVisited);
         // park-pin--in-trip hides the inner pin shape so the trip overlay badge
         // is the only visible marker at trip-stop locations. Re-applied on every
         // cluster `add` event (via bindMarkerEvents), so cluster rebuilds cannot
@@ -115,6 +120,19 @@ class MarkerLayerManager {
         ids.forEach(parkId => {
             const marker = this.markers.get(parkId);
             if (marker && marker._icon) this.applyMarkerStyle(marker);
+        });
+    }
+
+    refreshMarkerStyles(parkIds = null) {
+        const ids = parkIds
+            ? (parkIds instanceof Set ? parkIds : new Set(parkIds))
+            : null;
+
+        this.markers.forEach((marker, parkId) => {
+            if (ids && !ids.has(parkId)) return;
+            if (!marker || !marker._parkData) return;
+            marker._barkVisitedState = this.getVisitedState(marker._parkData);
+            if (marker._icon) this.applyMarkerStyle(marker);
         });
     }
 

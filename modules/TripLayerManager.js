@@ -85,20 +85,71 @@ window.BARK = window.BARK || {};
         return stop.id || `${stop.lat},${stop.lng}`;
     }
 
-    function buildBadgeIcon(number, isOfficialBarkStop) {
-        const wrapperClass = isOfficialBarkStop
-            ? 'trip-overlay-badge-wrapper trip-overlay-badge-wrapper--bark'
-            : 'trip-overlay-badge-wrapper trip-overlay-badge-wrapper--custom';
-        const badgeFace = isOfficialBarkStop
-            ? '<span class="trip-overlay-badge-face"><img src="assets/images/bark-logo.jpeg" alt="" loading="lazy" /></span>'
-            : '<span class="trip-overlay-custom-pin-shape"></span>';
+    function getOfficialParkData(stop) {
+        if (!stop || !stop.id) return null;
+        if (window.parkLookup && typeof window.parkLookup.get === 'function') {
+            const point = window.parkLookup.get(stop.id);
+            if (point) return point;
+        }
+        return stop;
+    }
 
-        return L.divIcon({
-            className: wrapperClass,
-            html: `<div class="trip-overlay-badge">${badgeFace}<span class="trip-overlay-badge-number">${number}</span></div>`,
-            iconSize: [42, 42],
-            iconAnchor: [21, 21]
-        });
+    function getBadgeIconSpec(stop, number) {
+        const isOfficialBarkStop = Boolean(stop && stop.id);
+        if (!isOfficialBarkStop) {
+            return {
+                styleKey: `custom|${number}`,
+                icon: L.divIcon({
+                    className: 'trip-overlay-badge-wrapper trip-overlay-badge-wrapper--custom',
+                    html: `<div class="trip-overlay-badge"><span class="trip-overlay-custom-pin-shape"></span><span class="trip-overlay-badge-number">${number}</span></div>`,
+                    iconSize: [42, 42],
+                    iconAnchor: [21, 21]
+                })
+            };
+        }
+
+        const parkData = getOfficialParkData(stop);
+        const isVisited = typeof window.BARK.isParkVisited === 'function'
+            ? window.BARK.isParkVisited(parkData)
+            : Boolean(window.BARK.userVisitedPlaces && window.BARK.userVisitedPlaces.has(stop.id));
+        const style = window.MapMarkerConfig && typeof window.MapMarkerConfig.getPinStyle === 'function'
+            ? window.MapMarkerConfig.getPinStyle(parkData, isVisited)
+            : {
+                iconUrl: 'assets/images/bark-logo.jpeg',
+                ringColor: isVisited ? '#4CAF50' : '#000',
+                pinShadowColor: isVisited ? '#4CAF50' : 'rgba(0, 0, 0, 0.4)',
+                categoryClass: 'cat-national'
+            };
+        const stateClass = isVisited ? 'trip-overlay-badge-wrapper--visited' : 'trip-overlay-badge-wrapper--unvisited';
+        const categoryClass = style.categoryClass === 'cat-state'
+            ? 'trip-overlay-badge-wrapper--state'
+            : 'trip-overlay-badge-wrapper--national';
+        const html = `
+            <div class="trip-overlay-badge trip-overlay-badge--official"
+                style="--ring-color:${style.ringColor}; --pin-shadow-color:${style.pinShadowColor};">
+                <span class="trip-overlay-badge-face">
+                    <img src="${style.iconUrl}" alt="" loading="lazy" />
+                </span>
+                <span class="trip-overlay-badge-number">${number}</span>
+            </div>`;
+
+        return {
+            styleKey: [
+                'official',
+                number,
+                isVisited ? 'visited' : 'unvisited',
+                style.categoryClass,
+                style.iconUrl,
+                style.ringColor,
+                style.pinShadowColor
+            ].join('|'),
+            icon: L.divIcon({
+                className: `trip-overlay-badge-wrapper trip-overlay-badge-wrapper--bark ${stateClass} ${categoryClass}`,
+                html,
+                iconSize: [42, 42],
+                iconAnchor: [21, 21]
+            })
+        };
     }
 
     function buildBookendIcon(role, isRoundTrip) {
@@ -224,8 +275,9 @@ window.BARK = window.BARK || {};
     }
 
     function createBadgeMarker(stop, number, parkId, stopKey) {
+        const iconSpec = getBadgeIconSpec(stop, number);
         const marker = L.marker([stop.lat, stop.lng], {
-            icon: buildBadgeIcon(number, Boolean(parkId)),
+            icon: iconSpec.icon,
             interactive: true,
             keyboard: false,
             riseOnHover: true,
@@ -237,6 +289,8 @@ window.BARK = window.BARK || {};
         marker._tripStopName = stop.name || 'Trip stop';
         marker._tripNumber = number;
         marker._tripIsOfficialBarkStop = Boolean(parkId);
+        marker._tripBadgeStyleKey = iconSpec.styleKey;
+        marker._tripStopData = { ...stop };
         syncTripPopup(marker, marker._tripStopName, 'Trip stop', true, {
             stopKey,
             hasParkDetails: Boolean(parkId)
@@ -251,14 +305,21 @@ window.BARK = window.BARK || {};
             marker.setLatLng([stop.lat, stop.lng]);
         }
         const isOfficialBarkStop = Boolean(parkId);
-        if (marker._tripNumber !== number || marker._tripIsOfficialBarkStop !== isOfficialBarkStop) {
-            marker.setIcon(buildBadgeIcon(number, isOfficialBarkStop));
+        const iconSpec = getBadgeIconSpec(stop, number);
+        if (
+            marker._tripNumber !== number ||
+            marker._tripIsOfficialBarkStop !== isOfficialBarkStop ||
+            marker._tripBadgeStyleKey !== iconSpec.styleKey
+        ) {
+            marker.setIcon(iconSpec.icon);
             marker._tripNumber = number;
             marker._tripIsOfficialBarkStop = isOfficialBarkStop;
+            marker._tripBadgeStyleKey = iconSpec.styleKey;
         }
         marker._tripParkId = parkId || null;
         marker._tripStopKey = stopKey;
         marker._tripStopName = stop.name || 'Trip stop';
+        marker._tripStopData = { ...stop };
         syncTripPopup(marker, marker._tripStopName, 'Trip stop', true, {
             stopKey,
             hasParkDetails: Boolean(parkId)
@@ -481,7 +542,17 @@ window.BARK = window.BARK || {};
         }
     }
 
-    window.BARK.tripLayer = { init, sync, clear, getStopParkIds, setDayLinesVisible };
+    function refreshBadgeStyles() {
+        badgeMarkers.forEach(marker => {
+            if (!marker || !marker._tripStopData) return;
+            const iconSpec = getBadgeIconSpec(marker._tripStopData, marker._tripNumber);
+            if (marker._tripBadgeStyleKey === iconSpec.styleKey) return;
+            marker.setIcon(iconSpec.icon);
+            marker._tripBadgeStyleKey = iconSpec.styleKey;
+        });
+    }
+
+    window.BARK.tripLayer = { init, sync, clear, getStopParkIds, setDayLinesVisible, refreshBadgeStyles };
     window.BARK.initTripLayer = function initTripLayer() {
         ensureLayerGroup();
     };

@@ -34,9 +34,7 @@ class MapMarkerConfig {
     static createCustomMarker(parkData, isVisited) {
         const style = MapMarkerConfig.getPinStyle(parkData, isVisited);
 
-        // Always create markers in neutral state — visited styling is applied dynamically
-        // by updateMarkers() via the 'visited-pin' class to prevent recycling bugs
-        const stateClass = 'unvisited-marker';
+        const stateClass = isVisited ? 'visited-marker visited-pin' : 'unvisited-marker';
         const catClass = style.categoryClass;
 
         const markerHtml = `<div class="enamel-pin-wrapper"><img src="${style.iconUrl}" alt="Park Pin" loading="lazy" /></div>`;

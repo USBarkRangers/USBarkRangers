@@ -1,0 +1,8 @@
+node_modules/
+functions/node_modules/
+.DS_Store
+Bark Ranger Map Auth Service Account.json
+BarkRangerMap Auth.json
+*Service Account*.json
+*service-account*.json
+*service_account*.json

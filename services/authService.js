@@ -73,7 +73,17 @@ function handleCloudSettingsHydration(data, metadata = {}) {
         const s = data.settings;
         const cloudRevision = getCloudSettingsRevision(s);
         const lastAppliedRevision = Number(window._lastAppliedCloudSettingsRevision || 0);
-        if (window._cloudSettingsLoaded && (!cloudRevision || cloudRevision <= lastAppliedRevision)) return;
+        const savingRevision = Number(window._savingCloudSettingsRevision || 0);
+        const pendingLocalChanges = window._pendingLocalSettingsChanges === true;
+
+        // Skip hydration if any of these are true:
+        // - User has local changes pending save (would overwrite their changes)
+        // - A save is in progress (would race with the save)
+        // - Cloud has no newer revision than what we already applied (nothing new to apply)
+        if (window._cloudSettingsLoaded && (pendingLocalChanges || savingRevision > 0 || !cloudRevision || cloudRevision <= lastAppliedRevision)) {
+            console.log('[authService] Skipping hydration:', { pendingLocalChanges, savingRevision, cloudRevision, lastAppliedRevision });
+            return;
+        }
 
         if (!metadata.fromCache) window._cloudSettingsLoaded = true;
         if (cloudRevision) window._lastAppliedCloudSettingsRevision = cloudRevision;

@@ -181,6 +181,10 @@
             value = lowGraphicsPreset[key];
         }
 
+        // Capture ultraLowEnabled previous state before applyValue overwrites it,
+        // so we only fire the reset preset when actually turning OFF (true -> false transition).
+        const ultraLowWasEnabled = key === 'ultraLowEnabled' ? values.ultraLowEnabled === true : false;
+
         const previousClusterState = get('clusteringEnabled');
         applyValue(key, value);
 
@@ -198,7 +202,9 @@
 
         if (key === 'ultraLowEnabled' && values.ultraLowEnabled) {
             applyPresetValues(getUltraLowPresetValues(true));
-        } else if (key === 'ultraLowEnabled') {
+        } else if (key === 'ultraLowEnabled' && ultraLowWasEnabled) {
+            // Only fire the reset preset when ultraLowEnabled is actually being turned OFF (true -> false).
+            // This prevents resetting lowGfxEnabled/instantNav/simplifyTrails when ultraLowEnabled was already false.
             applyPresetValues(getUltraLowPresetValues(false));
         }
 

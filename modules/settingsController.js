@@ -157,18 +157,41 @@ window.BARK.initSettings = function initSettings() {
         cloudAutosaveTimer = null;
 
         const settingsPayload = buildCloudSettingsPayload();
-        await context.firebaseService.saveUserSettings(context.currentUser.uid, settingsPayload);
-        window._lastAppliedCloudSettingsRevision = settingsPayload.settingsUpdatedAt;
-        window._cloudSettingsLoaded = true;
+        console.log('[settingsController] saveSettingsToCloud: Payload being sent:', JSON.stringify(settingsPayload, null, 2));
+        // Prevent cloud hydration from reverting local changes while save is in progress
+        window._savingCloudSettingsRevision = settingsPayload.settingsUpdatedAt;
+        try {
+            console.log('[settingsController] About to call saveUserSettings...');
+            await context.firebaseService.saveUserSettings(context.currentUser.uid, settingsPayload);
+            console.log('[settingsController] saveUserSettings completed successfully');
+            window._lastAppliedCloudSettingsRevision = settingsPayload.settingsUpdatedAt;
+            window._cloudSettingsLoaded = true;
+            // Clear the pending changes flag - cloud is now in sync with local
+            window._pendingLocalSettingsChanges = false;
+        } catch (error) {
+            console.error('[settingsController] saveUserSettings failed:', error);
+            throw error;
+        } finally {
+            // Clear the saving flag so hydration can resume
+            window._savingCloudSettingsRevision = 0;
+        }
         return settingsPayload;
     };
 
     const scheduleCloudSettingsAutosave = () => {
-        if (window.BARK.isHydratingCloudSettings) return;
         if (!getCloudSettingsSaveContext()) return;
+
+        // Mark that there are local changes pending save - this blocks hydration from overwriting them
+        window._pendingLocalSettingsChanges = true;
 
         clearTimeout(cloudAutosaveTimer);
         cloudAutosaveTimer = setTimeout(() => {
+            // If hydration is in progress, reschedule instead of saving
+            if (window.BARK.isHydratingCloudSettings) {
+                console.log('[settingsController] hydration in progress, rescheduling autosave');
+                scheduleCloudSettingsAutosave();
+                return;
+            }
             saveSettingsToCloud().catch(error => {
                 console.error('[settingsController] cloud settings autosave failed:', error);
             });

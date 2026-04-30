@@ -16,6 +16,8 @@ window.BARK.initSettings = function initSettings() {
     const settingsStore = window.BARK.settings;
     const settingsRegistry = window.BARK.SETTINGS_REGISTRY || {};
     const performanceSettingKeys = window.BARK.PERFORMANCE_SETTING_KEYS || [];
+    const CLOUD_AUTOSAVE_DELAY_MS = 500;
+    let cloudAutosaveTimer = null;
     const standaloneStorageKeys = {
         ultraLowEnabled: 'barkUltraLowEnabled',
         rememberMapPosition: 'remember-map-toggle',
@@ -114,6 +116,66 @@ window.BARK.initSettings = function initSettings() {
         const storageKey = getStorageKeyForSetting(key);
         if (storageKey) localStorage.setItem(storageKey, window[key] ? 'true' : 'false');
     };
+
+    const buildCloudSettingsPayload = () => {
+        const settingsPayload = {
+            rememberMapPosition: window.rememberMapPosition || false,
+            startNationalView: window.startNationalView || false,
+            ultraLowEnabled: window.ultraLowEnabled || false,
+            mapStyle: localStorage.getItem('barkMapStyle') || 'default',
+            visitedFilter: localStorage.getItem('barkVisitedFilter') || 'all',
+            settingsUpdatedAt: Date.now()
+        };
+
+        Object.entries(settingsRegistry).forEach(([key, setting]) => {
+            if (setting.cloudKey) settingsPayload[setting.cloudKey] = Boolean(window[key]);
+        });
+
+        return settingsPayload;
+    };
+
+    window.BARK.buildCloudSettingsPayload = buildCloudSettingsPayload;
+
+    const getCloudSettingsSaveContext = () => {
+        const firebaseService = window.BARK.services && window.BARK.services.firebase;
+        const currentUser = firebaseService && typeof firebaseService.getCurrentUser === 'function'
+            ? firebaseService.getCurrentUser()
+            : null;
+
+        if (!currentUser || !firebaseService || typeof firebaseService.saveUserSettings !== 'function') {
+            return null;
+        }
+
+        return { firebaseService, currentUser };
+    };
+
+    const saveSettingsToCloud = async () => {
+        const context = getCloudSettingsSaveContext();
+        if (!context) throw new Error('You must be logged in.');
+
+        clearTimeout(cloudAutosaveTimer);
+        cloudAutosaveTimer = null;
+
+        const settingsPayload = buildCloudSettingsPayload();
+        await context.firebaseService.saveUserSettings(context.currentUser.uid, settingsPayload);
+        window._lastAppliedCloudSettingsRevision = settingsPayload.settingsUpdatedAt;
+        window._cloudSettingsLoaded = true;
+        return settingsPayload;
+    };
+
+    const scheduleCloudSettingsAutosave = () => {
+        if (window.BARK.isHydratingCloudSettings) return;
+        if (!getCloudSettingsSaveContext()) return;
+
+        clearTimeout(cloudAutosaveTimer);
+        cloudAutosaveTimer = setTimeout(() => {
+            saveSettingsToCloud().catch(error => {
+                console.error('[settingsController] cloud settings autosave failed:', error);
+            });
+        }, CLOUD_AUTOSAVE_DELAY_MS);
+    };
+
+    window.BARK.scheduleCloudSettingsAutosave = scheduleCloudSettingsAutosave;
 
     const syncRegisteredControls = () => {
         const lowGraphicsActive = Boolean(window.lowGfxEnabled);
@@ -254,6 +316,7 @@ window.BARK.initSettings = function initSettings() {
                 settingsStore.onChange(key, () => {
                     syncRegisteredControls();
                     scheduleRegistrySettingEffects(setting);
+                    scheduleCloudSettingsAutosave();
                 });
             }
         });
@@ -318,6 +381,7 @@ window.BARK.initSettings = function initSettings() {
                         : "Restoring full pin animations requires a page reload. Proceed?";
                     if (window.confirm(msg)) {
                         setSettingValue('reducePinMotion', newVal);
+                        scheduleCloudSettingsAutosave();
                         location.reload();
                     } else {
                         e.target.checked = window.reducePinMotion;
@@ -336,6 +400,7 @@ window.BARK.initSettings = function initSettings() {
                 if (!window.confirm(msg)) { e.target.checked = !isEnabled; return; }
 
                 setSettingValue('ultraLowEnabled', isEnabled);
+                scheduleCloudSettingsAutosave();
 
                 sessionStorage.setItem('skipCloudHydration', 'true');
                 setTimeout(() => window.location.reload(true), 150);
@@ -346,9 +411,11 @@ window.BARK.initSettings = function initSettings() {
         if (rememberMapToggle) {
             rememberMapToggle.addEventListener('change', (e) => {
                 setSettingValue('rememberMapPosition', e.target.checked);
+                scheduleCloudSettingsAutosave();
                 if (window.rememberMapPosition && nationalViewToggle) {
                     nationalViewToggle.checked = false;
                     setSettingValue('startNationalView', false);
+                    scheduleCloudSettingsAutosave();
                 }
             });
         }
@@ -357,9 +424,11 @@ window.BARK.initSettings = function initSettings() {
             nationalViewToggle.checked = window.startNationalView;
             nationalViewToggle.addEventListener('change', (e) => {
                 setSettingValue('startNationalView', e.target.checked);
+                scheduleCloudSettingsAutosave();
                 if (window.startNationalView && rememberMapToggle) {
                     rememberMapToggle.checked = false;
                     setSettingValue('rememberMapPosition', false);
+                    scheduleCloudSettingsAutosave();
                 }
             });
         }
@@ -387,12 +456,7 @@ window.BARK.initSettings = function initSettings() {
         const saveSettingsBtn = document.getElementById('save-settings-cloud-btn');
         if (saveSettingsBtn) {
             saveSettingsBtn.addEventListener('click', async () => {
-                const firebaseService = window.BARK.services && window.BARK.services.firebase;
-                const currentUser = firebaseService && typeof firebaseService.getCurrentUser === 'function'
-                    ? firebaseService.getCurrentUser()
-                    : null;
-
-                if (!currentUser || !firebaseService || typeof firebaseService.saveUserSettings !== 'function') {
+                if (!getCloudSettingsSaveContext()) {
                     alert("You must be logged in.");
                     return;
                 }
@@ -401,19 +465,8 @@ window.BARK.initSettings = function initSettings() {
                 saveSettingsBtn.innerHTML = '⏳ SAVING...';
                 saveSettingsBtn.disabled = true;
 
-                const settingsPayload = {
-                    rememberMapPosition: window.rememberMapPosition || false,
-                    startNationalView: window.startNationalView || false,
-                    ultraLowEnabled: window.ultraLowEnabled || false,
-                    mapStyle: localStorage.getItem('barkMapStyle') || 'default',
-                    visitedFilter: localStorage.getItem('barkVisitedFilter') || 'all'
-                };
-                Object.entries(settingsRegistry).forEach(([key, setting]) => {
-                    if (setting.cloudKey) settingsPayload[setting.cloudKey] = Boolean(window[key]);
-                });
-
                 try {
-                    await firebaseService.saveUserSettings(currentUser.uid, settingsPayload);
+                    await saveSettingsToCloud();
                     saveSettingsBtn.innerHTML = '✅ SAVED TO CLOUD';
                     setTimeout(() => { saveSettingsBtn.innerHTML = originalText; saveSettingsBtn.disabled = false; }, 2000);
                 } catch (error) {

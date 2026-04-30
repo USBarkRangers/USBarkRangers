@@ -44,10 +44,25 @@ function syncCloudSettingsControls(registry) {
     syncStandaloneCloudSettingControls();
 }
 
+function getCloudSettingsRevision(settings) {
+    if (!settings) return 0;
+
+    const revision = settings.settingsUpdatedAt || settings.updatedAt;
+    if (typeof revision === 'number' && Number.isFinite(revision)) return revision;
+    if (typeof revision === 'string') {
+        const parsed = Number(revision);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+    if (revision && typeof revision.toMillis === 'function') return revision.toMillis();
+    if (revision && Number.isFinite(Number(revision.seconds))) {
+        return (Number(revision.seconds) * 1000) + Math.floor(Number(revision.nanoseconds || 0) / 1000000);
+    }
+    return 0;
+}
+
 function handleCloudSettingsHydration(data, metadata = {}) {
     try {
-        if (!(data.settings && !window._cloudSettingsLoaded)) return;
-        if (!metadata.fromCache) window._cloudSettingsLoaded = true;
+        if (!data.settings) return;
 
         if (sessionStorage.getItem('skipCloudHydration') === 'true') {
             sessionStorage.removeItem('skipCloudHydration');
@@ -56,8 +71,16 @@ function handleCloudSettingsHydration(data, metadata = {}) {
         }
 
         const s = data.settings;
+        const cloudRevision = getCloudSettingsRevision(s);
+        const lastAppliedRevision = Number(window._lastAppliedCloudSettingsRevision || 0);
+        if (window._cloudSettingsLoaded && (!cloudRevision || cloudRevision <= lastAppliedRevision)) return;
+
+        if (!metadata.fromCache) window._cloudSettingsLoaded = true;
+        if (cloudRevision) window._lastAppliedCloudSettingsRevision = cloudRevision;
+
         const store = window.BARK.settings;
         const registry = window.BARK.SETTINGS_REGISTRY || {};
+        window.BARK.isHydratingCloudSettings = true;
 
         // lowGfxEnabled must run first — its setter applies LOW_GRAPHICS_PRESET,
         // which individual settings set below can then override.
@@ -127,6 +150,8 @@ function handleCloudSettingsHydration(data, metadata = {}) {
         console.log("☁️ Cloud settings loaded and injected perfectly!");
     } catch (error) {
         console.error("[authService] cloud settings hydration failed:", error);
+    } finally {
+        window.BARK.isHydratingCloudSettings = false;
     }
 }
 

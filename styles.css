@@ -1003,7 +1003,10 @@ body.app-tab-active #slide-panel {
 
 .custom-bark-marker.visited-pin .enamel-pin-wrapper {
     opacity: 1 !important;
-    box-shadow: 0 3px 8px rgba(15, 23, 42, 0.36) !important;
+    box-shadow:
+        0 1px 2px rgba(15, 23, 42, 0.16),
+        0 4px 8px rgba(15, 23, 42, 0.1),
+        0 0 10px rgba(76, 175, 80, 0.34) !important;
 }
 
 .visited-pin img {
@@ -1636,6 +1639,7 @@ body.remove-shadows .visited-pin {
     filter: none !important;
     box-shadow: none !important;
 }
+body.low-graphics .custom-bark-marker.visited-pin .enamel-pin-wrapper,
 body.remove-shadows .custom-bark-marker.visited-pin .enamel-pin-wrapper {
     box-shadow: none !important;
 }
@@ -1741,7 +1745,10 @@ body.viewport-culling .leaflet-marker-icon {
 }
 .trip-overlay-badge-wrapper--visited .trip-overlay-badge--official {
     filter: none;
-    box-shadow: 0 3px 8px rgba(15, 23, 42, 0.36);
+    box-shadow:
+        0 1px 2px rgba(15, 23, 42, 0.16),
+        0 4px 8px rgba(15, 23, 42, 0.1),
+        0 0 10px rgba(76, 175, 80, 0.34);
 }
 .trip-overlay-badge-face img {
     width: 100%;
@@ -1890,6 +1897,7 @@ body.simplify-pins-while-moving.map-is-moving .trip-overlay-badge-wrapper:hover 
     transform: none !important;
 }
 body.remove-shadows .trip-overlay-badge,
+body.low-graphics .trip-overlay-badge-wrapper--visited .trip-overlay-badge--official,
 body.ultra-low .trip-overlay-badge,
 body.remove-shadows .trip-overlay-bookend,
 body.ultra-low .trip-overlay-bookend {

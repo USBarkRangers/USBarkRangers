@@ -346,6 +346,7 @@ async function expectFreePaywallState(page, expectedMode = 'free') {
         await expect(page.locator('#paywall-overlay')).toHaveAttribute('data-paywall-state', 'verify-signed-out');
         await expect(page.locator('#paywall-title')).toHaveText('Sign in to verify premium');
         await expect(page.locator('#paywall-primary-btn')).toBeEnabled();
+        await expect(page.locator('#paywall-clear-url-btn')).toBeHidden();
         await expect(page.locator('#profile-premium-action')).toBeEnabled();
         return;
     }
@@ -355,6 +356,7 @@ async function expectFreePaywallState(page, expectedMode = 'free') {
         await expect(page.locator('#profile-premium-action')).toBeDisabled();
         await expect(page.locator('#paywall-overlay')).toHaveAttribute('data-paywall-state', 'verifying');
         await expect(page.locator('#paywall-primary-btn')).toBeDisabled();
+        await expect(page.locator('#paywall-clear-url-btn')).toBeHidden();
         return;
     }
 
@@ -364,7 +366,9 @@ async function expectFreePaywallState(page, expectedMode = 'free') {
         await expect(page.locator('#paywall-overlay')).toHaveAttribute('data-paywall-state', 'verification-delayed');
         await expect(page.locator('#paywall-title')).toHaveText('Still verifying premium');
         await expect(page.locator('#paywall-primary-btn')).toBeEnabled();
-        await expect(page.locator('#paywall-body')).toContainText('contact support');
+        await expect(page.locator('#paywall-primary-btn')).toContainText('Restore');
+        await expect(page.locator('#paywall-clear-url-btn')).toBeHidden();
+        await expect(page.locator('#paywall-body')).toContainText('Recheck');
         return;
     }
 

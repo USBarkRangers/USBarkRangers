@@ -2524,6 +2524,7 @@ body.app-tab-active #slide-panel {
 
 .paywall-primary-btn,
 .paywall-secondary-btn,
+.paywall-restore-btn,
 .paywall-clear-url-btn {
     min-height: 44px;
     border-radius: 8px;
@@ -2545,12 +2546,14 @@ body.app-tab-active #slide-panel {
 }
 
 .paywall-secondary-btn,
+.paywall-restore-btn,
 .paywall-clear-url-btn {
     border: 1px solid #cbd5e1;
     background: #f8fafc;
     color: #475569;
 }
 
+.paywall-restore-btn,
 .paywall-clear-url-btn {
     width: 100%;
     margin-top: 10px;

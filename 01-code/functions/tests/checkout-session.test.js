@@ -11,6 +11,9 @@ const {
         shouldAcceptLemonSqueezyWebhookMode,
         handleGetCustomerPortalUrl,
         handleCreateCheckoutSession,
+        buildLemonSqueezySubscriptionsListUrl,
+        selectRestorableLemonSqueezySubscription,
+        handleRestorePremiumPurchase,
         isFunctionFlagEnabled
     }
 } = require("../index.js");
@@ -149,6 +152,58 @@ describe("Lemon Squeezy checkout session helpers", () => {
             buildCheckoutReturnUrl(config.appBaseUrl, "canceled"),
             "https://outswarming.github.io/bark-ranger-map/?checkout=canceled&provider=lemonsqueezy"
         );
+    });
+
+    it("builds restore subscription lookup URLs by signed-in email", () => {
+        const url = new URL(buildLemonSqueezySubscriptionsListUrl(config, "ranger@example.test"));
+        assert.equal(url.origin + url.pathname, "https://api.lemonsqueezy.com/v1/subscriptions");
+        assert.equal(url.searchParams.get("filter[store_id]"), "363425");
+        assert.equal(url.searchParams.get("filter[variant_id]"), "1604336");
+        assert.equal(url.searchParams.get("filter[user_email]"), "ranger@example.test");
+        assert.equal(url.searchParams.get("page[size]"), "10");
+    });
+
+    it("selects the newest active restorable subscription for an email", () => {
+        const subscription = selectRestorableLemonSqueezySubscription([
+            {
+                id: "sub_old",
+                type: "subscriptions",
+                attributes: {
+                    test_mode: true,
+                    store_id: 363425,
+                    variant_id: 1604336,
+                    user_email: "ranger@example.test",
+                    status: "active",
+                    updated_at: "2026-01-01T00:00:00.000Z"
+                }
+            },
+            {
+                id: "sub_new",
+                type: "subscriptions",
+                attributes: {
+                    test_mode: true,
+                    store_id: 363425,
+                    variant_id: 1604336,
+                    user_email: "RANGER@example.test",
+                    status: "active",
+                    updated_at: "2026-01-05T00:00:00.000Z"
+                }
+            },
+            {
+                id: "sub_refunded",
+                type: "subscriptions",
+                attributes: {
+                    test_mode: true,
+                    store_id: 363425,
+                    variant_id: 1604336,
+                    user_email: "ranger@example.test",
+                    status: "refunded",
+                    updated_at: "2026-01-10T00:00:00.000Z"
+                }
+            }
+        ], "ranger@example.test");
+
+        assert.equal(subscription.id, "sub_new");
     });
 
     it("builds a test-mode annual checkout payload with Firebase UID custom data", () => {
@@ -740,5 +795,114 @@ describe("Lemon Squeezy customer portal callable", () => {
             ),
             "permission-denied"
         );
+    });
+});
+
+describe("Lemon Squeezy restore purchase callable", () => {
+    it("restores active premium from the newest subscription for the signed-in email", async () => {
+        const firestore = makeUserFirestore({
+            entitlement: {
+                premium: false,
+                status: "refunded",
+                source: "lemon_squeezy",
+                providerOrderId: "order_old_refund",
+                lastProviderEventAtMs: Date.parse("2026-01-01T00:00:00.000Z"),
+                lastProviderEventRank: 600
+            }
+        });
+        let capturedUrl = null;
+
+        const result = await handleRestorePremiumPurchase(
+            {},
+            authedContext("restore-user", {
+                email: "ranger@example.test",
+                email_verified: true,
+                firebase: { sign_in_provider: "password" }
+            }),
+            {
+                firestore,
+                apiKey: config.apiKey,
+                axiosGet: async (url) => {
+                    capturedUrl = url;
+                    return {
+                        data: {
+                            data: [
+                                {
+                                    id: "sub_restore_new",
+                                    type: "subscriptions",
+                                    attributes: {
+                                        test_mode: true,
+                                        store_id: 363425,
+                                        variant_id: 1604336,
+                                        customer_id: 7022381,
+                                        user_email: "ranger@example.test",
+                                        status: "active",
+                                        renews_at: "2099-01-01T00:00:00.000Z",
+                                        updated_at: "2026-01-12T00:00:00.000Z"
+                                    }
+                                }
+                            ]
+                        }
+                    };
+                },
+                serverTimestamp: () => "SERVER_TIMESTAMP"
+            }
+        );
+
+        const lookupUrl = new URL(capturedUrl);
+        assert.equal(lookupUrl.searchParams.get("filter[user_email]"), "ranger@example.test");
+        assert.equal(result.restored, true);
+        assert.equal(result.entitlement.premium, true);
+        assert.equal(result.entitlement.status, "active");
+        assert.equal(result.entitlement.providerSubscriptionId, "sub_restore_new");
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.eventWrites.length, 1);
+    });
+
+    it("returns the existing entitlement when no active subscription can be restored", async () => {
+        const existingEntitlement = {
+            premium: false,
+            status: "refunded",
+            source: "lemon_squeezy",
+            providerOrderId: "order_old_refund"
+        };
+        const firestore = makeUserFirestore({ entitlement: existingEntitlement });
+
+        const result = await handleRestorePremiumPurchase(
+            {},
+            authedContext("restore-none-user", {
+                email: "ranger@example.test",
+                email_verified: true,
+                firebase: { sign_in_provider: "password" }
+            }),
+            {
+                firestore,
+                apiKey: config.apiKey,
+                axiosGet: async () => ({
+                    data: {
+                        data: [
+                            {
+                                id: "sub_restore_refunded",
+                                type: "subscriptions",
+                                attributes: {
+                                    test_mode: true,
+                                    store_id: 363425,
+                                    variant_id: 1604336,
+                                    user_email: "ranger@example.test",
+                                    status: "refunded",
+                                    updated_at: "2026-01-12T00:00:00.000Z"
+                                }
+                            }
+                        ]
+                    }
+                })
+            }
+        );
+
+        assert.equal(result.restored, false);
+        assert.equal(result.entitlement.status, "refunded");
+        assert.match(result.message, /No active Lemon Squeezy subscription/);
+        assert.equal(firestore.state.writes.length, 0);
+        assert.equal(firestore.state.eventWrites.length, 0);
     });
 });

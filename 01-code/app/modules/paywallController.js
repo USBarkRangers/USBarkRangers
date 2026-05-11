@@ -17,6 +17,8 @@
     let returnStateStartedAt = null;
     let returnStateUserUid = null;
     let checkoutInFlight = false;
+    let restorePurchaseInFlight = false;
+    let restoreStatusMessage = null;
     let unsubscribePremium = null;
     let verificationFallbackTimer = null;
 
@@ -81,6 +83,18 @@
             : { premium: false, status: 'free', source: 'none' };
     }
 
+    function isLemonSqueezyEntitlement(entitlement) {
+        return Boolean(
+            entitlement &&
+            (
+                entitlement.source === 'lemon_squeezy' ||
+                entitlement.providerCustomerId ||
+                entitlement.providerSubscriptionId ||
+                entitlement.lemonSqueezySubscriptionId
+            )
+        );
+    }
+
     function getReturnStateFromUrl() {
         const params = new URLSearchParams(window.location.search);
         if (params.get('provider') !== PROVIDER) return null;
@@ -97,6 +111,7 @@
         returnState = null;
         returnStateStartedAt = null;
         returnStateUserUid = null;
+        restoreStatusMessage = null;
         clearVerificationFallbackTimer();
     }
 
@@ -407,7 +422,7 @@
                 body: 'Checkout returned, but no signed-in account is available. Sign in with the same account used at checkout to verify premium.',
                 primaryText: 'Sign in to verify premium',
                 secondaryVisible: true,
-                clearVisible: true
+                clearVisible: false
             };
         }
 
@@ -417,10 +432,10 @@
                     mode: 'verification-delayed',
                     title: 'Still verifying premium',
                     eyebrow: 'Payment pending',
-                    body: 'Still verifying premium. Refresh this page, or contact support with the email on this account if premium does not appear.',
-                    primaryText: 'Refresh account status',
+                    body: restoreStatusMessage || 'Still verifying premium. Recheck the Lemon Squeezy subscription for this signed-in email before starting another checkout.',
+                    primaryText: 'Restore / recheck purchase',
                     secondaryVisible: true,
-                    clearVisible: true
+                    clearVisible: false
                 };
             }
 
@@ -432,7 +447,7 @@
                 primaryText: 'Checking account...',
                 primaryDisabled: true,
                 secondaryVisible: true,
-                clearVisible: true
+                clearVisible: false
             };
         }
 
@@ -500,10 +515,11 @@
                 mode: 'inactive',
                 title: 'Premium inactive',
                 eyebrow: entitlement.status.replace(/_/g, ' '),
-                body: getInactiveCopy(entitlement.status),
+                body: restoreStatusMessage || getInactiveCopy(entitlement.status),
                 primaryText: 'Continue to secure checkout',
                 secondaryVisible: true,
-                clearVisible: returnState !== null
+                clearVisible: returnState === 'canceled',
+                restoreVisible: isLemonSqueezyEntitlement(entitlement)
             };
         }
 
@@ -558,10 +574,10 @@
         if (mode === 'verifying' || mode === 'verification-delayed') {
             setText('profile-premium-status', mode === 'verification-delayed' ? 'Still verifying premium' : 'Verifying payment...');
             setText('profile-premium-copy', mode === 'verification-delayed'
-                ? 'Refresh this page, or contact support with the email on this account if premium does not appear.'
+                ? 'Recheck the Lemon Squeezy subscription for this signed-in email before starting another checkout.'
                 : 'Premium unlocks when the verified webhook updates Firestore entitlement.');
             setButtonState(getElement('profile-premium-action'), {
-                text: mode === 'verification-delayed' ? 'Refresh account status' : 'Checking account...',
+                text: mode === 'verification-delayed' ? 'Restore / recheck purchase' : 'Checking account...',
                 disabled: mode !== 'verification-delayed',
                 mode
             });
@@ -609,11 +625,21 @@
         setText('paywall-body', state.body);
         setText('paywall-source', `Opened from ${lastSource.replace(/-/g, ' ')}`);
         setVisible('paywall-clear-url-btn', state.clearVisible === true);
+        setVisible('paywall-restore-btn', state.restoreVisible === true);
         setVisible('paywall-secondary-btn', state.secondaryVisible !== false);
 
         setButtonState(getElement('paywall-primary-btn'), {
-            text: checkoutInFlight ? 'Opening checkout...' : state.primaryText,
-            disabled: state.primaryDisabled === true || checkoutInFlight,
+            text: checkoutInFlight
+                ? 'Opening checkout...'
+                : restorePurchaseInFlight && state.mode === 'verification-delayed'
+                    ? 'Rechecking purchase...'
+                    : state.primaryText,
+            disabled: state.primaryDisabled === true || checkoutInFlight || (restorePurchaseInFlight && state.mode === 'verification-delayed'),
+            mode: state.mode
+        });
+        setButtonState(getElement('paywall-restore-btn'), {
+            text: restorePurchaseInFlight ? 'Rechecking purchase...' : 'Restore purchase',
+            disabled: restorePurchaseInFlight,
             mode: state.mode
         });
 
@@ -664,6 +690,24 @@
         return firebase.functions().httpsCallable('createCheckoutSession');
     }
 
+    function getRestorePurchaseCallable() {
+        if (typeof firebase === 'undefined' || typeof firebase.functions !== 'function') {
+            throw new Error('Firebase Functions SDK is not available.');
+        }
+        return firebase.functions().httpsCallable('restorePremiumPurchase');
+    }
+
+    function applyRestoredEntitlement(entitlement, user) {
+        if (!entitlement || typeof entitlement !== 'object') return false;
+        const premiumService = getPremiumService();
+        if (!premiumService || typeof premiumService.setEntitlement !== 'function') return false;
+        premiumService.setEntitlement(entitlement, {
+            uid: user && user.uid ? user.uid : null,
+            reason: 'checkout-restore'
+        });
+        return Boolean(premiumService.isPremium && premiumService.isPremium());
+    }
+
     function validateCheckoutUrl(value) {
         if (typeof value !== 'string' || !value.trim()) return null;
         try {
@@ -688,7 +732,7 @@
         }
 
         if (state.mode === 'verification-delayed') {
-            window.location.reload();
+            await restorePurchase();
             return;
         }
 
@@ -703,6 +747,7 @@
         }
 
         checkoutInFlight = true;
+        restoreStatusMessage = null;
         renderCurrentState();
 
         try {
@@ -728,6 +773,47 @@
         } finally {
             checkoutInFlight = false;
             renderProfileCard(getState());
+        }
+    }
+
+    async function restorePurchase() {
+        const user = getCurrentUser();
+        if (!user) {
+            focusSignIn();
+            return;
+        }
+
+        if (needsEmailVerification(user)) {
+            setText('paywall-body', getEmailVerificationMessage());
+            return;
+        }
+
+        restorePurchaseInFlight = true;
+        restoreStatusMessage = null;
+        renderCurrentState();
+
+        try {
+            const restorePremiumPurchase = getRestorePurchaseCallable();
+            if (typeof window.BARK.incrementRequestCount === 'function') {
+                window.BARK.incrementRequestCount();
+            }
+            const result = await restorePremiumPurchase({});
+            const data = result && result.data ? result.data : {};
+            const restoredActive = applyRestoredEntitlement(data.entitlement, user);
+            if (restoredActive || data.restored === true) {
+                restoreStatusMessage = null;
+                clearCheckoutReturnState();
+                renderCurrentState();
+                return;
+            }
+
+            restoreStatusMessage = data.message || 'No active Lemon Squeezy subscription was found yet for this signed-in email. Wait a minute, then recheck before starting another checkout.';
+        } catch (error) {
+            console.error('[paywallController] restorePremiumPurchase failed:', error);
+            restoreStatusMessage = 'Premium restore could not complete. Please try again in a moment or contact support with the email on this account.';
+        } finally {
+            restorePurchaseInFlight = false;
+            renderCurrentState();
         }
     }
 
@@ -790,6 +876,7 @@
         bindClick('paywall-close-btn', closePaywall);
         bindClick('paywall-secondary-btn', closePaywall);
         bindClick('paywall-clear-url-btn', clearCheckoutParams);
+        bindClick('paywall-restore-btn', restorePurchase);
         bindClick('paywall-primary-btn', startCheckout);
         bindClick('profile-premium-action', () => openPaywall({ source: 'profile-premium-card' }));
         bindClick('premium-upgrade-btn', () => openPaywall({ source: 'premium-map-tools' }));
@@ -820,6 +907,7 @@
         openPaywall,
         closePaywall,
         startCheckout,
+        restorePurchase,
         clearCheckoutParams,
         renderCurrentState
     };

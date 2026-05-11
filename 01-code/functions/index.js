@@ -1263,6 +1263,64 @@ function buildLemonSqueezySubscriptionSyncEventId(providerSubscriptionId, attrib
     return `subscription_api_sync_${createHash("sha256").update(parts.join("|")).digest("hex")}`;
 }
 
+function buildLemonSqueezySubscriptionsListUrl(config, email) {
+    const url = new URL(LEMONSQUEEZY_SUBSCRIPTIONS_URL);
+    url.searchParams.set("filter[store_id]", String(config.storeId));
+    url.searchParams.set("filter[variant_id]", String(config.annualVariantId));
+    url.searchParams.set("filter[user_email]", email);
+    url.searchParams.set("page[size]", "10");
+    return url.toString();
+}
+
+function getLemonSqueezySubscriptionListFromResponse(response) {
+    const data = response && response.data && Array.isArray(response.data.data)
+        ? response.data.data
+        : [];
+    return data.filter(item => item && item.type === "subscriptions" && item.id);
+}
+
+function normalizeEmail(value) {
+    const email = cleanOptionalString(value);
+    return email ? email.toLowerCase() : null;
+}
+
+function subscriptionMatchesRestoreRequest(subscription, email, options = {}) {
+    const attributes = subscription && subscription.attributes && typeof subscription.attributes === "object"
+        ? subscription.attributes
+        : {};
+    const requestedEmail = normalizeEmail(email);
+    const subscriptionEmail = normalizeEmail(attributes.user_email);
+    if (requestedEmail && subscriptionEmail && requestedEmail !== subscriptionEmail) return false;
+    if (attributes.store_id !== undefined && String(attributes.store_id) !== DEFAULT_LEMONSQUEEZY_STORE_ID) return false;
+
+    const variantId = getLemonSqueezyVariantId({ data: subscription }, attributes);
+    if (variantId && String(variantId) !== DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID) return false;
+
+    const eventName = getLemonSqueezySubscriptionSyncEventName(attributes);
+    const payload = buildLemonSqueezySubscriptionSyncPayload(subscription.id, { data: { data: subscription } }, eventName);
+    const mapping = mapLemonSqueezyEntitlement(payload, eventName, options);
+    return mapping.action === "write" && mapping.entitlement && mapping.entitlement.premium === true;
+}
+
+function selectRestorableLemonSqueezySubscription(subscriptions, email, options = {}) {
+    return subscriptions
+        .filter(subscription => subscriptionMatchesRestoreRequest(subscription, email, options))
+        .map(subscription => {
+            const attributes = subscription.attributes || {};
+            return {
+                subscription,
+                sortTime: getLemonSqueezyProviderEventMillis({
+                    meta: {},
+                    data: {
+                        attributes
+                    }
+                }, options)
+            };
+        })
+        .sort((a, b) => b.sortTime - a.sortTime)
+        .map(item => item.subscription)[0] || null;
+}
+
 async function syncLemonSqueezySubscriptionEntitlementFromApi({ uid, providerSubscriptionId, response }, options = {}) {
     const attributes = getLemonSqueezySubscriptionAttributesFromResponse(response);
     const eventName = getLemonSqueezySubscriptionSyncEventName(attributes);
@@ -1281,6 +1339,79 @@ async function syncLemonSqueezySubscriptionEntitlementFromApi({ uid, providerSub
         mapping,
         payload
     }, options);
+}
+
+async function getCurrentStoredEntitlement(db, uid) {
+    const userDoc = await db.collection("users").doc(uid).get();
+    const userData = userDoc && userDoc.exists && typeof userDoc.data === "function"
+        ? userDoc.data()
+        : {};
+    return userData && userData.entitlement && typeof userData.entitlement === "object"
+        ? userData.entitlement
+        : null;
+}
+
+async function handleRestorePremiumPurchase(requestOrData, context, options = {}) {
+    void requestOrData;
+    const uid = requireVerifiedEmailCallable(context);
+    const token = context && context.auth && context.auth.token ? context.auth.token : {};
+    const email = cleanOptionalString(token.email);
+    if (!email) {
+        throw new functions.https.HttpsError("failed-precondition", "A verified account email is required to restore Premium.");
+    }
+
+    const config = getLemonSqueezyConfig(options);
+    const get = options.axiosGet || axios.get;
+    const db = options.firestore || admin.firestore();
+    const url = buildLemonSqueezySubscriptionsListUrl(config, email);
+
+    try {
+        const response = await get(url, {
+            headers: {
+                "Accept": "application/vnd.api+json",
+                "Content-Type": "application/vnd.api+json",
+                "Authorization": `Bearer ${config.apiKey}`
+            }
+        });
+        const subscriptions = getLemonSqueezySubscriptionListFromResponse(response);
+        const subscription = selectRestorableLemonSqueezySubscription(subscriptions, email, options);
+        if (!subscription) {
+            return {
+                restored: false,
+                entitlement: await getCurrentStoredEntitlement(db, uid),
+                message: "No active Lemon Squeezy subscription was found for this account email."
+            };
+        }
+
+        const syncResult = await syncLemonSqueezySubscriptionEntitlementFromApi({
+            uid,
+            providerSubscriptionId: subscription.id,
+            response: {
+                data: {
+                    data: subscription
+                }
+            }
+        }, {
+            ...options,
+            firestore: db
+        });
+
+        return {
+            restored: Boolean(syncResult && syncResult.entitlement && syncResult.entitlement.premium === true),
+            duplicate: Boolean(syncResult && syncResult.duplicate),
+            entitlement: syncResult && syncResult.entitlement
+                ? syncResult.entitlement
+                : await getCurrentStoredEntitlement(db, uid)
+        };
+    } catch (error) {
+        if (error instanceof functions.https.HttpsError) throw error;
+        console.error("[payments] Premium restore lookup failed.", {
+            uid,
+            status: error && error.response ? error.response.status : null,
+            message: error && error.message ? error.message : String(error)
+        });
+        throw new functions.https.HttpsError("internal", "Premium restore could not complete. Please try again.");
+    }
 }
 
 async function handleCreateCheckoutSession(requestOrData, context, options = {}) {
@@ -1603,8 +1734,11 @@ function isStaleLemonSqueezyEvent(existingEntitlement, mapping) {
         mapping.entitlement.providerSubscriptionId ||
         mapping.entitlement.lemonSqueezySubscriptionId
     ));
-    const sameSubscription = !existingSubscriptionId || !incomingSubscriptionId || existingSubscriptionId === incomingSubscriptionId;
-    if (sameSubscription && existingStatus === "refunded" && incomingStatus !== "refunded") {
+    const existingOrderId = cleanOptionalId(existingEntitlement && existingEntitlement.providerOrderId);
+    const incomingOrderId = cleanOptionalId(mapping && mapping.entitlement && mapping.entitlement.providerOrderId);
+    const sameSubscription = Boolean(existingSubscriptionId && incomingSubscriptionId && existingSubscriptionId === incomingSubscriptionId);
+    const sameOrder = Boolean(existingOrderId && incomingOrderId && existingOrderId === incomingOrderId);
+    if ((sameSubscription || sameOrder) && existingStatus === "refunded" && incomingStatus !== "refunded") {
         return true;
     }
 
@@ -2062,6 +2196,12 @@ exports.getCustomerPortalUrl = functions
         return handleGetCustomerPortalUrl(requestOrData, context);
     });
 
+exports.restorePremiumPurchase = functions
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY"] })
+    .https.onCall(async (requestOrData, context) => {
+        return handleRestorePremiumPurchase(requestOrData, context);
+    });
+
 exports.lemonSqueezyWebhook = functions
     .runWith({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET"] })
     .https.onRequest(async (req, res) => {
@@ -2105,6 +2245,10 @@ if (process.env.NODE_ENV === "test") {
         extractLemonSqueezyCustomerPortalUrl,
         handleCreateCheckoutSession,
         handleGetCustomerPortalUrl,
+        buildLemonSqueezySubscriptionsListUrl,
+        getLemonSqueezySubscriptionListFromResponse,
+        selectRestorableLemonSqueezySubscription,
+        handleRestorePremiumPurchase,
         handleRedeemAccessOrPromoCode,
         isActiveAccessCodeEntitlement,
         getActiveAccessCodeFallback,

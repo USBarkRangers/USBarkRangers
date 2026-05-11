@@ -1049,6 +1049,113 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
         assert.equal(firestore.state.eventWrites[0].data.reason, "stale_event");
     });
 
+    it("allows a newer active purchase after a refund when the subscription is different", async () => {
+        const payload = makePayload({
+            eventName: "subscription_created",
+            uid: "new-sub-after-refund-user",
+            eventId: "evt_new_sub_after_refund",
+            dataId: "sub_new_after_refund",
+            attributes: {
+                status: "active",
+                order_id: "order_new_after_refund"
+            }
+        });
+        payload.meta.event_created_at = "2026-01-12T00:00:00.000Z";
+
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: false,
+                    status: "refunded",
+                    source: "lemon_squeezy",
+                    providerSubscriptionId: "sub_refunded_old",
+                    providerOrderId: "order_refunded_old",
+                    lastProviderEventId: "evt_refund_current",
+                    lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
+                    lastProviderEventRank: 600
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "active");
+        assert.equal(firestore.state.writes[0].data.entitlement.providerSubscriptionId, "sub_new_after_refund");
+    });
+
+    it("allows a newer active purchase after an order-only refund", async () => {
+        const payload = makePayload({
+            eventName: "subscription_created",
+            uid: "new-sub-after-order-refund-user",
+            eventId: "evt_new_sub_after_order_refund",
+            dataId: "sub_new_after_order_refund",
+            attributes: {
+                status: "active",
+                order_id: "order_new_after_order_refund"
+            }
+        });
+        payload.meta.event_created_at = "2026-01-12T00:00:00.000Z";
+
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: false,
+                    status: "refunded",
+                    source: "lemon_squeezy",
+                    providerOrderId: "order_refunded_old",
+                    lastProviderEventId: "evt_order_refund_current",
+                    lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
+                    lastProviderEventRank: 600
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "active");
+        assert.equal(firestore.state.writes[0].data.entitlement.providerSubscriptionId, "sub_new_after_order_refund");
+    });
+
+    it("does not reactivate a refunded purchase from a later event with the same order", async () => {
+        const payload = makePayload({
+            eventName: "subscription_payment_success",
+            uid: "same-order-after-refund-user",
+            eventId: "evt_same_order_after_refund",
+            dataType: "subscription-invoices",
+            dataId: "invoice_same_order_after_refund",
+            attributes: {
+                status: "paid",
+                subscription_id: "sub_same_order_after_refund",
+                order_id: "order_refunded_same"
+            }
+        });
+        payload.meta.event_created_at = "2026-01-12T00:00:00.000Z";
+
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: false,
+                    status: "refunded",
+                    source: "lemon_squeezy",
+                    providerOrderId: "order_refunded_same",
+                    lastProviderEventId: "evt_order_refund_current",
+                    lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
+                    lastProviderEventRank: 600
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.reason, "stale_event");
+        assert.equal(firestore.state.writes.length, 0);
+        assert.equal(firestore.state.eventWrites[0].data.reason, "stale_event");
+    });
+
     it("uses status rank to reject lower-priority same-time events", async () => {
         const payload = makePayload({
             eventName: "subscription_updated",

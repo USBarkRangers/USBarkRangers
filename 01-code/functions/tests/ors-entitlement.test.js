@@ -138,10 +138,11 @@ describe("ORS premium callable entitlement helpers", () => {
         assert.equal(isEffectivePremium({ premium: true, status: "free" }), false);
     });
 
-    it("allows active, manual, past-due grace, and cancelled-but-active entitlements", () => {
+    it("allows active, manual, past-due grace, paused, and cancelled-but-active entitlements", () => {
         assert.equal(isEffectivePremium({ premium: true, status: "active" }), true);
         assert.equal(isEffectivePremium({ premium: true, status: "manual_active" }), true);
         assert.equal(isEffectivePremium({ premium: true, status: "past_due" }), true);
+        assert.equal(isEffectivePremium({ premium: true, status: "paused" }), true);
         assert.equal(isEffectivePremium({ premium: true, status: "cancelled_active" }), true);
 
         for (const status of ["canceled", "expired", "refunded", "trialing", "free"]) {

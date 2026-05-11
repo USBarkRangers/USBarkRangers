@@ -62,3 +62,20 @@ test('premiumService ignores unsafe customer portal URLs', () => {
 
     assert.equal(entitlement.customerPortalUrl, undefined);
 });
+
+test('premiumService treats paused Lemon subscriptions as active premium', () => {
+    const premiumService = loadPremiumService();
+
+    premiumService.setEntitlement({
+        premium: true,
+        status: 'paused',
+        source: 'lemon_squeezy',
+        providerSubscriptionId: 'sub_paused'
+    }, {
+        uid: null,
+        reason: 'test'
+    });
+
+    assert.equal(premiumService.isPremium(), true);
+    assert.equal(premiumService.getEntitlement().status, 'paused');
+});

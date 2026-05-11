@@ -301,6 +301,7 @@
         }
         if (entitlement.status === 'access_code_expired') return 'Free Premium access ended';
         if (entitlement.status === 'past_due') return 'Premium past due';
+        if (entitlement.status === 'paused') return 'Premium payment paused';
         if (entitlement.status === 'cancelled_active') return 'Premium active until period end';
         if (premiumService.isPremium && premiumService.isPremium()) {
             return entitlement.status === 'manual_active' ? 'Premium active (manual)' : 'Premium active';
@@ -393,6 +394,9 @@
             if (entitlement.status === 'past_due') {
                 statusText = 'Payment retry in progress';
                 copy = 'Premium stays active while Lemon Squeezy retries.';
+            } else if (entitlement.status === 'paused') {
+                statusText = 'Payment paused';
+                copy = 'Premium remains active while payment collection is paused.';
             } else if (entitlement.status === 'cancelled_active') {
                 statusText = 'Premium cancelled';
                 copy = `Access ends: ${formatEntitlementDate(entitlement.currentPeriodEnd || entitlement.endsAt)} · Auto-renew: No`;

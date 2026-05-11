@@ -385,7 +385,7 @@ async function handleSubmitFeedback(requestOrData, context, options = {}) {
     return { ok: true };
 }
 
-const PREMIUM_ENTITLEMENT_STATUSES = new Set(["active", "manual_active", "past_due", "cancelled_active"]);
+const PREMIUM_ENTITLEMENT_STATUSES = new Set(["active", "manual_active", "past_due", "paused", "cancelled_active"]);
 
 function coerceTimestampMillis(value) {
     if (value === undefined || value === null || value === "") return null;
@@ -961,6 +961,9 @@ const LEMONSQUEEZY_SUPPORTED_EVENTS = new Set([
     "subscription_created",
     "subscription_updated",
     "subscription_resumed",
+    "subscription_paused",
+    "subscription_unpaused",
+    "subscription_plan_changed",
     "subscription_payment_success",
     "subscription_payment_recovered",
     "subscription_payment_failed",
@@ -972,6 +975,7 @@ const LEMONSQUEEZY_SUPPORTED_EVENTS = new Set([
 const LEMONSQUEEZY_PROCESSED_EVENTS_COLLECTION = "_lemonSqueezyWebhookEvents";
 const LEMONSQUEEZY_EVENT_STATUS_RANK = Object.freeze({
     active: 100,
+    paused: 150,
     past_due: 200,
     cancelled_active: 300,
     canceled: 400,
@@ -1730,7 +1734,9 @@ function buildLemonSqueezyEventDocId(eventId) {
 function isExplicitActiveProviderRestore(mapping) {
     const incomingStatus = cleanOptionalString(mapping && mapping.entitlement && mapping.entitlement.status);
     if (incomingStatus !== "active") return false;
-    return mapping.providerSync === true || mapping.providerEventName === "subscription_resumed";
+    return mapping.providerSync === true ||
+        mapping.providerEventName === "subscription_resumed" ||
+        mapping.providerEventName === "subscription_unpaused";
 }
 
 function isStaleLemonSqueezyEvent(existingEntitlement, mapping) {
@@ -1762,7 +1768,7 @@ function isStaleLemonSqueezyEvent(existingEntitlement, mapping) {
         Number.isFinite(incomingMillis) &&
         incomingMillis === existingMillis &&
         explicitActiveProviderRestore &&
-        ["cancelled_active", "canceled", "expired", "refunded"].includes(existingStatus)) {
+        ["paused", "cancelled_active", "canceled", "expired", "refunded"].includes(existingStatus)) {
         return false;
     }
 
@@ -1849,20 +1855,26 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
     const providerEventAt = new Date(providerEventAtMs).toISOString();
     let entitlement = null;
 
-    if (eventName === "subscription_payment_success" || eventName === "subscription_payment_recovered") {
+    if (eventName === "subscription_payment_success" ||
+        eventName === "subscription_payment_recovered" ||
+        eventName === "subscription_unpaused") {
         entitlement = { premium: true, status: "active" };
     } else if (eventName === "subscription_payment_failed") {
         entitlement = { premium: true, status: "past_due" };
     } else if (eventName === "subscription_expired") {
         entitlement = { premium: false, status: "expired" };
+    } else if (eventName === "subscription_paused") {
+        entitlement = { premium: true, status: "paused" };
     } else if (eventName === "subscription_cancelled") {
         entitlement = isFutureDate(attributes.ends_at, options.nowMs)
             ? { premium: true, status: "cancelled_active" }
             : { premium: false, status: "canceled" };
     } else if (eventName === "subscription_payment_refunded" || eventName === "order_refunded") {
         entitlement = { premium: false, status: "refunded" };
-    } else if (normalizedStatus === "active") {
+    } else if (normalizedStatus === "active" || normalizedStatus === "on_trial") {
         entitlement = { premium: true, status: "active" };
+    } else if (normalizedStatus === "paused") {
+        entitlement = { premium: true, status: "paused" };
     } else if (normalizedStatus === "expired") {
         entitlement = { premium: false, status: "expired" };
     } else if (normalizedStatus === "past_due" || normalizedStatus === "unpaid") {

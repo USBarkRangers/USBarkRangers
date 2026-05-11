@@ -58,7 +58,7 @@ service cloud.firestore {
         && data.entitlement.keys().hasAll(['premium', 'status'])
         && data.entitlement.premium == true
         && (
-          data.entitlement.status in ['active', 'manual_active', 'past_due', 'cancelled_active']
+          data.entitlement.status in ['active', 'manual_active', 'past_due', 'paused', 'cancelled_active']
           || (
             data.entitlement.status == 'access_code_active'
             && data.entitlement.source == 'access_code'

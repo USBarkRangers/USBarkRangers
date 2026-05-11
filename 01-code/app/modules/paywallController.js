@@ -488,6 +488,9 @@
             } else if (entitlement.status === 'past_due') {
                 eyebrow = 'Payment attention';
                 activeCopy = 'Premium remains active while Lemon Squeezy retries your payment. Manage billing to keep access uninterrupted.';
+            } else if (entitlement.status === 'paused') {
+                eyebrow = 'Payment paused';
+                activeCopy = 'Premium remains active while payment collection is paused. Manage billing to resume payments.';
             } else if (entitlement.status === 'cancelled_active') {
                 eyebrow = 'Cancels later';
                 activeCopy = `Access ends: ${formatAccessDate(entitlement.currentPeriodEnd || entitlement.endsAt)}. Auto-renew: No.`;

@@ -405,6 +405,70 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
         assert.equal(firestore.state.writes[0].data.entitlement.lastProviderEventId, "evt_active_updated");
     });
 
+    it("writes premium active for on_trial subscription_created", async () => {
+        const payload = makePayload({
+            eventName: "subscription_created",
+            uid: "trial-user",
+            eventId: "evt_trial_created",
+            attributes: { status: "on_trial" }
+        });
+        const { res, firestore } = await invoke({ req: signedReq(payload) });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "active");
+    });
+
+    it("writes premium paused for subscription_paused", async () => {
+        const payload = makePayload({
+            eventName: "subscription_paused",
+            uid: "paused-user",
+            eventId: "evt_subscription_paused",
+            attributes: { status: "paused" }
+        });
+        const { res, firestore } = await invoke({ req: signedReq(payload) });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "paused");
+        assert.equal(firestore.state.writes[0].data.entitlement.lastProviderEventRank, 150);
+    });
+
+    it("writes premium active for subscription_unpaused", async () => {
+        const payload = makePayload({
+            eventName: "subscription_unpaused",
+            uid: "unpaused-user",
+            eventId: "evt_subscription_unpaused",
+            attributes: { status: "active" }
+        });
+        const { res, firestore } = await invoke({ req: signedReq(payload) });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "active");
+    });
+
+    it("writes premium active for subscription_plan_changed on the supported variant", async () => {
+        const payload = makePayload({
+            eventName: "subscription_plan_changed",
+            uid: "plan-changed-user",
+            eventId: "evt_subscription_plan_changed",
+            attributes: {
+                status: "active",
+                variant_id: 1604336
+            }
+        });
+        const { res, firestore } = await invoke({ req: signedReq(payload) });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "active");
+    });
+
     it("writes premium active for subscription_payment_success", async () => {
         const payload = makePayload({
             eventName: "subscription_payment_success",
@@ -484,6 +548,37 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
                     lastProviderEventId: "evt_cancelled_same_time",
                     lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
                     lastProviderEventRank: 400
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "active");
+    });
+
+    it("lets subscription_unpaused reactivate a same-time paused subscription", async () => {
+        const payload = makePayload({
+            eventName: "subscription_unpaused",
+            uid: "same-time-unpaused-user",
+            dataId: "sub_unpause_same_time",
+            eventId: "evt_subscription_unpaused_same_time",
+            attributes: { status: "active" }
+        });
+        payload.meta.event_created_at = "2026-01-10T00:00:00.000Z";
+
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: true,
+                    status: "paused",
+                    source: "lemon_squeezy",
+                    providerSubscriptionId: "sub_unpause_same_time",
+                    lastProviderEventId: "evt_paused_same_time",
+                    lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
+                    lastProviderEventRank: 150
                 }
             })
         });

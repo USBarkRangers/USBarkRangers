@@ -207,7 +207,7 @@ describe('Firestore entitlement and admin field rules', () => {
     });
 
     it('allows active premium-status users to write visitedPlaces beyond the free limit', async () => {
-        const premiumStatuses = ['active', 'manual_active', 'past_due', 'cancelled_active'];
+        const premiumStatuses = ['active', 'manual_active', 'past_due', 'paused', 'cancelled_active'];
 
         for (const status of premiumStatuses) {
             const uid = `premium-${status}`;

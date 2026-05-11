@@ -539,6 +539,33 @@ test('cancelled Lemon subscription shows access end date and no auto-renew', asy
     ]);
 });
 
+test('paused Lemon subscription shows active access with paused billing copy', () => {
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'paused',
+            source: 'lemon_squeezy',
+            providerCustomerId: 'cus_paused',
+            providerSubscriptionId: 'sub_paused'
+        }
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'paused-user',
+        email: 'paused@example.com',
+        displayName: 'Paused Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+
+    assert.equal(harness.element('account-display-premium').textContent, 'Premium payment paused');
+    assert.equal(harness.element('account-billing-panel').hidden, false);
+    assert.equal(harness.element('account-billing-title').textContent, 'Payment paused');
+    assert.match(harness.element('account-billing-copy').textContent, /Premium remains active/);
+});
+
 test('manage subscription does not fall back to a stored portal URL when callable has no URL', async () => {
     const harness = loadAuthAccountUi({
         premiumActive: true,

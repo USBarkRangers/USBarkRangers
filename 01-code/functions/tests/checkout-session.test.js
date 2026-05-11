@@ -810,6 +810,52 @@ describe("Lemon Squeezy customer portal callable", () => {
         assert.equal(firestore.state.eventWrites.length, 1);
     });
 
+    it("syncs paused Lemon subscription state while retrieving a portal URL", async () => {
+        const firestore = makeUserFirestore({
+            entitlement: {
+                premium: true,
+                status: "active",
+                source: "lemon_squeezy",
+                providerSubscriptionId: "sub_paused_sync",
+                lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
+                lastProviderEventRank: 100
+            }
+        });
+
+        const result = await handleGetCustomerPortalUrl(
+            {},
+            authedContext("paid-user"),
+            {
+                firestore,
+                apiKey: config.apiKey,
+                axiosGet: async () => ({
+                    data: {
+                        data: {
+                            id: "sub_paused_sync",
+                            type: "subscriptions",
+                            attributes: {
+                                test_mode: true,
+                                store_id: 363425,
+                                status: "paused",
+                                renews_at: "2099-02-01T00:00:00.000Z",
+                                updated_at: "2026-01-10T00:00:00.000Z",
+                                urls: {
+                                    customer_portal: "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=paused"
+                                }
+                            }
+                        }
+                    }
+                })
+            }
+        );
+
+        assert.equal(result.entitlement.status, "paused");
+        assert.equal(result.entitlement.premium, true);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "paused");
+        assert.equal(firestore.state.eventWrites.length, 1);
+    });
+
     it("rejects customer portal responses from a different store", async () => {
         await assertRejectsCode(
             handleGetCustomerPortalUrl(
@@ -1001,6 +1047,56 @@ describe("Lemon Squeezy restore purchase callable", () => {
         assert.equal(result.entitlement.premium, true);
         assert.equal(result.entitlement.status, "active");
         assert.equal(result.entitlement.providerSubscriptionId, "sub_restore_same");
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.eventWrites.length, 1);
+    });
+
+    it("restores paused premium because Lemon still treats paused subscriptions as active access", async () => {
+        const firestore = makeUserFirestore({
+            entitlement: {
+                premium: false,
+                status: "free",
+                source: "none"
+            }
+        });
+
+        const result = await handleRestorePremiumPurchase(
+            {},
+            authedContext("restore-paused-user", {
+                email: "ranger@example.test",
+                email_verified: true,
+                firebase: { sign_in_provider: "password" }
+            }),
+            {
+                firestore,
+                apiKey: config.apiKey,
+                axiosGet: async () => ({
+                    data: {
+                        data: [
+                            {
+                                id: "sub_restore_paused",
+                                type: "subscriptions",
+                                attributes: {
+                                    test_mode: true,
+                                    store_id: 363425,
+                                    variant_id: 1604336,
+                                    user_email: "ranger@example.test",
+                                    status: "paused",
+                                    renews_at: "2099-01-01T00:00:00.000Z",
+                                    updated_at: "2026-01-12T00:00:00.000Z"
+                                }
+                            }
+                        ]
+                    }
+                }),
+                serverTimestamp: () => "SERVER_TIMESTAMP"
+            }
+        );
+
+        assert.equal(result.restored, true);
+        assert.equal(result.entitlement.premium, true);
+        assert.equal(result.entitlement.status, "paused");
+        assert.equal(result.entitlement.providerSubscriptionId, "sub_restore_paused");
         assert.equal(firestore.state.writes.length, 1);
         assert.equal(firestore.state.eventWrites.length, 1);
     });

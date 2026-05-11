@@ -693,6 +693,61 @@ test.describe('Phase 3A premium gating smoke', () => {
         await expectFreePaywallState(page, 'canceled');
     });
 
+    test('checkout canceled URL does not override active premium entitlement', async ({ browser }) => {
+        const context = await newBarkContext(browser);
+        const page = await context.newPage();
+        try {
+            await waitForSignedOutApp(page, withCheckoutParams(BASE_URL, 'canceled'));
+            const state = await page.evaluate(() => {
+                const user = {
+                    uid: 'playwright-resumed-premium-user',
+                    email: 'playwright-resumed-premium-user@example.test'
+                };
+                const auth = window.firebase.auth();
+                try {
+                    Object.defineProperty(auth, 'currentUser', {
+                        value: user,
+                        configurable: true
+                    });
+                } catch (error) {
+                    auth.currentUser = user;
+                }
+
+                window.BARK.services.premium.setEntitlement({
+                    premium: true,
+                    status: 'active',
+                    source: 'lemon_squeezy',
+                    providerSubscriptionId: 'sub_resumed_active'
+                }, {
+                    uid: user.uid,
+                    reason: 'playwright-resumed-active'
+                });
+                window.BARK.paywall.renderCurrentState();
+
+                const params = new URL(window.location.href).searchParams;
+                return {
+                    isPremium: window.BARK.services.premium.isPremium(),
+                    profileState: document.getElementById('profile-premium-card')?.dataset.paywallState,
+                    profileStatus: document.getElementById('profile-premium-status')?.textContent || '',
+                    paywallTitle: document.getElementById('paywall-title')?.textContent || '',
+                    checkout: params.get('checkout'),
+                    provider: params.get('provider')
+                };
+            });
+
+            expect(state).toMatchObject({
+                isPremium: true,
+                profileState: 'premium',
+                profileStatus: 'Premium active',
+                paywallTitle: 'Premium active',
+                checkout: null,
+                provider: null
+            });
+        } finally {
+            await context.close();
+        }
+    });
+
     test('signed-in free app keeps entitlement-gated controls locked', async ({ browser }) => {
         test.skip(missingSignedInEnv.length > 0, buildEnvHelp(missingSignedInEnv));
         const context = await newBarkContext(browser, { storageState: storageStatePath });

@@ -14,7 +14,8 @@
     const SUPPORT_EMAIL = 'usbarkrangers@gmail.com';
     const VERIFICATION_RESEND_COOLDOWN_MS = 60 * 1000;
     const BILLING_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
-    const BILLING_FIX_BUILD = 'billing-fix-build: 2026-05-10-2338';
+    const BILLING_RETURN_SYNC_MIN_INTERVAL_MS = 5 * 1000;
+    const BILLING_FIX_BUILD = 'billing-fix-build: 2026-05-11-1345';
     const LEMON_SQUEEZY_STORE_HOST = 'usbarkrangers.lemonsqueezy.com';
     const TEST_MODE_PORTAL_UNAVAILABLE_MESSAGE = 'Customer portal is unavailable while the Lemon Squeezy store is not activated. Manage this test subscription from the Lemon Squeezy dashboard.';
 
@@ -27,6 +28,7 @@
     let lastVerificationEmailSentAt = 0;
     let lastBillingSyncKey = '';
     let lastBillingSyncAt = 0;
+    let lastBillingReturnSyncAt = 0;
 
     const ACCOUNT_PROMPT_COPY = {
         'mark-visited': {
@@ -426,7 +428,7 @@
         };
     }
 
-    function refreshBillingPanel(user) {
+    function refreshBillingPanel(user, options = {}) {
         const panel = getElement('account-billing-panel');
         const button = getElement('account-manage-subscription-btn');
         if (!panel || !button) return;
@@ -457,7 +459,9 @@
         } else {
             delete button.dataset.billingUrl;
         }
-        maybeSyncBillingPanelFromProvider(user);
+        maybeSyncBillingPanelFromProvider(user, {
+            force: options.forceBillingSync === true
+        });
     }
 
     function getCustomerPortalCallable() {
@@ -479,18 +483,17 @@
         }
     }
 
-    function maybeSyncBillingPanelFromProvider(user) {
+    function maybeSyncBillingPanelFromProvider(user, options = {}) {
         const premiumService = getPremiumService();
         const entitlement = premiumService && typeof premiumService.getEntitlement === 'function'
             ? premiumService.getEntitlement()
             : null;
         if (!user || !entitlement || entitlement.source !== 'lemon_squeezy') return;
-        if (entitlement.status !== 'active' && entitlement.status !== 'past_due') return;
         if (!entitlement.providerSubscriptionId) return;
 
         const now = Date.now();
         const syncKey = `${user.uid}:${entitlement.providerSubscriptionId}:${entitlement.status}`;
-        if (syncKey === lastBillingSyncKey && now - lastBillingSyncAt < BILLING_SYNC_COOLDOWN_MS) return;
+        if (options.force !== true && syncKey === lastBillingSyncKey && now - lastBillingSyncAt < BILLING_SYNC_COOLDOWN_MS) return;
         lastBillingSyncKey = syncKey;
         lastBillingSyncAt = now;
 
@@ -666,7 +669,7 @@
         });
     }
 
-    function refreshAccountDisplay() {
+    function refreshAccountDisplay(options = {}) {
         let user = null;
         try {
             user = getFirebaseAuth().currentUser;
@@ -677,7 +680,9 @@
         const signedIn = Boolean(user);
         setHidden('account-status-card', !signedIn);
         updateEmailVerificationPanel(user);
-        refreshBillingPanel(user);
+        refreshBillingPanel(user, {
+            forceBillingSync: options.forceBillingSync === true
+        });
 
         if (!signedIn) return;
 
@@ -686,6 +691,13 @@
         setText('account-display-uid', user.uid || 'Unavailable');
         setText('account-display-provider', getProviderLabel(user));
         setText('account-display-premium', getPremiumLabel());
+    }
+
+    function refreshBillingStateAfterExternalReturn() {
+        const now = Date.now();
+        if (now - lastBillingReturnSyncAt < BILLING_RETURN_SYNC_MIN_INTERVAL_MS) return;
+        lastBillingReturnSyncAt = now;
+        refreshAccountDisplay({ forceBillingSync: true });
     }
 
     async function persistEmailVerificationState(user) {
@@ -1005,6 +1017,15 @@
                 closeAccountPrompt();
             }
         });
+
+        if (typeof window.addEventListener === 'function') {
+            window.addEventListener('focus', refreshBillingStateAfterExternalReturn);
+        }
+        if (document && typeof document.addEventListener === 'function') {
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden === false) refreshBillingStateAfterExternalReturn();
+            });
+        }
 
         showMode('signin', { focus: false });
         subscribePremiumState();

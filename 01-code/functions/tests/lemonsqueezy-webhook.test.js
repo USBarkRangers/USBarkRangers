@@ -463,6 +463,37 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
         assert.equal(firestore.state.writes[0].data.entitlement.status, "active");
     });
 
+    it("lets subscription_resumed reactivate a same-time canceled subscription", async () => {
+        const payload = makePayload({
+            eventName: "subscription_resumed",
+            uid: "same-time-resumed-user",
+            dataId: "sub_resume_same_time",
+            eventId: "evt_subscription_resumed_same_time",
+            attributes: { status: "active" }
+        });
+        payload.meta.event_created_at = "2026-01-10T00:00:00.000Z";
+
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: false,
+                    status: "canceled",
+                    source: "lemon_squeezy",
+                    providerSubscriptionId: "sub_resume_same_time",
+                    lastProviderEventId: "evt_cancelled_same_time",
+                    lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
+                    lastProviderEventRank: 400
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "active");
+    });
+
     it("writes non-premium expired for subscription_expired", async () => {
         const payload = makePayload({
             eventName: "subscription_expired",
@@ -1154,6 +1185,37 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
         assert.equal(res.body.reason, "stale_event");
         assert.equal(firestore.state.writes.length, 0);
         assert.equal(firestore.state.eventWrites[0].data.reason, "stale_event");
+    });
+
+    it("allows explicit subscription_resumed to reactivate the same subscription after refund", async () => {
+        const payload = makePayload({
+            eventName: "subscription_resumed",
+            uid: "resume-same-sub-after-refund-user",
+            eventId: "evt_resume_same_sub_after_refund",
+            dataId: "sub_refunded_resume",
+            attributes: { status: "active" }
+        });
+        payload.meta.event_created_at = "2026-01-12T00:00:00.000Z";
+
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: false,
+                    status: "refunded",
+                    source: "lemon_squeezy",
+                    providerSubscriptionId: "sub_refunded_resume",
+                    lastProviderEventId: "evt_refund_current",
+                    lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
+                    lastProviderEventRank: 600
+                }
+            })
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "active");
     });
 
     it("uses status rank to reject lower-priority same-time events", async () => {

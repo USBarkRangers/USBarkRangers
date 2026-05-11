@@ -764,6 +764,52 @@ describe("Lemon Squeezy customer portal callable", () => {
         assert.equal(firestore.state.eventWrites.length, 1);
     });
 
+    it("syncs resumed Lemon subscription state while retrieving a portal URL", async () => {
+        const firestore = makeUserFirestore({
+            entitlement: {
+                premium: true,
+                status: "cancelled_active",
+                source: "lemon_squeezy",
+                providerSubscriptionId: "sub_resumed_sync",
+                lastProviderEventAtMs: Date.parse("2026-01-10T00:00:00.000Z"),
+                lastProviderEventRank: 300
+            }
+        });
+
+        const result = await handleGetCustomerPortalUrl(
+            {},
+            authedContext("paid-user"),
+            {
+                firestore,
+                apiKey: config.apiKey,
+                axiosGet: async () => ({
+                    data: {
+                        data: {
+                            id: "sub_resumed_sync",
+                            type: "subscriptions",
+                            attributes: {
+                                test_mode: true,
+                                store_id: 363425,
+                                status: "active",
+                                renews_at: "2099-02-01T00:00:00.000Z",
+                                updated_at: "2026-01-10T00:00:00.000Z",
+                                urls: {
+                                    customer_portal: "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=resumed"
+                                }
+                            }
+                        }
+                    }
+                })
+            }
+        );
+
+        assert.equal(result.entitlement.status, "active");
+        assert.equal(result.entitlement.premium, true);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "active");
+        assert.equal(firestore.state.eventWrites.length, 1);
+    });
+
     it("rejects customer portal responses from a different store", async () => {
         await assertRejectsCode(
             handleGetCustomerPortalUrl(
@@ -904,5 +950,58 @@ describe("Lemon Squeezy restore purchase callable", () => {
         assert.match(result.message, /No active Lemon Squeezy subscription/);
         assert.equal(firestore.state.writes.length, 0);
         assert.equal(firestore.state.eventWrites.length, 0);
+    });
+
+    it("restores active premium when Lemon currently shows the same refunded subscription as active", async () => {
+        const firestore = makeUserFirestore({
+            entitlement: {
+                premium: false,
+                status: "refunded",
+                source: "lemon_squeezy",
+                providerSubscriptionId: "sub_restore_same",
+                lastProviderEventAtMs: Date.parse("2026-01-12T00:00:00.000Z"),
+                lastProviderEventRank: 600
+            }
+        });
+
+        const result = await handleRestorePremiumPurchase(
+            {},
+            authedContext("restore-same-user", {
+                email: "ranger@example.test",
+                email_verified: true,
+                firebase: { sign_in_provider: "password" }
+            }),
+            {
+                firestore,
+                apiKey: config.apiKey,
+                axiosGet: async () => ({
+                    data: {
+                        data: [
+                            {
+                                id: "sub_restore_same",
+                                type: "subscriptions",
+                                attributes: {
+                                    test_mode: true,
+                                    store_id: 363425,
+                                    variant_id: 1604336,
+                                    user_email: "ranger@example.test",
+                                    status: "active",
+                                    renews_at: "2099-01-01T00:00:00.000Z",
+                                    updated_at: "2026-01-12T00:00:00.000Z"
+                                }
+                            }
+                        ]
+                    }
+                }),
+                serverTimestamp: () => "SERVER_TIMESTAMP"
+            }
+        );
+
+        assert.equal(result.restored, true);
+        assert.equal(result.entitlement.premium, true);
+        assert.equal(result.entitlement.status, "active");
+        assert.equal(result.entitlement.providerSubscriptionId, "sub_restore_same");
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.eventWrites.length, 1);
     });
 });

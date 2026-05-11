@@ -113,7 +113,7 @@
     }
 
     function clearVerifiedCheckoutReturnState(state) {
-        if (!state || state.mode !== 'premium' || returnState !== 'success') return;
+        if (!state || state.mode !== 'premium' || returnState === null) return;
         clearCheckoutReturnState();
     }
 
@@ -394,7 +394,7 @@
         syncCheckoutReturnAccount(user);
         const entitlement = getEntitlement();
 
-        if (returnState === 'canceled') {
+        if (returnState === 'canceled' && !isPremiumActive()) {
             return {
                 mode: 'canceled',
                 title: 'Checkout canceled',

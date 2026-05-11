@@ -439,6 +439,56 @@ test('active lemon account refresh syncs cancelled billing status from callable'
     assert.equal(setEntitlementCalls[0].options.reason, 'billing-panel-sync');
 });
 
+test('cancelled lemon account refresh syncs resumed billing status from callable', async () => {
+    let currentEntitlement = {
+        premium: true,
+        status: 'cancelled_active',
+        source: 'lemon_squeezy',
+        providerCustomerId: 'cus_test',
+        providerSubscriptionId: 'sub_resumed_sync',
+        currentPeriodEnd: '2027-05-02T12:00:00.000Z'
+    };
+    const setEntitlementCalls = [];
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        customerPortalUrl: 'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh',
+        customerPortalEntitlement: {
+            premium: true,
+            status: 'active',
+            source: 'lemon_squeezy',
+            providerCustomerId: 'cus_test',
+            providerSubscriptionId: 'sub_resumed_sync',
+            currentPeriodEnd: '2027-05-02T12:00:00.000Z'
+        },
+        premiumService: {
+            getEntitlement: () => ({ ...currentEntitlement }),
+            isPremium: () => currentEntitlement.premium === true,
+            subscribe: () => {},
+            setEntitlement(entitlement, options) {
+                currentEntitlement = { ...entitlement };
+                setEntitlementCalls.push({ entitlement, options });
+            }
+        }
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'paid-user',
+        email: 'paid@example.com',
+        displayName: 'Paid Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(harness.portalCalls.length, 1);
+    assert.equal(harness.portalCalls[0].payload.syncOnly, true);
+    assert.equal(setEntitlementCalls.length, 1);
+    assert.equal(setEntitlementCalls[0].entitlement.status, 'active');
+    assert.equal(setEntitlementCalls[0].options.reason, 'billing-panel-sync');
+});
+
 test('cancelled Lemon subscription shows access end date and no auto-renew', async () => {
     const harness = loadAuthAccountUi({
         premiumActive: true,
@@ -463,6 +513,8 @@ test('cancelled Lemon subscription shows access end date and no auto-renew', asy
     };
 
     harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await Promise.resolve();
+    await Promise.resolve();
 
     assert.equal(harness.element('account-billing-panel').hidden, false);
     assert.equal(harness.element('account-billing-title').textContent, 'Premium cancelled');
@@ -470,11 +522,15 @@ test('cancelled Lemon subscription shows access end date and no auto-renew', asy
     assert.match(harness.element('account-billing-copy').textContent, /2027/);
     assert.match(harness.element('account-billing-copy').textContent, /Auto-renew: No/);
     assert.equal(harness.element('account-manage-subscription-btn').dataset.billingUrl, undefined);
+    assert.equal(harness.portalCalls.length, 1);
+    assert.equal(harness.portalCalls[0].name, 'getCustomerPortalUrl');
+    assert.equal(harness.portalCalls[0].payload.syncOnly, true);
 
     await harness.element('account-manage-subscription-btn').dispatch('click');
 
-    assert.equal(harness.portalCalls.length, 1);
-    assert.equal(harness.portalCalls[0].name, 'getCustomerPortalUrl');
+    assert.equal(harness.portalCalls.length, 2);
+    assert.equal(harness.portalCalls[1].name, 'getCustomerPortalUrl');
+    assert.deepEqual(Object.keys(harness.portalCalls[1].payload), []);
     assert.deepEqual(harness.locationAssignCalls, [
         'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
     ]);
@@ -506,9 +562,11 @@ test('manage subscription does not fall back to a stored portal URL when callabl
     };
 
     harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await Promise.resolve();
+    await Promise.resolve();
     await harness.element('account-manage-subscription-btn').dispatch('click');
 
-    assert.equal(harness.portalCalls.length, 1);
+    assert.equal(harness.portalCalls.length, 2);
     assert.deepEqual(harness.locationAssignCalls, []);
     assert.deepEqual(harness.alertCalls, ['Billing portal URL:\nundefined']);
     assert.equal(

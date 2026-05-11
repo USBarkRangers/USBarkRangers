@@ -1324,9 +1324,13 @@ function selectRestorableLemonSqueezySubscription(subscriptions, email, options 
 async function syncLemonSqueezySubscriptionEntitlementFromApi({ uid, providerSubscriptionId, response }, options = {}) {
     const attributes = getLemonSqueezySubscriptionAttributesFromResponse(response);
     const eventName = getLemonSqueezySubscriptionSyncEventName(attributes);
+    const syncOptions = {
+        ...options,
+        providerSync: true
+    };
     const payload = buildLemonSqueezySubscriptionSyncPayload(providerSubscriptionId, response, eventName);
     const rawBody = Buffer.from(JSON.stringify(payload), "utf8");
-    const mapping = mapLemonSqueezyEntitlement(payload, eventName, options);
+    const mapping = mapLemonSqueezyEntitlement(payload, eventName, syncOptions);
     if (mapping.action !== "write") {
         return { ignored: true, reason: mapping.reason || "ignored" };
     }
@@ -1338,7 +1342,7 @@ async function syncLemonSqueezySubscriptionEntitlementFromApi({ uid, providerSub
         rawBody,
         mapping,
         payload
-    }, options);
+    }, syncOptions);
 }
 
 async function getCurrentStoredEntitlement(db, uid) {
@@ -1723,6 +1727,12 @@ function buildLemonSqueezyEventDocId(eventId) {
     return createHash("sha256").update(String(eventId)).digest("hex");
 }
 
+function isExplicitActiveProviderRestore(mapping) {
+    const incomingStatus = cleanOptionalString(mapping && mapping.entitlement && mapping.entitlement.status);
+    if (incomingStatus !== "active") return false;
+    return mapping.providerSync === true || mapping.providerEventName === "subscription_resumed";
+}
+
 function isStaleLemonSqueezyEvent(existingEntitlement, mapping) {
     const existingStatus = cleanOptionalString(existingEntitlement && existingEntitlement.status);
     const incomingStatus = cleanOptionalString(mapping && mapping.entitlement && mapping.entitlement.status);
@@ -1738,16 +1748,35 @@ function isStaleLemonSqueezyEvent(existingEntitlement, mapping) {
     const incomingOrderId = cleanOptionalId(mapping && mapping.entitlement && mapping.entitlement.providerOrderId);
     const sameSubscription = Boolean(existingSubscriptionId && incomingSubscriptionId && existingSubscriptionId === incomingSubscriptionId);
     const sameOrder = Boolean(existingOrderId && incomingOrderId && existingOrderId === incomingOrderId);
+    const explicitActiveProviderRestore = isExplicitActiveProviderRestore(mapping);
+    const existingMillis = Number(existingEntitlement && existingEntitlement.lastProviderEventAtMs);
+    const incomingMillis = Number(mapping && mapping.providerEventAtMs);
+
     if ((sameSubscription || sameOrder) && existingStatus === "refunded" && incomingStatus !== "refunded") {
-        return true;
+        if (!sameSubscription || !explicitActiveProviderRestore) return true;
+        if (Number.isFinite(existingMillis) && Number.isFinite(incomingMillis) && incomingMillis < existingMillis) return true;
+        return false;
     }
 
-    const existingMillis = Number(existingEntitlement && existingEntitlement.lastProviderEventAtMs);
-    if (!Number.isFinite(existingMillis)) return false;
+    if (Number.isFinite(existingMillis) &&
+        Number.isFinite(incomingMillis) &&
+        incomingMillis === existingMillis &&
+        explicitActiveProviderRestore &&
+        ["cancelled_active", "canceled", "expired", "refunded"].includes(existingStatus)) {
+        return false;
+    }
 
-    const incomingMillis = Number(mapping && mapping.providerEventAtMs);
-    if (!Number.isFinite(incomingMillis)) return false;
-    if (incomingMillis < existingMillis) return true;
+    if (!Number.isFinite(existingMillis)) {
+        return false;
+    }
+
+    if (!Number.isFinite(incomingMillis)) {
+        return false;
+    }
+
+    if (incomingMillis < existingMillis) {
+        return true;
+    }
     if (incomingMillis > existingMillis) return false;
 
     const existingRank = Number(existingEntitlement.lastProviderEventRank || 0);
@@ -1864,6 +1893,8 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
 
     return {
         action: "write",
+        providerEventName: eventName,
+        providerSync: options.providerSync === true,
         providerEventAt,
         providerEventAtMs,
         providerEventRank: getLemonSqueezyEventRank(entitlement.status),

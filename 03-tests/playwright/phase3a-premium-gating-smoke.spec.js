@@ -341,12 +341,14 @@ async function expectGlobalSearchLocked(page, expectedTextPattern) {
 
 async function expectFreePaywallState(page, expectedMode = 'free') {
     await expect(page.locator('#profile-premium-card')).toHaveAttribute('data-paywall-state', expectedMode);
+    const restoreButton = page.locator('#paywall-restore-btn');
 
     if (expectedMode === 'verify-signed-out') {
         await expect(page.locator('#paywall-overlay')).toHaveAttribute('data-paywall-state', 'verify-signed-out');
         await expect(page.locator('#paywall-title')).toHaveText('Sign in to verify premium');
         await expect(page.locator('#paywall-primary-btn')).toBeEnabled();
         await expect(page.locator('#paywall-clear-url-btn')).toBeHidden();
+        await expect(restoreButton).toHaveJSProperty('hidden', true);
         await expect(page.locator('#profile-premium-action')).toBeEnabled();
         return;
     }
@@ -357,6 +359,8 @@ async function expectFreePaywallState(page, expectedMode = 'free') {
         await expect(page.locator('#paywall-overlay')).toHaveAttribute('data-paywall-state', 'verifying');
         await expect(page.locator('#paywall-primary-btn')).toBeDisabled();
         await expect(page.locator('#paywall-clear-url-btn')).toBeHidden();
+        await expect(restoreButton).toHaveJSProperty('hidden', false);
+        await expect(restoreButton).toBeEnabled();
         return;
     }
 
@@ -368,6 +372,7 @@ async function expectFreePaywallState(page, expectedMode = 'free') {
         await expect(page.locator('#paywall-primary-btn')).toBeEnabled();
         await expect(page.locator('#paywall-primary-btn')).toContainText('Restore');
         await expect(page.locator('#paywall-clear-url-btn')).toBeHidden();
+        await expect(restoreButton).toHaveJSProperty('hidden', true);
         await expect(page.locator('#paywall-body')).toContainText('Recheck');
         return;
     }
@@ -377,11 +382,14 @@ async function expectFreePaywallState(page, expectedMode = 'free') {
         await expect(page.locator('#paywall-overlay')).toHaveAttribute('data-paywall-state', 'canceled');
         await expect(page.locator('#paywall-title')).toHaveText('Checkout canceled');
         await expect(page.locator('#paywall-body')).toContainText('No charge was made');
+        await expect(restoreButton).toHaveJSProperty('hidden', true);
         return;
     }
 
     await expect(page.locator('#profile-premium-status')).toHaveText('Free plan');
     await expect(page.locator('#profile-premium-action')).toHaveAttribute('data-mode', 'free');
+    await expect(restoreButton).toHaveJSProperty('hidden', false);
+    await expect(restoreButton).toBeEnabled();
 }
 
 async function forceSignedInLikeFreeUser(page) {

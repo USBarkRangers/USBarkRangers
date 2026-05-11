@@ -83,16 +83,8 @@
             : { premium: false, status: 'free', source: 'none' };
     }
 
-    function isLemonSqueezyEntitlement(entitlement) {
-        return Boolean(
-            entitlement &&
-            (
-                entitlement.source === 'lemon_squeezy' ||
-                entitlement.providerCustomerId ||
-                entitlement.providerSubscriptionId ||
-                entitlement.lemonSqueezySubscriptionId
-            )
-        );
+    function canRestorePurchase(user) {
+        return Boolean(user && !isPremiumActive());
     }
 
     function getReturnStateFromUrl() {
@@ -407,10 +399,11 @@
                 mode: 'canceled',
                 title: 'Checkout canceled',
                 eyebrow: 'No charge',
-                body: 'Checkout canceled. No charge was made, and your account is still on Free.',
+                body: restoreStatusMessage || 'Checkout canceled. No charge was made, and your account is still on Free.',
                 primaryText: user ? 'Continue to secure checkout' : 'Sign in to upgrade',
                 secondaryVisible: true,
-                clearVisible: true
+                clearVisible: true,
+                restoreVisible: canRestorePurchase(user)
             };
         }
 
@@ -447,7 +440,8 @@
                 primaryText: 'Checking account...',
                 primaryDisabled: true,
                 secondaryVisible: true,
-                clearVisible: false
+                clearVisible: false,
+                restoreVisible: canRestorePurchase(user)
             };
         }
 
@@ -456,11 +450,12 @@
                 mode: 'checkout-disabled',
                 title: 'Premium checkout is paused',
                 eyebrow: 'Beta safety',
-                body: getCheckoutDisabledMessage(),
+                body: restoreStatusMessage || getCheckoutDisabledMessage(),
                 primaryText: 'Checkout paused',
                 primaryDisabled: true,
                 secondaryVisible: true,
-                clearVisible: returnState !== null
+                clearVisible: returnState !== null,
+                restoreVisible: canRestorePurchase(user)
             };
         }
 
@@ -519,7 +514,7 @@
                 primaryText: 'Continue to secure checkout',
                 secondaryVisible: true,
                 clearVisible: returnState === 'canceled',
-                restoreVisible: isLemonSqueezyEntitlement(entitlement)
+                restoreVisible: canRestorePurchase(user)
             };
         }
 
@@ -528,10 +523,11 @@
             mode: 'free',
             title: freeCopy.title,
             eyebrow: freeCopy.eyebrow,
-            body: freeCopy.body,
+            body: restoreStatusMessage || freeCopy.body,
             primaryText: freeCopy.primaryText,
             secondaryVisible: true,
-            clearVisible: returnState !== null
+            clearVisible: returnState !== null,
+            restoreVisible: canRestorePurchase(user)
         };
     }
 
@@ -597,7 +593,7 @@
 
         if (mode === 'canceled') {
             setText('profile-premium-status', 'Checkout canceled');
-            setText('profile-premium-copy', 'No charge was made. Your account is still on Free.');
+            setText('profile-premium-copy', state.body);
             setButtonState(getElement('profile-premium-action'), {
                 text: 'Continue to secure checkout',
                 mode
@@ -606,7 +602,7 @@
         }
 
         setText('profile-premium-status', mode === 'inactive' ? 'Premium inactive' : 'Free plan');
-        setText('profile-premium-copy', mode === 'inactive' ? state.body : 'Upgrade for visited-aware filters, map styles, trail controls, and global towns.');
+        setText('profile-premium-copy', state.body || 'Upgrade for visited-aware filters, map styles, trail controls, and global towns.');
         setButtonState(getElement('profile-premium-action'), {
             text: 'Upgrade',
             mode

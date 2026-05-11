@@ -1,0 +1,186 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function protectedUserKeys() {
+      return [
+        'entitlement',
+        'premium',
+        'premiumStatus',
+        'subscription',
+        'subscriptions',
+        'plan',
+        'manualOverride',
+        'providerCustomerId',
+        'providerSubscriptionId',
+        'stripeCustomerId',
+        'stripeSubscriptionId',
+        'lemonSqueezyCustomerId',
+        'lemonSqueezySubscriptionId',
+        'currentPeriodEnd',
+        'source',
+        'status',
+        'checkoutSessionId',
+        'provider',
+        'paymentProvider',
+        'paymentStatus',
+        'isAdmin',
+        'admin',
+        'role',
+        'roles',
+        'customClaims'
+      ];
+    }
+
+    function createsNoProtectedUserKeys() {
+      return !request.resource.data.keys().hasAny(protectedUserKeys());
+    }
+
+    function changesNoProtectedUserKeys() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedUserKeys());
+    }
+
+    function freeVisitedPlaceLimit() {
+      return 5;
+    }
+
+    function hasActivePremiumEntitlement(data) {
+      return data.keys().hasAny(['entitlement'])
+        && data.entitlement is map
+        && data.entitlement.keys().hasAll(['premium', 'status'])
+        && data.entitlement.premium == true
+        && (
+          data.entitlement.status in ['active', 'manual_active', 'past_due', 'cancelled_active']
+          || (
+            data.entitlement.status == 'access_code_active'
+            && data.entitlement.source == 'access_code'
+            && data.entitlement.keys().hasAny(['expiresAt'])
+            && data.entitlement.expiresAt is timestamp
+            && data.entitlement.expiresAt > request.time
+          )
+        );
+    }
+
+    function hasValidVisitedPlacesShape(data) {
+      return !data.keys().hasAny(['visitedPlaces'])
+        || data.visitedPlaces is list;
+    }
+
+    function withinFreeVisitedPlaceLimit(data) {
+      return !data.keys().hasAny(['visitedPlaces'])
+        || data.visitedPlaces.size() <= freeVisitedPlaceLimit();
+    }
+
+    function shrinksLegacyOverLimitVisitedPlaces() {
+      return resource.data.keys().hasAny(['visitedPlaces'])
+        && request.resource.data.keys().hasAny(['visitedPlaces'])
+        && resource.data.visitedPlaces is list
+        && request.resource.data.visitedPlaces is list
+        && resource.data.visitedPlaces.size() > freeVisitedPlaceLimit()
+        && request.resource.data.visitedPlaces.size() < resource.data.visitedPlaces.size();
+    }
+
+    function createsValidVisitedPlacesForPlan() {
+      return hasValidVisitedPlacesShape(request.resource.data)
+        && (hasActivePremiumEntitlement(request.resource.data) || withinFreeVisitedPlaceLimit(request.resource.data));
+    }
+
+    function changesVisitedPlaces() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny(['visitedPlaces']);
+    }
+
+    function updatesValidVisitedPlacesForPlan() {
+      return !changesVisitedPlaces()
+        || (
+          hasValidVisitedPlacesShape(request.resource.data)
+          && (
+            hasActivePremiumEntitlement(resource.data)
+            || withinFreeVisitedPlaceLimit(request.resource.data)
+            || shrinksLegacyOverLimitVisitedPlaces()
+          )
+        );
+    }
+
+    function hasSavedRoutePremiumAccess(uid) {
+      return isOwner(uid)
+        && exists(/databases/$(database)/documents/users/$(uid))
+        && hasActivePremiumEntitlement(get(/databases/$(database)/documents/users/$(uid)).data);
+    }
+
+    function achievementWritableKeys() {
+      return [
+        'achievementId',
+        'tier',
+        'dateEarned'
+      ];
+    }
+
+    function isValidAchievementWrite(achievementId) {
+      return request.resource.data.keys().hasOnly(achievementWritableKeys())
+        && request.resource.data.achievementId == achievementId
+        && request.resource.data.achievementId is string
+        && request.resource.data.tier in ['honor', 'verified']
+        && request.resource.data.dateEarned is timestamp;
+    }
+
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && createsNoProtectedUserKeys() && createsValidVisitedPlacesForPlan();
+      allow update: if isOwner(uid) && changesNoProtectedUserKeys() && updatesValidVisitedPlacesForPlan();
+      allow delete: if false;
+
+      match /savedRoutes/{routeId} {
+        allow read, create, update: if hasSavedRoutePremiumAccess(uid);
+        allow delete: if isOwner(uid);
+      }
+
+      match /achievements/{achievementId} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid) && isValidAchievementWrite(achievementId);
+        allow delete: if false;
+      }
+
+      match /{document=**} {
+        allow read, write: if false;
+      }
+    }
+
+    match /leaderboard/{uid} {
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
+
+    match /accessCodes/{codeHash} {
+      allow read, write: if false;
+    }
+
+    match /accessCodeRedemptions/{redemptionId} {
+      allow read, write: if false;
+    }
+
+    match /feedback/{feedbackId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /_feedbackRateLimits/{rateLimitId} {
+      allow read, write: if false;
+    }
+
+    match /system/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

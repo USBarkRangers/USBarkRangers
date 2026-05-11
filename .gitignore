@@ -1,8 +1,25 @@
 node_modules/
-functions/node_modules/
+01-code/functions/node_modules/
 .DS_Store
+.firebase/
+firebase-debug.log
+firestore-debug.log
+*.log
+03-tests/results/
+playwright-report/
+.env
+.env.*
+!.env.example
+serviceAccount*.json
 Bark Ranger Map Auth Service Account.json
 BarkRangerMap Auth.json
 *Service Account*.json
 *service-account*.json
 *service_account*.json
+*private-key*.json
+*private_key*.json
+
+# Playwright login/session files - DO NOT COMMIT
+03-tests/.auth/
+*.storageState.json
+storageState*.json

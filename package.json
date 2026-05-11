@@ -1,6 +1,30 @@
 {
   "name": "functions",
   "description": "Cloud Functions for Firebase",
+  "scripts": {
+    "e2e:auth:save": "node 03-tests/playwright/save-storage-state.js",
+    "e2e:auth:save:manual": "node 05-tools/scripts/save-playwright-storage-state.js all",
+    "e2e:auth:save:free": "node 05-tools/scripts/save-playwright-storage-state.js free",
+    "e2e:auth:save:free-b": "node 05-tools/scripts/save-playwright-storage-state.js free-b",
+    "e2e:auth:save:premium": "node 05-tools/scripts/save-playwright-storage-state.js premium",
+    "save:e2e:free": "node 05-tools/scripts/save-playwright-storage-state.js free",
+    "save:e2e:free-b": "node 05-tools/scripts/save-playwright-storage-state.js free-b",
+    "save:e2e:premium": "node 05-tools/scripts/save-playwright-storage-state.js premium",
+    "test:unit": "node --test 03-tests/*.test.js",
+    "test:functions": "npm --prefix 01-code/functions test",
+    "test:e2e:auth-ui": "playwright test 03-tests/playwright/account-auth-smoke.spec.js --reporter=list",
+    "test:e2e:phase1b": "playwright test 03-tests/playwright/phase1b-visited-smoke.spec.js --reporter=list",
+    "test:e2e:account-switch": "playwright test 03-tests/playwright/phase3a-account-switch-smoke.spec.js --reporter=list",
+    "test:e2e:profile-manage": "playwright test 03-tests/playwright/phase3a-profile-manage-smoke.spec.js --reporter=list",
+    "test:e2e:trip-visited": "playwright test 03-tests/playwright/phase3a-trip-planner-visited-smoke.spec.js --reporter=list",
+    "test:e2e:settings": "playwright test 03-tests/playwright/phase3a-settings-persistence-smoke.spec.js --reporter=list",
+    "test:e2e:smoke": "playwright test 03-tests/playwright/bark-app-identity-smoke.spec.js 03-tests/playwright/bug004-static-fallback-data-smoke.spec.js 03-tests/playwright/bug007-route-bookends-smoke.spec.js 03-tests/playwright/bug026-trip-save-custom-stop-smoke.spec.js 03-tests/playwright/bug027-route-only-filter-smoke.spec.js 03-tests/playwright/bug028-fixed-ui-scroll-guard-smoke.spec.js 03-tests/playwright/phase1b-visited-smoke.spec.js 03-tests/playwright/bug015-free-visited-limit-smoke.spec.js 03-tests/playwright/bug016-route-generation-gating-smoke.spec.js 03-tests/playwright/bug017-product-rules-audit-smoke.spec.js 03-tests/playwright/bug021-route-upgrade-prompt-smoke.spec.js 03-tests/playwright/bug022-settings-cloud-sync-policy-smoke.spec.js 03-tests/playwright/bug023-cluster-ghost-smoke.spec.js 03-tests/playwright/bug024-settings-nav-smoke.spec.js 03-tests/playwright/phase3a-premium-gating-smoke.spec.js 03-tests/playwright/phase3a-account-switch-smoke.spec.js 03-tests/playwright/phase3a-settings-persistence-smoke.spec.js 03-tests/playwright/phase3a-profile-manage-smoke.spec.js 03-tests/playwright/phase3a-trip-planner-visited-smoke.spec.js --workers=1 --reporter=list",
+    "test:e2e:premium": "playwright test 03-tests/playwright/phase3a-premium-gating-smoke.spec.js --reporter=list",
+    "test:e2e:entitlement": "playwright test 03-tests/playwright/phase4c-premium-entitlement-smoke.spec.js --reporter=list",
+    "test:e2e:global-search": "playwright test 03-tests/playwright/phase4c-global-search-entitlement-smoke.spec.js --reporter=list",
+    "test:rules": "PATH=\"${BARK_NODE20_BIN:-$HOME/.nvm/versions/node/v20.20.2/bin}:$PATH\" sh -c 'firebase emulators:exec --only firestore \"node --test 03-tests/rules/firestore-entitlement.rules.test.js\"; status=$?; mkdir -p 04-docs/run-logs; mv -f firebase-debug.log firestore-debug.log 04-docs/run-logs/ 2>/dev/null || true; exit $status'",
+    "test:functions:emulator": "PATH=\"${BARK_NODE20_BIN:-$HOME/.nvm/versions/node/v20.20.2/bin}:$PATH\" BARK_ORS_EMULATOR_STUB=1 ORS_API_KEY=emulator-test-key NODE_OPTIONS=\"--require=$PWD/01-code/functions/tests/ors-emulator-http-stub.js\" sh -c 'backup=\"\"; if [ -e 01-code/functions/.secret.local ]; then backup=\"$(mktemp)\"; cp 01-code/functions/.secret.local \"$backup\"; fi; cleanup() { if [ -n \"$backup\" ]; then cp \"$backup\" 01-code/functions/.secret.local; rm -f \"$backup\"; else rm -f 01-code/functions/.secret.local; fi; }; trap cleanup EXIT; printf \"ORS_API_KEY=emulator-test-key\\n\" > 01-code/functions/.secret.local; firebase emulators:exec --project demo-bark-ranger-callable-test --only auth,firestore,functions \"node --test 01-code/functions/tests/ors-callable-emulator.test.js\"; status=$?; mkdir -p 04-docs/run-logs; mv -f firebase-debug.log firestore-debug.log 04-docs/run-logs/ 2>/dev/null || true; exit $status'"
+  },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "axios": "^1.15.0",
@@ -12,5 +36,12 @@
     "node": "20"
   },
   "main": "index.js",
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "@playwright/test": "^1.59.1",
+    "firebase": "^11.10.0",
+    "firebase-tools": "^14.26.0",
+    "nock": "^13.5.6"
+  }
 }

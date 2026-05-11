@@ -1,33 +1,58 @@
 {
   "functions": [
     {
-      "source": "functions",
+      "source": "01-code/functions",
       "codebase": "default",
       "ignore": [
         "node_modules",
         ".git",
+        ".secret.local",
         "firebase-debug.log",
-        "firebase-debug.*.log"
+        "firebase-debug.*.log",
+        "firestore-debug.log",
+        "firestore-debug.*.log",
+        "*.log",
+        ".env",
+        ".env.*",
+        ".env*"
       ]
     }
   ],
+  "firestore": {
+    "rules": "06-config/firestore.rules"
+  },
+  "emulators": {
+    "auth": {
+      "port": 9099
+    },
+    "functions": {
+      "port": 5001
+    },
+    "firestore": {
+      "port": 8080
+    }
+  },
   "hosting": {
-    "public": ".",
+    "public": "01-code/app",
     "ignore": [
       "firebase.json",
       ".firebaserc",
+      ".firebase",
+      ".firebase/**",
+      ".git",
+      ".git/**",
+      ".github",
+      ".github/**",
       "**/.*",
+      "**/.*/**",
       "**/.DS_Store",
       "**/node_modules/**",
-      "functions/**",
-      "raw_trails/**",
-      "data/**",
-      "scripts/**",
+      "node_modules/**",
       "legacy/**",
-      "tests/**",
-      "plans/**",
-      "docs/**",
+      "playwright-report/**",
+      "coverage/**",
       "**/*.md",
+      "playwright.config.js",
       "package.json",
       "package-lock.json",
       "BarkRangerMap Auth.json",
@@ -36,7 +61,32 @@
       "*service_account*.json",
       "firebase-debug.log",
       "firebase-debug.*.log",
+      "firestore-debug.log",
+      "firestore-debug.*.log",
+      ".env",
+      ".env.*",
+      ".env*",
       "*.log"
+    ],
+    "headers": [
+      {
+        "source": "**/*.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/services/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      }
     ]
   }
 }

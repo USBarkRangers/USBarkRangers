@@ -6,6 +6,50 @@
     window.BARK = window.BARK || {};
 
     const byId = (id) => () => document.getElementById(id);
+    const dismissableOverlays = [];
+    let escapeDismissBound = false;
+
+    function isOverlayActive(entry) {
+        const overlay = entry.overlay;
+        if (typeof entry.isActive === 'function') return entry.isActive(overlay);
+        if (overlay.classList.contains('active')) return true;
+        if (overlay.getAttribute('aria-hidden') === 'false') return true;
+        return overlay.style.display === 'flex';
+    }
+
+    function getOverlayZIndex(entry, index) {
+        const rawZIndex = window.getComputedStyle(entry.overlay).zIndex;
+        const parsedZIndex = Number.parseInt(rawZIndex, 10);
+        return Number.isFinite(parsedZIndex) ? parsedZIndex : index;
+    }
+
+    function ensureEscapeDismiss() {
+        if (escapeDismissBound) return;
+        escapeDismissBound = true;
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape') return;
+
+            const activeEntries = dismissableOverlays
+                .filter(entry => entry.closeOnEscape !== false && isOverlayActive(entry));
+            if (activeEntries.length === 0) return;
+
+            const topEntry = activeEntries.reduce((top, entry) => {
+                const topIndex = dismissableOverlays.indexOf(top);
+                const entryIndex = dismissableOverlays.indexOf(entry);
+                const topZIndex = getOverlayZIndex(top, topIndex);
+                const entryZIndex = getOverlayZIndex(entry, entryIndex);
+                return entryZIndex >= topZIndex ? entry : top;
+            });
+
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof event.stopImmediatePropagation === 'function') {
+                event.stopImmediatePropagation();
+            }
+            topEntry.onDismiss(event);
+        }, true);
+    }
 
     function bindDismissableOverlay(options) {
         const overlay = typeof options.overlay === 'string'
@@ -18,15 +62,18 @@
         if (overlay.dataset[boundKey] === 'true') return;
         overlay.dataset[boundKey] = 'true';
 
+        const entry = {
+            overlay,
+            onDismiss,
+            closeOnEscape: options.closeOnEscape,
+            isActive: options.isActive
+        };
+        dismissableOverlays.push(entry);
+        ensureEscapeDismiss();
+
         const getSurface = () => {
             if (options.surface && typeof options.surface !== 'string') return options.surface;
             return options.surface ? overlay.querySelector(options.surface) : overlay.firstElementChild;
-        };
-        const isActive = () => {
-            if (typeof options.isActive === 'function') return options.isActive(overlay);
-            if (overlay.classList.contains('active')) return true;
-            if (overlay.getAttribute('aria-hidden') === 'false') return true;
-            return overlay.style.display === 'flex';
         };
         const isInsideSurface = (target) => {
             const surface = getSurface();
@@ -36,12 +83,12 @@
         let pointerStartedOutside = false;
 
         document.addEventListener('pointerdown', (event) => {
-            if (!isActive()) return;
+            if (!isOverlayActive(entry)) return;
             pointerStartedOutside = !isInsideSurface(event.target);
         }, true);
 
         document.addEventListener('click', (event) => {
-            if (!isActive()) return;
+            if (!isOverlayActive(entry)) return;
             const clickedOutside = !isInsideSurface(event.target);
             if (!pointerStartedOutside && !clickedOutside) return;
             pointerStartedOutside = false;

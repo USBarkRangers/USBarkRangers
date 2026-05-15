@@ -403,6 +403,15 @@ async function evaluateAchievements(visitedPlacesMap) {
     };
 
     const esc = (str) => String(str || '').replace(/'/g, "\\'");
+    const escAttr = (str) => String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    const getFlipSceneAttrs = (b) => {
+        if (b.status !== 'unlocked') return 'class="flip-scene"';
+        return `class="flip-scene is-unlocked" role="button" tabindex="0" aria-pressed="false" aria-label="Flip ${escAttr(b.name)} badge"`;
+    };
 
     const renderStateBadge = (b) => {
         const isU = b.status === 'unlocked';
@@ -425,7 +434,7 @@ async function evaluateAchievements(visitedPlacesMap) {
         }
 
         return `
-        <div class="flip-scene">
+        <div ${getFlipSceneAttrs(b)}>
             <div class="skeuo-badge ${tCl} ${isU ? 'unlocked hover-float' : 'locked'}">
                 <div class="badge-face badge-front">
                     <div class="badge-icon">${b.icon}</div>
@@ -453,7 +462,7 @@ async function evaluateAchievements(visitedPlacesMap) {
         const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${esc(b.name)}', '${esc(b.icon)}', '${esc(b.tier)}', false, '${esc(sub)}')" style="margin-top: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; color: white; font-size: 9px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">📸 SHARE</button>` : '';
 
         return `
-        <div class="flip-scene">
+        <div ${getFlipSceneAttrs(b)}>
             <div class="skeuo-badge ${tCl} ${isU ? 'unlocked hover-float' : 'locked'}">
                 <div class="badge-face badge-front">
                     <div class="badge-icon">${b.icon}</div>
@@ -548,6 +557,24 @@ async function evaluateAchievements(visitedPlacesMap) {
 
     window.BARK.safeUpdateHTML('states-grid', nationalCardHtml + achievements.stateBadges.map(renderStateBadge).join(''));
     window.BARK.safeUpdateHTML('mystery-feats-dossier', achievements.mysteryFeats.map(renderDossier).join(''));
+
+    document.querySelectorAll('.flip-scene.is-unlocked').forEach(scene => {
+        const toggleFlip = () => {
+            const isFlipped = scene.classList.toggle('is-flipped');
+            scene.setAttribute('aria-pressed', isFlipped ? 'true' : 'false');
+        };
+
+        scene.onclick = (event) => {
+            if (event.target.closest('button, a, input, select, textarea')) return;
+            toggleFlip();
+        };
+
+        scene.onkeydown = (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            toggleFlip();
+        };
+    });
 
     // Re-bind tab listeners
     document.querySelectorAll('.tab-btn').forEach(btn => {

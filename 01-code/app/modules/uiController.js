@@ -198,6 +198,16 @@ function initUIEventListeners() {
         const el = document.getElementById(id);
         if (el) el.addEventListener('click', handler);
     };
+    const bindDisplayModalDismiss = (id, surface) => {
+        const modal = document.getElementById(id);
+        const bindDismissableOverlay = window.BARK.DOM && window.BARK.DOM.bindDismissableOverlay;
+        if (!modal || typeof bindDismissableOverlay !== 'function') return;
+        bindDismissableOverlay({
+            overlay: modal,
+            surface,
+            onDismiss: () => { modal.style.display = 'none'; }
+        });
+    };
 
     // ====== STATIC INLINE HANDLER REPLACEMENTS ======
     bindClick('auto-sort-day-btn', () => {
@@ -245,6 +255,10 @@ function initUIEventListeners() {
         const modal = document.getElementById('trail-education-modal');
         if (modal) modal.style.display = 'none';
     });
+
+    bindDisplayModalDismiss('scoring-modal', '.scoring-modal-card');
+    bindDisplayModalDismiss('optimizer-modal', '.scoring-modal-card');
+    bindDisplayModalDismiss('trail-education-modal', '.scoring-modal-card');
 }
 
 initUIEventListeners();

@@ -1360,9 +1360,18 @@ function initTripPlanner() {
     if (routeChoiceCancelBtn) routeChoiceCancelBtn.onclick = closeRouteGenerationChoiceModal;
     if (routeChoiceCloseBtn) routeChoiceCloseBtn.onclick = closeRouteGenerationChoiceModal;
     if (routeChoiceModal) {
-        routeChoiceModal.onclick = (event) => {
-            if (event && event.target === routeChoiceModal) closeRouteGenerationChoiceModal();
-        };
+        const bindDismissableOverlay = window.BARK.DOM && window.BARK.DOM.bindDismissableOverlay;
+        if (typeof bindDismissableOverlay === 'function') {
+            bindDismissableOverlay({
+                overlay: routeChoiceModal,
+                surface: '.route-generation-choice-card',
+                onDismiss: closeRouteGenerationChoiceModal
+            });
+        } else {
+            routeChoiceModal.onclick = (event) => {
+                if (event && event.target === routeChoiceModal) closeRouteGenerationChoiceModal();
+            };
+        }
     }
 
     if (startRouteBtn) {

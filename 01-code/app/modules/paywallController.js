@@ -883,9 +883,18 @@
         const overlay = getElement('paywall-overlay');
         if (overlay && overlay.dataset.paywallBound !== 'true') {
             overlay.dataset.paywallBound = 'true';
-            overlay.addEventListener('click', (event) => {
-                if (event.target === overlay) closePaywall();
-            });
+            const bindDismissableOverlay = window.BARK.DOM && window.BARK.DOM.bindDismissableOverlay;
+            if (typeof bindDismissableOverlay === 'function') {
+                bindDismissableOverlay({
+                    overlay,
+                    surface: '.paywall-modal',
+                    onDismiss: closePaywall
+                });
+            } else {
+                overlay.addEventListener('click', (event) => {
+                    if (event.target === overlay) closePaywall();
+                });
+            }
         }
 
         document.addEventListener('keydown', (event) => {

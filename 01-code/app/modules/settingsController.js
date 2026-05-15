@@ -519,7 +519,16 @@ window.BARK.initSettings = function initSettings() {
         window.BARK.closeSettingsModal = closeSettings;
 
         if (closeSettingsBtn) closeSettingsBtn.addEventListener('click', closeSettings);
-        settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) closeSettings(); });
+        const bindDismissableOverlay = window.BARK.DOM && window.BARK.DOM.bindDismissableOverlay;
+        if (typeof bindDismissableOverlay === 'function') {
+            bindDismissableOverlay({
+                overlay: settingsOverlay,
+                surface: '#settings-modal',
+                onDismiss: closeSettings
+            });
+        } else {
+            settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) closeSettings(); });
+        }
 
         if (motionToggle) {
             motionToggle.checked = window.reducePinMotion;

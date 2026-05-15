@@ -1010,9 +1010,18 @@
         const accountGateOverlay = getElement('account-gate-overlay');
         if (accountGateOverlay && accountGateOverlay.dataset.accountOverlayBound !== 'true') {
             accountGateOverlay.dataset.accountOverlayBound = 'true';
-            accountGateOverlay.addEventListener('click', (event) => {
-                if (event.target === accountGateOverlay) closeAccountPrompt();
-            });
+            const bindDismissableOverlay = window.BARK.DOM && window.BARK.DOM.bindDismissableOverlay;
+            if (typeof bindDismissableOverlay === 'function') {
+                bindDismissableOverlay({
+                    overlay: accountGateOverlay,
+                    surface: '.account-gate-modal',
+                    onDismiss: closeAccountPrompt
+                });
+            } else {
+                accountGateOverlay.addEventListener('click', (event) => {
+                    if (event.target === accountGateOverlay) closeAccountPrompt();
+                });
+            }
         }
 
         document.addEventListener('keydown', (event) => {

@@ -7,8 +7,54 @@
 
     const byId = (id) => () => document.getElementById(id);
 
+    function bindDismissableOverlay(options) {
+        const overlay = typeof options.overlay === 'string'
+            ? document.getElementById(options.overlay)
+            : options.overlay;
+        const onDismiss = options.onDismiss;
+        if (!overlay || typeof onDismiss !== 'function') return;
+
+        const boundKey = options.boundKey || 'barkDismissBound';
+        if (overlay.dataset[boundKey] === 'true') return;
+        overlay.dataset[boundKey] = 'true';
+
+        const getSurface = () => {
+            if (options.surface && typeof options.surface !== 'string') return options.surface;
+            return options.surface ? overlay.querySelector(options.surface) : overlay.firstElementChild;
+        };
+        const isActive = () => {
+            if (typeof options.isActive === 'function') return options.isActive(overlay);
+            if (overlay.classList.contains('active')) return true;
+            if (overlay.getAttribute('aria-hidden') === 'false') return true;
+            return overlay.style.display === 'flex';
+        };
+        const isInsideSurface = (target) => {
+            const surface = getSurface();
+            return Boolean(surface && target && surface.contains(target));
+        };
+
+        let pointerStartedOutside = false;
+
+        document.addEventListener('pointerdown', (event) => {
+            if (!isActive()) return;
+            pointerStartedOutside = !isInsideSurface(event.target);
+        }, true);
+
+        document.addEventListener('click', (event) => {
+            if (!isActive()) return;
+            const clickedOutside = !isInsideSurface(event.target);
+            if (!pointerStartedOutside && !clickedOutside) return;
+            pointerStartedOutside = false;
+            if (!clickedOutside) return;
+            event.preventDefault();
+            event.stopPropagation();
+            onDismiss(event);
+        }, true);
+    }
+
     window.BARK.DOM = {
         byId,
+        bindDismissableOverlay,
 
         map: byId('map'),
         barkLoader: byId('bark-loader'),

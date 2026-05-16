@@ -51,7 +51,7 @@ async function installCheckoutHarness(page, options = {}) {
 }
 
 test.describe('Lemon-only coupon checkout flow', () => {
-    test('Premium modal shows an optional Lemon discount code field', async ({ page }) => {
+    test('Premium modal does not show app-side discount or access-code fields', async ({ page }) => {
         await openApp(page);
         await installCheckoutHarness(page, {
             user: {
@@ -65,9 +65,10 @@ test.describe('Lemon-only coupon checkout flow', () => {
         await page.evaluate(() => window.BARK.paywall.openPaywall({ source: 'manual-upgrade-check' }));
 
         await expect(page.locator('#paywall-overlay')).toHaveClass(/active/);
-        await expect(page.locator('#paywall-discount-code-input')).toBeVisible();
+        await expect(page.locator('#paywall-discount-code-input')).toHaveCount(0);
         await expect(page.locator('#paywall-promo-code-input')).toHaveCount(0);
         await expect(page.locator('#paywall-promo-code-btn')).toHaveCount(0);
+        await expect(page.locator('input[id*="coupon"], input[id*="promo"], input[id*="beta"], input[id*="access"], input[id*="discount"]')).toHaveCount(0);
         await expect(page.locator('.paywall-support-copy')).toContainText('Payment and coupon codes are handled securely by Lemon Squeezy');
     });
 
@@ -104,29 +105,6 @@ test.describe('Lemon-only coupon checkout flow', () => {
         await page.locator('#paywall-primary-btn').click();
 
         await page.waitForURL(`${CHECKOUT_URL}?payload=%7B%7D`, { timeout: 10000 });
-    });
-
-    test('signed-in user can send a sanitized discount code to Lemon checkout', async ({ page }) => {
-        await page.route('https://usbarkrangers.lemonsqueezy.com/**', route => route.fulfill({
-            status: 200,
-            contentType: 'text/html',
-            body: '<!doctype html><title>Lemon Checkout</title><h1>Lemon Checkout</h1>'
-        }));
-        await openApp(page);
-        await installCheckoutHarness(page, {
-            user: {
-                uid: 'coupon-checkout-user',
-                email: 'coupon-checkout@example.test',
-                emailVerified: true,
-                providerData: [{ providerId: 'password' }]
-            }
-        });
-
-        await page.evaluate(() => window.BARK.paywall.openPaywall({ source: 'profile-premium-card' }));
-        await page.locator('#paywall-discount-code-input').fill('admin-2026 test!');
-        await page.locator('#paywall-primary-btn').click();
-
-        await page.waitForURL(`${CHECKOUT_URL}?payload=%7B%22discountCode%22%3A%22ADMIN2026TEST%22%7D`, { timeout: 10000 });
     });
 
     test('unverified email/password user is blocked before Lemon checkout', async ({ page }) => {

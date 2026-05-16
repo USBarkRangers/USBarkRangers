@@ -523,7 +523,7 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
   - Removed the paywall UI path that called `redeemAccessOrPromoCode`.
   - Disabled `redeemAccessOrPromoCode` for new server-side redemptions; it now tells callers to enter coupon codes on the Lemon checkout page.
   - Kept legacy `source: access_code` entitlement evaluation/display compatibility only for any existing records until `expiresAt`.
-  - Kept optional sanitized `discountCode` support inside `createCheckoutSession` for future controlled prefilled checkout links.
+  - Keeps coupon entry inside Lemon Squeezy checkout only; `createCheckoutSession` does not accept or prefill coupon payloads.
 - Lemon discount-field finding:
   - The app does not set `checkout_options.discount: false`.
   - If Lemon's discount field is missing, the likely cause is Lemon dashboard/test-mode discount setup: discount-code toggle off, no active test-mode discount for the product/variant, live/test-mode mismatch, expired/limited discount, or a stale checkout URL.
@@ -531,4 +531,4 @@ Scope: Stage 0 hardening only. Lemon Squeezy remains intentionally locked in tes
   - Replaced the old promo/access-code runbook with `plans/LEMON_COUPON_RUNBOOK.md`.
 - Tests:
   - Added `tests/playwright/lemon-coupon-checkout-smoke.spec.js`.
-  - Updated `functions/tests/lemon-coupon.test.js` to assert old app-side redemption is disabled and Lemon checkout still supports optional `checkout_data.discount_code`.
+  - Updated `functions/tests/lemon-coupon.test.js` to assert old app-side redemption is disabled and app checkouts do not pass coupon payloads.

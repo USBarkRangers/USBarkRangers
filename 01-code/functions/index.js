@@ -409,11 +409,6 @@ function getNowMs(options = {}) {
     return Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
 }
 
-function normalizePromoCode(value) {
-    const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
-    return SAFE_PROMO_CODE_PATTERN.test(normalized) ? normalized : null;
-}
-
 function normalizeEntitlement(raw, options = {}) {
     const value = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
     const status = typeof value.status === "string" && value.status.trim()
@@ -982,7 +977,6 @@ const LEMONSQUEEZY_EVENT_STATUS_RANK = Object.freeze({
     expired: 500,
     refunded: 600
 });
-const SAFE_PROMO_CODE_PATTERN = /^[A-Z0-9]{3,64}$/;
 const ACCESS_CODE_AUDIENCES = new Set(["admin_mod", "vip", "support", "tester", "general"]);
 
 function cleanOptionalString(value) {
@@ -1080,13 +1074,12 @@ function buildCheckoutReturnUrl(appBaseUrl, state) {
     return url.toString();
 }
 
-function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config, discountCode = null }) {
+function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config }) {
     const mode = getLemonSqueezyModeConfig(config);
     const successUrl = buildCheckoutReturnUrl(config.appBaseUrl, "success");
     const cancelUrl = buildCheckoutReturnUrl(config.appBaseUrl, "canceled");
     const email = cleanOptionalString(token.email);
     const name = cleanOptionalString(token.name) || cleanOptionalString(token.displayName);
-    const safeDiscountCode = discountCode ? normalizePromoCode(discountCode) : null;
     const checkoutData = {
         custom: {
             firebase_uid: uid,
@@ -1098,7 +1091,6 @@ function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config, discountCod
 
     if (email) checkoutData.email = email;
     if (name) checkoutData.name = name;
-    if (safeDiscountCode) checkoutData.discount_code = safeDiscountCode;
 
     return {
         data: {
@@ -1428,15 +1420,9 @@ async function handleRestorePremiumPurchase(requestOrData, context, options = {}
 async function handleCreateCheckoutSession(requestOrData, context, options = {}) {
     requireFunctionFlagEnabled("createCheckoutSession", options);
     const uid = requireVerifiedEmailCallable(context);
-    const data = getCallablePayload(requestOrData);
-    const rawDiscountCode = data && data.discountCode;
-    const discountCode = rawDiscountCode ? normalizePromoCode(rawDiscountCode) : null;
-    if (rawDiscountCode && !discountCode) {
-        throw new functions.https.HttpsError("invalid-argument", "Discount code format is not supported.");
-    }
     const config = getLemonSqueezyConfig(options);
     const token = context && context.auth && context.auth.token ? context.auth.token : {};
-    const payload = buildLemonSqueezyCheckoutPayload({ uid, token, config, discountCode });
+    const payload = buildLemonSqueezyCheckoutPayload({ uid, token, config });
     const post = options.axiosPost || axios.post;
 
     try {
@@ -2293,7 +2279,6 @@ if (process.env.NODE_ENV === "test") {
         getLemonSqueezyModeConfig,
         shouldAcceptLemonSqueezyWebhookMode,
         buildCheckoutReturnUrl,
-        normalizePromoCode,
         buildLemonSqueezyCheckoutPayload,
         extractLemonSqueezyCheckoutUrl,
         extractLemonSqueezyCustomerPortalUrl,

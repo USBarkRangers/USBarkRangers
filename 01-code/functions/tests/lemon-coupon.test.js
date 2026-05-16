@@ -94,7 +94,7 @@ describe("Lemon checkout discount support", () => {
         assert.equal(attributes.checkout_data.custom.firebase_uid, "checkout-user");
     });
 
-    it("passes safe discount codes into Lemon checkout_data while staying in test mode", async () => {
+    it("keeps coupon entry inside Lemon checkout and ignores client discount payloads", async () => {
         let capturedBody = null;
         await handleCreateCheckoutSession(
             { discountCode: "launch20" },
@@ -116,28 +116,10 @@ describe("Lemon checkout discount support", () => {
             }
         );
 
-        assert.equal(capturedBody.data.attributes.checkout_data.discount_code, "LAUNCH20");
+        assert.equal(capturedBody.data.attributes.checkout_data.discount_code, undefined);
         assert.equal(capturedBody.data.attributes.checkout_data.custom.firebase_uid, "checkout-user");
         assert.equal(capturedBody.data.attributes.test_mode, true);
         assert.deepEqual(capturedBody.data.attributes.checkout_options, { discount: true });
-    });
-
-    it("rejects unsafe discount code strings before calling Lemon Squeezy", async () => {
-        let calls = 0;
-        await assertRejectsCode(
-            handleCreateCheckoutSession(
-                { discountCode: "bad code<script>" },
-                authedContext("unsafe-user"),
-                {
-                    apiKey: "test-api-key",
-                    axiosPost: async () => {
-                        calls += 1;
-                    }
-                }
-            ),
-            "invalid-argument"
-        );
-        assert.equal(calls, 0);
     });
 
     it("treats old access-code entitlements as premium only until expiresAt", () => {

@@ -19,8 +19,8 @@ No app-side code grants Premium directly. There is no BARK-managed coupon/admin 
 ## Current App Behavior
 
 - The BARK paywall modal does not show a `Promo / Access Code` input.
-- The checkout callable still supports an optional sanitized `discountCode` parameter for future/internal prefilled checkout links, but normal users do not enter codes in the app.
-- The default checkout payload does not set `checkout_options.discount: false`, so the app is not intentionally hiding Lemon's discount field.
+- The checkout callable does not accept or prefill discount-code payloads; users enter discount codes only on Lemon's hosted checkout.
+- The checkout payload sets `checkout_options.discount: true`, so Lemon's hosted checkout is allowed to show its discount-code field.
 - Checkout remains test-mode-only through `attributes.test_mode: true`.
 - The old `redeemAccessOrPromoCode` callable is disabled for new redemptions and returns a clean message telling users to enter codes at Lemon checkout.
 - Existing legacy `source: access_code` entitlements, if any exist, are still displayed as billing-free compatibility states until their `expiresAt` date. Do not create new ones.
@@ -85,12 +85,6 @@ Example launch discount:
 6. Test in Lemon test-mode checkout before sharing.
 
 Use uppercase letters and numbers for Lemon coupon codes, matching Lemon's API guidance. Avoid spaces and punctuation.
-
-## Optional Prefilled Discount Checkout
-
-The backend still supports a sanitized optional `discountCode` parameter on `createCheckoutSession`.
-
-That path is for future controlled links or admin tooling only. It passes the code as Lemon `checkout_data.discount_code` and does not grant Premium directly. Premium still activates only from Lemon webhook confirmation.
 
 ## Testing Checklist
 

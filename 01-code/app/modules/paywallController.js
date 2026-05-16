@@ -19,8 +19,6 @@
     let checkoutInFlight = false;
     let restorePurchaseInFlight = false;
     let restoreStatusMessage = null;
-    let discountCodeValue = '';
-    let discountStatusMessage = '';
     let unsubscribePremium = null;
     let verificationFallbackTimer = null;
 
@@ -158,27 +156,6 @@
         button.textContent = options.text;
         button.disabled = options.disabled === true;
         button.dataset.mode = options.mode || '';
-    }
-
-    function normalizeDiscountCodeInput(value) {
-        return (typeof value === 'string' ? value : '')
-            .replace(/[^a-z0-9]/gi, '')
-            .toUpperCase()
-            .slice(0, 64);
-    }
-
-    function shouldShowDiscountInput(state) {
-        return Boolean(state && ['free', 'inactive', 'canceled'].includes(state.mode));
-    }
-
-    function syncDiscountInput() {
-        const input = getElement('paywall-discount-code-input');
-        if (!input) return;
-        const normalized = normalizeDiscountCodeInput(input.value);
-        if (input.value !== normalized) input.value = normalized;
-        discountCodeValue = normalized;
-        discountStatusMessage = '';
-        setText('paywall-discount-status', discountStatusMessage);
     }
 
     function formatAccessDate(value) {
@@ -649,10 +626,6 @@
         setVisible('paywall-clear-url-btn', state.clearVisible === true);
         setVisible('paywall-restore-btn', state.restoreVisible === true);
         setVisible('paywall-secondary-btn', state.secondaryVisible !== false);
-        setVisible('paywall-discount-wrap', shouldShowDiscountInput(state));
-        const discountInput = getElement('paywall-discount-code-input');
-        if (discountInput && discountInput.value !== discountCodeValue) discountInput.value = discountCodeValue;
-        setText('paywall-discount-status', discountStatusMessage);
 
         setButtonState(getElement('paywall-primary-btn'), {
             text: checkoutInFlight
@@ -781,9 +754,7 @@
             if (typeof window.BARK.incrementRequestCount === 'function') {
                 window.BARK.incrementRequestCount();
             }
-            const checkoutPayload = {};
-            if (discountCodeValue) checkoutPayload.discountCode = discountCodeValue;
-            const result = await createCheckoutSession(checkoutPayload);
+            const result = await createCheckoutSession({});
             const checkoutUrl = validateCheckoutUrl(result && result.data && result.data.checkoutUrl);
             if (!checkoutUrl) throw new Error('Checkout URL was missing from the backend response.');
             window.location.assign(checkoutUrl);
@@ -792,11 +763,7 @@
             const message = error && error.message && /paused|disabled|unavailable/i.test(error.message)
                 ? error.message
                 : 'Checkout could not start. Please try again in a moment or contact support.';
-            discountStatusMessage = discountCodeValue
-                ? 'That code could not be applied. Check the code and try again.'
-                : '';
             setText('paywall-body', message);
-            setText('paywall-discount-status', discountStatusMessage);
             setButtonState(getElement('paywall-primary-btn'), {
                 text: 'Try again',
                 disabled: false,
@@ -935,11 +902,6 @@
         });
 
         bindPremiumMapTools();
-        const discountInput = getElement('paywall-discount-code-input');
-        if (discountInput && discountInput.dataset.paywallBound !== 'true') {
-            discountInput.dataset.paywallBound = 'true';
-            discountInput.addEventListener('input', syncDiscountInput);
-        }
         subscribePremiumState();
         bindAuthObserverWhenReady();
         renderCurrentState();

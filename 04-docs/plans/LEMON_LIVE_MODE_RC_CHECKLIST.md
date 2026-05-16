@@ -17,14 +17,14 @@ Current code remains locked to Lemon Squeezy test mode:
 | Area | Current file/path | Current behavior |
 |---|---|---|
 | Checkout payload | `functions/index.js` `buildLemonSqueezyCheckoutPayload()` | Forces `test_mode: true`. |
-| Checkout callable | `functions/index.js` `handleCreateCheckoutSession()` | Requires verified auth, sanitizes optional `discountCode`, calls Lemon checkouts API. |
+| Checkout callable | `functions/index.js` `handleCreateCheckoutSession()` | Requires verified auth and calls Lemon checkouts API without accepting app-side coupon payloads. |
 | Webhook mode gate | `functions/index.js` `mapLemonSqueezyEntitlement()` | Ignores non-test-mode payloads with `reason: non_test_mode`. |
 | API key | `functions/index.js` `getLemonSqueezyConfig()` | Reads `LEMONSQUEEZY_API_KEY` secret/env. |
 | Webhook secret | `functions/index.js` `getLemonSqueezyWebhookSecret()` | Reads `LEMONSQUEEZY_WEBHOOK_SECRET` secret/env. |
 | Store ID | `functions/index.js` constants | Locked to `363425`. |
 | Annual variant ID | `functions/index.js` constants | Locked to `1604336`. |
 | Customer portal | `functions/index.js` `handleGetCustomerPortalUrl()` | Fetches signed `customer_portal` URL from Lemon subscription API. |
-| Coupons | `functions/index.js` checkout payload | Optional sanitized `discountCode` passes to `checkout_data.discount_code`; normal users enter coupons on Lemon checkout. |
+| Coupons | Lemon hosted checkout | Users enter coupons only on Lemon checkout; the app does not render, redeem, or prefill coupon codes. |
 | Webhook state machine | `functions/index.js` Lemon mapping/processing helpers | Durable idempotency, event ordering, cancellation, refund, expired, past_due handling. |
 
 ## 3. Live-Mode Switch Preconditions

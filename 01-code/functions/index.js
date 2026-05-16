@@ -1456,7 +1456,15 @@ async function handleCreateCheckoutSession(requestOrData, context, options = {})
         console.error("[payments] Lemon Squeezy checkout creation failed.", {
             uid,
             status: error && error.response ? error.response.status : null,
-            message: error && error.message ? error.message : String(error)
+            message: error && error.message ? error.message : String(error),
+            lemonErrors: error && error.response && error.response.data && Array.isArray(error.response.data.errors)
+                ? error.response.data.errors.map((lemonError) => ({
+                    status: lemonError && lemonError.status ? lemonError.status : null,
+                    title: lemonError && lemonError.title ? lemonError.title : null,
+                    detail: lemonError && lemonError.detail ? lemonError.detail : null,
+                    source: lemonError && lemonError.source ? lemonError.source : null
+                }))
+                : null
         });
         throw new functions.https.HttpsError("internal", "Unable to create checkout session.");
     }

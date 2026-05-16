@@ -2517,6 +2517,48 @@ body.app-tab-active #slide-panel {
     transform: rotate(45deg);
 }
 
+.paywall-discount-wrap {
+    display: grid;
+    gap: 6px;
+    margin: 0 0 16px;
+}
+
+.paywall-discount-wrap[hidden] {
+    display: none;
+}
+
+.paywall-discount-wrap label {
+    color: #334155;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.paywall-discount-code-input {
+    width: 100%;
+    min-height: 42px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0;
+    padding: 0 12px;
+    text-transform: uppercase;
+}
+
+.paywall-discount-code-input:focus {
+    border-color: #0f766e;
+    outline: 3px solid rgba(15, 118, 110, 0.16);
+}
+
+.paywall-discount-status {
+    min-height: 16px;
+    color: #b91c1c;
+    font-size: 11px;
+    font-weight: 800;
+}
+
 .paywall-actions {
     display: grid;
     gap: 10px;

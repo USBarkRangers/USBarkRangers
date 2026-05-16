@@ -227,6 +227,7 @@ describe("Lemon Squeezy checkout session helpers", () => {
         assert.equal(payload.data.attributes.checkout_data.name, "Ranger Tester");
         assert.equal(payload.data.attributes.checkout_data.custom.firebase_uid, "real-user");
         assert.equal(payload.data.attributes.checkout_data.custom.plan, "annual");
+        assert.deepEqual(payload.data.attributes.checkout_options, { discount: true });
         assert.equal(payload.data.relationships.store.data.id, "363425");
         assert.equal(payload.data.relationships.variant.data.id, "1604336");
     });

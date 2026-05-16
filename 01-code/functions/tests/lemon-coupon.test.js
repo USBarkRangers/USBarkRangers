@@ -65,7 +65,7 @@ describe("disabled legacy app access-code callable", () => {
 });
 
 describe("Lemon checkout discount support", () => {
-    it("creates default test-mode checkout without hiding Lemon's discount field", async () => {
+    it("creates default test-mode checkout with Lemon's discount field explicitly enabled", async () => {
         let capturedBody = null;
         await handleCreateCheckoutSession(
             {},
@@ -90,7 +90,7 @@ describe("Lemon checkout discount support", () => {
         const attributes = capturedBody.data.attributes;
         assert.equal(attributes.test_mode, true);
         assert.equal(attributes.checkout_data.discount_code, undefined);
-        assert.equal(attributes.checkout_options, undefined);
+        assert.deepEqual(attributes.checkout_options, { discount: true });
         assert.equal(attributes.checkout_data.custom.firebase_uid, "checkout-user");
     });
 
@@ -119,7 +119,7 @@ describe("Lemon checkout discount support", () => {
         assert.equal(capturedBody.data.attributes.checkout_data.discount_code, "LAUNCH20");
         assert.equal(capturedBody.data.attributes.checkout_data.custom.firebase_uid, "checkout-user");
         assert.equal(capturedBody.data.attributes.test_mode, true);
-        assert.equal(capturedBody.data.attributes.checkout_options, undefined);
+        assert.deepEqual(capturedBody.data.attributes.checkout_options, { discount: true });
     });
 
     it("rejects unsafe discount code strings before calling Lemon Squeezy", async () => {

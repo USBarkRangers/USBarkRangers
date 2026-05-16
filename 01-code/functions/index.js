@@ -1111,6 +1111,9 @@ function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config, discountCod
                     receipt_button_text: "Return to BARK Ranger Map",
                     receipt_link_url: successUrl
                 },
+                checkout_options: {
+                    discount: true
+                },
                 checkout_data: checkoutData
             },
             relationships: {

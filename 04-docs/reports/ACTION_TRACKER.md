@@ -1,7 +1,8 @@
 # BARK Ranger Map Launch Action Tracker
 
-Date: 2026-05-09
+Date: 2026-05-15
 Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINESS_FIREBASE_COST_REPORT.md`.
+Status note: updated after Carter confirmed budget/monitoring is done, legal/business review is still pending, and no current red flags were seen for app integrity items.
 
 ## P0 - Must Fix Before Paid/Public Launch
 
@@ -33,11 +34,11 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
   - How to test: free user can create 5, cannot create 6, can delete/unmark, premium can exceed 5, spoofed local premium fails. Completed: rules tests passed 21/21.
   - Expected cost/risk reduction: limits worst-case free-user write/storage growth; prevents product-tier bypass.
 
-- [ ] **Stop client-authoritative leaderboard scoring**
+- [x] **Stop client-authoritative leaderboard scoring**
   - Files: `modules/profileEngine.js`, `functions/index.js`, `firestore.rules`, `tests/rules/firestore-entitlement.rules.test.js`
-  - Exact change: make `leaderboard/{uid}` server-written only, or validate/derive totals from trusted user data in a callable/function.
-  - Why it matters: users can currently write fake `totalPoints` and `totalVisited` to their own leaderboard doc.
-  - How to test: malicious client write of `totalPoints: 999999` is denied; legitimate score sync still updates via server.
+  - Exact change: `leaderboard/{uid}` is server-written only in Firestore rules, and the app syncs scores through the `syncLeaderboardScore` callable, which derives totals from trusted user data before writing the leaderboard document.
+  - Why it matters: users should not be able to write fake `totalPoints` and `totalVisited` directly to their own leaderboard doc.
+  - How to test: malicious client write of `totalPoints: 999999` is denied; legitimate score sync still updates via server. Final RC should rerun rules/functions tests before deploy.
   - Expected cost/risk reduction: abuse/integrity risk reduced; minor function/read cost added for trusted score updates.
 
 - [x] **Add durable Lemon Squeezy webhook idempotency and ordering**
@@ -47,11 +48,11 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
   - How tested: `node --test functions/tests/lemonsqueezy-webhook.test.js` passed 47/47; `npm --prefix functions test` passed 81/81.
   - Expected cost/risk reduction: tiny extra read/write per webhook; major reduction in entitlement corruption and support incidents.
 
-- [ ] **Final pre-RC: set launch budget alerts and monitoring destinations**
+- [x] **Final pre-RC: set launch budget alerts and monitoring destinations**
   - Files: Firebase/Google Cloud console, launch dashboard notes
   - Exact change: configure billing alerts and named notification destinations after the app-side safety switches are in place and before the final paid release candidate.
   - Why it matters: budget alerts are a final launch guardrail, not the next code task. They should be live before a paid/public push, especially before asking admins to promote.
-  - How to test: confirm alert thresholds and recipients in Google Cloud Billing; document who gets notified and what action they take.
+  - How tested: Carter confirmed this is done on 2026-05-15. Keep the alert recipients and response path documented outside the public app bundle.
   - Expected cost/risk reduction: early warning for unusual spend; no app UX impact.
 
 - [ ] **ABSOLUTE FINAL RC SWITCH: make Lemon Squeezy live/test mode configurable**
@@ -61,7 +62,7 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
   - Owner approval note: **DO NOT TAKE OUT UNTIL CARTER APPROVES.** Keep Lemon Squeezy test mode on as long as possible. When Carter approves removing test mode for the release candidate, beta testers will go through real paid Lemon Squeezy checkout.
   - How to test: unit tests for test mode and live mode checkout payloads; live-mode webhook fixture should update entitlement when configured live; test-mode fixture should be ignored when configured live; run one real low-price or refunded transaction.
   - Expected cost/risk reduction: payment launch-blocker removed; prevents users paying but not receiving Premium.
-  - Sequencing note: do after visit-limit enforcement, leaderboard integrity, webhook ordering, kill switches, final budget alerts, and full QA storage-state runs.
+  - Sequencing note: do after visit-limit enforcement, leaderboard integrity, webhook ordering, kill switches, final budget alerts, legal/business review, and full QA storage-state runs.
 
 ## P1 - Must Fix Before Broader Paid Beta
 
@@ -79,11 +80,11 @@ Scope: launch-readiness blockers and follow-up tasks from `plans/LAUNCH_READINES
   - How to test: auth sign-in creates one active user-doc subscription; mark visited causes one listener update path.
   - Expected cost/risk reduction: signed-in user-doc listener reads reduced up to ~50% for user-doc updates.
 
-- [ ] **Fix feedback submission rules or route through a callable**
+- [x] **Fix feedback submission rules or route through a callable**
   - Files: `modules/uiController.js`, `firestore.rules`, rules tests, optional `functions/index.js`
-  - Exact change: add a safe feedback write path with text length, auth/anonymous policy, timestamp validation, and rate limit.
-  - Why it matters: current `feedback` writes likely fail because top-level collections are denied by default.
-  - How to test: signed-in and/or anonymous feedback succeeds as intended; malicious extra fields/huge text denied.
+  - Exact change: feedback is routed through the authenticated `submitFeedback` callable with server-side cleanup and rate limiting; direct client writes to `feedback` remain denied by Firestore rules.
+  - Why it matters: feedback can succeed through the intended server path without opening a broad client-write collection.
+  - How to test: signed-in feedback succeeds through callable; direct Firestore writes, malicious extra fields, and huge text are denied/rejected. Final RC should rerun rules/functions tests before deploy.
   - Expected cost/risk reduction: support channel works; low cost, prevents noisy client errors.
 
 - [x] **Add route/geocode per-user rate limits**

@@ -254,10 +254,10 @@ function isBenignGoogleSignInError(error) {
 
 async function signInWithGoogleProvider(provider) {
     const auth = firebase.auth();
-    await ensureLocalAuthPersistence(auth);
 
-    // If Google Identity Services is configured + ready, prefer it on iOS
-    // because Firebase's popup/redirect handlers fail under Safari ITP.
+    // iPhone Safari: Firebase's popup handshake fails under ITP. Use Google
+    // Identity Services if configured. Everything else just uses popup, which
+    // is what was working before the redirect detour.
     if (isIosDevice() && isGoogleIdentityServicesReady()) {
         try {
             await signInWithGoogleIdentityServices();
@@ -265,37 +265,13 @@ async function signInWithGoogleProvider(provider) {
         } catch (error) {
             if (isBenignGoogleSignInError(error)) return;
             console.error('[authService] GIS sign-in failed; falling through to popup:', error);
-            // Fall through to popup as last resort.
         }
     }
 
-    if (shouldUseRedirectGoogleSignIn()) {
-        markGoogleRedirectPending();
-        await auth.signInWithRedirect(provider);
-        return;
-    }
     try {
         await auth.signInWithPopup(provider);
     } catch (error) {
         if (isBenignGoogleSignInError(error)) return;
-        if (isIosStandalonePwa()) {
-            showIosPwaGoogleSignInNotice(error);
-            return;
-        }
-        // iOS Safari (non-PWA): redirect fallback ALSO fails under ITP and
-        // produces a worse cascade. Surface the popup error directly instead.
-        if (isIosDevice()) {
-            const code = error && error.code ? String(error.code) : '';
-            console.error('[authService] Google popup failed on iOS:', error);
-            showAuthFailureNotice('Google sign-in is not working in iPhone Safari right now (' + (code || 'unknown') + '). Please use email sign-in below, or sign in from a desktop browser.');
-            return;
-        }
-        if (shouldRetryGoogleSignInWithRedirect(error)) {
-            console.warn('[authService] Google popup failed; retrying with redirect:', error);
-            markGoogleRedirectPending();
-            await auth.signInWithRedirect(provider);
-            return;
-        }
         throw error;
     }
 }
@@ -1320,11 +1296,6 @@ async function initFirebase() {
         console.error("[authService] onAuthStateChanged setup failed:", error);
         throw error;
     }
-
-    // Process any pending signInWithRedirect. Runs at the end so the button
-    // and auth observer above are already responsive while iOS Safari resolves
-    // (or times out) the redirect handshake.
-    await consumeGoogleRedirectResult();
 
     // Email Suggestion Template
     const emailSuggestBtn = document.getElementById('email-suggest-btn');

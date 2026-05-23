@@ -235,7 +235,10 @@ function verifyAndProcessCheckin(parkData, userLocation) {
 async function verifyGpsCheckin(parkData) {
     const firebaseService = getFirebaseService();
 
-    if (!firebaseService || typeof firebaseService.updateCurrentUserVisitedPlaces !== 'function') {
+    const canSyncProgress = firebaseService && typeof firebaseService.syncUserProgress === 'function';
+    const canUpdateVisitedPlaces = firebaseService && typeof firebaseService.updateCurrentUserVisitedPlaces === 'function';
+
+    if (!canSyncProgress && !canUpdateVisitedPlaces) {
         return { success: false, error: 'SERVICE_UNAVAILABLE' };
     }
 
@@ -288,7 +291,11 @@ async function verifyGpsCheckin(parkData) {
         refreshVisitedCache('checkin-verified-add');
         refreshVisitedVisuals('checkin-verified-add', firebaseService);
         requestVisitStateSync('checkin-verified-add');
-        await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
+        if (canSyncProgress) {
+            await firebaseService.syncUserProgress();
+        } else {
+            await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
+        }
         queueDailyStreakIncrement(firebaseService);
 
         return {

@@ -702,8 +702,8 @@ function resetMapViewToGuestDefault() {
     localStorage.removeItem('mapZoom');
     mapRef.setView([39.8283, -98.5795], guestZoom, { animate: false });
 
-    if (mapRef.locate && navigator.geolocation) {
-        mapRef.locate({ setView: true, maxZoom: guestZoom, watch: false });
+    if (typeof window.BARK.locateIfAlreadyGranted === 'function') {
+        window.BARK.locateIfAlreadyGranted({ setView: true, maxZoom: guestZoom });
     }
 }
 

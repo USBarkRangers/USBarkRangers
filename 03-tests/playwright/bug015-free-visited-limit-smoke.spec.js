@@ -172,9 +172,11 @@ async function seedLocalVisits(page, count) {
 async function getVisitState(page, parkId) {
     return page.evaluate((id) => {
         const vaultRepo = window.BARK.repos.VaultRepo;
+        const record = vaultRepo.getVisit(id);
         return {
             count: vaultRepo.size(),
             hasVisit: vaultRepo.hasVisit(id),
+            record: record ? { ...record } : null,
             writes: Array.isArray(window.__barkBug015Writes) ? window.__barkBug015Writes.slice() : []
         };
     }, parkId);
@@ -331,6 +333,58 @@ test.describe('BUG-015 free visited limit product rule', () => {
             expect(state.count).toBe(FREE_VISIT_LIMIT);
             expect(state.hasVisit).toBe(false);
             expect(state.writes).toEqual([]);
+            expect(errors, errors.join('\n')).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    });
+
+    test('free signed-in GPS check-in can add the fifth total visited park', async ({ browser }) => {
+        const errors = [];
+        const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
+        const page = await context.newPage();
+        collectRelevantErrors(page, 'free gps add fifth', errors);
+
+        try {
+            await openVisitReadyApp(page, false);
+            await installVisitWriteStubs(page);
+            const scenario = await seedLocalVisits(page, FREE_VISIT_LIMIT - 1);
+
+            const result = await verifyGpsCheckin(page, scenario.nextUnvisitedPark);
+            const state = await getVisitState(page, scenario.nextUnvisitedPark.id);
+
+            expect(result).toMatchObject({ success: true, action: 'verified' });
+            expect(state.count).toBe(FREE_VISIT_LIMIT);
+            expect(state.hasVisit).toBe(true);
+            expect(state.record && state.record.verified).toBe(true);
+            expect(state.writes.some(write => write.type === 'sync-progress')).toBe(true);
+            expect(state.writes.some(write => write.type === 'update-visited')).toBe(false);
+            expect(errors, errors.join('\n')).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    });
+
+    test('free signed-in GPS check-in upgrades an existing marked visit at the limit without double counting', async ({ browser }) => {
+        const errors = [];
+        const context = await newBarkContext(browser, { storageState: freeStorageStatePath });
+        const page = await context.newPage();
+        collectRelevantErrors(page, 'free gps upgrade at limit', errors);
+
+        try {
+            await openVisitReadyApp(page, false);
+            await installVisitWriteStubs(page);
+            const scenario = await seedLocalVisits(page, FREE_VISIT_LIMIT);
+
+            const result = await verifyGpsCheckin(page, scenario.firstVisitedPark);
+            const state = await getVisitState(page, scenario.firstVisitedPark.id);
+
+            expect(result).toMatchObject({ success: true, action: 'verified' });
+            expect(state.count).toBe(FREE_VISIT_LIMIT);
+            expect(state.hasVisit).toBe(true);
+            expect(state.record && state.record.verified).toBe(true);
+            expect(state.writes.some(write => write.type === 'sync-progress')).toBe(true);
+            expect(state.writes.some(write => write.type === 'update-visited')).toBe(false);
             expect(errors, errors.join('\n')).toEqual([]);
         } finally {
             await context.close();

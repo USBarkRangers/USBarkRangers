@@ -36,6 +36,42 @@ function createGoogleProvider(options = {}) {
     return provider;
 }
 
+function shouldUseRedirectGoogleSignIn() {
+    const ua = navigator.userAgent || '';
+    const isMobileBrowser = /Android|iPhone|iPad|iPod|Mobile|CriOS|FxiOS/i.test(ua);
+    const isTouchDevice = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
+    const isStandalonePwa = window.navigator.standalone === true
+        || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+
+    return isStandalonePwa || (isMobileBrowser && isTouchDevice);
+}
+
+function shouldRetryGoogleSignInWithRedirect(error) {
+    const code = error && error.code ? String(error.code) : '';
+    return code === 'auth/network-request-failed'
+        || code === 'auth/popup-blocked'
+        || code === 'auth/cancelled-popup-request';
+}
+
+async function signInWithGoogleProvider(provider) {
+    const auth = firebase.auth();
+    if (shouldUseRedirectGoogleSignIn()) {
+        await auth.signInWithRedirect(provider);
+        return;
+    }
+
+    try {
+        await auth.signInWithPopup(provider);
+    } catch (error) {
+        if (shouldRetryGoogleSignInWithRedirect(error)) {
+            console.warn('[authService] Google popup failed; retrying with redirect:', error);
+            await auth.signInWithRedirect(provider);
+            return;
+        }
+        throw error;
+    }
+}
+
 function showAuthFailureNotice(message) {
     if (typeof window.BARK.showAuthFailure === 'function') {
         window.BARK.showAuthFailure(message || 'Sign-in failed. Cloud sync and saved progress are offline for this session.');
@@ -983,9 +1019,9 @@ function initFirebase() {
                     forceAccountChooser: consumeGoogleAccountChooserRequest()
                 });
                 window.BARK.incrementRequestCount();
-                await firebase.auth().signInWithPopup(provider);
+                await signInWithGoogleProvider(provider);
             } catch (error) {
-                console.error("[authService] signInWithPopup failed:", error);
+                console.error("[authService] Google sign-in failed:", error);
                 alert("Login Error: " + error.message);
             }
         });
@@ -1012,6 +1048,8 @@ function initFirebase() {
 window.BARK.services.auth = {
     initFirebase,
     createGoogleProvider,
+    shouldUseRedirectGoogleSignIn,
+    signInWithGoogleProvider,
     requestGoogleAccountChooser
 };
 window.BARK.initFirebase = initFirebase;

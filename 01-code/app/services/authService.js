@@ -69,10 +69,32 @@ function shouldRetryGoogleSignInWithRedirect(error) {
         || code === 'auth/popup-blocked';
 }
 
+const GOOGLE_REDIRECT_PENDING_KEY = 'bark.googleRedirect.pending';
+const GOOGLE_REDIRECT_RESULT_TIMEOUT_MS = 8000;
+
+function markGoogleRedirectPending() {
+    try {
+        sessionStorage.setItem(GOOGLE_REDIRECT_PENDING_KEY, String(Date.now()));
+    } catch (error) {
+        // sessionStorage can throw in private mode; safe to ignore.
+    }
+}
+
+function consumeGoogleRedirectPendingMarker() {
+    try {
+        const value = sessionStorage.getItem(GOOGLE_REDIRECT_PENDING_KEY);
+        if (value) sessionStorage.removeItem(GOOGLE_REDIRECT_PENDING_KEY);
+        return Boolean(value);
+    } catch (error) {
+        return false;
+    }
+}
+
 async function signInWithGoogleProvider(provider) {
     const auth = firebase.auth();
     await ensureLocalAuthPersistence(auth);
     if (shouldUseRedirectGoogleSignIn()) {
+        markGoogleRedirectPending();
         await auth.signInWithRedirect(provider);
         return;
     }
@@ -81,6 +103,7 @@ async function signInWithGoogleProvider(provider) {
     } catch (error) {
         if (shouldRetryGoogleSignInWithRedirect(error)) {
             console.warn('[authService] Google popup failed; retrying with redirect:', error);
+            markGoogleRedirectPending();
             await auth.signInWithRedirect(provider);
             return;
         }
@@ -88,29 +111,58 @@ async function signInWithGoogleProvider(provider) {
     }
 }
 
-// Complete any pending signInWithRedirect from a prior page load. Firebase's
-// onAuthStateChanged still fires on success without this call, but errors
-// (and benign "no pending redirect" no-ops) are otherwise invisible. Must run
-// after firebase.initializeApp().
+// Complete any pending signInWithRedirect from a prior page load. Must run
+// after firebase.initializeApp(). Raced against a hard timeout because on iOS
+// Safari getRedirectResult can hang waiting for an iframe handshake that never
+// resolves (storage partitioning). Without the timeout, the caller awaits
+// forever and the auth observer is never wired, leaving the UI stuck in its
+// initial logged-out state even after Google authenticated the user.
 async function consumeGoogleRedirectResult() {
     if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') return;
     const auth = firebase.auth();
     if (typeof auth.getRedirectResult !== 'function') return;
+
+    const hadPendingRedirect = consumeGoogleRedirectPendingMarker();
+    let timeoutHandle = null;
+    const timeoutSentinel = { __barkTimedOut: true };
+    const timeoutPromise = new Promise((resolve) => {
+        timeoutHandle = setTimeout(() => resolve(timeoutSentinel), GOOGLE_REDIRECT_RESULT_TIMEOUT_MS);
+    });
+
     try {
         await ensureLocalAuthPersistence(auth);
-        const result = await auth.getRedirectResult();
+        const result = await Promise.race([auth.getRedirectResult(), timeoutPromise]);
+        clearTimeout(timeoutHandle);
+
+        if (result === timeoutSentinel) {
+            console.warn('[authService] getRedirectResult timed out after',
+                GOOGLE_REDIRECT_RESULT_TIMEOUT_MS, 'ms; init continues. The auth observer will still pick up the user if the SDK resolves later.');
+            if (hadPendingRedirect) {
+                showAuthFailureNotice('Google sign-in is taking longer than expected on this browser. If you stay signed out, try email sign-in or open the site in regular Safari (not Private mode).');
+            }
+            return;
+        }
+
         if (result && result.user) {
             console.log('[authService] Google redirect sign-in completed:', result.user.uid);
+            return result;
+        }
+
+        if (hadPendingRedirect) {
+            console.error('[authService] Google redirect was initiated but no user came back. iOS Safari ITP/storage partitioning likely cleared the auth state.');
+            showAuthFailureNotice('Google sign-in did not complete on this browser. Try email sign-in, or sign in from a desktop browser.');
         }
         return result;
     } catch (error) {
+        clearTimeout(timeoutHandle);
         const code = error && error.code ? String(error.code) : '';
         if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
             console.warn('[authService] Google redirect canceled:', code);
             return;
         }
         console.error('[authService] getRedirectResult failed:', error);
-        showAuthFailureNotice('Google sign-in could not be completed. Please try again.');
+        const detail = code || (error && error.message) || 'unknown error';
+        showAuthFailureNotice('Google sign-in could not be completed (' + detail + '). Please try again or use email sign-in.');
     }
 }
 

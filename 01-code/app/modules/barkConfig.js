@@ -35,7 +35,7 @@ window.BARK.normalizationDict = {
 // Leave empty to fall back to the popup/redirect flow.
 window.BARK.firebaseConfig = {
     apiKey: "AIzaSyDcBn2YQCAFrAjN27gIM9lBiu0PZsComO4",
-    authDomain: "barkrangermap-auth.firebaseapp.com",
+    authDomain: "barkrangermap-auth.web.app",
     projectId: "barkrangermap-auth",
     storageBucket: "barkrangermap-auth.firebasestorage.app",
     messagingSenderId: "564465144962",

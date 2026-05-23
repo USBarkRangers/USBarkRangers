@@ -50,17 +50,32 @@ async function ensureLocalAuthPersistence(auth = firebase.auth()) {
     }
 }
 
-// Mobile Safari (and other mobile browsers) frequently surface
-// auth/network-request-failed from signInWithPopup because cross-site cookies
-// for firebaseapp.com get partitioned. signInWithRedirect is the documented
-// workaround. Standalone PWAs cannot host popups at all, so they also redirect.
+function isStandalonePwa() {
+    return window.navigator.standalone === true
+        || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
+
+function isIosDevice() {
+    const ua = navigator.userAgent || '';
+    return /iPhone|iPad|iPod/i.test(ua)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function isIosStandalonePwa() {
+    return isStandalonePwa() && isIosDevice();
+}
+
+// Mobile Safari frequently surfaces auth/network-request-failed from
+// signInWithPopup because cross-site cookies for firebaseapp.com get
+// partitioned. signInWithRedirect is the documented workaround in browser tabs.
+// iOS Home Screen apps are different: redirect leaves the standalone app and
+// often returns without a Firebase credential, so we try popup there instead.
 function shouldUseRedirectGoogleSignIn() {
     const ua = navigator.userAgent || '';
     const isMobileBrowser = /Android|iPhone|iPad|iPod|Mobile|CriOS|FxiOS/i.test(ua);
     const isTouchDevice = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
-    const isStandalonePwa = window.navigator.standalone === true
-        || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-    return isStandalonePwa || (isMobileBrowser && isTouchDevice);
+    if (isIosStandalonePwa()) return false;
+    return isMobileBrowser && isTouchDevice;
 }
 
 function shouldRetryGoogleSignInWithRedirect(error) {
@@ -90,6 +105,11 @@ function consumeGoogleRedirectPendingMarker() {
     }
 }
 
+function showIosPwaGoogleSignInNotice(error) {
+    console.warn('[authService] Google popup failed in iOS standalone PWA:', error);
+    showAuthFailureNotice('Google sign-in was blocked in the installed iPhone app. Open the website in Safari for Google sign-in, or use email sign-in here.');
+}
+
 async function signInWithGoogleProvider(provider) {
     const auth = firebase.auth();
     await ensureLocalAuthPersistence(auth);
@@ -101,6 +121,10 @@ async function signInWithGoogleProvider(provider) {
     try {
         await auth.signInWithPopup(provider);
     } catch (error) {
+        if (isIosStandalonePwa()) {
+            showIosPwaGoogleSignInNotice(error);
+            return;
+        }
         if (shouldRetryGoogleSignInWithRedirect(error)) {
             console.warn('[authService] Google popup failed; retrying with redirect:', error);
             markGoogleRedirectPending();
@@ -138,7 +162,11 @@ async function consumeGoogleRedirectResult() {
             console.warn('[authService] getRedirectResult timed out after',
                 GOOGLE_REDIRECT_RESULT_TIMEOUT_MS, 'ms; init continues. The auth observer will still pick up the user if the SDK resolves later.');
             if (hadPendingRedirect) {
-                showAuthFailureNotice('Google sign-in is taking longer than expected on this browser. If you stay signed out, try email sign-in or open the site in regular Safari (not Private mode).');
+                if (isIosStandalonePwa()) {
+                    showIosPwaGoogleSignInNotice(new Error('redirect result timed out'));
+                } else {
+                    showAuthFailureNotice('Google sign-in is taking longer than expected on this browser. If you stay signed out, try email sign-in or open the site in regular Safari (not Private mode).');
+                }
             }
             return;
         }
@@ -150,7 +178,11 @@ async function consumeGoogleRedirectResult() {
 
         if (hadPendingRedirect) {
             console.error('[authService] Google redirect was initiated but no user came back. iOS Safari ITP/storage partitioning likely cleared the auth state.');
-            showAuthFailureNotice('Google sign-in did not complete on this browser. Try email sign-in, or sign in from a desktop browser.');
+            if (isIosStandalonePwa()) {
+                showIosPwaGoogleSignInNotice(new Error('redirect returned no user'));
+            } else {
+                showAuthFailureNotice('Google sign-in did not complete on this browser. Try email sign-in, or sign in from a desktop browser.');
+            }
         }
         return result;
     } catch (error) {
@@ -1149,6 +1181,8 @@ window.BARK.services.auth = {
     initFirebase,
     createGoogleProvider,
     ensureLocalAuthPersistence,
+    isStandalonePwa,
+    isIosStandalonePwa,
     shouldUseRedirectGoogleSignIn,
     signInWithGoogleProvider,
     consumeGoogleRedirectResult,

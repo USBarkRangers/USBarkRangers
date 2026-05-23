@@ -36,20 +36,6 @@ function createGoogleProvider(options = {}) {
     return provider;
 }
 
-async function ensureLocalAuthPersistence(auth = firebase.auth()) {
-    if (!auth || typeof auth.setPersistence !== 'function') return;
-    const persistence = firebase.auth.Auth
-        && firebase.auth.Auth.Persistence
-        && firebase.auth.Auth.Persistence.LOCAL;
-    if (!persistence) return;
-
-    try {
-        await auth.setPersistence(persistence);
-    } catch (error) {
-        console.warn('[authService] Could not set LOCAL auth persistence; continuing with Firebase default.', error);
-    }
-}
-
 function showAuthFailureNotice(message) {
     if (typeof window.BARK.showAuthFailure === 'function') {
         window.BARK.showAuthFailure(message || 'Sign-in failed. Cloud sync and saved progress are offline for this session.');
@@ -716,8 +702,8 @@ function resetMapViewToGuestDefault() {
     localStorage.removeItem('mapZoom');
     mapRef.setView([39.8283, -98.5795], guestZoom, { animate: false });
 
-    if (typeof window.BARK.locateIfAlreadyGranted === 'function') {
-        window.BARK.locateIfAlreadyGranted({ setView: true, maxZoom: guestZoom });
+    if (mapRef.locate && navigator.geolocation) {
+        mapRef.locate({ setView: true, maxZoom: guestZoom, watch: false });
     }
 }
 
@@ -816,23 +802,20 @@ function resetAccountScopedRuntimeState() {
     if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
 }
 
-async function initFirebase() {
+function initFirebase() {
     if (typeof firebase === 'undefined') return;
 
     const loadSavedRoutes = window.BARK.loadSavedRoutes;
-    let auth;
 
     try {
         firebase.initializeApp(window.BARK.firebaseConfig);
-        auth = firebase.auth();
-        await ensureLocalAuthPersistence(auth);
     } catch (error) {
         console.error("[authService] initializeApp failed:", error);
         throw error;
     }
 
     try {
-        auth.onAuthStateChanged((user) => {
+        firebase.auth().onAuthStateChanged((user) => {
             try {
                 if (!Number.isFinite(Number(window._lastSyncedScore))) window._lastSyncedScore = -1;
                 if (typeof window._lastSyncedLeaderboardFingerprint !== 'string') {
@@ -1000,7 +983,6 @@ async function initFirebase() {
                     forceAccountChooser: consumeGoogleAccountChooserRequest()
                 });
                 window.BARK.incrementRequestCount();
-                await ensureLocalAuthPersistence();
                 await firebase.auth().signInWithPopup(provider);
             } catch (error) {
                 console.error("[authService] signInWithPopup failed:", error);
@@ -1030,7 +1012,6 @@ async function initFirebase() {
 window.BARK.services.auth = {
     initFirebase,
     createGoogleProvider,
-    ensureLocalAuthPersistence,
     requestGoogleAccountChooser
 };
 window.BARK.initFirebase = initFirebase;

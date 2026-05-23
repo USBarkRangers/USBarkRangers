@@ -2827,22 +2827,6 @@ details[open] .chevron {
 }
 
 /* --- Map & Location Enhancements --- */
-.custom-locate-btn a {
-    width: 44px !important;
-    height: 44px !important;
-    line-height: 44px !important;
-    font-size: 25px !important;
-    font-weight: 800;
-    text-align: center;
-    touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
-}
-
-.custom-locate-btn.is-locating a {
-    color: #1976D2 !important;
-    cursor: progress;
-}
-
 .pulse-location-dot {
     background-color: #2196F3;
     border-radius: 50%;

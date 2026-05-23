@@ -357,48 +357,30 @@ if (mapStyleSelect) {
 window.BARK.loadLayer = loadLayer;
 
 // ====== LOCATE CONTROL ======
+const LocateControl = L.Control.extend({
+    options: { position: 'bottomleft' },
+    onAdd: function (map) {
+        const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control custom-locate-btn');
+        const button = L.DomUtil.create('a', '', container);
+        button.innerHTML = '⌖';
+        button.href = '#';
+        button.title = 'Find My Location';
+        button.setAttribute('role', 'button');
+
+        L.DomEvent.disableClickPropagation(container);
+        L.DomEvent.on(button, 'click', function (e) {
+            L.DomEvent.preventDefault(e);
+            map.locate({ setView: true, maxZoom: 10 });
+        });
+        return container;
+    }
+});
+map.addControl(new LocateControl());
+
 let userLocationMarker = null;
-let manualLocateRequestInFlight = false;
-let locateControlButton = null;
-let locateControlContainer = null;
-let locateRequestId = 0;
+window.BARK.getUserLocationMarker = function () { return userLocationMarker; };
 
-function getLocationFailureMessage(error = {}) {
-    const code = Number(error.code);
-    if (!navigator.geolocation) {
-        return 'Location is not available in this browser.';
-    }
-    if (window.isSecureContext === false) {
-        return 'Location requires the secure web app URL. Open the HTTPS site, then try again.';
-    }
-    if (code === 1) {
-        return 'Location permission is blocked. Enable location access for this site in your browser settings, then tap the location button again.';
-    }
-    if (code === 2) {
-        return 'Your location is unavailable right now. Check device location services and try again.';
-    }
-    if (code === 3) {
-        return 'Location lookup timed out. Move somewhere with a clearer GPS signal and try again.';
-    }
-    return 'Could not get your location. Check browser and device location permissions, then try again.';
-}
-
-function setLocateControlBusy(isBusy) {
-    if (!locateControlButton) return;
-    locateControlButton.setAttribute('aria-busy', isBusy ? 'true' : 'false');
-    locateControlButton.title = isBusy ? 'Finding your location...' : 'Find My Location';
-    if (locateControlContainer) {
-        locateControlContainer.classList.toggle('is-locating', isBusy);
-    }
-}
-
-function getCurrentMapPosition(options) {
-    return new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, options);
-    });
-}
-
-function renderUserLocation(latlng, options = {}) {
+map.on('locationfound', function (e) {
     if (userLocationMarker) {
         map.removeLayer(userLocationMarker);
     }
@@ -410,122 +392,24 @@ function renderUserLocation(latlng, options = {}) {
         iconAnchor: [8, 8]
     });
 
-    userLocationMarker = L.marker(latlng, { icon: pulsingIcon }).addTo(map);
-    if (options.openPopup !== false) {
-        userLocationMarker.bindPopup('You are here!', { autoPan: false }).openPopup();
-    }
+    userLocationMarker = L.marker(e.latlng, { icon: pulsingIcon }).addTo(map);
+    userLocationMarker.bindPopup('You are here!', { autoPan: false }).openPopup();
 
     // 🎯 RE-CALCULATE AND RE-SORT ACHIEVEMENTS NOW THAT WE HAVE ACTUAL LOCATION
     window.syncState();
-}
-
-async function requestMapLocation(options = {}) {
-    if (!navigator.geolocation) {
-        if (options.manual) alert(getLocationFailureMessage());
-        return false;
-    }
-
-    const requestId = ++locateRequestId;
-    const isManual = options.manual === true;
-    manualLocateRequestInFlight = isManual;
-    setLocateControlBusy(true);
-
-    try {
-        const position = await getCurrentMapPosition({
-            enableHighAccuracy: options.enableHighAccuracy === true,
-            timeout: options.timeout || 20000,
-            maximumAge: Number.isFinite(options.maximumAge) ? options.maximumAge : 120000
-        });
-        if (requestId !== locateRequestId) return false;
-
-        const latlng = L.latLng(position.coords.latitude, position.coords.longitude);
-        if (options.setView === true) {
-            map.setView(latlng, options.maxZoom || 10, { animate: true });
-        }
-        renderUserLocation(latlng, { openPopup: options.openPopup });
-        return true;
-    } catch (error) {
-        if (requestId !== locateRequestId) return false;
-        const message = getLocationFailureMessage(error);
-        console.warn(message);
-        if (isManual) alert(message);
-        return false;
-    } finally {
-        if (requestId === locateRequestId) {
-            manualLocateRequestInFlight = false;
-            setLocateControlBusy(false);
-        }
-    }
-}
-
-function locateIfAlreadyGranted(options = {}) {
-    if (!navigator.geolocation) return;
-    if (!navigator.permissions || typeof navigator.permissions.query !== 'function') return;
-
-    navigator.permissions.query({ name: 'geolocation' })
-        .then(status => {
-            if (!status || status.state !== 'granted') return;
-            requestMapLocation({
-                setView: options.setView === true,
-                maxZoom: options.maxZoom || 10,
-                manual: false
-            });
-        })
-        .catch(() => {});
-}
-
-window.BARK.requestMapLocation = requestMapLocation;
-window.BARK.locateIfAlreadyGranted = locateIfAlreadyGranted;
-
-const LocateControl = L.Control.extend({
-    options: { position: 'bottomleft' },
-    onAdd: function (map) {
-        const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control custom-locate-btn');
-        const button = L.DomUtil.create('a', '', container);
-        locateControlContainer = container;
-        locateControlButton = button;
-        button.innerHTML = '⌖';
-        button.href = '#';
-        button.title = 'Find My Location';
-        button.setAttribute('role', 'button');
-        button.setAttribute('aria-label', 'Find my location');
-        button.setAttribute('aria-busy', 'false');
-
-        L.DomEvent.disableClickPropagation(container);
-        L.DomEvent.on(button, 'click', function (e) {
-            L.DomEvent.preventDefault(e);
-            requestMapLocation({ setView: true, maxZoom: 10, manual: true });
-        });
-        return container;
-    }
-});
-map.addControl(new LocateControl());
-
-window.BARK.getUserLocationMarker = function () { return userLocationMarker; };
-
-map.on('locationfound', function (e) {
-    manualLocateRequestInFlight = false;
-    setLocateControlBusy(false);
-    renderUserLocation(e.latlng);
 });
 
 map.on('locationerror', function (e) {
-    const message = getLocationFailureMessage(e);
-    console.warn(message);
-    if (manualLocateRequestInFlight) alert(message);
-    manualLocateRequestInFlight = false;
-    setLocateControlBusy(false);
+    console.warn("Could not access your location. Please check your browser permissions.");
 });
 
-// Use location on load only after permission has already been granted. This keeps
-// the manual locate button from feeling broken because an earlier auto-prompt was
-// dismissed or blocked.
+// Prompt for location immediately on load
 setTimeout(() => {
     const usedSaved = window.rememberMapPosition && localStorage.getItem('mapLat');
     if (!usedSaved && !window.startNationalView) {
-        locateIfAlreadyGranted({ setView: true, maxZoom: 10 });
+        map.locate({ setView: true, maxZoom: 10 });
     } else {
-        locateIfAlreadyGranted({ setView: false, maxZoom: 10 });
+        map.locate({ setView: false, watch: false });
     }
 }, 500);
 

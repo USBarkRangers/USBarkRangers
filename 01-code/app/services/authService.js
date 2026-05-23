@@ -124,6 +124,7 @@ function showIosPwaGoogleSignInNotice(error) {
 
 let googleIdentityServicesInitialized = false;
 let googleIdentityServicesPromptInFlight = null;
+const GOOGLE_IDENTITY_SERVICES_PROMPT_TIMEOUT_MS = 5000;
 
 function getGoogleOauthClientId() {
     return (window.BARK
@@ -166,9 +167,8 @@ async function handleGoogleIdentityServicesCredentialResponse(response) {
         const idToken = response && response.credential;
         if (!idToken) {
             console.error('[authService] GIS callback received no credential.');
-            showAuthFailureNotice('Google sign-in did not return a credential. Please try again.');
             if (googleIdentityServicesPromptInFlight) {
-                googleIdentityServicesPromptInFlight.reject(new Error('GIS returned no credential'));
+                googleIdentityServicesPromptInFlight.reject(Object.assign(new Error('GIS returned no credential'), { code: 'gis/no-credential' }));
                 googleIdentityServicesPromptInFlight = null;
             }
             return;
@@ -195,32 +195,45 @@ function signInWithGoogleIdentityServices() {
             reject(new Error('GIS not available'));
             return;
         }
+        let timeoutHandle = null;
+        const settlePrompt = (method, value) => {
+            if (!googleIdentityServicesPromptInFlight) return;
+            clearTimeout(timeoutHandle);
+            const pending = googleIdentityServicesPromptInFlight;
+            googleIdentityServicesPromptInFlight = null;
+            pending[method](value);
+        };
         googleIdentityServicesPromptInFlight = { resolve, reject };
+        timeoutHandle = setTimeout(() => {
+            settlePrompt('reject', Object.assign(new Error('GIS prompt timed out'), { code: 'gis/timeout' }));
+        }, GOOGLE_IDENTITY_SERVICES_PROMPT_TIMEOUT_MS);
         try {
             window.google.accounts.id.prompt((notification) => {
                 if (!notification) return;
+                if (typeof notification.isDisplayed === 'function' && notification.isDisplayed()) {
+                    clearTimeout(timeoutHandle);
+                    return;
+                }
                 if (typeof notification.isNotDisplayed === 'function' && notification.isNotDisplayed()) {
                     const reason = typeof notification.getNotDisplayedReason === 'function'
                         ? notification.getNotDisplayedReason() : 'unknown';
                     console.warn('[authService] GIS prompt not displayed:', reason);
-                    if (googleIdentityServicesPromptInFlight) {
-                        googleIdentityServicesPromptInFlight.reject(new Error('GIS prompt not displayed: ' + reason));
-                        googleIdentityServicesPromptInFlight = null;
-                    }
+                    settlePrompt('reject', Object.assign(new Error('GIS prompt not displayed: ' + reason), { code: 'gis/not-displayed' }));
                 } else if (typeof notification.isSkippedMoment === 'function' && notification.isSkippedMoment()) {
                     const reason = typeof notification.getSkippedReason === 'function'
                         ? notification.getSkippedReason() : 'unknown';
                     console.warn('[authService] GIS prompt skipped:', reason);
-                    if (googleIdentityServicesPromptInFlight) {
-                        googleIdentityServicesPromptInFlight.reject(Object.assign(new Error('GIS prompt skipped: ' + reason), { code: 'auth/popup-closed-by-user' }));
-                        googleIdentityServicesPromptInFlight = null;
-                    }
+                    settlePrompt('reject', Object.assign(new Error('GIS prompt skipped: ' + reason), { code: 'gis/skipped' }));
+                } else if (typeof notification.isDismissedMoment === 'function' && notification.isDismissedMoment()) {
+                    const reason = typeof notification.getDismissedReason === 'function'
+                        ? notification.getDismissedReason() : 'unknown';
+                    console.warn('[authService] GIS prompt dismissed:', reason);
+                    settlePrompt('reject', Object.assign(new Error('GIS prompt dismissed: ' + reason), { code: 'auth/popup-closed-by-user' }));
                 }
             });
         } catch (error) {
             console.error('[authService] GIS prompt threw:', error);
-            googleIdentityServicesPromptInFlight = null;
-            reject(error);
+            settlePrompt('reject', error);
         }
     });
 }

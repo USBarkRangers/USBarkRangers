@@ -36,6 +36,64 @@ function createGoogleProvider(options = {}) {
     return provider;
 }
 
+// Mobile Safari (and other mobile browsers) frequently surface
+// auth/network-request-failed from signInWithPopup because cross-site cookies
+// for firebaseapp.com get partitioned. signInWithRedirect is the documented
+// workaround. Standalone PWAs cannot host popups at all, so they also redirect.
+function shouldUseRedirectGoogleSignIn() {
+    const ua = navigator.userAgent || '';
+    const isMobileBrowser = /Android|iPhone|iPad|iPod|Mobile|CriOS|FxiOS/i.test(ua);
+    const isTouchDevice = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
+    const isStandalonePwa = window.navigator.standalone === true
+        || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    return isStandalonePwa || (isMobileBrowser && isTouchDevice);
+}
+
+function shouldRetryGoogleSignInWithRedirect(error) {
+    const code = error && error.code ? String(error.code) : '';
+    return code === 'auth/network-request-failed'
+        || code === 'auth/popup-blocked';
+}
+
+async function signInWithGoogleProvider(provider) {
+    const auth = firebase.auth();
+    if (shouldUseRedirectGoogleSignIn()) {
+        await auth.signInWithRedirect(provider);
+        return;
+    }
+    try {
+        await auth.signInWithPopup(provider);
+    } catch (error) {
+        if (shouldRetryGoogleSignInWithRedirect(error)) {
+            console.warn('[authService] Google popup failed; retrying with redirect:', error);
+            await auth.signInWithRedirect(provider);
+            return;
+        }
+        throw error;
+    }
+}
+
+// Complete any pending signInWithRedirect from a prior page load. Firebase's
+// onAuthStateChanged still fires on success without this call, but errors
+// (and benign "no pending redirect" no-ops) are otherwise invisible. Must run
+// after firebase.initializeApp().
+async function consumeGoogleRedirectResult() {
+    if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') return;
+    const auth = firebase.auth();
+    if (typeof auth.getRedirectResult !== 'function') return;
+    try {
+        await auth.getRedirectResult();
+    } catch (error) {
+        const code = error && error.code ? String(error.code) : '';
+        if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+            console.warn('[authService] Google redirect canceled:', code);
+            return;
+        }
+        console.error('[authService] getRedirectResult failed:', error);
+        showAuthFailureNotice('Google sign-in could not be completed. Please try again.');
+    }
+}
+
 function showAuthFailureNotice(message) {
     if (typeof window.BARK.showAuthFailure === 'function') {
         window.BARK.showAuthFailure(message || 'Sign-in failed. Cloud sync and saved progress are offline for this session.');
@@ -814,6 +872,10 @@ function initFirebase() {
         throw error;
     }
 
+    // Fire-and-forget: surfaces redirect errors. The auth state observer wired
+    // below will receive the user when the redirect succeeds.
+    consumeGoogleRedirectResult();
+
     try {
         firebase.auth().onAuthStateChanged((user) => {
             try {
@@ -983,9 +1045,9 @@ function initFirebase() {
                     forceAccountChooser: consumeGoogleAccountChooserRequest()
                 });
                 window.BARK.incrementRequestCount();
-                await firebase.auth().signInWithPopup(provider);
+                await signInWithGoogleProvider(provider);
             } catch (error) {
-                console.error("[authService] signInWithPopup failed:", error);
+                console.error("[authService] Google sign-in failed:", error);
                 alert("Login Error: " + error.message);
             }
         });
@@ -1012,6 +1074,9 @@ function initFirebase() {
 window.BARK.services.auth = {
     initFirebase,
     createGoogleProvider,
+    shouldUseRedirectGoogleSignIn,
+    signInWithGoogleProvider,
+    consumeGoogleRedirectResult,
     requestGoogleAccountChooser
 };
 window.BARK.initFirebase = initFirebase;

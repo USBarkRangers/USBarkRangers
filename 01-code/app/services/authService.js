@@ -36,6 +36,20 @@ function createGoogleProvider(options = {}) {
     return provider;
 }
 
+async function ensureLocalAuthPersistence(auth = firebase.auth()) {
+    if (!auth || typeof auth.setPersistence !== 'function') return;
+    const persistence = firebase.auth.Auth
+        && firebase.auth.Auth.Persistence
+        && firebase.auth.Auth.Persistence.LOCAL;
+    if (!persistence) return;
+
+    try {
+        await auth.setPersistence(persistence);
+    } catch (error) {
+        console.warn('[authService] Could not set LOCAL auth persistence; continuing with Firebase default.', error);
+    }
+}
+
 // Mobile Safari (and other mobile browsers) frequently surface
 // auth/network-request-failed from signInWithPopup because cross-site cookies
 // for firebaseapp.com get partitioned. signInWithRedirect is the documented
@@ -57,6 +71,7 @@ function shouldRetryGoogleSignInWithRedirect(error) {
 
 async function signInWithGoogleProvider(provider) {
     const auth = firebase.auth();
+    await ensureLocalAuthPersistence(auth);
     if (shouldUseRedirectGoogleSignIn()) {
         await auth.signInWithRedirect(provider);
         return;
@@ -82,6 +97,7 @@ async function consumeGoogleRedirectResult() {
     const auth = firebase.auth();
     if (typeof auth.getRedirectResult !== 'function') return;
     try {
+        await ensureLocalAuthPersistence(auth);
         const result = await auth.getRedirectResult();
         if (result && result.user) {
             console.log('[authService] Google redirect sign-in completed:', result.user.uid);
@@ -871,6 +887,7 @@ async function initFirebase() {
 
     try {
         firebase.initializeApp(window.BARK.firebaseConfig);
+        await ensureLocalAuthPersistence();
     } catch (error) {
         console.error("[authService] initializeApp failed:", error);
         throw error;
@@ -1079,6 +1096,7 @@ async function initFirebase() {
 window.BARK.services.auth = {
     initFirebase,
     createGoogleProvider,
+    ensureLocalAuthPersistence,
     shouldUseRedirectGoogleSignIn,
     signInWithGoogleProvider,
     consumeGoogleRedirectResult,

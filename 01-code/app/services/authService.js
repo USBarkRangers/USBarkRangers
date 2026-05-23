@@ -114,6 +114,117 @@ function showIosPwaGoogleSignInNotice(error) {
     showAuthFailureNotice('Google sign-in was blocked in the installed iPhone app. Open the website in Safari for Google sign-in, or use email sign-in here.');
 }
 
+// ============== Google Identity Services (GIS) ==============
+// GIS is Google's modern Sign-in library. Unlike Firebase Auth's popup/redirect
+// (which fail on iOS Safari under ITP), GIS uses Google's own iframe with the
+// Storage Access API and works reliably on iPhone Safari. We use GIS to obtain
+// a Google ID token, then exchange it for a Firebase session via
+// signInWithCredential. Activated only when barkConfig.googleOauthClientId
+// is set; falls back to the existing popup/redirect path otherwise.
+
+let googleIdentityServicesInitialized = false;
+let googleIdentityServicesPromptInFlight = null;
+
+function getGoogleOauthClientId() {
+    return (window.BARK
+        && window.BARK.firebaseConfig
+        && typeof window.BARK.firebaseConfig.googleOauthClientId === 'string'
+        && window.BARK.firebaseConfig.googleOauthClientId.trim()) || '';
+}
+
+function isGoogleIdentityServicesReady() {
+    return Boolean(
+        getGoogleOauthClientId()
+        && window.google
+        && window.google.accounts
+        && window.google.accounts.id
+    );
+}
+
+function ensureGoogleIdentityServicesInitialized() {
+    if (googleIdentityServicesInitialized) return true;
+    if (!isGoogleIdentityServicesReady()) return false;
+    try {
+        window.google.accounts.id.initialize({
+            client_id: getGoogleOauthClientId(),
+            callback: handleGoogleIdentityServicesCredentialResponse,
+            ux_mode: 'popup',
+            auto_select: false,
+            cancel_on_tap_outside: true,
+            use_fedcm_for_prompt: true
+        });
+        googleIdentityServicesInitialized = true;
+        return true;
+    } catch (error) {
+        console.error('[authService] GIS initialize failed:', error);
+        return false;
+    }
+}
+
+async function handleGoogleIdentityServicesCredentialResponse(response) {
+    try {
+        const idToken = response && response.credential;
+        if (!idToken) {
+            console.error('[authService] GIS callback received no credential.');
+            showAuthFailureNotice('Google sign-in did not return a credential. Please try again.');
+            if (googleIdentityServicesPromptInFlight) {
+                googleIdentityServicesPromptInFlight.reject(new Error('GIS returned no credential'));
+                googleIdentityServicesPromptInFlight = null;
+            }
+            return;
+        }
+        const credential = firebase.auth.GoogleAuthProvider.credential(idToken);
+        await firebase.auth().signInWithCredential(credential);
+        if (googleIdentityServicesPromptInFlight) {
+            googleIdentityServicesPromptInFlight.resolve();
+            googleIdentityServicesPromptInFlight = null;
+        }
+    } catch (error) {
+        console.error('[authService] GIS credential exchange failed:', error);
+        showAuthFailureNotice('Google sign-in could not be completed (' + (error.code || error.message || 'unknown') + ').');
+        if (googleIdentityServicesPromptInFlight) {
+            googleIdentityServicesPromptInFlight.reject(error);
+            googleIdentityServicesPromptInFlight = null;
+        }
+    }
+}
+
+function signInWithGoogleIdentityServices() {
+    return new Promise((resolve, reject) => {
+        if (!ensureGoogleIdentityServicesInitialized()) {
+            reject(new Error('GIS not available'));
+            return;
+        }
+        googleIdentityServicesPromptInFlight = { resolve, reject };
+        try {
+            window.google.accounts.id.prompt((notification) => {
+                if (!notification) return;
+                if (typeof notification.isNotDisplayed === 'function' && notification.isNotDisplayed()) {
+                    const reason = typeof notification.getNotDisplayedReason === 'function'
+                        ? notification.getNotDisplayedReason() : 'unknown';
+                    console.warn('[authService] GIS prompt not displayed:', reason);
+                    if (googleIdentityServicesPromptInFlight) {
+                        googleIdentityServicesPromptInFlight.reject(new Error('GIS prompt not displayed: ' + reason));
+                        googleIdentityServicesPromptInFlight = null;
+                    }
+                } else if (typeof notification.isSkippedMoment === 'function' && notification.isSkippedMoment()) {
+                    const reason = typeof notification.getSkippedReason === 'function'
+                        ? notification.getSkippedReason() : 'unknown';
+                    console.warn('[authService] GIS prompt skipped:', reason);
+                    if (googleIdentityServicesPromptInFlight) {
+                        googleIdentityServicesPromptInFlight.reject(Object.assign(new Error('GIS prompt skipped: ' + reason), { code: 'auth/popup-closed-by-user' }));
+                        googleIdentityServicesPromptInFlight = null;
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('[authService] GIS prompt threw:', error);
+            googleIdentityServicesPromptInFlight = null;
+            reject(error);
+        }
+    });
+}
+
 function bindGoogleSignInButton() {
     const googleBtn = document.getElementById('google-login-btn');
     if (!googleBtn || googleBtn.dataset.barkGoogleSignInBound === 'true') return;
@@ -134,9 +245,30 @@ function bindGoogleSignInButton() {
     });
 }
 
+function isBenignGoogleSignInError(error) {
+    const code = error && error.code ? String(error.code) : '';
+    return code === 'auth/popup-closed-by-user'
+        || code === 'auth/cancelled-popup-request'
+        || code === 'auth/user-cancelled';
+}
+
 async function signInWithGoogleProvider(provider) {
     const auth = firebase.auth();
     await ensureLocalAuthPersistence(auth);
+
+    // If Google Identity Services is configured + ready, prefer it on iOS
+    // because Firebase's popup/redirect handlers fail under Safari ITP.
+    if (isIosDevice() && isGoogleIdentityServicesReady()) {
+        try {
+            await signInWithGoogleIdentityServices();
+            return;
+        } catch (error) {
+            if (isBenignGoogleSignInError(error)) return;
+            console.error('[authService] GIS sign-in failed; falling through to popup:', error);
+            // Fall through to popup as last resort.
+        }
+    }
+
     if (shouldUseRedirectGoogleSignIn()) {
         markGoogleRedirectPending();
         await auth.signInWithRedirect(provider);
@@ -145,8 +277,17 @@ async function signInWithGoogleProvider(provider) {
     try {
         await auth.signInWithPopup(provider);
     } catch (error) {
+        if (isBenignGoogleSignInError(error)) return;
         if (isIosStandalonePwa()) {
             showIosPwaGoogleSignInNotice(error);
+            return;
+        }
+        // iOS Safari (non-PWA): redirect fallback ALSO fails under ITP and
+        // produces a worse cascade. Surface the popup error directly instead.
+        if (isIosDevice()) {
+            const code = error && error.code ? String(error.code) : '';
+            console.error('[authService] Google popup failed on iOS:', error);
+            showAuthFailureNotice('Google sign-in is not working in iPhone Safari right now (' + (code || 'unknown') + '). Please use email sign-in below, or sign in from a desktop browser.');
             return;
         }
         if (shouldRetryGoogleSignInWithRedirect(error)) {
@@ -1007,6 +1148,18 @@ async function initFirebase() {
     // the observer fires a second time with the signed-in user.
     bindGoogleSignInButton();
 
+    // Initialize Google Identity Services as soon as its script loads, if a
+    // client ID is configured. Polled because the GIS script is async.
+    if (getGoogleOauthClientId()) {
+        let gisPollAttempts = 0;
+        const gisPollInterval = setInterval(() => {
+            gisPollAttempts += 1;
+            if (ensureGoogleIdentityServicesInitialized() || gisPollAttempts > 40) {
+                clearInterval(gisPollInterval);
+            }
+        }, 250);
+    }
+
     try {
         firebase.auth().onAuthStateChanged((user) => {
             try {
@@ -1200,6 +1353,9 @@ window.BARK.services.auth = {
     shouldUseRedirectGoogleSignIn,
     signInWithGoogleProvider,
     consumeGoogleRedirectResult,
-    requestGoogleAccountChooser
+    requestGoogleAccountChooser,
+    isGoogleIdentityServicesReady,
+    ensureGoogleIdentityServicesInitialized,
+    signInWithGoogleIdentityServices
 };
 window.BARK.initFirebase = initFirebase;

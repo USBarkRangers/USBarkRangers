@@ -65,17 +65,21 @@ function isIosStandalonePwa() {
     return isStandalonePwa() && isIosDevice();
 }
 
-// Mobile Safari frequently surfaces auth/network-request-failed from
-// signInWithPopup because cross-site cookies for firebaseapp.com get
-// partitioned. signInWithRedirect is the documented workaround in browser tabs.
-// iOS Home Screen apps are different: redirect leaves the standalone app and
-// often returns without a Firebase credential, so we try popup there instead.
+// With authDomain set to the same origin as the app (barkrangermap-auth.web.app),
+// signInWithPopup no longer triggers cross-site cookie partitioning on iOS
+// Safari, which was the original cause of auth/network-request-failed. Popup is
+// also more reliable than redirect on iOS: the redirect handoff back to web.app
+// regularly drops the credential under Safari ITP. So we prefer popup
+// everywhere; the explicit popup-failure fallback below still escalates to
+// redirect if the browser blocks popup or the network call genuinely fails.
+// Non-iOS Android browsers stay on redirect because Android Chrome popups don't
+// integrate well with the OS account chooser.
 function shouldUseRedirectGoogleSignIn() {
     const ua = navigator.userAgent || '';
-    const isMobileBrowser = /Android|iPhone|iPad|iPod|Mobile|CriOS|FxiOS/i.test(ua);
+    if (isIosDevice()) return false;
+    const isAndroid = /Android/i.test(ua);
     const isTouchDevice = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
-    if (isIosStandalonePwa()) return false;
-    return isMobileBrowser && isTouchDevice;
+    return isAndroid && isTouchDevice;
 }
 
 function shouldRetryGoogleSignInWithRedirect(error) {
@@ -108,6 +112,26 @@ function consumeGoogleRedirectPendingMarker() {
 function showIosPwaGoogleSignInNotice(error) {
     console.warn('[authService] Google popup failed in iOS standalone PWA:', error);
     showAuthFailureNotice('Google sign-in was blocked in the installed iPhone app. Open the website in Safari for Google sign-in, or use email sign-in here.');
+}
+
+function bindGoogleSignInButton() {
+    const googleBtn = document.getElementById('google-login-btn');
+    if (!googleBtn || googleBtn.dataset.barkGoogleSignInBound === 'true') return;
+    googleBtn.dataset.barkGoogleSignInBound = 'true';
+    googleBtn.addEventListener('click', async () => {
+        try {
+            const provider = createGoogleProvider({
+                forceAccountChooser: consumeGoogleAccountChooserRequest()
+            });
+            if (typeof window.BARK.incrementRequestCount === 'function') {
+                window.BARK.incrementRequestCount();
+            }
+            await signInWithGoogleProvider(provider);
+        } catch (error) {
+            console.error('[authService] Google sign-in failed:', error);
+            alert('Login Error: ' + (error && error.message ? error.message : 'unknown error'));
+        }
+    });
 }
 
 async function signInWithGoogleProvider(provider) {
@@ -977,10 +1001,11 @@ async function initFirebase() {
         throw error;
     }
 
-    // Complete redirect sign-in before the auth observer decides the app is
-    // signed out. On iOS Safari the redirect result can arrive after the first
-    // auth-state check if we fire-and-forget it.
-    await consumeGoogleRedirectResult();
+    // Bind the auth observer and Google button BEFORE awaiting the redirect
+    // result so the UI is responsive while iOS Safari's getRedirectResult
+    // resolves (or times out). When the redirect completes after this point,
+    // the observer fires a second time with the signed-in user.
+    bindGoogleSignInButton();
 
     try {
         firebase.auth().onAuthStateChanged((user) => {
@@ -1143,21 +1168,10 @@ async function initFirebase() {
         throw error;
     }
 
-    const googleBtn = document.getElementById('google-login-btn');
-    if (googleBtn) {
-        googleBtn.addEventListener('click', async () => {
-            try {
-                const provider = createGoogleProvider({
-                    forceAccountChooser: consumeGoogleAccountChooserRequest()
-                });
-                window.BARK.incrementRequestCount();
-                await signInWithGoogleProvider(provider);
-            } catch (error) {
-                console.error("[authService] Google sign-in failed:", error);
-                alert("Login Error: " + error.message);
-            }
-        });
-    }
+    // Process any pending signInWithRedirect. Runs at the end so the button
+    // and auth observer above are already responsive while iOS Safari resolves
+    // (or times out) the redirect handshake.
+    await consumeGoogleRedirectResult();
 
     // Email Suggestion Template
     const emailSuggestBtn = document.getElementById('email-suggest-btn');

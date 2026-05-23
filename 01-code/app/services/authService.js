@@ -82,7 +82,11 @@ async function consumeGoogleRedirectResult() {
     const auth = firebase.auth();
     if (typeof auth.getRedirectResult !== 'function') return;
     try {
-        await auth.getRedirectResult();
+        const result = await auth.getRedirectResult();
+        if (result && result.user) {
+            console.log('[authService] Google redirect sign-in completed:', result.user.uid);
+        }
+        return result;
     } catch (error) {
         const code = error && error.code ? String(error.code) : '';
         if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
@@ -860,7 +864,7 @@ function resetAccountScopedRuntimeState() {
     if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
 }
 
-function initFirebase() {
+async function initFirebase() {
     if (typeof firebase === 'undefined') return;
 
     const loadSavedRoutes = window.BARK.loadSavedRoutes;
@@ -872,9 +876,10 @@ function initFirebase() {
         throw error;
     }
 
-    // Fire-and-forget: surfaces redirect errors. The auth state observer wired
-    // below will receive the user when the redirect succeeds.
-    consumeGoogleRedirectResult();
+    // Complete redirect sign-in before the auth observer decides the app is
+    // signed out. On iOS Safari the redirect result can arrive after the first
+    // auth-state check if we fire-and-forget it.
+    await consumeGoogleRedirectResult();
 
     try {
         firebase.auth().onAuthStateChanged((user) => {

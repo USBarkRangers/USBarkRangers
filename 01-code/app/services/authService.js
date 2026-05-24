@@ -123,7 +123,6 @@ async function signInWithGoogleProvider(provider, options = {}) {
     const auth = firebase.auth();
 
     try {
-        await ensureLocalAuthPersistence(auth);
         await auth.signInWithPopup(provider);
     } catch (error) {
         if (isBenignGoogleSignInError(error)) return;

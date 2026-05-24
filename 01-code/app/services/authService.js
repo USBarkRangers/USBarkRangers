@@ -50,102 +50,30 @@ async function ensureLocalAuthPersistence(auth = firebase.auth()) {
     }
 }
 
-async function handleGoogleSignInClick(event = null) {
-    if (event && typeof event.preventDefault === 'function') event.preventDefault();
-    if (handleGoogleSignInClick.inFlight) return;
-    handleGoogleSignInClick.inFlight = true;
-    try {
-        const forceAccountChooser = consumeGoogleAccountChooserRequest();
-        const provider = createGoogleProvider({
-            forceAccountChooser
-        });
-        if (typeof window.BARK.incrementRequestCount === 'function') {
-            window.BARK.incrementRequestCount();
-        }
-        await signInWithGoogleProvider(provider, { forceAccountChooser });
-    } catch (error) {
-        console.error('[authService] Google sign-in failed:', error);
-        alert('Login Error: ' + (error && error.message ? error.message : 'unknown error'));
-    } finally {
-        handleGoogleSignInClick.inFlight = false;
-    }
-}
-
 function bindGoogleSignInButton() {
     const googleBtn = document.getElementById('google-login-btn');
     if (!googleBtn || googleBtn.dataset.barkGoogleSignInBound === 'true') return;
     googleBtn.dataset.barkGoogleSignInBound = 'true';
-    googleBtn.addEventListener('click', handleGoogleSignInClick);
-    googleBtn.addEventListener('touchend', handleGoogleSignInClick, { passive: false });
-    googleBtn.addEventListener('pointerup', handleGoogleSignInClick);
-
-    const authCard = document.getElementById('account-auth-card');
-    if (authCard && authCard.dataset.barkGoogleSignInDelegated !== 'true') {
-        authCard.dataset.barkGoogleSignInDelegated = 'true';
-        const delegatedGoogleSignIn = (event) => {
-            const activeGoogleBtn = document.getElementById('google-login-btn');
-            if (!activeGoogleBtn || activeGoogleBtn.hidden) return;
-            if (event.target && event.target.closest && event.target.closest('#google-login-btn')) {
-                handleGoogleSignInClick(event);
-                return;
+    googleBtn.addEventListener('click', async () => {
+        try {
+            const provider = createGoogleProvider({
+                forceAccountChooser: consumeGoogleAccountChooserRequest()
+            });
+            if (typeof window.BARK.incrementRequestCount === 'function') {
+                window.BARK.incrementRequestCount();
             }
-            const point = event.changedTouches && event.changedTouches.length
-                ? event.changedTouches[0]
-                : event;
-            if (!Number.isFinite(point.clientX) || !Number.isFinite(point.clientY)) return;
-            const rect = activeGoogleBtn.getBoundingClientRect();
-            const insideButton = point.clientX >= rect.left
-                && point.clientX <= rect.right
-                && point.clientY >= rect.top
-                && point.clientY <= rect.bottom;
-            if (insideButton) handleGoogleSignInClick(event);
-        };
-        authCard.addEventListener('click', delegatedGoogleSignIn);
-        authCard.addEventListener('touchend', delegatedGoogleSignIn, { passive: false });
-        authCard.addEventListener('pointerup', delegatedGoogleSignIn);
-    }
+            await firebase.auth().signInWithPopup(provider);
+        } catch (error) {
+            console.error('[authService] signInWithPopup failed:', error);
+            alert('Login Error: ' + (error && error.message ? error.message : 'unknown error'));
+        }
+    });
 }
 
 function getEffectiveFirebaseConfig() {
     const config = { ...(window.BARK.firebaseConfig || {}) };
     window.BARK.effectiveFirebaseConfig = config;
     return config;
-}
-
-function isBenignGoogleSignInError(error) {
-    const code = error && error.code ? String(error.code) : '';
-    return code === 'auth/popup-closed-by-user'
-        || code === 'auth/cancelled-popup-request'
-        || code === 'auth/user-cancelled';
-}
-
-function isIosStandalonePwa() {
-    const ua = navigator.userAgent || '';
-    const isIos = /iPhone|iPad|iPod/i.test(ua)
-        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    if (!isIos) return false;
-    return window.navigator.standalone === true
-        || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-}
-
-async function signInWithGoogleProvider(provider, options = {}) {
-    const auth = firebase.auth();
-
-    // iOS standalone PWA: popups try to open in Safari (out of the WKWebView)
-    // and the postMessage back to the PWA fails, surfacing as
-    // auth/network-request-failed. Redirect navigates the same WKWebView
-    // through Google's OAuth and back, which works.
-    if (isIosStandalonePwa()) {
-        await auth.signInWithRedirect(provider);
-        return;
-    }
-
-    try {
-        await auth.signInWithPopup(provider);
-    } catch (error) {
-        if (isBenignGoogleSignInError(error)) return;
-        throw error;
-    }
 }
 
 function showAuthFailureNotice(message) {
@@ -931,15 +859,6 @@ async function initFirebase() {
     // so the account card is responsive even while Firebase restores state.
     bindGoogleSignInButton();
 
-    // Complete any pending signInWithRedirect from a prior page load (iOS PWA
-    // path). Failures here are logged but don't block init — onAuthStateChanged
-    // will still fire if the SDK eventually resolves the session.
-    try {
-        await firebase.auth().getRedirectResult();
-    } catch (error) {
-        console.error('[authService] getRedirectResult failed:', error);
-    }
-
     try {
         firebase.auth().onAuthStateChanged((user) => {
             try {
@@ -1123,8 +1042,6 @@ window.BARK.services.auth = {
     initFirebase,
     createGoogleProvider,
     ensureLocalAuthPersistence,
-    signInWithGoogleProvider,
-    handleGoogleSignInClick,
     requestGoogleAccountChooser,
     getEffectiveFirebaseConfig
 };

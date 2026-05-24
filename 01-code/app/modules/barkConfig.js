@@ -20,14 +20,9 @@ window.BARK.normalizationDict = {
 };
 
 // ====== FIREBASE CONFIG ======
-// authDomain matches the Firebase Hosting origin (barkrangermap-auth.web.app)
-// so the OAuth handler at /__/auth/handler is same-origin to the PWA. iOS
-// standalone WKWebView's storage partitioning breaks cross-origin auth
-// handshakes; same-origin avoids the issue. Install the PWA from
-// https://barkrangermap-auth.web.app for this to apply.
 window.BARK.firebaseConfig = {
     apiKey: "AIzaSyDcBn2YQCAFrAjN27gIM9lBiu0PZsComO4",
-    authDomain: "barkrangermap-auth.web.app",
+    authDomain: "barkrangermap-auth.firebaseapp.com",
     projectId: "barkrangermap-auth",
     storageBucket: "barkrangermap-auth.firebasestorage.app",
     messagingSenderId: "564465144962",

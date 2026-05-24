@@ -20,28 +20,14 @@ window.BARK.normalizationDict = {
 };
 
 // ====== FIREBASE CONFIG ======
-// authDomain matches the Firebase Hosting domain so /__/auth/handler is
-// first-party to the app on iOS Safari. Required per Firebase redirect
-// best-practices: https://firebase.google.com/docs/auth/web/redirect-best-practices
-//
-// googleOauthClientId enables Google Identity Services (GIS) on iOS Safari,
-// which bypasses Firebase's popup/redirect handlers that ITP blocks on iPhone.
-// Paste the OAuth Web Client ID here (looks like
-// "564465144962-XXXXXXXX.apps.googleusercontent.com").
-// Find it at: https://console.cloud.google.com/apis/credentials?project=barkrangermap-auth
-//   → OAuth 2.0 Client IDs → "Web client (auto created by Google Service)" → Client ID
-// Or: Firebase Console → Authentication → Sign-in method → Google →
-//   "Web SDK configuration" → Web client ID.
-// Leave empty to fall back to the popup/redirect flow.
 window.BARK.firebaseConfig = {
     apiKey: "AIzaSyDcBn2YQCAFrAjN27gIM9lBiu0PZsComO4",
-    authDomain: "barkrangermap-auth.web.app",
+    authDomain: "barkrangermap-auth.firebaseapp.com",
     projectId: "barkrangermap-auth",
     storageBucket: "barkrangermap-auth.firebasestorage.app",
     messagingSenderId: "564465144962",
     appId: "1:564465144962:web:9e43dbc993b93a33d5d09b",
-    measurementId: "G-V2QCN2MFBZ",
-    googleOauthClientId: "564465144962-m32aoi179l1gjcvqr2r143tm4t5br913.apps.googleusercontent.com"
+    measurementId: "G-V2QCN2MFBZ"
 };
 
 // ====== SERVICE CONFIG ======

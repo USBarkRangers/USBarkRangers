@@ -119,8 +119,26 @@ function isBenignGoogleSignInError(error) {
         || code === 'auth/user-cancelled';
 }
 
+function isIosStandalonePwa() {
+    const ua = navigator.userAgent || '';
+    const isIos = /iPhone|iPad|iPod/i.test(ua)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (!isIos) return false;
+    return window.navigator.standalone === true
+        || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
+
 async function signInWithGoogleProvider(provider, options = {}) {
     const auth = firebase.auth();
+
+    // iOS standalone PWA: popups try to open in Safari (out of the WKWebView)
+    // and the postMessage back to the PWA fails, surfacing as
+    // auth/network-request-failed. Redirect navigates the same WKWebView
+    // through Google's OAuth and back, which works.
+    if (isIosStandalonePwa()) {
+        await auth.signInWithRedirect(provider);
+        return;
+    }
 
     try {
         await auth.signInWithPopup(provider);
@@ -912,6 +930,15 @@ async function initFirebase() {
     // Bind the Google button before the auth observer finishes its first pass
     // so the account card is responsive even while Firebase restores state.
     bindGoogleSignInButton();
+
+    // Complete any pending signInWithRedirect from a prior page load (iOS PWA
+    // path). Failures here are logged but don't block init — onAuthStateChanged
+    // will still fire if the SDK eventually resolves the session.
+    try {
+        await firebase.auth().getRedirectResult();
+    } catch (error) {
+        console.error('[authService] getRedirectResult failed:', error);
+    }
 
     try {
         firebase.auth().onAuthStateChanged((user) => {

@@ -126,6 +126,7 @@ let googleIdentityServicesInitialized = false;
 let googleIdentityServicesButtonRendered = false;
 let googleIdentityServicesPromptInFlight = null;
 let googleIdentityServicesScriptLoadPromise = null;
+let googleOAuthTokenClient = null;
 const GOOGLE_IDENTITY_SERVICES_PROMPT_TIMEOUT_MS = 5000;
 const GOOGLE_IDENTITY_SERVICES_SCRIPT_TIMEOUT_MS = 8000;
 const GOOGLE_IDENTITY_SERVICES_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
@@ -148,7 +149,17 @@ function isGoogleIdentityServicesReady() {
         getGoogleOauthClientId()
         && window.google
         && window.google.accounts
-        && window.google.accounts.id
+        && (window.google.accounts.id || window.google.accounts.oauth2)
+    );
+}
+
+function isGoogleOAuthTokenClientReady() {
+    return Boolean(
+        getGoogleOauthClientId()
+        && window.google
+        && window.google.accounts
+        && window.google.accounts.oauth2
+        && typeof window.google.accounts.oauth2.initTokenClient === 'function'
     );
 }
 
@@ -207,7 +218,7 @@ function canRenderGoogleIdentityServicesButton() {
 
 function ensureGoogleIdentityServicesInitialized() {
     if (googleIdentityServicesInitialized) return true;
-    if (!isGoogleIdentityServicesReady()) return false;
+    if (!window.google || !window.google.accounts || !window.google.accounts.id || !getGoogleOauthClientId()) return false;
     try {
         window.google.accounts.id.initialize({
             client_id: getGoogleOauthClientId(),
@@ -223,6 +234,53 @@ function ensureGoogleIdentityServicesInitialized() {
         console.error('[authService] GIS initialize failed:', error);
         return false;
     }
+}
+
+function signInWithGoogleOAuthTokenClient(options = {}) {
+    return new Promise((resolve, reject) => {
+        if (!isGoogleOAuthTokenClientReady()) {
+            reject(Object.assign(new Error('Google OAuth token client is not available'), { code: 'gis/token-client-unavailable' }));
+            return;
+        }
+
+        try {
+            googleOAuthTokenClient = window.google.accounts.oauth2.initTokenClient({
+                client_id: getGoogleOauthClientId(),
+                scope: 'openid email profile',
+                prompt: options.forceAccountChooser ? 'select_account' : '',
+                callback: async (response) => {
+                    try {
+                        if (!response || response.error) {
+                            reject(Object.assign(new Error(response && response.error ? response.error : 'Google token request failed'), { code: 'gis/token-error' }));
+                            return;
+                        }
+
+                        if (!response.access_token) {
+                            reject(Object.assign(new Error('Google token response did not include an access token'), { code: 'gis/no-access-token' }));
+                            return;
+                        }
+
+                        const auth = firebase.auth();
+                        await ensureLocalAuthPersistence(auth);
+                        const credential = firebase.auth.GoogleAuthProvider.credential(null, response.access_token);
+                        await auth.signInWithCredential(credential);
+                        resolve();
+                    } catch (error) {
+                        reject(error);
+                    }
+                },
+                error_callback: (error) => {
+                    reject(error || Object.assign(new Error('Google token popup failed'), { code: 'gis/token-popup-failed' }));
+                }
+            });
+
+            googleOAuthTokenClient.requestAccessToken({
+                prompt: options.forceAccountChooser ? 'select_account' : ''
+            });
+        } catch (error) {
+            reject(error);
+        }
+    });
 }
 
 async function handleGoogleIdentityServicesCredentialResponse(response) {
@@ -302,6 +360,11 @@ function signInWithGoogleIdentityServices() {
 }
 
 function renderGoogleIdentityServicesButton() {
+    // The official GIS rendered button can fall back to a navigation-based flow
+    // on iOS Safari/PWA and reload the app before Firebase receives the token.
+    // Keep our own button visible and drive GIS through the OAuth token client.
+    if (isIosDevice()) return false;
+
     if (!isIosDevice() || googleIdentityServicesButtonRendered || !canRenderGoogleIdentityServicesButton()) {
         return false;
     }
@@ -345,6 +408,9 @@ async function prepareGoogleIdentityServicesForIos() {
 
     try {
         await loadGoogleIdentityServicesScript();
+        if (!isFirebaseHostedAppHost() && isGoogleOAuthTokenClientReady()) {
+            return true;
+        }
         ensureGoogleIdentityServicesInitialized();
         return renderGoogleIdentityServicesButton() || isGoogleIdentityServicesReady();
     } catch (error) {
@@ -358,13 +424,14 @@ async function handleGoogleSignInClick(event = null) {
     if (handleGoogleSignInClick.inFlight) return;
     handleGoogleSignInClick.inFlight = true;
     try {
+        const forceAccountChooser = consumeGoogleAccountChooserRequest();
         const provider = createGoogleProvider({
-            forceAccountChooser: consumeGoogleAccountChooserRequest()
+            forceAccountChooser
         });
         if (typeof window.BARK.incrementRequestCount === 'function') {
             window.BARK.incrementRequestCount();
         }
-        await signInWithGoogleProvider(provider);
+        await signInWithGoogleProvider(provider, { forceAccountChooser });
     } catch (error) {
         console.error('[authService] Google sign-in failed:', error);
         alert('Login Error: ' + (error && error.message ? error.message : 'unknown error'));
@@ -428,7 +495,7 @@ function isBenignGoogleSignInError(error) {
         || code === 'auth/user-cancelled';
 }
 
-async function signInWithGoogleProvider(provider) {
+async function signInWithGoogleProvider(provider, options = {}) {
     const auth = firebase.auth();
 
     // iPhone Safari fails Firebase's popup handshake when the app is served from
@@ -442,21 +509,18 @@ async function signInWithGoogleProvider(provider) {
             return;
         }
 
-        if (googleIdentityServicesButtonRendered) {
-            showAuthFailureNotice('Tap the Google sign-in button again to continue.');
-            return;
-        }
-
         try {
-            await signInWithGoogleIdentityServices();
+            if (isGoogleOAuthTokenClientReady()) {
+                await signInWithGoogleOAuthTokenClient({
+                    forceAccountChooser: options.forceAccountChooser === true
+                });
+            } else {
+                await signInWithGoogleIdentityServices();
+            }
             return;
         } catch (error) {
             if (isBenignGoogleSignInError(error)) return;
             console.error('[authService] GIS sign-in failed on iOS:', error);
-            if (renderGoogleIdentityServicesButton()) {
-                showAuthFailureNotice('Tap the Google sign-in button again to continue.');
-                return;
-            }
             showAuthFailureNotice('Google sign-in could not be completed on this iPhone browser. Please try again or use email sign-in.');
             return;
         }

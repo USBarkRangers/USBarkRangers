@@ -3,14 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="0; url=01-code/app/">
     <title>Opening US BARK Rangers</title>
     <script>
-        const firebaseAppUrl = 'https://barkrangermap-auth.web.app/';
-        const localAppUrl = '01-code/app/';
-        const targetUrl = window.location.hostname === 'outswarming.github.io'
-            ? firebaseAppUrl
-            : localAppUrl;
-        window.location.replace(targetUrl + window.location.search + window.location.hash);
+        window.location.replace('01-code/app/' + window.location.search + window.location.hash);
     </script>
 </head>
 <body>

@@ -495,6 +495,14 @@ function buildVaultRepoSubscriptionOptions() {
         onChange(change) {
             if (hasAuthoritativeSnapshotMetadata(change && change.metadata)) {
                 window._visitedPlacesServerSnapshotReceived = true;
+                // Server has confirmed the current vault contents — drop any
+                // localStorage safety-net entries that are now reflected on the
+                // server. Visits still missing stay queued for the next replay.
+                const checkinService = window.BARK.services && window.BARK.services.checkin;
+                const currentUser = firebaseRef && firebaseRef.auth ? firebaseRef.auth().currentUser : null;
+                if (currentUser && checkinService && typeof checkinService.reconcileUnconfirmedVisits === 'function') {
+                    checkinService.reconcileUnconfirmedVisits(currentUser.uid);
+                }
             }
             refreshAuthSnapshotUi();
             maybeSyncAuthoritativeProfileScore('visitedPlaces-snapshot');
@@ -855,6 +863,26 @@ async function initFirebase() {
         throw error;
     }
 
+    // Enable Firestore offline persistence so writes durably queue in IndexedDB
+    // when the user has poor or no cell signal. Without this, writes only live in
+    // in-memory queues and are lost the moment the PWA is closed — which is how
+    // verified visits at remote state parks were vanishing. Best-effort: failures
+    // here (multi-tab, private browsing, unsupported browsers) are logged but do
+    // not block init.
+    try {
+        await firebase.firestore().enablePersistence({ synchronizeTabs: false });
+        console.log('[authService] Firestore offline persistence enabled.');
+    } catch (error) {
+        const code = error && error.code ? String(error.code) : '';
+        if (code === 'failed-precondition') {
+            console.warn('[authService] Firestore persistence skipped: another tab has it.');
+        } else if (code === 'unimplemented') {
+            console.warn('[authService] Firestore persistence skipped: browser unsupported.');
+        } else {
+            console.warn('[authService] Firestore persistence enable failed:', error);
+        }
+    }
+
     // Bind the Google button before the auth observer finishes its first pass
     // so the account card is responsive even while Firebase restores state.
     bindGoogleSignInButton();
@@ -906,6 +934,16 @@ async function initFirebase() {
                     } catch (error) {
                         console.error("[authService] subscribe visited places failed:", error);
                         showAuthFailureNotice('Sign-in connected, but visit sync could not start. Saved progress may be offline for this session.');
+                    }
+
+                    // Replay any visits that were saved locally but never
+                    // confirmed by the server before the PWA last closed.
+                    // Critical for users who verified visits in areas with
+                    // poor cell signal.
+                    const checkinService = window.BARK.services && window.BARK.services.checkin;
+                    if (checkinService && typeof checkinService.replayUnconfirmedVisits === 'function') {
+                        Promise.resolve(checkinService.replayUnconfirmedVisits(user.uid))
+                            .catch(error => console.error('[authService] replayUnconfirmedVisits failed:', error));
                     }
 
                     try {

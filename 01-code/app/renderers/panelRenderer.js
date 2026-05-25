@@ -421,10 +421,16 @@ function renderMarkerClickPanel(context) {
                 try {
                     const checkinResult = await checkinService.verifyGpsCheckin(d);
                     if (checkinResult.success) {
-                        alert(`Check-in Verified! You earned 2 points.`);
+                        if (checkinResult.syncStatus === 'pending') {
+                            alert("Check-in Verified! Saved on your phone — we'll sync it to the cloud as soon as you have signal again. Keep the app installed and you won't lose this visit.");
+                        } else {
+                            alert(`Check-in Verified! You earned 2 points.`);
+                        }
 
                         verifyBtn.style.background = '#4CAF50';
-                        verifyBtnText.textContent = '🐾 Verified & Secured';
+                        verifyBtnText.textContent = checkinResult.syncStatus === 'pending'
+                            ? '🐾 Verified (syncing…)'
+                            : '🐾 Verified & Secured';
                         verifyBtn.disabled = true;
                         verifyBtn.style.cursor = 'default';
                         verifyBtn.style.opacity = '0.7';

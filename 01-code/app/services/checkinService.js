@@ -6,6 +6,138 @@ window.BARK.services = window.BARK.services || {};
 
 const FREE_VISIT_LIMIT = 5;
 
+// Hard upper bound on how long we wait for the Firebase visit-write to acknowledge
+// before assuming the network is too slow/flaky and treating the visit as "saved
+// locally, will sync when online". With Firestore offline persistence enabled the
+// write is durably queued in IndexedDB regardless of network state, so this
+// timeout never causes data loss — it just frees the UI to give the user honest
+// feedback instead of spinning forever on a dead/weak connection.
+const FIREBASE_WRITE_TIMEOUT_MS = 15000;
+const WRITE_TIMEOUT_SENTINEL = '__BARK_WRITE_TIMEOUT__';
+
+// localStorage key holding visits that have been added locally but not yet
+// confirmed by an authoritative Firestore snapshot. Survives PWA close so that
+// writes which never reached the server (Maddy's Edgar Evins case) can be
+// replayed on the next launch.
+function getUnconfirmedVisitsKey(uid) {
+    return uid ? `bark.unconfirmedVisits.${uid}` : null;
+}
+
+function loadUnconfirmedVisitsMap(uid) {
+    const key = getUnconfirmedVisitsKey(uid);
+    if (!key) return {};
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (error) {
+        console.warn('[checkinService] unable to read unconfirmed visits cache:', error);
+        return {};
+    }
+}
+
+function saveUnconfirmedVisitsMap(uid, map) {
+    const key = getUnconfirmedVisitsKey(uid);
+    if (!key) return;
+    try {
+        if (!map || Object.keys(map).length === 0) {
+            localStorage.removeItem(key);
+        } else {
+            localStorage.setItem(key, JSON.stringify(map));
+        }
+    } catch (error) {
+        console.warn('[checkinService] unable to persist unconfirmed visits cache:', error);
+    }
+}
+
+function stashUnconfirmedVisit(uid, visit) {
+    if (!uid || !visit || !visit.id) return;
+    const map = loadUnconfirmedVisitsMap(uid);
+    map[visit.id] = { visit, stashedAt: Date.now() };
+    saveUnconfirmedVisitsMap(uid, map);
+}
+
+function clearUnconfirmedVisit(uid, visitId) {
+    if (!uid || !visitId) return;
+    const map = loadUnconfirmedVisitsMap(uid);
+    if (!map[visitId]) return;
+    delete map[visitId];
+    saveUnconfirmedVisitsMap(uid, map);
+}
+
+// Called from the authoritative Firestore snapshot handler in authService. Any
+// visit that the server now knows about can be safely removed from the local
+// safety net. Visits still missing from the server stay queued for replay.
+function reconcileUnconfirmedVisits(uid) {
+    if (!uid) return;
+    const map = loadUnconfirmedVisitsMap(uid);
+    const ids = Object.keys(map);
+    if (ids.length === 0) return;
+
+    const vaultRepo = getVaultRepo();
+    if (!vaultRepo || typeof vaultRepo.hasVisit !== 'function') return;
+
+    let mutated = false;
+    ids.forEach(id => {
+        if (vaultRepo.hasVisit(id)) {
+            delete map[id];
+            mutated = true;
+        }
+    });
+    if (mutated) saveUnconfirmedVisitsMap(uid, map);
+}
+
+// Called from authService once the user's session is restored. Re-adds any
+// visits that weren't confirmed before the PWA last closed, and re-stages the
+// Firebase write so they sync as soon as connectivity allows.
+async function replayUnconfirmedVisits(uid) {
+    if (!uid) return;
+    const map = loadUnconfirmedVisitsMap(uid);
+    const entries = Object.values(map);
+    if (entries.length === 0) return;
+
+    const vaultRepo = getVaultRepo();
+    const firebaseService = getFirebaseService();
+    if (!vaultRepo || !firebaseService) return;
+
+    let restored = 0;
+    entries.forEach(entry => {
+        const visit = entry && entry.visit;
+        if (!visit || !visit.id) return;
+        if (vaultRepo.hasVisit(visit.id)) return;
+        vaultRepo.addVisit(visit);
+        if (typeof firebaseService.stageVisitedPlaceUpsert === 'function') {
+            firebaseService.stageVisitedPlaceUpsert(visit);
+        }
+        restored++;
+    });
+
+    if (restored > 0) {
+        console.log(`[checkinService] Replayed ${restored} unconfirmed visit(s) from local cache.`);
+        refreshVisitedCache('checkin-unconfirmed-replay');
+        refreshVisitedVisuals('checkin-unconfirmed-replay', firebaseService);
+        try {
+            if (typeof firebaseService.updateCurrentUserVisitedPlaces === 'function') {
+                await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
+            }
+        } catch (error) {
+            // Persistence layer will keep retrying; localStorage stash still protects us.
+            console.warn('[checkinService] replay write deferred (offline/flaky network):', error);
+        }
+    }
+}
+
+function isNetworkLikeError(error) {
+    if (error === WRITE_TIMEOUT_SENTINEL) return true;
+    if (!navigator.onLine) return true;
+    const code = error && error.code ? String(error.code) : '';
+    return code === 'unavailable'
+        || code === 'deadline-exceeded'
+        || code === 'cancelled'
+        || code === 'aborted';
+}
+
 function getLocationCoords(userLocation) {
     const source = userLocation && userLocation.coords ? userLocation.coords : userLocation;
     if (!source) return null;
@@ -255,6 +387,7 @@ async function verifyGpsCheckin(parkData) {
     let token = null;
     let tokenUid = null;
     let rollbackToken = null;
+    let stashedVisitId = null;
     try {
         const checkinResult = verifyAndProcessCheckin(parkData, position.coords);
         if (!checkinResult.success) return checkinResult;
@@ -279,6 +412,13 @@ async function verifyGpsCheckin(parkData) {
         }
 
         vaultRepo.addVisit(checkinResult.visitRecord);
+        // Persist the visit to localStorage IMMEDIATELY — before any Firebase
+        // call — so that a write which never reaches Google's servers (poor
+        // cell signal at a state park) can be replayed on the next app launch.
+        if (tokenUid && checkinResult.visitRecord) {
+            stashUnconfirmedVisit(tokenUid, checkinResult.visitRecord);
+            stashedVisitId = checkinResult.visitRecord.id;
+        }
         if (typeof vaultRepo.createRollbackToken === 'function') {
             rollbackToken = vaultRepo.createRollbackToken(token, touchedIds);
         }
@@ -288,19 +428,67 @@ async function verifyGpsCheckin(parkData) {
         refreshVisitedCache('checkin-verified-add');
         refreshVisitedVisuals('checkin-verified-add', firebaseService);
         requestVisitStateSync('checkin-verified-add');
-        await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
+
+        // Race the Firebase write against a 15s timeout. With offline persistence
+        // enabled, the write is durably queued in IndexedDB even if the timeout
+        // wins — the timeout only governs how long the UI waits before telling
+        // the user "saved, will sync when online" instead of "saved to cloud".
+        let syncStatus = 'cloud';
+        try {
+            await new Promise((resolve, reject) => {
+                let settled = false;
+                const timeoutId = setTimeout(() => {
+                    if (settled) return;
+                    settled = true;
+                    reject(WRITE_TIMEOUT_SENTINEL);
+                }, FIREBASE_WRITE_TIMEOUT_MS);
+
+                firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray())
+                    .then(() => {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(timeoutId);
+                        resolve();
+                    })
+                    .catch(err => {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(timeoutId);
+                        reject(err);
+                    });
+            });
+        } catch (writeError) {
+            if (isNetworkLikeError(writeError)) {
+                // Visit is in the vault, in localStorage, and (with persistence
+                // enabled) in Firestore's offline queue. The next authoritative
+                // snapshot will clear the localStorage entry. DO NOT roll back —
+                // that's exactly the bug that lost Maddy's Edgar Evins visit.
+                syncStatus = 'pending';
+                console.warn('[checkinService] Verified visit queued for sync (network unavailable):', writeError);
+            } else {
+                throw writeError;
+            }
+        }
+
         queueDailyStreakIncrement(firebaseService);
 
         return {
             ...checkinResult,
-            action: 'verified'
+            action: 'verified',
+            syncStatus
         };
     } catch (error) {
+        // Reaching here means we hit a non-network error (auth, permission,
+        // service-internal). Roll back local state AND clear the localStorage
+        // stash so we don't replay a write that was rejected for a real reason.
         const vaultRepo = getVaultRepo();
         if (vaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof vaultRepo.restore === 'function') {
             vaultRepo.restore(rollbackToken || token);
         } else if (parkData && typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
             firebaseService.clearVisitedPlacePendingMutation(parkData.id);
+        }
+        if (tokenUid && stashedVisitId) {
+            clearUnconfirmedVisit(tokenUid, stashedVisitId);
         }
         console.error('[checkinService] verifyGpsCheckin failed:', error);
         return { success: false, error: 'CHECKIN_FAILED' };
@@ -391,5 +579,7 @@ async function markAsVisited(parkData) {
 window.BARK.services.checkin = {
     verifyAndProcessCheckin,
     verifyGpsCheckin,
-    markAsVisited
+    markAsVisited,
+    replayUnconfirmedVisits,
+    reconcileUnconfirmedVisits
 };

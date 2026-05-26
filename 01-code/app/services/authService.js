@@ -495,13 +495,18 @@ function buildVaultRepoSubscriptionOptions() {
         onChange(change) {
             if (hasAuthoritativeSnapshotMetadata(change && change.metadata)) {
                 window._visitedPlacesServerSnapshotReceived = true;
+                const checkinService = window.BARK.services && window.BARK.services.checkin;
+                const currentUser = firebaseRef && firebaseRef.auth ? firebaseRef.auth().currentUser : null;
                 // Server has confirmed the current vault contents — drop any
                 // localStorage safety-net entries that are now reflected on the
                 // server. Visits still missing stay queued for the next replay.
-                const checkinService = window.BARK.services && window.BARK.services.checkin;
-                const currentUser = firebaseRef && firebaseRef.auth ? firebaseRef.auth().currentUser : null;
                 if (currentUser && checkinService && typeof checkinService.reconcileUnconfirmedVisits === 'function') {
                     checkinService.reconcileUnconfirmedVisits(currentUser.uid);
+                }
+                // Wake any UI awaiting confirmation of a freshly-verified visit
+                // so it can flip from yellow ("verifying…") to green ("verified").
+                if (checkinService && typeof checkinService.notifyAuthoritativeSnapshot === 'function') {
+                    checkinService.notifyAuthoritativeSnapshot();
                 }
             }
             refreshAuthSnapshotUi();
@@ -526,6 +531,13 @@ function stopVaultRepoVisitSubscription() {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.stopSubscription === 'function') {
         vaultRepo.stopSubscription();
+    }
+    // Any UI still waiting for a server confirmation under the previous account
+    // would never get one — release those promises so the UI can resolve to its
+    // pending/orange state instead of hanging forever.
+    const checkinService = window.BARK.services && window.BARK.services.checkin;
+    if (checkinService && typeof checkinService.cancelPendingServerConfirmations === 'function') {
+        checkinService.cancelPendingServerConfirmations('subscription-stopped');
     }
 }
 

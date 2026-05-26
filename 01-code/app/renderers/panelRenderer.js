@@ -411,60 +411,110 @@ function renderMarkerClickPanel(context) {
                 verifyBtn.style.opacity = '1';
             }
 
+            // Three-state verified-checkin button:
+            //   • yellow (#facc15) "Verifying…"      — local write done, awaiting server confirmation
+            //   • green  (#4CAF50) "Verified & Secured" — authoritative server snapshot has the visit
+            //   • orange (#f59e0b) "Verified (syncing…)" — 30s passed with no server confirmation,
+            //                                              visit is durably queued in IndexedDB + localStorage
+            const SERVER_CONFIRMATION_TIMEOUT_MS = 30000;
+
+            const setVerifyButtonStateVerifying = (label) => {
+                verifyBtn.style.background = '#facc15';
+                verifyBtn.style.color = '#1f2937';
+                verifyBtnText.textContent = label;
+                verifyBtn.disabled = true;
+                verifyBtn.style.cursor = 'progress';
+                verifyBtn.style.opacity = '1';
+            };
+            const setVerifyButtonStateConfirmed = () => {
+                verifyBtn.style.background = '#4CAF50';
+                verifyBtn.style.color = '';
+                verifyBtnText.textContent = '🐾 Verified & Secured';
+                verifyBtn.disabled = true;
+                verifyBtn.style.cursor = 'default';
+                verifyBtn.style.opacity = '0.7';
+            };
+            const setVerifyButtonStatePendingSync = () => {
+                verifyBtn.style.background = '#f59e0b';
+                verifyBtn.style.color = '';
+                verifyBtnText.textContent = '🐾 Verified (syncing…)';
+                verifyBtn.disabled = true;
+                verifyBtn.style.cursor = 'default';
+                verifyBtn.style.opacity = '0.85';
+            };
+            const restoreVerifyButtonDefault = () => {
+                verifyBtn.style.background = '#FF9800';
+                verifyBtn.style.color = '';
+                verifyBtnText.textContent = '🐾 Verified Check-In';
+                verifyBtn.disabled = false;
+                verifyBtn.style.cursor = 'pointer';
+                verifyBtn.style.opacity = '1';
+            };
+
             verifyBtn.onclick = async () => {
                 if (!checkinService || typeof checkinService.verifyGpsCheckin !== 'function') {
                     alert("Check-in service is unavailable. Try again later.");
                     return;
                 }
-                verifyBtnText.textContent = 'Locating...';
+                if (verifyBtn.disabled) return; // debounce double-tap
 
+                setVerifyButtonStateVerifying('Locating…');
+
+                let checkinResult = null;
                 try {
-                    const checkinResult = await checkinService.verifyGpsCheckin(d);
-                    if (checkinResult.success) {
-                        if (checkinResult.syncStatus === 'pending') {
-                            alert("Check-in Verified! Saved on your phone — we'll sync it to the cloud as soon as you have signal again. Keep the app installed and you won't lose this visit.");
-                        } else {
-                            alert(`Check-in Verified! You earned 2 points.`);
-                        }
-
-                        verifyBtn.style.background = '#4CAF50';
-                        verifyBtnText.textContent = checkinResult.syncStatus === 'pending'
-                            ? '🐾 Verified (syncing…)'
-                            : '🐾 Verified & Secured';
-                        verifyBtn.disabled = true;
-                        verifyBtn.style.cursor = 'default';
-                        verifyBtn.style.opacity = '0.7';
-
-                        markVisitedBtn.classList.add('visited');
-                        markVisitedText.textContent = '✓ Visited';
-                        markVisitedBtn.disabled = true;
-                        markVisitedBtn.style.cursor = 'default';
-                        markVisitedBtn.style.opacity = '0.7';
-
-                        window.syncState();
-                        window.BARK.updateStatsUI();
-                    } else {
-                        const radiusKm = window.BARK.config && window.BARK.config.CHECKIN_RADIUS_KM;
-                        if (checkinResult.error === 'OUT_OF_RANGE' && Number.isFinite(checkinResult.distance)) {
-                            alert(`Out of Range! You are ${checkinResult.distance.toFixed(1)} km away. You must be within ${radiusKm} km to verify.`);
-                        } else if (checkinResult.error === 'GEOLOCATION_UNSUPPORTED') {
-                            alert("Geolocation is not supported by your browser.");
-                        } else if (checkinResult.error === 'PERMISSION_DENIED') {
-                            alert("Location permission denied. GPS is required for verified check-ins.");
-                        } else if (checkinResult.error === 'LOCATION_FAILED') {
-                            alert("Failed to get location. Try again later.");
-                        } else if (checkinResult.error === 'FREE_VISIT_LIMIT') {
-                            openFreeVisitLimitPaywall(checkinResult);
-                        } else {
-                            alert("Check-in could not be verified. Try again later.");
-                        }
-                        verifyBtnText.textContent = '🐾 Verified Check-In';
-                    }
+                    checkinResult = await checkinService.verifyGpsCheckin(d);
                 } catch (error) {
                     console.error("[panelRenderer] verify check-in failed:", error);
+                    restoreVerifyButtonDefault();
                     alert("Failed to get location. Try again later.");
-                    verifyBtnText.textContent = '🐾 Verified Check-In';
+                    return;
                 }
+
+                if (!checkinResult || !checkinResult.success) {
+                    restoreVerifyButtonDefault();
+                    const radiusKm = window.BARK.config && window.BARK.config.CHECKIN_RADIUS_KM;
+                    const err = checkinResult && checkinResult.error;
+                    if (err === 'OUT_OF_RANGE' && Number.isFinite(checkinResult.distance)) {
+                        alert(`Out of Range! You are ${checkinResult.distance.toFixed(1)} km away. You must be within ${radiusKm} km to verify.`);
+                    } else if (err === 'GEOLOCATION_UNSUPPORTED') {
+                        alert("Geolocation is not supported by your browser.");
+                    } else if (err === 'PERMISSION_DENIED') {
+                        alert("Location permission denied. GPS is required for verified check-ins.");
+                    } else if (err === 'LOCATION_FAILED') {
+                        alert("Failed to get location. Try again later.");
+                    } else if (err === 'FREE_VISIT_LIMIT') {
+                        openFreeVisitLimitPaywall(checkinResult);
+                    } else {
+                        alert("Check-in could not be verified. Try again later.");
+                    }
+                    return;
+                }
+
+                // Local write succeeded — now wait for the authoritative server snapshot
+                // to echo the visit back before we tell the user it's truly saved.
+                setVerifyButtonStateVerifying('Verifying…');
+
+                const visitId = checkinResult.visitRecord && checkinResult.visitRecord.id;
+                const confirmation = typeof checkinService.awaitServerConfirmation === 'function'
+                    ? await checkinService.awaitServerConfirmation(visitId, { timeoutMs: SERVER_CONFIRMATION_TIMEOUT_MS })
+                    : { confirmed: true };
+
+                if (confirmation.confirmed) {
+                    setVerifyButtonStateConfirmed();
+                    alert(`Check-in Verified! You earned 2 points.`);
+                } else {
+                    setVerifyButtonStatePendingSync();
+                    alert("Check-in saved on your phone. We'll sync it to the cloud the moment you have signal again — keep the app installed and you won't lose this visit.");
+                }
+
+                markVisitedBtn.classList.add('visited');
+                markVisitedText.textContent = '✓ Visited';
+                markVisitedBtn.disabled = true;
+                markVisitedBtn.style.cursor = 'default';
+                markVisitedBtn.style.opacity = '0.7';
+
+                window.syncState();
+                window.BARK.updateStatsUI();
             };
 
             markVisitedBtn.onclick = async () => {

@@ -138,6 +138,65 @@ function isNetworkLikeError(error) {
         || code === 'aborted';
 }
 
+// Pending confirmations live here while their visit IDs wait to appear in an
+// authoritative server snapshot. authService calls notifyAuthoritativeSnapshot()
+// whenever such a snapshot arrives so we can resolve any matching promises and
+// flip the UI from "verifying…" (yellow) to "verified" (green).
+const pendingServerConfirmations = new Map();
+
+function awaitServerConfirmation(visitId, options = {}) {
+    return new Promise(resolve => {
+        if (!visitId) {
+            resolve({ confirmed: false, reason: 'no-visit-id' });
+            return;
+        }
+
+        const vaultRepo = getVaultRepo();
+        if (!vaultRepo || typeof vaultRepo.hasVisit !== 'function') {
+            resolve({ confirmed: false, reason: 'unavailable' });
+            return;
+        }
+
+        // It's possible the authoritative snapshot already arrived between the
+        // write and this call. If so, resolve immediately.
+        if (window._visitedPlacesServerSnapshotReceived && vaultRepo.hasVisit(visitId)) {
+            resolve({ confirmed: true });
+            return;
+        }
+
+        const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 30000;
+        const timeoutHandle = setTimeout(() => {
+            if (!pendingServerConfirmations.has(visitId)) return;
+            pendingServerConfirmations.delete(visitId);
+            resolve({ confirmed: false, reason: 'timeout' });
+        }, timeoutMs);
+
+        pendingServerConfirmations.set(visitId, { resolve, timeoutHandle });
+    });
+}
+
+function notifyAuthoritativeSnapshot() {
+    if (pendingServerConfirmations.size === 0) return;
+    const vaultRepo = getVaultRepo();
+    if (!vaultRepo || typeof vaultRepo.hasVisit !== 'function') return;
+
+    pendingServerConfirmations.forEach((entry, visitId) => {
+        if (!vaultRepo.hasVisit(visitId)) return;
+        clearTimeout(entry.timeoutHandle);
+        pendingServerConfirmations.delete(visitId);
+        entry.resolve({ confirmed: true });
+    });
+}
+
+function cancelPendingServerConfirmations(reason) {
+    if (pendingServerConfirmations.size === 0) return;
+    pendingServerConfirmations.forEach(entry => {
+        clearTimeout(entry.timeoutHandle);
+        entry.resolve({ confirmed: false, reason: reason || 'cancelled' });
+    });
+    pendingServerConfirmations.clear();
+}
+
 function getLocationCoords(userLocation) {
     const source = userLocation && userLocation.coords ? userLocation.coords : userLocation;
     if (!source) return null;
@@ -581,5 +640,8 @@ window.BARK.services.checkin = {
     verifyGpsCheckin,
     markAsVisited,
     replayUnconfirmedVisits,
-    reconcileUnconfirmedVisits
+    reconcileUnconfirmedVisits,
+    awaitServerConfirmation,
+    notifyAuthoritativeSnapshot,
+    cancelPendingServerConfirmations
 };

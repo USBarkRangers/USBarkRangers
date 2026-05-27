@@ -519,8 +519,14 @@ async function syncUserProgress() {
         const db = firebase.firestore();
         window.BARK.incrementRequestCount();
 
+        // Do NOT blindly stage every visit in the array as pending. Callers
+        // already stage the specific change they're making (verify, mark,
+        // updateDate, etc). Bulk-staging here flagged every existing visit
+        // as "syncing…" on every single write, which made the entire map
+        // flash orange whenever the user did anything — and any visit
+        // whose snapshot record didn't exactly match would stay stuck
+        // orange because reconcile only clears matching records.
         visitedArray = getVisitedPlacesArray();
-        visitedArray.forEach(stageVisitedPlaceUpsert);
         endVisitedPlacesWrite = beginVisitedPlacesWrite();
         await db.collection('users').doc(user.uid).set({
             visitedPlaces: visitedArray
@@ -528,6 +534,10 @@ async function syncUserProgress() {
 
         window.syncState();
     } catch (error) {
+        // Clear pending for everything we tried to write — covers the
+        // caller's individually-staged change AND is a no-op for anything
+        // that wasn't staged. Safer than leaving stale pendings around if
+        // the write actually failed.
         visitedArray.forEach(place => clearVisitedPlacePendingMutation(place && place.id));
         console.error("[firebaseService] syncUserProgress failed:", error);
         throw error;
@@ -545,7 +555,9 @@ async function updateCurrentUserVisitedPlaces(visitedArray) {
 
         nextVisitedArray = Array.isArray(visitedArray) ? visitedArray.map(cloneVisitedPlace) : [];
         assertVisitedWriteIsNotDestructive(nextVisitedArray);
-        nextVisitedArray.forEach(stageVisitedPlaceUpsert);
+        // (No bulk stage here — see syncUserProgress comment. Callers stage
+        // the specific change they're making; bulk-staging caused the
+        // "every pin flashes orange when I visit one new place" regression.)
         window.BARK.incrementRequestCount();
         endVisitedPlacesWrite = beginVisitedPlacesWrite();
         await firebase.firestore().collection('users').doc(user.uid).update({ visitedPlaces: nextVisitedArray });

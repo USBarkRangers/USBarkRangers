@@ -960,8 +960,14 @@ async function initFirebase() {
 
                     try {
                         window.BARK.incrementRequestCount();
+                        // includeMetadataChanges: true ensures the listener fires
+                        // when the SDK promotes cached data to authoritative after
+                        // an offline → online transition, even if the underlying
+                        // payload didn't change. Lets _firstServerPayloadReceived
+                        // and downstream listeners react to "we now know this is
+                        // truly from the server" without requiring a data change.
                         userSnapshotUnsubscribe = firebase.firestore().collection('users').doc(user.uid)
-                            .onSnapshot((doc) => {
+                            .onSnapshot({ includeMetadataChanges: true }, (doc) => {
                                 try {
                                     const currentUser = firebase.auth().currentUser;
                                     if (!currentUser || currentUser.uid !== user.uid) return;

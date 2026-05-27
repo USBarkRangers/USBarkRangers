@@ -637,7 +637,18 @@
         activeSubscriptionUid = nextUid;
 
         try {
+            // includeMetadataChanges: true is REQUIRED for offline → online
+            // confirmation to work. Without it, Firestore only fires this
+            // listener when the document DATA changes — not when its metadata
+            // changes (e.g. from cached/hasPendingWrites=true to fromCache=
+            // false). A user who taps verify during a brief signal blip
+            // writes their visit to cache; when signal returns the server
+            // echoes back the same data, so data is unchanged but metadata
+            // flips to authoritative. We need that metadata-only event so
+            // reconcileSnapshot can clear the pending mutation and the pin
+            // can transition orange → green without requiring a PWA restart.
             activeSubscriptionUnsubscribe = userDoc.onSnapshot(
+                { includeMetadataChanges: true },
                 doc => handleVisitedSnapshot(nextUid, doc, options),
                 error => handleVisitSnapshotError(nextUid, error, options)
             );

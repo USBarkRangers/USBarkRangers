@@ -569,6 +569,23 @@ function renderMarkerClickPanel(context) {
                     markVisitedBtn.style.opacity = '1';
 
                     window.syncState();
+
+                    // Don't wait for the snapshot listener alone — proactively
+                    // race waitForPendingWrites so the pin transitions from
+                    // orange to green as soon as the server actually acks the
+                    // write, instead of whenever WKWebView decides to fire the
+                    // metadata-changed snapshot. Same mechanism Verify uses.
+                    const newVisit = visitResult.visitRecord;
+                    if (newVisit && newVisit.id && typeof checkinService.awaitServerConfirmation === 'function') {
+                        // Fire-and-forget: confirmation either resolves true
+                        // (and clearPending + refreshVisitedVisuals fires
+                        // inside awaitServerConfirmation) or times out
+                        // silently. Either way the snapshot listener is the
+                        // ultimate backstop, so no user-visible failure mode
+                        // here even on a 30s timeout.
+                        checkinService.awaitServerConfirmation(newVisit.id, { timeoutMs: 10000 })
+                            .catch(error => console.warn('[panelRenderer] mark-as-visited confirmation failed:', error));
+                    }
                 } catch (error) {
                     console.error("[panelRenderer] mark visited failed:", error);
                     alert("Check-in service is unavailable. Try again later.");

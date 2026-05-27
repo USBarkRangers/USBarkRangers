@@ -182,13 +182,50 @@ function awaitServerConfirmation(visitId, options = {}) {
         }
 
         const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 30000;
-        const timeoutHandle = setTimeout(() => {
-            if (!pendingServerConfirmations.has(visitId)) return;
+
+        let resolved = false;
+        let timeoutHandle = null;
+        const settle = (result) => {
+            if (resolved) return;
+            resolved = true;
+            if (timeoutHandle) clearTimeout(timeoutHandle);
             pendingServerConfirmations.delete(visitId);
-            resolve({ confirmed: false, reason: 'timeout' });
+            resolve(result);
+        };
+
+        timeoutHandle = setTimeout(() => {
+            settle({ confirmed: false, reason: 'timeout' });
         }, timeoutMs);
 
-        pendingServerConfirmations.set(visitId, { resolve, timeoutHandle });
+        // Path 1: snapshot listener fires (notifyAuthoritativeSnapshot → matching pending cleared)
+        pendingServerConfirmations.set(visitId, { resolve: settle, timeoutHandle });
+
+        // Path 2: Firestore.waitForPendingWrites() — resolves the moment the
+        // server has acknowledged all locally-queued writes. On fast wifi
+        // this is typically the FIRST signal to arrive (faster than the
+        // snapshot listener, which can be debounced for a second or two in
+        // WKWebView). When it resolves we proactively clear the pending
+        // mutation so the marker can re-style green without waiting for the
+        // potentially-laggy snapshot. Safe because the server has confirmed
+        // the write — same level of certainty as the snapshot path.
+        if (typeof firebase !== 'undefined' && firebase.firestore
+            && typeof firebase.firestore().waitForPendingWrites === 'function') {
+            firebase.firestore().waitForPendingWrites()
+                .then(() => {
+                    if (resolved) return;
+                    const firebaseService = getFirebaseService();
+                    if (firebaseService && typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
+                        firebaseService.clearVisitedPlacePendingMutation(visitId);
+                        refreshVisitedVisuals('checkin-pending-writes-flushed', firebaseService);
+                    }
+                    settle({ confirmed: true });
+                })
+                .catch(error => {
+                    // Don't fail the whole confirmation — the snapshot path
+                    // (or the timeout) will still resolve us.
+                    console.warn('[checkinService] waitForPendingWrites rejected:', error);
+                });
+        }
     });
 }
 

@@ -2083,6 +2083,15 @@ body.app-tab-active #slide-panel {
     z-index: 500 !important;
 }
 
+/* Visited-but-not-yet-server-confirmed: keep the visited treatment but tint
+   the ring orange so the map matches the in-panel "Verified (syncing…)" state.
+   Wins over `.visited-pin` above via higher class-specificity. */
+.visited-pin.visited-pin--pending-sync {
+    --ring-color: #f59e0b !important;
+    --pin-color: #f59e0b !important;
+    --pin-shadow-color: rgba(245, 158, 11, 0.5) !important;
+}
+
 .custom-bark-marker.visited-pin .enamel-pin-wrapper {
     opacity: 1 !important;
     box-shadow: none !important;

@@ -125,22 +125,19 @@ class MarkerLayerManager {
         marker._icon.classList.toggle('visited-pin', Boolean(isVisited));
         marker._icon.classList.toggle('visited-marker', Boolean(isVisited));
         marker._icon.classList.toggle('unvisited-marker', !isVisited);
+        // .visited-pin--pending-sync tints the ring orange via styles.css; the
+        // CSS rule uses !important so an inline JS override here would be
+        // suppressed anyway. The class is the source of truth for the
+        // visited-but-not-server-confirmed visual state.
         marker._icon.classList.toggle('visited-pin--pending-sync', Boolean(isPendingSync));
         // park-pin--in-trip hides the inner pin shape so the trip overlay badge
         // is the only visible marker at trip-stop locations. Re-applied on every
         // cluster `add` event (via bindMarkerEvents), so cluster rebuilds cannot
         // strip the class.
         marker._icon.classList.toggle('park-pin--in-trip', this.isInTripStop(marker._parkData));
-
-        // Visited pins are green by default; while a visit is awaiting server
-        // confirmation we render the ring orange so the map can't lie about
-        // sync status.
-        const ringColor = isPendingSync ? '#f59e0b' : style.ringColor;
-        const pinColor = isPendingSync ? '#f59e0b' : style.pinColor;
-        const shadowColor = isPendingSync ? 'rgba(245, 158, 11, 0.4)' : style.pinShadowColor;
-        marker._icon.style.setProperty('--pin-color', pinColor);
-        marker._icon.style.setProperty('--ring-color', ringColor);
-        marker._icon.style.setProperty('--pin-shadow-color', shadowColor);
+        marker._icon.style.setProperty('--pin-color', style.pinColor);
+        marker._icon.style.setProperty('--ring-color', style.ringColor);
+        marker._icon.style.setProperty('--pin-shadow-color', style.pinShadowColor);
     }
 
     refreshTripStopClasses(parkIds) {

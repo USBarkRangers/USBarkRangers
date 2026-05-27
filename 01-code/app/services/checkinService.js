@@ -144,6 +144,19 @@ function isNetworkLikeError(error) {
 // flip the UI from "verifying…" (yellow) to "verified" (green).
 const pendingServerConfirmations = new Map();
 
+// A visit is "server-confirmed" only when an authoritative Firestore snapshot
+// has arrived AND the snapshot itself contained the visit (so the reconcile
+// dropped the pending mutation). hasVisit() alone is not enough — it returns
+// true even for purely-local optimistic adds (e.g. airplane-mode taps).
+function isVisitServerConfirmed(vaultRepo, visitId) {
+    if (!vaultRepo || typeof vaultRepo.hasVisit !== 'function') return false;
+    if (!vaultRepo.hasVisit(visitId)) return false;
+    // If pending introspection isn't available, fall back to a conservative
+    // "not confirmed" — we'd rather time out to orange than lie green.
+    if (typeof vaultRepo.hasPendingMutation !== 'function') return false;
+    return !vaultRepo.hasPendingMutation(visitId);
+}
+
 function awaitServerConfirmation(visitId, options = {}) {
     return new Promise(resolve => {
         if (!visitId) {
@@ -152,14 +165,18 @@ function awaitServerConfirmation(visitId, options = {}) {
         }
 
         const vaultRepo = getVaultRepo();
-        if (!vaultRepo || typeof vaultRepo.hasVisit !== 'function') {
+        if (!vaultRepo) {
             resolve({ confirmed: false, reason: 'unavailable' });
             return;
         }
 
-        // It's possible the authoritative snapshot already arrived between the
-        // write and this call. If so, resolve immediately.
-        if (window._visitedPlacesServerSnapshotReceived && vaultRepo.hasVisit(visitId)) {
+        // Only resolve immediately if BOTH conditions hold: a prior
+        // authoritative snapshot arrived AND that snapshot actually contained
+        // the visit (so the pending mutation was cleared by reconcile).
+        // Critically, in airplane mode the pending mutation is still set, so
+        // this short-circuit will not fire — preventing the false-positive
+        // "Verified & Secured" we just hit.
+        if (window._visitedPlacesServerSnapshotReceived && isVisitServerConfirmed(vaultRepo, visitId)) {
             resolve({ confirmed: true });
             return;
         }
@@ -178,10 +195,12 @@ function awaitServerConfirmation(visitId, options = {}) {
 function notifyAuthoritativeSnapshot() {
     if (pendingServerConfirmations.size === 0) return;
     const vaultRepo = getVaultRepo();
-    if (!vaultRepo || typeof vaultRepo.hasVisit !== 'function') return;
+    if (!vaultRepo) return;
 
     pendingServerConfirmations.forEach((entry, visitId) => {
-        if (!vaultRepo.hasVisit(visitId)) return;
+        // Same gate as the immediate-check path: server snapshot must have
+        // included the visit (pending mutation cleared by reconcile).
+        if (!isVisitServerConfirmed(vaultRepo, visitId)) return;
         clearTimeout(entry.timeoutHandle);
         pendingServerConfirmations.delete(visitId);
         entry.resolve({ confirmed: true });

@@ -430,6 +430,15 @@
         pending.clear();
     }
 
+    // True if the given park has a staged upsert/delete awaiting server
+    // confirmation. After an authoritative snapshot reconcile, a true here
+    // means the server snapshot did NOT include the staged change yet —
+    // i.e. the visit has not been confirmed by Google's servers.
+    function hasPendingMutation(parkId) {
+        const id = getVisitId(parkId);
+        return id ? pending.has(id) : false;
+    }
+
     function reconcileSnapshot(visitsArray, metadata = {}) {
         const nextVisits = cloneMap(visitsArray);
         const snapshotCanConfirm = isAuthoritativeSnapshot(metadata);
@@ -666,6 +675,7 @@
         stageDelete,
         clearPendingMutation,
         clearPendingMutations,
+        hasPendingMutation,
         reconcileSnapshot,
         subscribe,
         startSubscription,

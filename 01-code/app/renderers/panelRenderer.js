@@ -383,8 +383,24 @@ function renderMarkerClickPanel(context) {
                 }
 
                 if (cachedObj.verified) {
-                    verifyBtn.style.background = '#4CAF50';
-                    verifyBtnText.textContent = '🐾 Verified & Secured';
+                    // Distinguish "server has confirmed this visit" (green) from
+                    // "we added it locally but the server hasn't echoed it back
+                    // yet" (orange). Without this gate, re-opening the panel
+                    // after an offline verify makes the button look fully
+                    // confirmed when in reality the visit is still in the
+                    // pending-sync queue.
+                    const vaultRepo = window.BARK.repos && window.BARK.repos.VaultRepo;
+                    const isPendingServerSync = vaultRepo
+                        && typeof vaultRepo.hasPendingMutation === 'function'
+                        && vaultRepo.hasPendingMutation(d.id);
+
+                    if (isPendingServerSync) {
+                        verifyBtn.style.background = '#f59e0b';
+                        verifyBtnText.textContent = '🐾 Verified (syncing…)';
+                    } else {
+                        verifyBtn.style.background = '#4CAF50';
+                        verifyBtnText.textContent = '🐾 Verified & Secured';
+                    }
                     verifyBtn.disabled = true;
                     verifyBtn.style.cursor = 'default';
                     verifyBtn.style.opacity = '0.7';
@@ -504,7 +520,7 @@ function renderMarkerClickPanel(context) {
                     alert(`Check-in Verified! You earned 2 points.`);
                 } else {
                     setVerifyButtonStatePendingSync();
-                    alert("Check-in saved on your phone. We'll sync it to the cloud the moment you have signal again — keep the app installed and you won't lose this visit.");
+                    alert("Check-in saved on your phone. We'll sync it to the cloud the moment you have signal again — keep the app open and you won't lose this visit.");
                 }
 
                 markVisitedBtn.classList.add('visited');

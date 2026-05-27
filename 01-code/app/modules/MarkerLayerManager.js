@@ -45,6 +45,17 @@ class MarkerLayerManager {
         return false;
     }
 
+    // True if the park is in the local vault but the server snapshot hasn't
+    // confirmed it yet (still waiting on a successful Firestore sync). Used to
+    // tint the pin ring orange instead of green until the visit is durable on
+    // Google's servers.
+    isPendingServerSync(parkData) {
+        if (!parkData || !parkData.id) return false;
+        const vaultRepo = getVaultRepo();
+        if (!vaultRepo || typeof vaultRepo.hasPendingMutation !== 'function') return false;
+        return vaultRepo.hasPendingMutation(parkData.id);
+    }
+
     getTargetLayerType() {
         const zoom = this.map ? this.map.getZoom() : 0;
         if (window.BARK.getMarkerLayerPolicy) return window.BARK.getMarkerLayerPolicy(zoom).layerType;
@@ -107,20 +118,29 @@ class MarkerLayerManager {
         if (!marker || !marker._parkData || !marker._icon) return;
 
         const isVisited = this.getVisitedState(marker._parkData);
+        const isPendingSync = isVisited && this.isPendingServerSync(marker._parkData);
         const style = MapMarkerConfig.getPinStyle(marker._parkData, isVisited);
         marker._icon.classList.toggle('cat-national', style.categoryClass === 'cat-national');
         marker._icon.classList.toggle('cat-state', style.categoryClass === 'cat-state');
         marker._icon.classList.toggle('visited-pin', Boolean(isVisited));
         marker._icon.classList.toggle('visited-marker', Boolean(isVisited));
         marker._icon.classList.toggle('unvisited-marker', !isVisited);
+        marker._icon.classList.toggle('visited-pin--pending-sync', Boolean(isPendingSync));
         // park-pin--in-trip hides the inner pin shape so the trip overlay badge
         // is the only visible marker at trip-stop locations. Re-applied on every
         // cluster `add` event (via bindMarkerEvents), so cluster rebuilds cannot
         // strip the class.
         marker._icon.classList.toggle('park-pin--in-trip', this.isInTripStop(marker._parkData));
-        marker._icon.style.setProperty('--pin-color', style.pinColor);
-        marker._icon.style.setProperty('--ring-color', style.ringColor);
-        marker._icon.style.setProperty('--pin-shadow-color', style.pinShadowColor);
+
+        // Visited pins are green by default; while a visit is awaiting server
+        // confirmation we render the ring orange so the map can't lie about
+        // sync status.
+        const ringColor = isPendingSync ? '#f59e0b' : style.ringColor;
+        const pinColor = isPendingSync ? '#f59e0b' : style.pinColor;
+        const shadowColor = isPendingSync ? 'rgba(245, 158, 11, 0.4)' : style.pinShadowColor;
+        marker._icon.style.setProperty('--pin-color', pinColor);
+        marker._icon.style.setProperty('--ring-color', ringColor);
+        marker._icon.style.setProperty('--pin-shadow-color', shadowColor);
     }
 
     refreshTripStopClasses(parkIds) {

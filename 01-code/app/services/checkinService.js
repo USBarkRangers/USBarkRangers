@@ -253,6 +253,66 @@ function cancelPendingServerConfirmations(reason) {
     pendingServerConfirmations.clear();
 }
 
+// Force a full server-sync recovery cycle. Called when the browser detects
+// it just came back online (window 'online' event) to bypass any WKWebView
+// quirk that suppresses Firestore's metadata-change snapshot. Sequence:
+//   1. Wait for all queued writes to flush to the server.
+//   2. Force a fresh `doc.get({source: 'server'})` — this guarantees the
+//      snapshot listener fires with authoritative metadata.
+//   3. Clear every local pending mutation (waitForPendingWrites resolving
+//      means the SDK is done with them all; if any genuinely failed, the
+//      subsequent snapshot will correct local state anyway).
+//   4. Refresh all visited visuals so orange pins flip green.
+let forceSyncRecoveryInFlight = false;
+async function forceServerSyncRecovery(reason) {
+    if (forceSyncRecoveryInFlight) return;
+    forceSyncRecoveryInFlight = true;
+    try {
+        if (typeof firebase === 'undefined' || !firebase.firestore) return;
+
+        const firestore = firebase.firestore();
+        if (typeof firestore.waitForPendingWrites === 'function') {
+            await Promise.race([
+                firestore.waitForPendingWrites(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('waitForPendingWrites timeout')), 20000))
+            ]).catch(error => console.warn(`[checkinService] waitForPendingWrites (${reason}) failed:`, error));
+        }
+
+        if (firebase.auth) {
+            const user = firebase.auth().currentUser;
+            if (user) {
+                await firestore.collection('users').doc(user.uid)
+                    .get({ source: 'server' })
+                    .catch(error => console.warn(`[checkinService] server doc fetch (${reason}) failed:`, error));
+            }
+        }
+
+        const vaultRepo = getVaultRepo();
+        if (vaultRepo && typeof vaultRepo.clearPendingMutations === 'function') {
+            vaultRepo.clearPendingMutations();
+        }
+
+        // Wake any in-flight awaitServerConfirmation promises that match
+        // visits the server now has, then refresh all visuals so orange
+        // pins/buttons flip green.
+        notifyAuthoritativeSnapshot();
+        refreshVisitedCache(`force-sync-recovery-${reason}`);
+        refreshVisitedVisuals(`force-sync-recovery-${reason}`, getFirebaseService());
+    } catch (error) {
+        console.warn(`[checkinService] forceServerSyncRecovery (${reason}) failed:`, error);
+    } finally {
+        forceSyncRecoveryInFlight = false;
+    }
+}
+
+if (typeof window !== 'undefined' && !window._barkOnlineRecoveryBound) {
+    window._barkOnlineRecoveryBound = true;
+    window.addEventListener('online', () => {
+        // Small delay so Firestore's own network detector wakes up first.
+        setTimeout(() => forceServerSyncRecovery('browser-online'), 1500);
+    });
+}
+
 function getLocationCoords(userLocation) {
     const source = userLocation && userLocation.coords ? userLocation.coords : userLocation;
     if (!source) return null;
@@ -699,5 +759,6 @@ window.BARK.services.checkin = {
     reconcileUnconfirmedVisits,
     awaitServerConfirmation,
     notifyAuthoritativeSnapshot,
-    cancelPendingServerConfirmations
+    cancelPendingServerConfirmations,
+    forceServerSyncRecovery
 };

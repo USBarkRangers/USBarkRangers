@@ -360,8 +360,18 @@ function renderMarkerClickPanel(context) {
             if (visitedEntry) {
                 const cachedObj = visitedEntry.record;
 
+                // Match the verify button: if the visit hasn't been confirmed
+                // by an authoritative server snapshot yet, render the button
+                // in the orange "syncing…" state instead of green. The
+                // .visited.pending-sync CSS rule handles the color.
+                const vaultRepoForPending = window.BARK.repos && window.BARK.repos.VaultRepo;
+                const visitIsPendingSync = vaultRepoForPending
+                    && typeof vaultRepoForPending.hasPendingMutation === 'function'
+                    && vaultRepoForPending.hasPendingMutation(d.id);
+
                 markVisitedBtn.classList.add('visited');
-                markVisitedText.textContent = '✓ Visited';
+                markVisitedBtn.classList.toggle('pending-sync', Boolean(visitIsPendingSync));
+                markVisitedText.textContent = visitIsPendingSync ? '✓ Visited (syncing…)' : '✓ Visited';
 
                 if (cachedObj.verified) {
                     markVisitedBtn.disabled = true;
@@ -533,62 +543,103 @@ function renderMarkerClickPanel(context) {
                 window.BARK.updateStatsUI();
             };
 
+            // Three-state mark-visited button to match the verify button:
+            //   pending  orange "✓ Visited (syncing…)" — local write done, awaiting server
+            //   green    "✓ Visited"                   — authoritative snapshot has the visit
+            //   default  "Mark as Visited"             — not visited / removed
+            const setMarkVisitedStatePending = () => {
+                markVisitedBtn.classList.add('visited');
+                markVisitedBtn.classList.add('pending-sync');
+                markVisitedText.textContent = '✓ Visited (syncing…)';
+                markVisitedBtn.disabled = false;
+                markVisitedBtn.style.cursor = 'pointer';
+                markVisitedBtn.style.opacity = '1';
+                markVisitedBtn.onmouseenter = null;
+                markVisitedBtn.onmouseleave = null;
+            };
+            const setMarkVisitedStateConfirmed = () => {
+                markVisitedBtn.classList.add('visited');
+                markVisitedBtn.classList.remove('pending-sync');
+                markVisitedText.textContent = '✓ Visited';
+                markVisitedBtn.disabled = false;
+                markVisitedBtn.style.cursor = 'pointer';
+                markVisitedBtn.style.opacity = '1';
+            };
+            const setMarkVisitedStateDefault = () => {
+                markVisitedBtn.classList.remove('visited');
+                markVisitedBtn.classList.remove('pending-sync');
+                markVisitedText.textContent = 'Mark as Visited';
+                markVisitedBtn.disabled = false;
+                markVisitedBtn.style.cursor = 'pointer';
+                markVisitedBtn.style.opacity = '1';
+                markVisitedBtn.onmouseenter = null;
+                markVisitedBtn.onmouseleave = null;
+            };
+
             markVisitedBtn.onclick = async () => {
                 if (!checkinService || typeof checkinService.markAsVisited !== 'function') {
                     alert("Check-in service is unavailable. Try again later.");
                     return;
                 }
 
+                let visitResult = null;
                 try {
-                    const visitResult = await checkinService.markAsVisited(d);
-                    if (!visitResult.success) {
-                        if (visitResult.error === 'UNCHECK_LOCKED') {
-                            alert("🛡️ Data Safety Lock Active\n\nTo prevent you from accidentally losing your 'Date Visited' history, unchecking parks is disabled by default.\n\nYou can turn off this safety feature by opening Settings (⚙️) and enabling 'Allow Uncheck Visited'.");
-                        } else if (visitResult.error === 'FREE_VISIT_LIMIT') {
-                            openFreeVisitLimitPaywall(visitResult);
-                        } else if (visitResult.error !== 'ALREADY_VERIFIED') {
-                            alert("Check-in service is unavailable. Try again later.");
-                        }
-                        return;
-                    }
-
-                    if (visitResult.action === 'removed') {
-                        markVisitedBtn.classList.remove('visited');
-                        markVisitedText.textContent = 'Mark as Visited';
-                        markVisitedBtn.onmouseenter = null;
-                        markVisitedBtn.onmouseleave = null;
-
-                        window.syncState();
-                        return;
-                    }
-
-                    markVisitedBtn.classList.add('visited');
-                    markVisitedText.textContent = '✓ Visited';
-                    markVisitedBtn.disabled = false;
-                    markVisitedBtn.style.cursor = 'pointer';
-                    markVisitedBtn.style.opacity = '1';
-
-                    window.syncState();
-
-                    // Don't wait for the snapshot listener alone — proactively
-                    // race waitForPendingWrites so the pin transitions from
-                    // orange to green as soon as the server actually acks the
-                    // write, instead of whenever WKWebView decides to fire the
-                    // metadata-changed snapshot. Same mechanism Verify uses.
-                    const newVisit = visitResult.visitRecord;
-                    if (newVisit && newVisit.id && typeof checkinService.awaitServerConfirmation === 'function') {
-                        // Fire-and-forget: confirmation either resolves true
-                        // (and clearPending + refreshVisitedVisuals fires
-                        // inside awaitServerConfirmation) or times out
-                        // silently. Either way the snapshot listener is the
-                        // ultimate backstop, so no user-visible failure mode
-                        // here even on a 30s timeout.
-                        checkinService.awaitServerConfirmation(newVisit.id, { timeoutMs: 10000 })
-                            .catch(error => console.warn('[panelRenderer] mark-as-visited confirmation failed:', error));
-                    }
+                    visitResult = await checkinService.markAsVisited(d);
                 } catch (error) {
                     console.error("[panelRenderer] mark visited failed:", error);
                     alert("Check-in service is unavailable. Try again later.");
+                    return;
+                }
+
+                if (!visitResult.success) {
+                    if (visitResult.error === 'UNCHECK_LOCKED') {
+                        alert("🛡️ Data Safety Lock Active\n\nTo prevent you from accidentally losing your 'Date Visited' history, unchecking parks is disabled by default.\n\nYou can turn off this safety feature by opening Settings (⚙️) and enabling 'Allow Uncheck Visited'.");
+                    } else if (visitResult.error === 'FREE_VISIT_LIMIT') {
+                        openFreeVisitLimitPaywall(visitResult);
+                    } else if (visitResult.error !== 'ALREADY_VERIFIED') {
+                        alert("Check-in service is unavailable. Try again later.");
+                    }
+                    return;
+                }
+
+                if (visitResult.action === 'removed') {
+                    setMarkVisitedStateDefault();
+                    window.syncState();
+                    return;
+                }
+
+                // Local write succeeded — show pending state and wait for the
+                // server snapshot to confirm before flipping the button green.
+                // Mirrors what verifyGpsCheckin does so the two buttons feel
+                // identical: never lie about confirmation, never flip green
+                // until Google's servers actually have the visit.
+                setMarkVisitedStatePending();
+                window.syncState();
+
+                const newVisit = visitResult.visitRecord;
+                if (!newVisit || !newVisit.id || typeof checkinService.awaitServerConfirmation !== 'function') {
+                    // Can't await confirmation — best-effort flip to confirmed
+                    // and let any future snapshot correct us.
+                    setMarkVisitedStateConfirmed();
+                    return;
+                }
+
+                let confirmation;
+                try {
+                    confirmation = await checkinService.awaitServerConfirmation(newVisit.id, { timeoutMs: 10000 });
+                } catch (error) {
+                    console.warn('[panelRenderer] mark-as-visited confirmation threw:', error);
+                    confirmation = { confirmed: false, reason: 'error' };
+                }
+
+                if (confirmation.confirmed) {
+                    setMarkVisitedStateConfirmed();
+                } else {
+                    // Stay orange. The window-online recovery handler in
+                    // checkinService will sweep this clean once the device is
+                    // back online; the localStorage replay backstops us if the
+                    // PWA closes first.
+                    setMarkVisitedStatePending();
                 }
             };
         } else {

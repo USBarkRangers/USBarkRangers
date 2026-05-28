@@ -2149,6 +2149,15 @@ body.app-tab-active #slide-panel {
     box-shadow: 0 4px 10px rgba(76, 175, 80, 0.3);
 }
 
+/* While the visit is staged locally but not yet server-confirmed, override
+   to orange so the button matches the pin ring's pending-sync color. Two-
+   class selector beats single-class `.visited` rule above on specificity. */
+#mark-visited-btn.visited.pending-sync {
+    background-color: #f59e0b !important;
+    color: white !important;
+    box-shadow: 0 4px 10px rgba(245, 158, 11, 0.3);
+}
+
 #mark-visited-btn.visited .heart-icon {
     fill: white;
     stroke: white;

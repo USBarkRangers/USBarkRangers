@@ -141,6 +141,32 @@ function isNetworkLikeError(error) {
         || code === 'aborted';
 }
 
+function awaitWithFirebaseWriteTimeout(writePromiseFactory) {
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const timeoutId = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            reject(WRITE_TIMEOUT_SENTINEL);
+        }, FIREBASE_WRITE_TIMEOUT_MS);
+
+        Promise.resolve()
+            .then(writePromiseFactory)
+            .then(value => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeoutId);
+                resolve(value);
+            })
+            .catch(error => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeoutId);
+                reject(error);
+            });
+    });
+}
+
 // Pending confirmations live here while their visit IDs wait to appear in an
 // authoritative server snapshot. authService calls notifyAuthoritativeSnapshot()
 // whenever such a snapshot arrives so we can resolve any matching promises and
@@ -615,28 +641,7 @@ async function verifyGpsCheckin(parkData) {
         // the user "saved, will sync when online" instead of "saved to cloud".
         let syncStatus = 'cloud';
         try {
-            await new Promise((resolve, reject) => {
-                let settled = false;
-                const timeoutId = setTimeout(() => {
-                    if (settled) return;
-                    settled = true;
-                    reject(WRITE_TIMEOUT_SENTINEL);
-                }, FIREBASE_WRITE_TIMEOUT_MS);
-
-                firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray())
-                    .then(() => {
-                        if (settled) return;
-                        settled = true;
-                        clearTimeout(timeoutId);
-                        resolve();
-                    })
-                    .catch(err => {
-                        if (settled) return;
-                        settled = true;
-                        clearTimeout(timeoutId);
-                        reject(err);
-                    });
-            });
+            await awaitWithFirebaseWriteTimeout(() => firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()));
         } catch (writeError) {
             if (isNetworkLikeError(writeError)) {
                 // Visit is in the vault, in localStorage, and (with persistence
@@ -683,6 +688,7 @@ async function markAsVisited(parkData) {
     let token = null;
     let tokenUid = null;
     let rollbackToken = null;
+    let stashedVisitId = null;
     try {
         const vaultRepo = getVaultRepo();
         if (!vaultRepo) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
@@ -726,6 +732,10 @@ async function markAsVisited(parkData) {
 
         const visitRecord = createVisitRecord(parkData, false);
         vaultRepo.addVisit(visitRecord);
+        if (tokenUid && visitRecord) {
+            stashUnconfirmedVisit(tokenUid, visitRecord);
+            stashedVisitId = visitRecord.id;
+        }
         if (typeof vaultRepo.createRollbackToken === 'function') {
             rollbackToken = vaultRepo.createRollbackToken(token, [parkData.id]);
         }
@@ -736,20 +746,33 @@ async function markAsVisited(parkData) {
         refreshVisitedVisuals('checkin-mark-add', firebaseService);
         requestVisitStateSync('checkin-mark-add');
 
-        if (canSyncProgress) {
-            await firebaseService.syncUserProgress();
-        } else {
-            await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
+        let syncStatus = 'cloud';
+        try {
+            if (canSyncProgress) {
+                await awaitWithFirebaseWriteTimeout(() => firebaseService.syncUserProgress());
+            } else {
+                await awaitWithFirebaseWriteTimeout(() => firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()));
+            }
+        } catch (writeError) {
+            if (isNetworkLikeError(writeError)) {
+                syncStatus = 'pending';
+                console.warn('[checkinService] Visit queued for sync (network unavailable):', writeError);
+            } else {
+                throw writeError;
+            }
         }
 
         queueDailyStreakIncrement(firebaseService);
-        return { success: true, action: 'added', visitRecord };
+        return { success: true, action: 'added', visitRecord, syncStatus };
     } catch (error) {
         const vaultRepo = getVaultRepo();
         if (vaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof vaultRepo.restore === 'function') {
             vaultRepo.restore(rollbackToken || token);
         } else if (parkData && typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
             firebaseService.clearVisitedPlacePendingMutation(parkData.id);
+        }
+        if (tokenUid && stashedVisitId) {
+            clearUnconfirmedVisit(tokenUid, stashedVisitId);
         }
         console.error('[checkinService] markAsVisited failed:', error);
         return { success: false, error: 'VISIT_UPDATE_FAILED' };

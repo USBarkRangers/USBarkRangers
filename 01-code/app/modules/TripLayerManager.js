@@ -53,6 +53,13 @@ function getVaultRepo() {
     return window.BARK.repos && window.BARK.repos.VaultRepo;
 }
 
+function isPendingServerSync(parkData) {
+    if (!parkData || !parkData.id) return false;
+    const vaultRepo = getVaultRepo();
+    if (!vaultRepo || typeof vaultRepo.hasPendingMutation !== 'function') return false;
+    return vaultRepo.hasPendingMutation(parkData.id);
+}
+
 function hasTripVisitedPlace(placeOrId) {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.hasVisit === 'function') {
@@ -130,6 +137,7 @@ function hasTripVisitedPlace(placeOrId) {
         const isVisited = typeof window.BARK.isParkVisited === 'function'
             ? window.BARK.isParkVisited(parkData)
             : hasTripVisitedPlace(stop);
+        const isPendingSync = isVisited && isPendingServerSync(parkData);
         const style = window.MapMarkerConfig && typeof window.MapMarkerConfig.getPinStyle === 'function'
             ? window.MapMarkerConfig.getPinStyle(parkData, isVisited)
             : {
@@ -138,13 +146,16 @@ function hasTripVisitedPlace(placeOrId) {
                 pinShadowColor: isVisited ? '#4CAF50' : 'rgba(0, 0, 0, 0.4)',
                 categoryClass: 'cat-national'
             };
+        const ringColor = isPendingSync ? '#f59e0b' : style.ringColor;
+        const pinShadowColor = isPendingSync ? 'rgba(245, 158, 11, 0.5)' : style.pinShadowColor;
         const stateClass = isVisited ? 'trip-overlay-badge-wrapper--visited' : 'trip-overlay-badge-wrapper--unvisited';
+        const pendingClass = isPendingSync ? 'trip-overlay-badge-wrapper--pending-sync' : '';
         const categoryClass = style.categoryClass === 'cat-state'
             ? 'trip-overlay-badge-wrapper--state'
             : 'trip-overlay-badge-wrapper--national';
         const html = `
             <div class="trip-overlay-badge trip-overlay-badge--official"
-                style="--ring-color:${style.ringColor}; --pin-shadow-color:${style.pinShadowColor};">
+                style="--ring-color:${ringColor}; --pin-shadow-color:${pinShadowColor};">
                 <span class="trip-overlay-badge-face">
                     <img src="${style.iconUrl}" alt="" loading="lazy" />
                 </span>
@@ -156,13 +167,14 @@ function hasTripVisitedPlace(placeOrId) {
                 'official',
                 number,
                 isVisited ? 'visited' : 'unvisited',
+                isPendingSync ? 'pending' : 'confirmed',
                 style.categoryClass,
                 style.iconUrl,
-                style.ringColor,
-                style.pinShadowColor
+                ringColor,
+                pinShadowColor
             ].join('|'),
             icon: L.divIcon({
-                className: `trip-overlay-badge-wrapper trip-overlay-badge-wrapper--bark ${stateClass} ${categoryClass}`,
+                className: `trip-overlay-badge-wrapper trip-overlay-badge-wrapper--bark ${stateClass} ${pendingClass} ${categoryClass}`,
                 html,
                 iconSize: [42, 42],
                 iconAnchor: [21, 21]

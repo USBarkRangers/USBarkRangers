@@ -364,6 +364,13 @@ function updateMarkers() {
     const screenBounds = map.getBounds().pad(0.2);
     const activeMarkerIds = new Set();
 
+    function isRenderVisitPendingServerSync(parkData) {
+        if (!parkData || !parkData.id) return false;
+        const vaultRepo = window.BARK.repos && window.BARK.repos.VaultRepo;
+        if (!vaultRepo || typeof vaultRepo.hasPendingMutation !== 'function') return false;
+        return vaultRepo.hasPendingMutation(parkData.id);
+    }
+
     // Collect DOM writes to batch them (avoids layout thrashing)
     const markerClassUpdates = [];
 
@@ -416,7 +423,11 @@ function updateMarkers() {
 
             if (item.marker._icon) {
                 item.marker._icon.classList.remove('marker-filter-hidden');
-                markerClassUpdates.push({ icon: item.marker._icon, isVisited });
+                markerClassUpdates.push({
+                    icon: item.marker._icon,
+                    isVisited,
+                    isPendingSync: isVisited && isRenderVisitPendingServerSync(item)
+                });
             }
         } else {
             if (item.marker._icon) {
@@ -435,10 +446,11 @@ function updateMarkers() {
     }
 
     // 🏭 BATCH: Apply visited-pin class (avoids interleaved read/write layout thrash)
-    markerClassUpdates.forEach(({ icon, isVisited }) => {
+    markerClassUpdates.forEach(({ icon, isVisited, isPendingSync }) => {
         icon.classList.toggle('visited-pin', isVisited);
         icon.classList.toggle('visited-marker', isVisited);
         icon.classList.toggle('unvisited-marker', !isVisited);
+        icon.classList.toggle('visited-pin--pending-sync', Boolean(isPendingSync));
     });
 
     if (window.BARK.tripLayer && typeof window.BARK.tripLayer.refreshBadgeStyles === 'function') {

@@ -437,12 +437,10 @@ function renderMarkerClickPanel(context) {
                 verifyBtn.style.opacity = '1';
             }
 
-            // Three-state verified-checkin button:
-            //   • yellow (#facc15) "Verifying…"      — local write done, awaiting server confirmation
-            //   • green  (#4CAF50) "Verified & Secured" — authoritative server snapshot has the visit
-            //   • orange (#f59e0b) "Verified (syncing…)" — 30s passed with no server confirmation,
-            //                                              visit is durably queued in IndexedDB + localStorage
-            const SERVER_CONFIRMATION_TIMEOUT_MS = 30000;
+            // Verified check-in waits indefinitely for real server confirmation:
+            //   orange (#f59e0b) "Verified (syncing...)" — local write queued, retrying server confirmation
+            //   green  (#4CAF50) "Verified & Secured"   — Firestore confirmed the visit
+            const SERVER_CONFIRMATION_RETRY_MS = 8000;
 
             const setVerifyButtonStateVerifying = (label) => {
                 verifyBtn.style.background = '#facc15';
@@ -465,8 +463,8 @@ function renderMarkerClickPanel(context) {
                 verifyBtn.style.color = '';
                 verifyBtnText.textContent = '🐾 Verified (syncing…)';
                 verifyBtn.disabled = true;
-                verifyBtn.style.cursor = 'default';
-                verifyBtn.style.opacity = '0.85';
+                verifyBtn.style.cursor = 'progress';
+                verifyBtn.style.opacity = '1';
             };
             const restoreVerifyButtonDefault = () => {
                 verifyBtn.style.background = '#FF9800';
@@ -516,28 +514,42 @@ function renderMarkerClickPanel(context) {
                     return;
                 }
 
-                // Local write succeeded — now wait for the authoritative server snapshot
-                // to echo the visit back before we tell the user it's truly saved.
-                setVerifyButtonStateVerifying('Verifying…');
+                // Local write succeeded. The button and pin stay orange until
+                // a real server confirmation proves the visit is durable.
+                setVerifyButtonStatePendingSync();
+                markVisitedBtn.classList.add('visited');
+                markVisitedBtn.classList.add('pending-sync');
+                markVisitedText.textContent = '✓ Visited (syncing…)';
+                markVisitedBtn.disabled = true;
+                markVisitedBtn.style.cursor = 'progress';
+                markVisitedBtn.style.opacity = '1';
 
                 const visitId = checkinResult.visitRecord && checkinResult.visitRecord.id;
                 const confirmation = typeof checkinService.awaitServerConfirmation === 'function'
-                    ? await checkinService.awaitServerConfirmation(visitId, { timeoutMs: SERVER_CONFIRMATION_TIMEOUT_MS })
+                    ? await checkinService.awaitServerConfirmation(visitId, { retryMs: SERVER_CONFIRMATION_RETRY_MS })
                     : { confirmed: true };
 
                 if (confirmation.confirmed) {
                     setVerifyButtonStateConfirmed();
                     alert(`Check-in Verified! You earned 2 points.`);
+                    markVisitedBtn.classList.remove('pending-sync');
+                    markVisitedText.textContent = '✓ Visited';
+                    markVisitedBtn.disabled = true;
+                    markVisitedBtn.style.cursor = 'default';
+                    markVisitedBtn.style.opacity = '0.7';
+                } else if (confirmation.reason === 'write-failed') {
+                    restoreVerifyButtonDefault();
+                    markVisitedBtn.classList.remove('visited');
+                    markVisitedBtn.classList.remove('pending-sync');
+                    markVisitedText.textContent = 'Mark as Visited';
+                    markVisitedBtn.disabled = false;
+                    markVisitedBtn.style.cursor = 'pointer';
+                    markVisitedBtn.style.opacity = '1';
+                    alert("Check-in could not be saved. Please sign in again and try once more.");
+                    return;
                 } else {
                     setVerifyButtonStatePendingSync();
-                    alert("Check-in saved on your phone. We'll sync it to the cloud the moment you have signal again — keep the app open and you won't lose this visit.");
                 }
-
-                markVisitedBtn.classList.add('visited');
-                markVisitedText.textContent = '✓ Visited';
-                markVisitedBtn.disabled = true;
-                markVisitedBtn.style.cursor = 'default';
-                markVisitedBtn.style.opacity = '0.7';
 
                 window.syncState();
                 window.BARK.updateStatsUI();
@@ -626,7 +638,7 @@ function renderMarkerClickPanel(context) {
 
                 let confirmation;
                 try {
-                    confirmation = await checkinService.awaitServerConfirmation(newVisit.id, { timeoutMs: 10000 });
+                    confirmation = await checkinService.awaitServerConfirmation(newVisit.id, { retryMs: SERVER_CONFIRMATION_RETRY_MS });
                 } catch (error) {
                     console.warn('[panelRenderer] mark-as-visited confirmation threw:', error);
                     confirmation = { confirmed: false, reason: 'error' };
@@ -634,6 +646,9 @@ function renderMarkerClickPanel(context) {
 
                 if (confirmation.confirmed) {
                     setMarkVisitedStateConfirmed();
+                } else if (confirmation.reason === 'write-failed') {
+                    setMarkVisitedStateDefault();
+                    alert("Visit could not be saved. Please sign in again and try once more.");
                 } else {
                     // Stay orange. The window-online recovery handler in
                     // checkinService will sweep this clean once the device is

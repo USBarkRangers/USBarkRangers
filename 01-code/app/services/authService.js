@@ -420,15 +420,21 @@ function refreshActivePinVisitedButton() {
     const d = window.BARK.activePinMarker._parkData;
     const btn = document.getElementById('mark-visited-btn');
     const btnText = document.getElementById('mark-visited-text');
+    const vaultRepo = getVaultRepo();
     const isVisited = typeof window.BARK.isParkVisited === 'function'
         ? window.BARK.isParkVisited(d)
         : hasAuthVisitedPlace(d);
+    const isPendingSync = vaultRepo
+        && typeof vaultRepo.hasPendingMutation === 'function'
+        && vaultRepo.hasPendingMutation(d);
 
     if (isVisited) {
         btn.classList.add('visited');
-        if (btnText) btnText.textContent = 'Visited!';
+        btn.classList.toggle('pending-sync', Boolean(isPendingSync));
+        if (btnText) btnText.textContent = isPendingSync ? '✓ Visited (syncing…)' : '✓ Visited';
     } else {
         btn.classList.remove('visited');
+        btn.classList.remove('pending-sync');
         if (btnText) btnText.textContent = 'Mark as Visited';
     }
 }

@@ -6,14 +6,12 @@ window.BARK.services = window.BARK.services || {};
 
 const FREE_VISIT_LIMIT = 5;
 
-// Hard upper bound on how long we wait for the Firebase visit-write to acknowledge
-// before assuming the network is too slow/flaky and treating the visit as "saved
-// locally, will sync when online". With Firestore offline persistence enabled the
-// write is durably queued in IndexedDB regardless of network state, so this
-// timeout never causes data loss — it just frees the UI to give the user honest
-// feedback instead of spinning forever on a dead/weak connection.
+// Hard upper bound on the initial Firebase write attempt before the UI moves
+// from "Locating..." to the indefinite server-confirmation wait. The
+// confirmation wait itself does not time out.
 const FIREBASE_WRITE_TIMEOUT_MS = 15000;
 const WRITE_TIMEOUT_SENTINEL = '__BARK_WRITE_TIMEOUT__';
+const SERVER_CONFIRMATION_RETRY_MS = 8000;
 
 // localStorage key holding visits that have been added locally but not yet
 // confirmed by an authoritative Firestore snapshot. Survives PWA close so that
@@ -167,10 +165,30 @@ function awaitWithFirebaseWriteTimeout(writePromiseFactory) {
     });
 }
 
+function queueVisitedPlacesWrite(label, visitId, writePromiseFactory, onFatalError) {
+    awaitWithFirebaseWriteTimeout(writePromiseFactory)
+        .catch(error => {
+            if (isNetworkLikeError(error)) {
+                console.warn(`[checkinService] ${label} queued for sync (network unavailable):`, error);
+                return;
+            }
+
+            console.error(`[checkinService] ${label} failed after local staging:`, error);
+            if (typeof onFatalError === 'function') {
+                try {
+                    onFatalError(error);
+                } catch (rollbackError) {
+                    console.error(`[checkinService] ${label} rollback failed:`, rollbackError);
+                }
+            }
+            cancelPendingServerConfirmation(visitId, 'write-failed');
+        });
+}
+
 // Pending confirmations live here while their visit IDs wait to appear in an
 // authoritative server snapshot. authService calls notifyAuthoritativeSnapshot()
 // whenever such a snapshot arrives so we can resolve any matching promises and
-// flip the UI from "verifying…" (yellow) to "verified" (green).
+// flip the UI from pending orange to verified green.
 const pendingServerConfirmations = new Map();
 
 // A visit is "server-confirmed" only when an authoritative Firestore snapshot
@@ -181,9 +199,58 @@ function isVisitServerConfirmed(vaultRepo, visitId) {
     if (!vaultRepo || typeof vaultRepo.hasVisit !== 'function') return false;
     if (!vaultRepo.hasVisit(visitId)) return false;
     // If pending introspection isn't available, fall back to a conservative
-    // "not confirmed" — we'd rather time out to orange than lie green.
+    // "not confirmed" so we keep waiting instead of lying green.
     if (typeof vaultRepo.hasPendingMutation !== 'function') return false;
     return !vaultRepo.hasPendingMutation(visitId);
+}
+
+function visitMatchesConfirmationId(place, visitId) {
+    if (!place || !visitId) return false;
+    return place.id === visitId || place.placeId === visitId;
+}
+
+async function probeServerForVisitConfirmation(visitId, reason = 'confirmation-probe') {
+    if (!visitId) return false;
+    if (typeof firebase === 'undefined' || !firebase.firestore || !firebase.auth) return false;
+
+    const user = firebase.auth().currentUser;
+    if (!user) return false;
+
+    try {
+        if (window.BARK && typeof window.BARK.incrementRequestCount === 'function') {
+            window.BARK.incrementRequestCount();
+        }
+
+        const doc = await firebase.firestore().collection('users').doc(user.uid).get({ source: 'server' });
+        const data = doc && doc.exists && typeof doc.data === 'function' ? (doc.data() || {}) : {};
+        const serverVisits = Array.isArray(data.visitedPlaces) ? data.visitedPlaces : [];
+        const confirmed = serverVisits.some(place => visitMatchesConfirmationId(place, visitId));
+        if (!confirmed) return false;
+
+        const firebaseService = getFirebaseService();
+        if (firebaseService && typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
+            firebaseService.clearVisitedPlacePendingMutation(visitId);
+        } else {
+            const vaultRepo = getVaultRepo();
+            if (vaultRepo && typeof vaultRepo.clearPendingMutation === 'function') {
+                vaultRepo.clearPendingMutation(visitId);
+            }
+        }
+        clearUnconfirmedVisit(user.uid, visitId);
+        refreshVisitedCache(`checkin-server-confirmed-${reason}`);
+        refreshVisitedVisuals(`checkin-server-confirmed-${reason}`, firebaseService);
+        return true;
+    } catch (error) {
+        // Expected while the phone has weak/no service. The interval will try again.
+        console.debug('[checkinService] server confirmation probe deferred:', error);
+        return false;
+    }
+}
+
+function clearPendingConfirmationTimers(entry) {
+    if (!entry) return;
+    if (entry.timeoutHandle) clearTimeout(entry.timeoutHandle);
+    if (entry.retryHandle) clearInterval(entry.retryHandle);
 }
 
 function awaitServerConfirmation(visitId, options = {}) {
@@ -210,48 +277,61 @@ function awaitServerConfirmation(visitId, options = {}) {
             return;
         }
 
-        const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 30000;
+        const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+            ? options.timeoutMs
+            : null;
+        const retryMs = Number.isFinite(options.retryMs) && options.retryMs > 0
+            ? Math.max(options.retryMs, 2000)
+            : SERVER_CONFIRMATION_RETRY_MS;
 
         let resolved = false;
         let timeoutHandle = null;
+        let retryHandle = null;
+        let probeInFlight = false;
         const settle = (result) => {
             if (resolved) return;
             resolved = true;
-            if (timeoutHandle) clearTimeout(timeoutHandle);
+            clearPendingConfirmationTimers({ timeoutHandle, retryHandle });
             pendingServerConfirmations.delete(visitId);
             resolve(result);
         };
 
-        timeoutHandle = setTimeout(() => {
-            settle({ confirmed: false, reason: 'timeout' });
-        }, timeoutMs);
+        if (timeoutMs) {
+            timeoutHandle = setTimeout(() => {
+                settle({ confirmed: false, reason: 'timeout' });
+            }, timeoutMs);
+        }
+
+        const runServerProbe = async () => {
+            if (resolved || probeInFlight) return;
+            probeInFlight = true;
+            try {
+                const confirmed = await probeServerForVisitConfirmation(visitId, 'retry');
+                if (confirmed) settle({ confirmed: true });
+            } finally {
+                probeInFlight = false;
+            }
+        };
 
         // Path 1: snapshot listener fires (notifyAuthoritativeSnapshot → matching pending cleared)
-        pendingServerConfirmations.set(visitId, { resolve: settle, timeoutHandle });
+        retryHandle = setInterval(runServerProbe, retryMs);
+        setTimeout(runServerProbe, Math.min(3000, retryMs));
+        pendingServerConfirmations.set(visitId, { resolve: settle, timeoutHandle, retryHandle });
 
-        // Path 2: Firestore.waitForPendingWrites() — resolves the moment the
-        // server has acknowledged all locally-queued writes. On fast wifi
-        // this is typically the FIRST signal to arrive (faster than the
-        // snapshot listener, which can be debounced for a second or two in
-        // WKWebView). When it resolves we proactively clear the pending
-        // mutation so the marker can re-style green without waiting for the
-        // potentially-laggy snapshot. Safe because the server has confirmed
-        // the write — same level of certainty as the snapshot path.
+        // Path 2: wait for pending writes, then require a fresh server doc read
+        // that contains this visit. This avoids a false green if waitForPendingWrites
+        // resolves before a slow/offline write has actually entered the queue.
         if (typeof firebase !== 'undefined' && firebase.firestore
             && typeof firebase.firestore().waitForPendingWrites === 'function') {
             firebase.firestore().waitForPendingWrites()
-                .then(() => {
+                .then(async () => {
                     if (resolved) return;
-                    const firebaseService = getFirebaseService();
-                    if (firebaseService && typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
-                        firebaseService.clearVisitedPlacePendingMutation(visitId);
-                        refreshVisitedVisuals('checkin-pending-writes-flushed', firebaseService);
-                    }
-                    settle({ confirmed: true });
+                    const confirmed = await probeServerForVisitConfirmation(visitId, 'pending-writes-flushed');
+                    if (confirmed) settle({ confirmed: true });
                 })
                 .catch(error => {
-                    // Don't fail the whole confirmation — the snapshot path
-                    // (or the timeout) will still resolve us.
+                    // Don't fail the whole confirmation; the snapshot path or
+                    // retry probe will keep waiting for real server proof.
                     console.warn('[checkinService] waitForPendingWrites rejected:', error);
                 });
         }
@@ -267,16 +347,25 @@ function notifyAuthoritativeSnapshot() {
         // Same gate as the immediate-check path: server snapshot must have
         // included the visit (pending mutation cleared by reconcile).
         if (!isVisitServerConfirmed(vaultRepo, visitId)) return;
-        clearTimeout(entry.timeoutHandle);
+        clearPendingConfirmationTimers(entry);
         pendingServerConfirmations.delete(visitId);
         entry.resolve({ confirmed: true });
     });
 }
 
+function cancelPendingServerConfirmation(visitId, reason) {
+    if (!visitId || pendingServerConfirmations.size === 0) return;
+    const entry = pendingServerConfirmations.get(visitId);
+    if (!entry) return;
+    clearPendingConfirmationTimers(entry);
+    pendingServerConfirmations.delete(visitId);
+    entry.resolve({ confirmed: false, reason: reason || 'cancelled' });
+}
+
 function cancelPendingServerConfirmations(reason) {
     if (pendingServerConfirmations.size === 0) return;
     pendingServerConfirmations.forEach(entry => {
-        clearTimeout(entry.timeoutHandle);
+        clearPendingConfirmationTimers(entry);
         entry.resolve({ confirmed: false, reason: reason || 'cancelled' });
     });
     pendingServerConfirmations.clear();
@@ -635,32 +724,29 @@ async function verifyGpsCheckin(parkData) {
         refreshVisitedVisuals('checkin-verified-add', firebaseService);
         requestVisitStateSync('checkin-verified-add');
 
-        // Race the Firebase write against a 15s timeout. With offline persistence
-        // enabled, the write is durably queued in IndexedDB even if the timeout
-        // wins — the timeout only governs how long the UI waits before telling
-        // the user "saved, will sync when online" instead of "saved to cloud".
-        let syncStatus = 'cloud';
-        try {
-            await awaitWithFirebaseWriteTimeout(() => firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()));
-        } catch (writeError) {
-            if (isNetworkLikeError(writeError)) {
-                // Visit is in the vault, in localStorage, and (with persistence
-                // enabled) in Firestore's offline queue. The next authoritative
-                // snapshot will clear the localStorage entry. DO NOT roll back —
-                // that's exactly the bug that lost Maddy's Edgar Evins visit.
-                syncStatus = 'pending';
-                console.warn('[checkinService] Verified visit queued for sync (network unavailable):', writeError);
-            } else {
-                throw writeError;
+        queueVisitedPlacesWrite(
+            'Verified visit',
+            checkinResult.visitRecord.id,
+            () => firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()),
+            () => {
+                const currentVaultRepo = getVaultRepo();
+                if (currentVaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof currentVaultRepo.restore === 'function') {
+                    currentVaultRepo.restore(rollbackToken || token);
+                } else if (typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
+                    firebaseService.clearVisitedPlacePendingMutation(checkinResult.visitRecord.id);
+                }
+                if (tokenUid && stashedVisitId) {
+                    clearUnconfirmedVisit(tokenUid, stashedVisitId);
+                }
             }
-        }
+        );
 
         queueDailyStreakIncrement(firebaseService);
 
         return {
             ...checkinResult,
             action: 'verified',
-            syncStatus
+            syncStatus: 'pending'
         };
     } catch (error) {
         // Reaching here means we hit a non-network error (auth, permission,
@@ -746,24 +832,27 @@ async function markAsVisited(parkData) {
         refreshVisitedVisuals('checkin-mark-add', firebaseService);
         requestVisitStateSync('checkin-mark-add');
 
-        let syncStatus = 'cloud';
-        try {
-            if (canSyncProgress) {
-                await awaitWithFirebaseWriteTimeout(() => firebaseService.syncUserProgress());
-            } else {
-                await awaitWithFirebaseWriteTimeout(() => firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()));
+        queueVisitedPlacesWrite(
+            'Visit',
+            visitRecord.id,
+            () => canSyncProgress
+                ? firebaseService.syncUserProgress()
+                : firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()),
+            () => {
+                const currentVaultRepo = getVaultRepo();
+                if (currentVaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof currentVaultRepo.restore === 'function') {
+                    currentVaultRepo.restore(rollbackToken || token);
+                } else if (typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
+                    firebaseService.clearVisitedPlacePendingMutation(visitRecord.id);
+                }
+                if (tokenUid && stashedVisitId) {
+                    clearUnconfirmedVisit(tokenUid, stashedVisitId);
+                }
             }
-        } catch (writeError) {
-            if (isNetworkLikeError(writeError)) {
-                syncStatus = 'pending';
-                console.warn('[checkinService] Visit queued for sync (network unavailable):', writeError);
-            } else {
-                throw writeError;
-            }
-        }
+        );
 
         queueDailyStreakIncrement(firebaseService);
-        return { success: true, action: 'added', visitRecord, syncStatus };
+        return { success: true, action: 'added', visitRecord, syncStatus: 'pending' };
     } catch (error) {
         const vaultRepo = getVaultRepo();
         if (vaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof vaultRepo.restore === 'function') {

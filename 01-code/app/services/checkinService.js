@@ -80,7 +80,10 @@ function reconcileUnconfirmedVisits(uid) {
 
     let mutated = false;
     ids.forEach(id => {
-        if (vaultRepo.hasVisit(id)) {
+        const isServerConfirmed = vaultRepo.hasVisit(id)
+            && typeof vaultRepo.hasPendingMutation === 'function'
+            && !vaultRepo.hasPendingMutation(id);
+        if (isServerConfirmed) {
             delete map[id];
             mutated = true;
         }
@@ -259,9 +262,8 @@ function cancelPendingServerConfirmations(reason) {
 //   1. Wait for all queued writes to flush to the server.
 //   2. Force a fresh `doc.get({source: 'server'})` — this guarantees the
 //      snapshot listener fires with authoritative metadata.
-//   3. Clear every local pending mutation (waitForPendingWrites resolving
-//      means the SDK is done with them all; if any genuinely failed, the
-//      subsequent snapshot will correct local state anyway).
+//   3. If waitForPendingWrites resolves, clear local pending mutations because
+//      the SDK has confirmed the queued writes reached the backend.
 //   4. Refresh all visited visuals so orange pins flip green.
 let forceSyncRecoveryInFlight = false;
 async function forceServerSyncRecovery(reason) {
@@ -271,11 +273,14 @@ async function forceServerSyncRecovery(reason) {
         if (typeof firebase === 'undefined' || !firebase.firestore) return;
 
         const firestore = firebase.firestore();
+        let pendingWritesFlushed = false;
         if (typeof firestore.waitForPendingWrites === 'function') {
             await Promise.race([
                 firestore.waitForPendingWrites(),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('waitForPendingWrites timeout')), 20000))
-            ]).catch(error => console.warn(`[checkinService] waitForPendingWrites (${reason}) failed:`, error));
+            ]).then(() => {
+                pendingWritesFlushed = true;
+            }).catch(error => console.warn(`[checkinService] waitForPendingWrites (${reason}) failed:`, error));
         }
 
         if (firebase.auth) {
@@ -288,7 +293,7 @@ async function forceServerSyncRecovery(reason) {
         }
 
         const vaultRepo = getVaultRepo();
-        if (vaultRepo && typeof vaultRepo.clearPendingMutations === 'function') {
+        if (pendingWritesFlushed && vaultRepo && typeof vaultRepo.clearPendingMutations === 'function') {
             vaultRepo.clearPendingMutations();
         }
 

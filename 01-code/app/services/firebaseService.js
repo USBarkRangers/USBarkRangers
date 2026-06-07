@@ -588,7 +588,8 @@ async function syncUserProgress() {
         window.BARK.incrementRequestCount();
 
         visitedArray = getVisitedPlacesArray();
-        visitedArray.forEach(stageVisitedPlaceUpsert);
+        // Callers stage the specific visit they changed. Bulk-staging every
+        // record here breaks the pending/orange confirmation state.
         visitedArray = await mergeServerVisitedPlacesForSafeWrite(db.collection('users').doc(user.uid), visitedArray);
         assertVisitedWriteIsNotDestructive(visitedArray);
         endVisitedPlacesWrite = beginVisitedPlacesWrite();
@@ -620,7 +621,7 @@ async function updateCurrentUserVisitedPlaces(visitedArray) {
         const userRef = firebase.firestore().collection('users').doc(user.uid);
         nextVisitedArray = await mergeServerVisitedPlacesForSafeWrite(userRef, nextVisitedArray);
         assertVisitedWriteIsNotDestructive(nextVisitedArray);
-        nextVisitedArray.forEach(stageVisitedPlaceUpsert);
+        // Do not bulk-stage here; verify/mark/update callers own pending state.
         window.BARK.incrementRequestCount();
         endVisitedPlacesWrite = beginVisitedPlacesWrite();
         await userRef.update({ visitedPlaces: nextVisitedArray });

@@ -519,6 +519,54 @@ function buildVaultRepoSubscriptionOptions() {
     };
 }
 
+function reconcileVaultRepoFromUserSnapshot(user, data, metadata = {}) {
+    const vaultRepo = getVaultRepo();
+    if (!user || !vaultRepo || typeof vaultRepo.reconcileSnapshot !== 'function') return false;
+
+    const normalizedMetadata = {
+        fromCache: metadata && metadata.fromCache === true,
+        hasPendingWrites: metadata && metadata.hasPendingWrites === true
+    };
+    const placeList = data && Array.isArray(data.visitedPlaces) ? data.visitedPlaces : [];
+    const options = buildVaultRepoSubscriptionOptions();
+
+    try {
+        const result = vaultRepo.reconcileSnapshot(placeList, normalizedMetadata);
+
+        if (typeof options.invalidateVisitedIdsCache === 'function') options.invalidateVisitedIdsCache();
+        if (typeof options.refreshVisitedVisualState === 'function') options.refreshVisitedVisualState();
+
+        if (typeof options.normalizeLocalVisitedPlacesToCanonical === 'function') {
+            const canonicalResult = options.normalizeLocalVisitedPlacesToCanonical({
+                writeBack: false,
+                source: 'user-snapshot'
+            });
+            if (canonicalResult && typeof canonicalResult.catch === 'function') {
+                canonicalResult.catch(error => {
+                    console.error('[authService] visited-place canonicalization failed:', error);
+                });
+            }
+        }
+
+        if (typeof options.onChange === 'function') {
+            options.onChange(Object.freeze({
+                uid: user.uid,
+                result,
+                metadata: Object.freeze({ ...normalizedMetadata })
+            }));
+        }
+
+        return true;
+    } catch (error) {
+        if (typeof options.onError === 'function') {
+            options.onError(error);
+        } else {
+            console.error('[authService] visitedPlaces user snapshot reconcile failed:', error);
+        }
+        return false;
+    }
+}
+
 function startVaultRepoVisitSubscription(user) {
     const vaultRepo = getVaultRepo();
     if (!vaultRepo || typeof vaultRepo.startSubscription !== 'function') {
@@ -941,13 +989,6 @@ async function initFirebase() {
                         resetAccountScopedRuntimeState();
                     }
 
-                    try {
-                        startVaultRepoVisitSubscription(user);
-                    } catch (error) {
-                        console.error("[authService] subscribe visited places failed:", error);
-                        showAuthFailureNotice('Sign-in connected, but visit sync could not start. Saved progress may be offline for this session.');
-                    }
-
                     // Replay any visits that were saved locally but never
                     // confirmed by the server before the PWA last closed.
                     // Critical for users who verified visits in areas with
@@ -980,6 +1021,8 @@ async function initFirebase() {
                                     if (doc.exists) {
                                         const data = doc.data();
 
+                                        reconcileVaultRepoFromUserSnapshot(user, data, doc.metadata);
+
                                         updatePremiumEntitlement(data.entitlement, user, 'auth-user-snapshot');
 
                                         handleCloudSettingsHydration(data, doc.metadata);
@@ -997,6 +1040,7 @@ async function initFirebase() {
 
                                         handleExpeditionSync(data);
                                     } else {
+                                        reconcileVaultRepoFromUserSnapshot(user, {}, doc.metadata);
                                         updatePremiumEntitlement(null, user, 'auth-user-snapshot-missing');
                                         window.currentWalkPoints = 0;
                                         handleAdminCheck({}, user);

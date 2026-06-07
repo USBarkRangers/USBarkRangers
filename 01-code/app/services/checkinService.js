@@ -373,13 +373,9 @@ function cancelPendingServerConfirmations(reason) {
 
 // Force a full server-sync recovery cycle. Called when the browser detects
 // it just came back online (window 'online' event) to bypass any WKWebView
-// quirk that suppresses Firestore's metadata-change snapshot. Sequence:
-//   1. Wait for all queued writes to flush to the server.
-//   2. Force a fresh `doc.get({source: 'server'})` — this guarantees the
-//      snapshot listener fires with authoritative metadata.
-//   3. If waitForPendingWrites resolves, clear local pending mutations because
-//      the SDK has confirmed the queued writes reached the backend.
-//   4. Refresh all visited visuals so orange pins flip green.
+// quirk that suppresses Firestore's metadata-change snapshot. Orange pending
+// state only clears through authoritative server data, never merely because
+// waitForPendingWrites() resolved.
 let forceSyncRecoveryInFlight = false;
 async function forceServerSyncRecovery(reason) {
     if (forceSyncRecoveryInFlight) return;
@@ -388,28 +384,32 @@ async function forceServerSyncRecovery(reason) {
         if (typeof firebase === 'undefined' || !firebase.firestore) return;
 
         const firestore = firebase.firestore();
-        let pendingWritesFlushed = false;
         if (typeof firestore.waitForPendingWrites === 'function') {
             await Promise.race([
                 firestore.waitForPendingWrites(),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('waitForPendingWrites timeout')), 20000))
-            ]).then(() => {
-                pendingWritesFlushed = true;
-            }).catch(error => console.warn(`[checkinService] waitForPendingWrites (${reason}) failed:`, error));
+            ]).catch(error => console.warn(`[checkinService] waitForPendingWrites (${reason}) failed:`, error));
         }
 
         if (firebase.auth) {
             const user = firebase.auth().currentUser;
             if (user) {
-                await firestore.collection('users').doc(user.uid)
+                const doc = await firestore.collection('users').doc(user.uid)
                     .get({ source: 'server' })
-                    .catch(error => console.warn(`[checkinService] server doc fetch (${reason}) failed:`, error));
+                    .catch(error => {
+                        console.warn(`[checkinService] server doc fetch (${reason}) failed:`, error);
+                        return null;
+                    });
+                const data = doc && doc.exists && typeof doc.data === 'function' ? (doc.data() || {}) : {};
+                const serverVisits = Array.isArray(data.visitedPlaces) ? data.visitedPlaces : [];
+                const firebaseService = getFirebaseService();
+                if (firebaseService && typeof firebaseService.reconcileVisitedPlacesSnapshot === 'function') {
+                    firebaseService.reconcileVisitedPlacesSnapshot(serverVisits, {
+                        fromCache: false,
+                        hasPendingWrites: false
+                    });
+                }
             }
-        }
-
-        const vaultRepo = getVaultRepo();
-        if (pendingWritesFlushed && vaultRepo && typeof vaultRepo.clearPendingMutations === 'function') {
-            vaultRepo.clearPendingMutations();
         }
 
         // Wake any in-flight awaitServerConfirmation promises that match

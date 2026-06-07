@@ -343,9 +343,22 @@ function canonicalizeVisitedPlacesMap(options = {}) {
     return { changed, unresolvedLegacyIds, canonicalReplacements, nextMap };
 }
 
+function assertCanonicalizationIsNotDestructive(result) {
+    const currentCount = getVisitedPlaceEntryPairs().length;
+    const nextCount = result && result.nextMap instanceof Map ? result.nextMap.size : 0;
+    const droppedCount = currentCount - nextCount;
+    const destructiveDropThreshold = Math.max(3, Math.ceil(currentCount * 0.25));
+
+    if (currentCount >= 3 && droppedCount >= destructiveDropThreshold) {
+        throw new Error(`Refusing destructive visitedPlaces canonicalization: ${droppedCount} visit(s) would be collapsed.`);
+    }
+}
+
 async function normalizeLocalVisitedPlacesToCanonical(options = {}) {
     const result = canonicalizeVisitedPlacesMap(options);
     if (!result.changed) return result;
+
+    assertCanonicalizationIsNotDestructive(result);
 
     replaceLocalVisitedPlaces(result.nextMap, {
         canonicalReplacements: result.canonicalReplacements
@@ -420,6 +433,15 @@ function clearVisitedPlacePendingMutations() {
     if (vaultRepo && typeof vaultRepo.clearPendingMutations === 'function') vaultRepo.clearPendingMutations();
 }
 
+function getVisitedPlacePendingMutation(placeId) {
+    const vaultRepo = getVaultRepo();
+    if (!vaultRepo || typeof vaultRepo.snapshot !== 'function') return null;
+
+    const token = vaultRepo.snapshot();
+    if (!token || !(token.pending instanceof Map)) return null;
+    return token.pending.get(placeId) || null;
+}
+
 function beginVisitedPlacesWrite() {
     visitedPlacesWriteInFlightCount++;
     return function endVisitedPlacesWrite() {
@@ -429,6 +451,52 @@ function beginVisitedPlacesWrite() {
 
 function hasVisitedPlacesWriteInFlight() {
     return visitedPlacesWriteInFlightCount > 0;
+}
+
+async function mergeServerVisitedPlacesForSafeWrite(userRef, nextVisitedArray) {
+    if (!userRef || typeof userRef.get !== 'function') return nextVisitedArray;
+
+    let serverVisitedArray = [];
+    try {
+        window.BARK.incrementRequestCount();
+        const doc = await userRef.get();
+        const data = doc && doc.exists && typeof doc.data === 'function' ? (doc.data() || {}) : {};
+        serverVisitedArray = Array.isArray(data.visitedPlaces) ? data.visitedPlaces.map(cloneVisitedPlace) : [];
+    } catch (error) {
+        console.warn('[firebaseService] Could not verify server visitedPlaces before write; local destructive guard still applies.', error);
+        return nextVisitedArray;
+    }
+
+    if (serverVisitedArray.length === 0) return nextVisitedArray;
+
+    const nextMap = makeVisitedPlaceMap(nextVisitedArray);
+    const serverMap = makeVisitedPlaceMap(serverVisitedArray);
+    const missingServerVisits = [];
+
+    serverMap.forEach((serverVisit, id) => {
+        if (nextMap.has(id)) return;
+
+        const pendingMutation = getVisitedPlacePendingMutation(id);
+        if (pendingMutation && pendingMutation.type === 'delete') return;
+        missingServerVisits.push(serverVisit);
+    });
+
+    if (missingServerVisits.length === 0) return nextVisitedArray;
+
+    const destructiveDropThreshold = Math.max(3, Math.ceil(serverMap.size * 0.25));
+    if (serverMap.size >= 3 && missingServerVisits.length >= destructiveDropThreshold) {
+        console.warn('[firebaseService] Preserving server visitedPlaces during sparse local write.', {
+            serverCount: serverMap.size,
+            localCount: nextMap.size,
+            preservedCount: missingServerVisits.length
+        });
+    }
+
+    missingServerVisits.forEach((visit) => {
+        if (visit && visit.id) nextMap.set(visit.id, cloneVisitedPlace(visit));
+    });
+
+    return Array.from(nextMap.values());
 }
 
 function reconcileVisitedPlacesSnapshot(placeList, metadata = {}) {
@@ -519,25 +587,20 @@ async function syncUserProgress() {
         const db = firebase.firestore();
         window.BARK.incrementRequestCount();
 
-        // Do NOT blindly stage every visit in the array as pending. Callers
-        // already stage the specific change they're making (verify, mark,
-        // updateDate, etc). Bulk-staging here flagged every existing visit
-        // as "syncing…" on every single write, which made the entire map
-        // flash orange whenever the user did anything — and any visit
-        // whose snapshot record didn't exactly match would stay stuck
-        // orange because reconcile only clears matching records.
         visitedArray = getVisitedPlacesArray();
+        visitedArray.forEach(stageVisitedPlaceUpsert);
+        visitedArray = await mergeServerVisitedPlacesForSafeWrite(db.collection('users').doc(user.uid), visitedArray);
+        assertVisitedWriteIsNotDestructive(visitedArray);
         endVisitedPlacesWrite = beginVisitedPlacesWrite();
         await db.collection('users').doc(user.uid).set({
             visitedPlaces: visitedArray
         }, { merge: true });
+        replaceLocalVisitedPlaces(makeVisitedPlaceMap(visitedArray), {
+            source: 'sync-user-progress-merged-write'
+        });
 
         window.syncState();
     } catch (error) {
-        // Clear pending for everything we tried to write — covers the
-        // caller's individually-staged change AND is a no-op for anything
-        // that wasn't staged. Safer than leaving stale pendings around if
-        // the write actually failed.
         visitedArray.forEach(place => clearVisitedPlacePendingMutation(place && place.id));
         console.error("[firebaseService] syncUserProgress failed:", error);
         throw error;
@@ -554,13 +617,16 @@ async function updateCurrentUserVisitedPlaces(visitedArray) {
         if (!user) return;
 
         nextVisitedArray = Array.isArray(visitedArray) ? visitedArray.map(cloneVisitedPlace) : [];
+        const userRef = firebase.firestore().collection('users').doc(user.uid);
+        nextVisitedArray = await mergeServerVisitedPlacesForSafeWrite(userRef, nextVisitedArray);
         assertVisitedWriteIsNotDestructive(nextVisitedArray);
-        // (No bulk stage here — see syncUserProgress comment. Callers stage
-        // the specific change they're making; bulk-staging caused the
-        // "every pin flashes orange when I visit one new place" regression.)
+        nextVisitedArray.forEach(stageVisitedPlaceUpsert);
         window.BARK.incrementRequestCount();
         endVisitedPlacesWrite = beginVisitedPlacesWrite();
-        await firebase.firestore().collection('users').doc(user.uid).update({ visitedPlaces: nextVisitedArray });
+        await userRef.update({ visitedPlaces: nextVisitedArray });
+        replaceLocalVisitedPlaces(makeVisitedPlaceMap(nextVisitedArray), {
+            source: 'update-current-user-visited-merged-write'
+        });
         if (typeof window.syncState === 'function') window.syncState();
     } catch (error) {
         nextVisitedArray.forEach(place => clearVisitedPlacePendingMutation(place && place.id));

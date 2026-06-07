@@ -25,6 +25,8 @@ const CSV_COLUMNS = {
 };
 
 const SWAG_TYPE_COLUMNS = ['Swag Type', 'Swag', 'Swag Available'];
+const LAT_COLUMNS = ['lat', 'Lat', 'LAT', 'Latitude', 'latitude'];
+const LNG_COLUMNS = ['lng', 'Lng', 'LNG', 'Long', 'long', 'Longitude', 'longitude'];
 const STATIC_FALLBACK_CSV_URL = 'assets/data/bark-fallback.csv';
 let staticFallbackLoadInFlight = null;
 
@@ -64,6 +66,8 @@ function normalizeCSVRow(rawItem) {
     const row = rawItem && typeof rawItem === 'object' ? rawItem : {};
     const info = getCSVValue(row, CSV_COLUMNS.INFO);
     const explicitSwag = getFirstPresentCSVValue(row, SWAG_TYPE_COLUMNS);
+    const explicitLat = getFirstPresentCSVValue(row, LAT_COLUMNS);
+    const explicitLng = getFirstPresentCSVValue(row, LNG_COLUMNS);
 
     return {
         parkId: getCSVValue(row, CSV_COLUMNS.PARK_ID),
@@ -75,8 +79,8 @@ function normalizeCSVRow(rawItem) {
         website: getCSVValue(row, CSV_COLUMNS.WEBSITE),
         pics: getCSVValue(row, CSV_COLUMNS.PICS),
         video: getCSVValue(row, CSV_COLUMNS.VIDEO),
-        lat: getCSVValue(row, CSV_COLUMNS.LAT),
-        lng: getCSVValue(row, CSV_COLUMNS.LNG),
+        lat: explicitLat.found ? explicitLat.value : getCSVValue(row, CSV_COLUMNS.LAT),
+        lng: explicitLng.found ? explicitLng.value : getCSVValue(row, CSV_COLUMNS.LNG),
         swagType: explicitSwag.found ? normalizeSwagType(explicitSwag.value) : window.BARK.getSwagType(info)
     };
 }
@@ -176,6 +180,15 @@ function processParsedResults(results) {
         });
     }
 
+    if (results.data.length > 0 && newAllPoints.length === 0) {
+        console.warn('[dataService] Rejected CSV refresh because it produced zero usable parks. Keeping existing data or falling back to the hosted snapshot.', {
+            parsedRows: results.data.length,
+            missingCoordinateCount,
+            missingParkIdCount
+        });
+        return false;
+    }
+
     const parkRepo = window.BARK.repos && window.BARK.repos.ParkRepo;
     if (!parkRepo || typeof parkRepo.replaceAll !== 'function') {
         throw new Error('ParkRepo is required before dataService can publish park data.');
@@ -191,7 +204,7 @@ function processParsedResults(results) {
 
     const firebaseService = window.BARK.services && window.BARK.services.firebase;
     if (firebaseService && typeof firebaseService.normalizeLocalVisitedPlacesToCanonical === 'function') {
-        firebaseService.normalizeLocalVisitedPlacesToCanonical({ writeBack: true })
+        firebaseService.normalizeLocalVisitedPlacesToCanonical({ writeBack: false, source: 'park-data-load' })
             .catch(error => console.error('[dataService] visited-place canonicalization failed:', error));
     }
 

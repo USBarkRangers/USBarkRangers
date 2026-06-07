@@ -430,10 +430,6 @@
         pending.clear();
     }
 
-    // True if the given park has a staged upsert/delete awaiting server
-    // confirmation. After an authoritative snapshot reconcile, a true here
-    // means the server snapshot did NOT include the staged change yet —
-    // i.e. the visit has not been confirmed by Google's servers.
     function hasPendingMutation(parkId) {
         const id = getVisitId(parkId);
         return id ? pending.has(id) : false;
@@ -569,7 +565,7 @@
         const canonicalResult = callOptionalCallback(
             'normalizeLocalVisitedPlacesToCanonical',
             options.normalizeLocalVisitedPlacesToCanonical,
-            { writeBack: true }
+            { writeBack: false, source: 'snapshot' }
         );
         if (canonicalResult && typeof canonicalResult.catch === 'function') {
             canonicalResult.catch(error => {
@@ -637,16 +633,6 @@
         activeSubscriptionUid = nextUid;
 
         try {
-            // includeMetadataChanges: true is REQUIRED for offline → online
-            // confirmation to work. Without it, Firestore only fires this
-            // listener when the document DATA changes — not when its metadata
-            // changes (e.g. from cached/hasPendingWrites=true to fromCache=
-            // false). A user who taps verify during a brief signal blip
-            // writes their visit to cache; when signal returns the server
-            // echoes back the same data, so data is unchanged but metadata
-            // flips to authoritative. We need that metadata-only event so
-            // reconcileSnapshot can clear the pending mutation and the pin
-            // can transition orange → green without requiring a PWA restart.
             activeSubscriptionUnsubscribe = userDoc.onSnapshot(
                 { includeMetadataChanges: true },
                 doc => handleVisitedSnapshot(nextUid, doc, options),

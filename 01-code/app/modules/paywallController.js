@@ -7,7 +7,7 @@
     window.BARK = window.BARK || {};
     window.BARK.services = window.BARK.services || {};
 
-    const PRICE_COPY = '$9.99/year';
+    const PRICE_COPY = '$15/year';
     const PROVIDER = 'lemonsqueezy';
     const DEFAULT_VERIFYING_FALLBACK_MS = 15000;
 

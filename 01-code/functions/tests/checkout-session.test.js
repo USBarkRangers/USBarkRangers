@@ -6,6 +6,7 @@ process.env.NODE_ENV = "test";
 const {
     __test: {
         buildCheckoutReturnUrl,
+        getLemonSqueezyConfig,
         buildLemonSqueezyCheckoutPayload,
         getLemonSqueezyModeConfig,
         shouldAcceptLemonSqueezyWebhookMode,
@@ -123,24 +124,48 @@ function makeUserFirestore(userData = {}) {
 }
 
 describe("Lemon Squeezy checkout session helpers", () => {
-    it("keeps Lemon live mode locked even if live approval env is absent or present", () => {
+    it("keeps Lemon test mode as the default and requires explicit live approval for live mode", () => {
         const defaultMode = getLemonSqueezyModeConfig({ env: {} });
+        assert.equal(defaultMode.mode, "test");
         assert.equal(defaultMode.checkoutTestMode, true);
         assert.equal(defaultMode.acceptLiveWebhooks, false);
         assert.equal(defaultMode.liveModeApproved, false);
         assert.match(defaultMode.lockReason, /Carter/i);
 
-        const approvedButStillCodeLocked = getLemonSqueezyModeConfig({
+        const approvedWithoutLiveMode = getLemonSqueezyModeConfig({
             env: { BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC" }
         });
-        assert.equal(approvedButStillCodeLocked.liveModeApproved, true);
-        assert.equal(approvedButStillCodeLocked.checkoutTestMode, true);
-        assert.equal(approvedButStillCodeLocked.acceptLiveWebhooks, false);
+        assert.equal(approvedWithoutLiveMode.liveModeApproved, true);
+        assert.equal(approvedWithoutLiveMode.mode, "test");
+        assert.equal(approvedWithoutLiveMode.checkoutTestMode, true);
+        assert.equal(approvedWithoutLiveMode.acceptLiveWebhooks, false);
+
+        const liveMode = getLemonSqueezyModeConfig({
+            env: {
+                BARK_LEMON_MODE: "live",
+                BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC"
+            }
+        });
+        assert.equal(liveMode.mode, "live");
+        assert.equal(liveMode.checkoutTestMode, false);
+        assert.equal(liveMode.acceptLiveWebhooks, true);
 
         assert.equal(shouldAcceptLemonSqueezyWebhookMode({ test_mode: true }, { env: {} }), true);
         assert.equal(shouldAcceptLemonSqueezyWebhookMode({ test_mode: false }, {
-            env: { BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC" }
+            env: { BARK_LEMON_MODE: "live" }
         }), false);
+        assert.equal(shouldAcceptLemonSqueezyWebhookMode({ test_mode: true }, {
+            env: {
+                BARK_LEMON_MODE: "live",
+                BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC"
+            }
+        }), false);
+        assert.equal(shouldAcceptLemonSqueezyWebhookMode({ test_mode: false }, {
+            env: {
+                BARK_LEMON_MODE: "live",
+                BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC"
+            }
+        }), true);
     });
 
     it("builds checkout return URLs from the app base URL", () => {
@@ -227,9 +252,39 @@ describe("Lemon Squeezy checkout session helpers", () => {
         assert.equal(payload.data.attributes.checkout_data.name, "Ranger Tester");
         assert.equal(payload.data.attributes.checkout_data.custom.firebase_uid, "real-user");
         assert.equal(payload.data.attributes.checkout_data.custom.plan, "annual");
+        assert.equal(payload.data.attributes.checkout_data.custom.provider_mode, "test");
         assert.deepEqual(payload.data.attributes.checkout_options, { discount: true });
         assert.equal(payload.data.relationships.store.data.id, "363425");
         assert.equal(payload.data.relationships.variant.data.id, "1604336");
+    });
+
+    it("builds live checkout only with explicit live mode, approval, and live ids", () => {
+        const liveConfig = getLemonSqueezyConfig({
+            apiKey: "live-api-key",
+            env: {
+                BARK_LEMON_MODE: "live",
+                BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
+                BARK_LEMONSQUEEZY_STORE_ID: "999001",
+                BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "888002",
+                BARK_APP_BASE_URL: "https://barkranger.example/"
+            }
+        });
+        const payload = buildLemonSqueezyCheckoutPayload({
+            uid: "live-user",
+            token: { email: "live@example.test" },
+            config: liveConfig
+        });
+
+        assert.equal(liveConfig.mode.mode, "live");
+        assert.equal(payload.data.attributes.test_mode, false);
+        assert.deepEqual(payload.data.attributes.product_options.enabled_variants, [888002]);
+        assert.equal(payload.data.relationships.store.data.id, "999001");
+        assert.equal(payload.data.relationships.variant.data.id, "888002");
+        assert.equal(payload.data.attributes.checkout_data.custom.provider_mode, "live");
+        assert.equal(
+            payload.data.attributes.product_options.redirect_url,
+            "https://barkranger.example/?checkout=success&provider=lemonsqueezy"
+        );
     });
 });
 
@@ -250,6 +305,27 @@ describe("Lemon Squeezy checkout session callable", () => {
                     axiosPost: async () => {
                         postCalls += 1;
                         throw new Error("should not call Lemon Squeezy when checkout is paused");
+                    }
+                }
+            ),
+            "failed-precondition"
+        );
+
+        assert.equal(postCalls, 0);
+    });
+
+    it("fails closed when live mode is requested without approval", async () => {
+        let postCalls = 0;
+
+        await assertRejectsCode(
+            handleCreateCheckoutSession(
+                {},
+                authedContext("unapproved-live-user"),
+                {
+                    apiKey: config.apiKey,
+                    env: { BARK_LEMON_MODE: "live" },
+                    axiosPost: async () => {
+                        postCalls += 1;
                     }
                 }
             ),
@@ -369,6 +445,7 @@ describe("Lemon Squeezy checkout session callable", () => {
         assert.equal(captured.body.data.relationships.store.data.id, "363425");
         assert.equal(captured.body.data.relationships.variant.data.id, "1604336");
         assert.equal(captured.body.data.attributes.checkout_data.custom.firebase_uid, "server-user");
+        assert.equal(captured.body.data.attributes.checkout_data.custom.provider_mode, "test");
         assert.equal(captured.body.data.attributes.checkout_data.email, "server-user@example.test");
         assert.equal(captured.body.data.attributes.checkout_data.name, "Server User");
     });

@@ -17,7 +17,7 @@
 
     <!-- QRCode JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="styles.css?v=54">
+    <link rel="stylesheet" href="styles.css?v=57">
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
     <link rel="stylesheet" href="styles/trophyCase.css?v=2">
 
@@ -50,6 +50,11 @@
         <p>US BARK Rangers Loading...</p>
     </div>
     <div id="map"></div>
+    <div id="filtered-pins-indicator" class="filtered-pins-indicator" aria-live="polite" hidden>
+        <div class="filtered-pins-label">Filtered map</div>
+        <div id="filtered-pins-count" class="filtered-pins-count">0 of 0 pins</div>
+        <div id="filtered-pins-detail" class="filtered-pins-detail">Pins filtered</div>
+    </div>
     <div id="map-unavailable-message" class="map-unavailable-notice" role="alert" aria-live="assertive" hidden>
         <div class="map-unavailable-card">
             <div class="map-unavailable-kicker">Map Status</div>
@@ -705,7 +710,7 @@
                         </div>
 
                         <p class="settings-version-footer">
-                            US BARK Ranger © v<span id="settings-app-version">12</span>
+                            US BARK Ranger © v<span id="settings-app-version">34</span>
                         </p>
 
                     </div>
@@ -804,7 +809,7 @@
                             <div id="profile-premium-eyebrow" class="paywall-card-eyebrow">Premium map tools</div>
                             <h3 id="profile-premium-status">Free plan</h3>
                         </div>
-                        <div id="profile-premium-price" class="paywall-card-price">$9.99/year</div>
+                        <div id="profile-premium-price" class="paywall-card-price">$15/year</div>
                     </div>
                     <p id="profile-premium-copy">
                         Upgrade for visited-aware filters, map styles, trail controls, and global towns.
@@ -1337,7 +1342,7 @@
             </button>
             <div id="paywall-eyebrow" class="paywall-eyebrow">Annual plan</div>
             <h2 id="paywall-title">Upgrade to BARK Ranger Premium</h2>
-            <div id="paywall-price" class="paywall-price">$9.99/year</div>
+            <div id="paywall-price" class="paywall-price">$15/year</div>
             <p id="paywall-body" class="paywall-body-copy">
                 Unlock the premium map tools for one annual plan.
             </p>

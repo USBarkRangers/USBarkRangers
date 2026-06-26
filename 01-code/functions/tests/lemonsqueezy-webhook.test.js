@@ -196,13 +196,19 @@ function makeFirestore({ entitlement = null, exists = true, data = null, process
     };
 }
 
-async function invoke({ req, firestore = makeFirestore(), nowMs = Date.parse("2026-01-01T00:00:00.000Z") } = {}) {
+async function invoke({
+    req,
+    firestore = makeFirestore(),
+    nowMs = Date.parse("2026-01-01T00:00:00.000Z"),
+    options = {}
+} = {}) {
     const res = makeRes();
     await handleLemonSqueezyWebhook(req, res, {
         webhookSecret,
         firestore,
         nowMs,
-        serverTimestamp: () => serverTimestampValue
+        serverTimestamp: () => serverTimestampValue,
+        ...options
     });
     return { res, firestore };
 }
@@ -371,6 +377,7 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
             premium: true,
             status: "active",
             source: "lemon_squeezy",
+            providerMode: "test",
             providerStatus: "active",
             providerCustomerId: "7022381",
             providerSubscriptionId: "sub_123",
@@ -913,6 +920,98 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
 
         assert.equal(res.statusCode, 200);
         assert.equal(res.body.reason, "non_test_mode");
+        assert.equal(firestore.state.reads, 0);
+        assert.equal(firestore.state.writes.length, 0);
+    });
+
+    it("accepts signed live-mode payloads only when live mode is explicitly approved", async () => {
+        const payload = makePayload({
+            uid: "approved-live-user",
+            eventId: "evt_approved_live_mode",
+            attributes: {
+                test_mode: false,
+                store_id: 999001,
+                variant_id: 888002,
+                status: "active"
+            }
+        });
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            options: {
+                env: {
+                    BARK_LEMON_MODE: "live",
+                    BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
+                    BARK_LEMONSQUEEZY_STORE_ID: "999001",
+                    BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "888002",
+                    BARK_APP_BASE_URL: "https://barkranger.example/"
+                }
+            }
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.ok, true);
+        assert.equal(firestore.state.writes.length, 1);
+        assert.equal(firestore.state.writes[0].data.entitlement.premium, true);
+        assert.equal(firestore.state.writes[0].data.entitlement.status, "active");
+        assert.equal(firestore.state.writes[0].data.entitlement.providerMode, "live");
+    });
+
+    it("ignores old signed test-mode payloads after live mode is approved", async () => {
+        const payload = makePayload({
+            uid: "old-test-mode-user",
+            eventId: "evt_old_test_mode_after_live",
+            attributes: {
+                test_mode: true,
+                store_id: 999001,
+                variant_id: 888002,
+                status: "active"
+            }
+        });
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            options: {
+                env: {
+                    BARK_LEMON_MODE: "live",
+                    BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
+                    BARK_LEMONSQUEEZY_STORE_ID: "999001",
+                    BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "888002",
+                    BARK_APP_BASE_URL: "https://barkranger.example/"
+                }
+            }
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.reason, "non_test_mode");
+        assert.equal(firestore.state.reads, 0);
+        assert.equal(firestore.state.writes.length, 0);
+    });
+
+    it("rejects live-mode payloads for the old test store when live config uses a different store", async () => {
+        const payload = makePayload({
+            uid: "wrong-live-store-user",
+            eventId: "evt_wrong_live_store",
+            attributes: {
+                test_mode: false,
+                store_id: 363425,
+                variant_id: 888002,
+                status: "active"
+            }
+        });
+        const { res, firestore } = await invoke({
+            req: signedReq(payload),
+            options: {
+                env: {
+                    BARK_LEMON_MODE: "live",
+                    BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
+                    BARK_LEMONSQUEEZY_STORE_ID: "999001",
+                    BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "888002",
+                    BARK_APP_BASE_URL: "https://barkranger.example/"
+                }
+            }
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.reason, "store_mismatch");
         assert.equal(firestore.state.reads, 0);
         assert.equal(firestore.state.writes.length, 0);
     });

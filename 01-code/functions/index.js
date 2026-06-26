@@ -949,6 +949,10 @@ const LEMONSQUEEZY_CUSTOMERS_URL = `${LEMONSQUEEZY_API_ORIGIN}/v1/customers`;
 const DEFAULT_LEMONSQUEEZY_STORE_ID = "363425";
 const DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID = "1604336";
 const DEFAULT_APP_BASE_URL = "https://outswarming.github.io/bark-ranger-map/";
+const BARK_LEMON_MODE_ENV = "BARK_LEMON_MODE";
+const BARK_LEMONSQUEEZY_STORE_ID_ENV = "BARK_LEMONSQUEEZY_STORE_ID";
+const BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID_ENV = "BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID";
+const BARK_APP_BASE_URL_ENV = "BARK_APP_BASE_URL";
 const LEMONSQUEEZY_LIVE_APPROVAL_ENV = "BARK_LEMON_LIVE_MODE_APPROVAL";
 const LEMONSQUEEZY_LIVE_APPROVAL_VALUE = "CARTER_APPROVED_LIVE_RC";
 const LEMONSQUEEZY_MODE_LOCK_REASON = "Lemon Squeezy live mode remains locked until Carter explicitly approves the final RC switch.";
@@ -993,25 +997,114 @@ function isSafeProviderId(value) {
     return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 }
 
-function getLemonSqueezyModeConfig(options = {}) {
+function isPositiveIntegerString(value) {
+    return typeof value === "string" && /^[1-9][0-9]*$/.test(value.trim());
+}
+
+function getRequiredPositiveId(value, envKey) {
+    const text = cleanOptionalString(value);
+    if (!isPositiveIntegerString(text)) {
+        throw new functions.https.HttpsError(
+            "failed-precondition",
+            `${envKey} must be configured as a positive numeric Lemon Squeezy id.`
+        );
+    }
+    return text;
+}
+
+function getRequiredHttpsUrl(value, envKey) {
+    const url = normalizeHttpsUrl(value);
+    if (!url) {
+        throw new functions.https.HttpsError(
+            "failed-precondition",
+            `${envKey} must be configured as an HTTPS URL.`
+        );
+    }
+    return url;
+}
+
+function getLemonSqueezyProviderConfig(options = {}) {
     const env = options.env || process.env;
+    const mode = requireValidLemonSqueezyMode(options);
+    const storeId = mode.mode === "live"
+        ? getRequiredPositiveId(
+            options.storeId || env[BARK_LEMONSQUEEZY_STORE_ID_ENV],
+            BARK_LEMONSQUEEZY_STORE_ID_ENV
+        )
+        : DEFAULT_LEMONSQUEEZY_STORE_ID;
+    const annualVariantId = mode.mode === "live"
+        ? getRequiredPositiveId(
+            options.annualVariantId || env[BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID_ENV],
+            BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID_ENV
+        )
+        : DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID;
+    const appBaseUrl = mode.mode === "live"
+        ? getRequiredHttpsUrl(
+            options.appBaseUrl || env[BARK_APP_BASE_URL_ENV],
+            BARK_APP_BASE_URL_ENV
+        )
+        : DEFAULT_APP_BASE_URL;
+
+    return {
+        storeId,
+        annualVariantId,
+        appBaseUrl,
+        mode
+    };
+}
+
+function getLemonSqueezyModeConfig(options = {}) {
+    if (options.mode && typeof options.mode === "object" && options.mode.mode) {
+        return options.mode;
+    }
+    const env = options.env || process.env;
+    const requestedMode = cleanOptionalString(options.lemonMode) ||
+        cleanOptionalString(env[BARK_LEMON_MODE_ENV]) ||
+        "test";
+    const normalizedMode = requestedMode.toLowerCase();
+    const liveRequested = normalizedMode === "live";
     const approvalValue = cleanOptionalString(options.liveModeApproval) ||
         cleanOptionalString(env[LEMONSQUEEZY_LIVE_APPROVAL_ENV]);
+    const liveModeApproved = approvalValue === LEMONSQUEEZY_LIVE_APPROVAL_VALUE;
+    const activeMode = liveRequested && liveModeApproved ? "live" : "test";
     return {
-        checkoutTestMode: true,
-        acceptLiveWebhooks: false,
-        liveModeApproved: approvalValue === LEMONSQUEEZY_LIVE_APPROVAL_VALUE,
+        mode: activeMode,
+        requestedMode: normalizedMode,
+        checkoutTestMode: activeMode !== "live",
+        acceptLiveWebhooks: activeMode === "live",
+        liveModeApproved,
+        liveModeConfigured: !liveRequested || liveModeApproved,
         approvalEnv: LEMONSQUEEZY_LIVE_APPROVAL_ENV,
         approvalValue: LEMONSQUEEZY_LIVE_APPROVAL_VALUE,
         lockReason: LEMONSQUEEZY_MODE_LOCK_REASON
     };
 }
 
+function requireValidLemonSqueezyMode(options = {}) {
+    const mode = getLemonSqueezyModeConfig(options);
+    if (mode.requestedMode !== "test" && mode.requestedMode !== "live") {
+        throw new functions.https.HttpsError(
+            "failed-precondition",
+            `${BARK_LEMON_MODE_ENV} must be "test" or "live".`
+        );
+    }
+    if (mode.requestedMode === "live" && !mode.liveModeApproved) {
+        console.error("[payments] Lemon Squeezy live mode requested without approval gate.", {
+            approvalEnv: mode.approvalEnv
+        });
+        throw new functions.https.HttpsError(
+            "failed-precondition",
+            "Premium checkout is not configured for live mode yet."
+        );
+    }
+    return mode;
+}
+
 function shouldAcceptLemonSqueezyWebhookMode(attributes, options = {}) {
     const mode = getLemonSqueezyModeConfig(options);
     if (!attributes) return false;
-    if (attributes.test_mode === true) return true;
-    return attributes.test_mode === false && mode.acceptLiveWebhooks === true;
+    if (mode.mode === "live") return attributes.test_mode === false;
+    return attributes.test_mode === true;
 }
 
 function normalizeHttpsUrl(value) {
@@ -1061,9 +1154,7 @@ function getLemonSqueezyConfig(options = {}) {
 
     return {
         apiKey,
-        storeId: DEFAULT_LEMONSQUEEZY_STORE_ID,
-        annualVariantId: DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID,
-        appBaseUrl: DEFAULT_APP_BASE_URL
+        ...getLemonSqueezyProviderConfig(options)
     };
 }
 
@@ -1085,6 +1176,7 @@ function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config }) {
             firebase_uid: uid,
             source: "bark_ranger_map",
             plan: "annual",
+            provider_mode: mode.mode,
             cancel_url: cancelUrl
         }
     };
@@ -1284,20 +1376,23 @@ function normalizeEmail(value) {
 }
 
 function subscriptionMatchesRestoreRequest(subscription, email, options = {}) {
+    const config = options.config || getLemonSqueezyProviderConfig(options);
+    const mode = getLemonSqueezyModeConfig(config);
     const attributes = subscription && subscription.attributes && typeof subscription.attributes === "object"
         ? subscription.attributes
         : {};
     const requestedEmail = normalizeEmail(email);
     const subscriptionEmail = normalizeEmail(attributes.user_email);
     if (requestedEmail && subscriptionEmail && requestedEmail !== subscriptionEmail) return false;
-    if (attributes.store_id !== undefined && String(attributes.store_id) !== DEFAULT_LEMONSQUEEZY_STORE_ID) return false;
+    if (attributes.test_mode !== undefined && attributes.test_mode !== mode.checkoutTestMode) return false;
+    if (attributes.store_id !== undefined && String(attributes.store_id) !== String(config.storeId)) return false;
 
     const variantId = getLemonSqueezyVariantId({ data: subscription }, attributes);
-    if (variantId && String(variantId) !== DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID) return false;
+    if (variantId && String(variantId) !== String(config.annualVariantId)) return false;
 
     const eventName = getLemonSqueezySubscriptionSyncEventName(attributes);
     const payload = buildLemonSqueezySubscriptionSyncPayload(subscription.id, { data: { data: subscription } }, eventName);
-    const mapping = mapLemonSqueezyEntitlement(payload, eventName, options);
+    const mapping = mapLemonSqueezyEntitlement(payload, eventName, { ...options, config });
     return mapping.action === "write" && mapping.entitlement && mapping.entitlement.premium === true;
 }
 
@@ -1377,7 +1472,10 @@ async function handleRestorePremiumPurchase(requestOrData, context, options = {}
             }
         });
         const subscriptions = getLemonSqueezySubscriptionListFromResponse(response);
-        const subscription = selectRestorableLemonSqueezySubscription(subscriptions, email, options);
+        const subscription = selectRestorableLemonSqueezySubscription(subscriptions, email, {
+            ...options,
+            config
+        });
         if (!subscription) {
             return {
                 restored: false,
@@ -1396,6 +1494,7 @@ async function handleRestorePremiumPurchase(requestOrData, context, options = {}
             }
         }, {
             ...options,
+            config,
             firestore: db
         });
 
@@ -1515,7 +1614,7 @@ async function handleGetCustomerPortalUrl(requestOrData, context, options = {}) 
             response.data &&
             response.data.data &&
             response.data.data.attributes;
-        if (attributes && attributes.store_id !== undefined && String(attributes.store_id) !== DEFAULT_LEMONSQUEEZY_STORE_ID) {
+        if (attributes && attributes.store_id !== undefined && String(attributes.store_id) !== String(config.storeId)) {
             throw new functions.https.HttpsError("permission-denied", "Subscription store mismatch.");
         }
 
@@ -1528,6 +1627,7 @@ async function handleGetCustomerPortalUrl(requestOrData, context, options = {}) 
                     response
                 }, {
                     ...options,
+                    config,
                     firestore: db
                 });
             } catch (syncError) {
@@ -1836,12 +1936,13 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
         return { action: "ignore", reason: "non_test_mode" };
     }
 
-    if (attributes.store_id !== undefined && String(attributes.store_id) !== DEFAULT_LEMONSQUEEZY_STORE_ID) {
+    const config = options.config || getLemonSqueezyProviderConfig(options);
+    if (attributes.store_id !== undefined && String(attributes.store_id) !== String(config.storeId)) {
         return { action: "ignore", reason: "store_mismatch" };
     }
 
     const variantId = getLemonSqueezyVariantId(payload, attributes);
-    if (variantId && String(variantId) !== DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID) {
+    if (variantId && String(variantId) !== String(config.annualVariantId)) {
         return { action: "ignore", reason: "variant_mismatch" };
     }
 
@@ -1889,6 +1990,7 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
     const mappedEntitlement = {
         ...entitlement,
         source: "lemon_squeezy",
+        providerMode: config.mode ? config.mode.mode : getLemonSqueezyModeConfig(options).mode,
         providerStatus,
         providerCustomerId: attributes.customer_id === undefined ? null : String(attributes.customer_id),
         providerSubscriptionId: payload && payload.data && payload.data.type === "subscriptions"
@@ -2276,6 +2378,7 @@ if (process.env.NODE_ENV === "test") {
         normalizeRouteWaypoints,
         extractSnappedRouteCoordinates,
         getLemonSqueezyConfig,
+        getLemonSqueezyProviderConfig,
         getLemonSqueezyModeConfig,
         shouldAcceptLemonSqueezyWebhookMode,
         buildCheckoutReturnUrl,

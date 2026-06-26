@@ -91,6 +91,55 @@ function safeUpdateHTML(elementId, newHTML) {
 }
 window.BARK.safeUpdateHTML = safeUpdateHTML;
 
+function formatPinCount(count) {
+    const numeric = Number(count);
+    if (!Number.isFinite(numeric)) return '0';
+    return Math.max(0, numeric).toLocaleString();
+}
+
+function getActiveMapFilterLabels({ activeSearchQuery, activeSwagFilters, activeTypeFilter, visitedFilterState }) {
+    const labels = [];
+    if (String(activeSearchQuery || '').trim()) labels.push('Search');
+    if (activeTypeFilter && activeTypeFilter !== 'all') labels.push(`${activeTypeFilter} parks`);
+    if (activeSwagFilters && activeSwagFilters.size > 0) {
+        labels.push(activeSwagFilters.size === 1 ? Array.from(activeSwagFilters)[0] : `${activeSwagFilters.size} rewards`);
+    }
+    if (visitedFilterState === 'visited') labels.push('Visited');
+    if (visitedFilterState === 'unvisited') labels.push('Unvisited');
+    if (visitedFilterState === 'route') labels.push('Trip route');
+    return labels;
+}
+
+function hasActiveMapFilter(filterState) {
+    return getActiveMapFilterLabels(filterState).length > 0;
+}
+
+function updateFilteredPinsIndicator({ filterActive, filteredCount, totalCount, labels, searchPending }) {
+    const indicator = document.getElementById('filtered-pins-indicator');
+    if (!indicator) return;
+
+    const shouldShow = Boolean(filterActive) &&
+        Number.isFinite(filteredCount) &&
+        Number.isFinite(totalCount) &&
+        totalCount > 0 &&
+        filteredCount < totalCount;
+
+    indicator.hidden = !shouldShow;
+    indicator.classList.toggle('is-visible', shouldShow);
+    if (!shouldShow) return;
+
+    const countEl = document.getElementById('filtered-pins-count');
+    const detailEl = document.getElementById('filtered-pins-detail');
+    const countText = `${formatPinCount(filteredCount)} of ${formatPinCount(totalCount)} pins`;
+    const detailText = searchPending ? 'Search still loading' : (labels && labels.length ? labels.join(' + ') : 'Filters active');
+
+    if (countEl) countEl.textContent = countText;
+    if (detailEl) detailEl.textContent = detailText;
+    indicator.setAttribute('aria-label', `Filtered map showing ${countText}. ${detailText}.`);
+}
+
+window.BARK.updateFilteredPinsIndicator = updateFilteredPinsIndicator;
+
 // ====== THE HEARTBEAT (v25) ======
 /**
  * 💓 Batches DOM updates into a single frame buffer.
@@ -355,6 +404,9 @@ function updateMarkers() {
     const cachedSearch = _searchResultCache || {};
     const searchCacheMatchesQuery = Boolean(queryNorm && cachedSearch.query === queryNorm && cachedSearch.matchedIds);
     const searchCacheComplete = !searchCacheMatchesQuery || cachedSearch.complete !== false;
+    const hasLongSearchQuery = activeSearchQuery.length > 2;
+    const filterLabels = getActiveMapFilterLabels({ activeSearchQuery, activeSwagFilters, activeTypeFilter, visitedFilterState });
+    const filterActive = hasActiveMapFilter({ activeSearchQuery, activeSwagFilters, activeTypeFilter, visitedFilterState });
 
     const currentZoom = map.getZoom();
     const targetLayerType = getTargetMarkerLayerType(currentZoom);
@@ -363,6 +415,7 @@ function updateMarkers() {
     let visibleBounds = L.latLngBounds();
     const screenBounds = map.getBounds().pad(0.2);
     const activeMarkerIds = new Set();
+    let filteredPinCount = 0;
 
     function isRenderVisitPendingServerSync(parkData) {
         if (!parkData || !parkData.id) return false;
@@ -408,6 +461,7 @@ function updateMarkers() {
         // overlay layer renders badges independently. Removing this OR-clause +
         // per-park tripDays scan is a real RAF perf win.
         let isVisible = matchesSwag && matchesSearch && matchesType && matchesVisited;
+        if (isVisible) filteredPinCount++;
 
         // 🎯 VIEWPORT CULLING: Skip off-screen pins entirely
         if (isVisible && shouldCull && !screenBounds.contains([item.lat, item.lng])) {
@@ -458,9 +512,15 @@ function updateMarkers() {
     }
 
     window.BARK._lastLayerType = targetLayerType;
+    updateFilteredPinsIndicator({
+        filterActive,
+        filteredCount: filteredPinCount,
+        totalCount: allPoints.length,
+        labels: filterLabels,
+        searchPending: hasLongSearchQuery && searchCacheMatchesQuery && !searchCacheComplete
+    });
 
     // 🎯 SMART AUTO-FRAMING (Interrupt Protection)
-    const hasLongSearchQuery = activeSearchQuery.length > 2;
     const currentFilterState = [
         activeSearchQuery,
         Array.from(activeSwagFilters).join(','),

@@ -1415,6 +1415,39 @@ function selectRestorableLemonSqueezySubscription(subscriptions, email, options 
         .map(item => item.subscription)[0] || null;
 }
 
+function shouldCancelLemonSqueezySubscriptionAttributes(attributes = {}) {
+    if (attributes.cancelled === true || attributes.canceled === true) return false;
+    const status = cleanOptionalString(attributes.status);
+    const normalizedStatus = status ? status.toLowerCase() : "";
+    return !["cancelled", "canceled", "expired", "refunded"].includes(normalizedStatus);
+}
+
+function getLemonSqueezyApiHeaders(config) {
+    return {
+        "Accept": "application/vnd.api+json",
+        "Content-Type": "application/vnd.api+json",
+        "Authorization": `Bearer ${config.apiKey}`
+    };
+}
+
+function getLemonSqueezySubscriptionAttributes(subscription = {}) {
+    return subscription && subscription.attributes && typeof subscription.attributes === "object" && !Array.isArray(subscription.attributes)
+        ? subscription.attributes
+        : {};
+}
+
+async function findLemonSqueezySubscriptionByEmail(email, config, options = {}) {
+    const get = options.axiosGet || axios.get;
+    const response = await get(buildLemonSqueezySubscriptionsListUrl(config, email), {
+        headers: getLemonSqueezyApiHeaders(config)
+    });
+    const subscriptions = getLemonSqueezySubscriptionListFromResponse(response);
+    return selectRestorableLemonSqueezySubscription(subscriptions, email, {
+        ...options,
+        config
+    });
+}
+
 async function syncLemonSqueezySubscriptionEntitlementFromApi({ uid, providerSubscriptionId, response }, options = {}) {
     const attributes = getLemonSqueezySubscriptionAttributesFromResponse(response);
     const eventName = getLemonSqueezySubscriptionSyncEventName(attributes);
@@ -2238,6 +2271,73 @@ async function deleteKnownUserSubcollections(db, userRef, options = {}) {
     }
 }
 
+async function cancelLemonSqueezySubscriptionBeforeAccountDeletion({ uid, userData = {}, context, options = {} }) {
+    const token = context && context.auth && context.auth.token ? context.auth.token : {};
+    const email = cleanOptionalString(token.email);
+    const billingReference = getLemonSqueezyBillingReference(userData);
+    let subscriptionId = cleanOptionalId(billingReference.providerSubscriptionId);
+    let subscriptionAttributes = null;
+
+    if (subscriptionId && !isSafeProviderId(subscriptionId)) {
+        throw new functions.https.HttpsError("failed-precondition", "Subscription cancellation is unavailable for this account.");
+    }
+
+    const canCheckByEmail = Boolean(email && isCallableEmailVerified(context));
+    if (!subscriptionId && !canCheckByEmail) {
+        return { checked: false, canceled: false, reason: "no_subscription_reference" };
+    }
+
+    const config = getLemonSqueezyConfig(options);
+    const get = options.axiosGet || axios.get;
+    const deleteRequest = options.axiosDelete || axios.delete;
+
+    try {
+        if (!subscriptionId && canCheckByEmail) {
+            const subscription = await findLemonSqueezySubscriptionByEmail(email, config, options);
+            subscriptionId = cleanOptionalId(subscription && subscription.id);
+            subscriptionAttributes = getLemonSqueezySubscriptionAttributes(subscription);
+        }
+
+        if (!subscriptionId) {
+            return { checked: true, canceled: false, reason: "no_subscription" };
+        }
+
+        const subscriptionUrl = `${LEMONSQUEEZY_SUBSCRIPTIONS_URL}/${encodeURIComponent(subscriptionId)}`;
+        if (!subscriptionAttributes) {
+            const response = await get(subscriptionUrl, {
+                headers: getLemonSqueezyApiHeaders(config)
+            });
+            subscriptionAttributes = getLemonSqueezySubscriptionAttributesFromResponse(response);
+        }
+
+        if (subscriptionAttributes && subscriptionAttributes.store_id !== undefined && String(subscriptionAttributes.store_id) !== String(config.storeId)) {
+            throw new functions.https.HttpsError("permission-denied", "Subscription store mismatch.");
+        }
+
+        if (!shouldCancelLemonSqueezySubscriptionAttributes(subscriptionAttributes)) {
+            return { checked: true, canceled: false, reason: "already_inactive", providerSubscriptionId: subscriptionId };
+        }
+
+        await deleteRequest(subscriptionUrl, {
+            headers: getLemonSqueezyApiHeaders(config)
+        });
+
+        return { checked: true, canceled: true, providerSubscriptionId: subscriptionId };
+    } catch (error) {
+        if (error instanceof functions.https.HttpsError) throw error;
+        console.error("[account] Lemon Squeezy subscription cancellation before account deletion failed.", {
+            uid,
+            providerSubscriptionId: subscriptionId || null,
+            status: error && error.response ? error.response.status : null,
+            message: error && error.message ? error.message : String(error)
+        });
+        throw new functions.https.HttpsError(
+            "failed-precondition",
+            "Premium subscription cancellation could not be verified. Manage billing first, then delete the account."
+        );
+    }
+}
+
 async function handleDeleteAccount(requestOrData, context, options = {}) {
     const uid = requireAuthCallable(context);
     const data = getCallableRequestData(requestOrData);
@@ -2251,6 +2351,14 @@ async function handleDeleteAccount(requestOrData, context, options = {}) {
     const userRef = db.collection("users").doc(uid);
     const leaderboardRef = db.collection("leaderboard").doc(uid);
     const deletedUserRef = db.collection("_deletedUsers").doc(uid);
+    const userDoc = userRef && typeof userRef.get === "function" ? await userRef.get() : null;
+    const userData = userDoc && userDoc.exists && typeof userDoc.data === "function" ? userDoc.data() || {} : {};
+    const cancellation = await cancelLemonSqueezySubscriptionBeforeAccountDeletion({
+        uid,
+        userData,
+        context,
+        options
+    });
 
     await deleteKnownUserSubcollections(db, userRef, options);
 
@@ -2259,7 +2367,9 @@ async function handleDeleteAccount(requestOrData, context, options = {}) {
         batch.set(deletedUserRef, {
             uid,
             deletedAt: timestamp,
-            source: "user_request"
+            source: "user_request",
+            lemonSubscriptionCanceled: cancellation.canceled === true,
+            lemonSubscriptionId: cancellation.providerSubscriptionId || null
         }, { merge: true });
         batch.delete(userRef);
         batch.delete(leaderboardRef);
@@ -2268,7 +2378,9 @@ async function handleDeleteAccount(requestOrData, context, options = {}) {
         await setFirestoreDoc(deletedUserRef, {
             uid,
             deletedAt: timestamp,
-            source: "user_request"
+            source: "user_request",
+            lemonSubscriptionCanceled: cancellation.canceled === true,
+            lemonSubscriptionId: cancellation.providerSubscriptionId || null
         }, { merge: true });
         await deleteFirestoreDoc(userRef);
         await deleteFirestoreDoc(leaderboardRef);
@@ -2287,7 +2399,10 @@ async function handleDeleteAccount(requestOrData, context, options = {}) {
         }
     }
 
-    return { deleted: true };
+    return {
+        deleted: true,
+        subscriptionCanceled: cancellation.canceled === true
+    };
 }
 
 function safeResponse(res, status, body) {

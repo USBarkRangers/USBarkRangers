@@ -45,6 +45,25 @@ function getUsableActivePinMarker() {
     return marker;
 }
 
+function activePinMatchesSlidePanel(marker) {
+    const title = document.getElementById('panel-title');
+    const data = marker && marker._parkData;
+    const name = data && typeof data.name === 'string' ? data.name.trim() : '';
+    const titleText = title && typeof title.textContent === 'string' ? title.textContent.trim() : '';
+    return Boolean(name && titleText === name);
+}
+
+function consumeExternalCheckoutCleanupFlag() {
+    try {
+        if (sessionStorage.getItem('bark_checkout_external_pending') !== '1') return false;
+        sessionStorage.removeItem('bark_checkout_external_pending');
+        sessionStorage.removeItem('bark_checkout_external_started_at');
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
 function closeMapOnlySurfaces(options = {}) {
     const panel = document.getElementById('slide-panel');
     if (panel) {
@@ -58,11 +77,19 @@ function closeMapOnlySurfaces(options = {}) {
 
 function closeStaleSlidePanel(reason) {
     void reason;
+    if (consumeExternalCheckoutCleanupFlag()) {
+        closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
+        return;
+    }
+
     const panel = document.getElementById('slide-panel');
     if (!panel || !panel.classList.contains('open')) return;
-    if (getUsableActivePinMarker()) return;
+    const activeMarker = getUsableActivePinMarker();
+    if (activeMarker && activePinMatchesSlidePanel(activeMarker)) return;
     closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
 }
+
+window.BARK.closeMapOnlySurfaces = closeMapOnlySurfaces;
 
 function settleAppViewportAfterKeyboard() {
     requestAnimationFrame(() => {

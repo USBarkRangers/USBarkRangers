@@ -1146,7 +1146,7 @@ async function initFirebase() {
             "--- IMPORTANT ---",
             "For missing locations, please attach photos of the swag, park entrance, or relevant signage if you have them."
         ].join("\n");
-        emailSuggestBtn.href = `mailto:cswarm34@gmail.com?subject=${subject}&body=${encodeURIComponent(bodyTemplate)}`;
+        emailSuggestBtn.href = `mailto:usbarkrangers@gmail.com,cswarm34@gmail.com?subject=${subject}&body=${encodeURIComponent(bodyTemplate)}`;
     }
 }
 

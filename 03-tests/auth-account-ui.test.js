@@ -130,6 +130,20 @@ function loadAuthAccountUi(overrides = {}) {
         'account-gate-primary-btn',
         'account-gate-secondary-btn',
         'account-gate-overlay',
+        'account-management-overlay',
+        'account-management-close-btn',
+        'account-management-title',
+        'account-management-copy',
+        'account-management-email',
+        'account-management-plan',
+        'account-management-billing',
+        'account-management-upgrade-btn',
+        'account-management-portal-btn',
+        'account-management-support-btn',
+        'account-management-message',
+        'account-management-delete-copy',
+        'account-delete-confirm-input',
+        'account-delete-confirm-btn',
         'login-container',
         'google-login-btn',
         'user-profile-name'
@@ -304,6 +318,12 @@ function loadAuthAccountUi(overrides = {}) {
     };
 }
 
+async function openManagementPortal(harness) {
+    await harness.element('account-manage-subscription-btn').dispatch('click');
+    assert.equal(harness.element('account-management-overlay').classList.contains('active'), true);
+    await harness.element('account-management-portal-btn').dispatch('click');
+}
+
 test('email account creation requires and saves a username', async () => {
     const harness = loadAuthAccountUi();
 
@@ -378,15 +398,13 @@ test('lemon squeezy premium account opens a fresh customer portal URL', async ()
     assert.equal(harness.element('account-manage-subscription-btn').textContent, 'Manage');
     assert.equal(harness.element('account-manage-subscription-btn').dataset.billingUrl, undefined);
 
-    await harness.element('account-manage-subscription-btn').dispatch('click');
+    await openManagementPortal(harness);
     assert.equal(harness.portalCalls.at(-1).name, 'getCustomerPortalUrl');
     assert.equal(Object.keys(harness.portalCalls.at(-1).payload).length, 0);
     assert.deepEqual(harness.locationAssignCalls, [
         'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
     ]);
-    assert.deepEqual(harness.alertCalls, [
-        'Billing portal URL:\nhttps://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
-    ]);
+    assert.deepEqual(harness.alertCalls, []);
 });
 
 test('active lemon account refresh syncs cancelled billing status from callable', async () => {
@@ -526,7 +544,7 @@ test('cancelled Lemon subscription shows access end date and no auto-renew', asy
     assert.equal(harness.portalCalls[0].name, 'getCustomerPortalUrl');
     assert.equal(harness.portalCalls[0].payload.syncOnly, true);
 
-    await harness.element('account-manage-subscription-btn').dispatch('click');
+    await openManagementPortal(harness);
 
     assert.equal(harness.portalCalls.length, 2);
     assert.equal(harness.portalCalls[1].name, 'getCustomerPortalUrl');
@@ -534,9 +552,7 @@ test('cancelled Lemon subscription shows access end date and no auto-renew', asy
     assert.deepEqual(harness.locationAssignCalls, [
         'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
     ]);
-    assert.deepEqual(harness.alertCalls, [
-        'Billing portal URL:\nhttps://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
-    ]);
+    assert.deepEqual(harness.alertCalls, []);
 });
 
 test('paused Lemon subscription shows active access with paused billing copy', () => {
@@ -591,13 +607,17 @@ test('manage subscription does not fall back to a stored portal URL when callabl
     harness.window.BARK.authAccountUi.refreshAccountDisplay();
     await Promise.resolve();
     await Promise.resolve();
-    await harness.element('account-manage-subscription-btn').dispatch('click');
+    await openManagementPortal(harness);
 
     assert.equal(harness.portalCalls.length, 2);
     assert.deepEqual(harness.locationAssignCalls, []);
-    assert.deepEqual(harness.alertCalls, ['Billing portal URL:\nundefined']);
+    assert.deepEqual(harness.alertCalls, []);
     assert.equal(
         harness.element('account-auth-message').textContent,
+        'No customer portal is available for this subscription.'
+    );
+    assert.equal(
+        harness.element('account-management-message').textContent,
         'No customer portal is available for this subscription.'
     );
 });
@@ -623,12 +643,16 @@ test('manage subscription rejects Lemon storefront root URL before redirect', as
     };
 
     harness.window.BARK.authAccountUi.refreshAccountDisplay();
-    await harness.element('account-manage-subscription-btn').dispatch('click');
+    await openManagementPortal(harness);
 
     assert.deepEqual(harness.locationAssignCalls, []);
-    assert.deepEqual(harness.alertCalls, ['Billing portal URL:\nhttps://usbarkrangers.lemonsqueezy.com/']);
+    assert.deepEqual(harness.alertCalls, []);
     assert.equal(
         harness.element('account-auth-message').textContent,
+        'Billing portal returned an invalid store URL. Please contact support.'
+    );
+    assert.equal(
+        harness.element('account-management-message').textContent,
         'Billing portal returned an invalid store URL. Please contact support.'
     );
 });
@@ -655,12 +679,16 @@ test('manage subscription shows dashboard message for blocked Lemon test portal'
     };
 
     harness.window.BARK.authAccountUi.refreshAccountDisplay();
-    await harness.element('account-manage-subscription-btn').dispatch('click');
+    await openManagementPortal(harness);
 
     assert.deepEqual(harness.locationAssignCalls, []);
-    assert.deepEqual(harness.alertCalls, [`Billing portal URL:\n${testPortalUrl}`]);
+    assert.deepEqual(harness.alertCalls, []);
     assert.equal(
         harness.element('account-auth-message').textContent,
+        'Customer portal is unavailable while the Lemon Squeezy store is not activated. Manage this test subscription from the Lemon Squeezy dashboard.'
+    );
+    assert.equal(
+        harness.element('account-management-message').textContent,
         'Customer portal is unavailable while the Lemon Squeezy store is not activated. Manage this test subscription from the Lemon Squeezy dashboard.'
     );
 });
@@ -688,11 +716,15 @@ test('manage subscription shows friendly message when no active subscription exi
     };
 
     harness.window.BARK.authAccountUi.refreshAccountDisplay();
-    await harness.element('account-manage-subscription-btn').dispatch('click');
+    await openManagementPortal(harness);
 
     assert.deepEqual(harness.locationAssignCalls, []);
     assert.equal(
         harness.element('account-auth-message').textContent,
+        'No active subscription was found for this account.'
+    );
+    assert.equal(
+        harness.element('account-management-message').textContent,
         'No active subscription was found for this account.'
     );
 });

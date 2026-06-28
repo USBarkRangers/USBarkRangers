@@ -1558,6 +1558,8 @@ async function handleCreateCheckoutSession(requestOrData, context, options = {})
 async function handleGetCustomerPortalUrl(requestOrData, context, options = {}) {
     const uid = requireAuthCallable(context);
     const db = options.firestore || admin.firestore();
+    const token = context && context.auth && context.auth.token ? context.auth.token : {};
+    const email = cleanOptionalString(token.email);
 
     let userDoc;
     try {
@@ -1583,9 +1585,57 @@ async function handleGetCustomerPortalUrl(requestOrData, context, options = {}) 
         hasSubscriptionId,
         hasCustomerId
     });
-    const apiTarget = buildLemonSqueezyCustomerPortalApiTarget(billingReference);
     const config = getLemonSqueezyConfig(options);
     const get = options.axiosGet || axios.get;
+
+    let apiTarget = null;
+    let subscriptionListMatch = null;
+    if (hasSubscriptionId || hasCustomerId) {
+        apiTarget = buildLemonSqueezyCustomerPortalApiTarget(billingReference);
+    } else {
+        if (!isCallableEmailVerified(context) || !email) {
+            throw new functions.https.HttpsError(
+                "failed-precondition",
+                "A verified account email is required to manage a Lemon Squeezy subscription."
+            );
+        }
+        try {
+            const listResponse = await get(buildLemonSqueezySubscriptionsListUrl(config, email), {
+                headers: {
+                    "Accept": "application/vnd.api+json",
+                    "Content-Type": "application/vnd.api+json",
+                    "Authorization": `Bearer ${config.apiKey}`
+                }
+            });
+            const subscriptions = getLemonSqueezySubscriptionListFromResponse(listResponse);
+            subscriptionListMatch = selectRestorableLemonSqueezySubscription(subscriptions, email, {
+                ...options,
+                config
+            });
+        } catch (error) {
+            if (error instanceof functions.https.HttpsError) throw error;
+            console.error("[payments] Customer portal email fallback lookup failed.", {
+                uid,
+                status: error && error.response ? error.response.status : null,
+                message: error && error.message ? error.message : String(error)
+            });
+            throw new functions.https.HttpsError("internal", "Subscription management could not open.");
+        }
+
+        if (!subscriptionListMatch) {
+            throw new functions.https.HttpsError(
+                "failed-precondition",
+                "No active subscription was found for this account."
+            );
+        }
+
+        apiTarget = {
+            type: "subscription",
+            id: subscriptionListMatch.id,
+            url: `${LEMONSQUEEZY_SUBSCRIPTIONS_URL}/${encodeURIComponent(subscriptionListMatch.id)}`
+        };
+    }
+
     try {
         console.log("[payments] Customer portal Lemon API lookup starting.", {
             uid,

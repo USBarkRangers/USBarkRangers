@@ -853,6 +853,94 @@ describe("Lemon Squeezy customer portal callable", () => {
         assert.equal(firestore.state.writes.length, 0);
     });
 
+    it("finds a live Lemon subscription by verified account email when no billing ids are stored yet", async () => {
+        const calls = [];
+        const firestore = makeUserFirestore({
+            entitlement: {
+                premium: false,
+                status: "free",
+                source: "free"
+            }
+        });
+
+        const result = await handleGetCustomerPortalUrl(
+            {},
+            authedContext("live-email-user", {
+                email: "ranger@example.test",
+                email_verified: true,
+                firebase: { sign_in_provider: "password" }
+            }),
+            {
+                firestore,
+                apiKey: config.apiKey,
+                env: {
+                    BARK_LEMON_MODE: "live",
+                    BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
+                    BARK_LEMONSQUEEZY_STORE_ID: "363425",
+                    BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "1834440",
+                    BARK_APP_BASE_URL: "https://barkrangermap-auth.web.app"
+                },
+                axiosGet: async (url, requestConfig) => {
+                    calls.push({ url, requestConfig });
+                    if (url.includes("/v1/subscriptions?")) {
+                        return {
+                            data: {
+                                data: [{
+                                    id: "sub_live_123",
+                                    type: "subscriptions",
+                                    attributes: {
+                                        test_mode: false,
+                                        store_id: 363425,
+                                        variant_id: 1834440,
+                                        user_email: "ranger@example.test",
+                                        status: "active",
+                                        renews_at: "2099-02-01T00:00:00.000Z",
+                                        updated_at: "2026-06-28T00:00:00.000Z"
+                                    }
+                                }]
+                            }
+                        };
+                    }
+                    assert.equal(url, "https://api.lemonsqueezy.com/v1/subscriptions/sub_live_123");
+                    return {
+                        data: {
+                            data: {
+                                id: "sub_live_123",
+                                type: "subscriptions",
+                                attributes: {
+                                    test_mode: false,
+                                    store_id: 363425,
+                                    variant_id: 1834440,
+                                    user_email: "ranger@example.test",
+                                    status: "active",
+                                    renews_at: "2099-02-01T00:00:00.000Z",
+                                    updated_at: "2026-06-28T00:00:00.000Z",
+                                    urls: {
+                                        customer_portal: "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=live"
+                                    }
+                                }
+                            }
+                        }
+                    };
+                }
+            }
+        );
+
+        assert.equal(calls.length, 2);
+        const lookupUrl = new URL(calls[0].url);
+        assert.equal(lookupUrl.searchParams.get("filter[store_id]"), "363425");
+        assert.equal(lookupUrl.searchParams.get("filter[variant_id]"), "1834440");
+        assert.equal(lookupUrl.searchParams.get("filter[user_email]"), "ranger@example.test");
+        assert.equal(calls[0].requestConfig.headers.Authorization, "Bearer test-api-key");
+        assert.equal(
+            result.url,
+            "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=live"
+        );
+        assert.equal(result.entitlement.status, "active");
+        assert.equal(result.entitlement.providerSubscriptionId, "sub_live_123");
+        assert.equal(firestore.state.writes.length, 1);
+    });
+
     it("rejects customer portal responses without a customer_portal URL", async () => {
         await assertRejectsCode(
             handleGetCustomerPortalUrl(

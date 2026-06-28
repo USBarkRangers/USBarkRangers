@@ -30,6 +30,8 @@
     let lastBillingSyncKey = '';
     let lastBillingSyncAt = 0;
     let lastBillingReturnSyncAt = 0;
+    let billingPortalInFlight = false;
+    let deleteAccountInFlight = false;
 
     const ACCOUNT_PROMPT_COPY = {
         'mark-visited': {
@@ -399,7 +401,7 @@
         const hasInactiveLemonSubscription = isLemonSqueezyEntitlement(entitlement) &&
             ['expired', 'canceled', 'refunded'].includes(entitlement.status);
 
-        if (!user || (!isPremium && !hasInactiveLemonSubscription)) {
+        if (!user) {
             return { visible: false };
         }
 
@@ -458,6 +460,18 @@
                 copy,
                 buttonText,
                 buttonMode: 'portal'
+            };
+        }
+
+        if (!isPremium && !hasInactiveLemonSubscription) {
+            return {
+                visible: true,
+                mode: 'free',
+                eyebrow: 'ACCOUNT',
+                title: 'Free plan',
+                copy: 'Manage your account, upgrade to Premium, or delete your account.',
+                buttonText: 'Manage account',
+                buttonMode: 'account'
             };
         }
 
@@ -618,53 +632,170 @@
         return 'Subscription management could not open. Please contact support.';
     }
 
-    async function openSubscriptionManagement() {
-        const button = getElement('account-manage-subscription-btn');
-        if (!button || !button.dataset.mode) return;
+    function setAccountManagementMessage(message, tone = 'neutral') {
+        const node = getElement('account-management-message');
+        if (!node) return;
+        node.textContent = message || '';
+        node.dataset.tone = tone;
+        node.hidden = !message;
+    }
 
-        if (button.dataset.mode !== 'portal') {
-            const destination = typeof button.dataset.billingUrl === 'string' ? button.dataset.billingUrl : '';
-            try {
-                const safeDestination = validateSubscriptionDestination(destination);
-                if (!safeDestination) {
-                    throw new Error('Unsupported billing URL protocol.');
-                }
-                window.location.assign(safeDestination);
-            } catch (error) {
-                console.error('[authAccountUi] manage subscription URL failed:', error);
-                setStatus('Subscription management could not open. Please contact support.', 'error');
-            }
-            return;
+    function setManagementButtonBusy(id, busy, text) {
+        const button = getElement(id);
+        if (!button) return;
+        if (text) button.textContent = text;
+        button.disabled = busy === true;
+        if (busy && typeof button.setAttribute === 'function') button.setAttribute('aria-busy', 'true');
+        else if (!busy && typeof button.removeAttribute === 'function') button.removeAttribute('aria-busy');
+    }
+
+    function getAccountManagementState(user) {
+        const premiumService = getPremiumService();
+        const entitlement = premiumService && typeof premiumService.getEntitlement === 'function'
+            ? premiumService.getEntitlement()
+            : {};
+        const isPremium = premiumService && typeof premiumService.isPremium === 'function'
+            ? premiumService.isPremium()
+            : false;
+        const isLemon = isLemonSqueezyEntitlement(entitlement);
+        const billingState = getBillingPanelState(user);
+        const plan = getPremiumLabel();
+        let billing = 'No paid billing attached';
+        let copy = 'Manage your account, upgrade to Premium, or delete your account.';
+        let portalVisible = false;
+        let upgradeVisible = !isPremium;
+        let supportVisible = false;
+
+        if (isLemon) {
+            billing = billingState.copy || 'Managed securely by Lemon Squeezy';
+            copy = 'Use the secure Lemon Squeezy portal to cancel, resume, update payment method, or review billing details.';
+            portalVisible = true;
+            supportVisible = true;
+            upgradeVisible = ['expired', 'canceled', 'refunded'].includes(entitlement.status);
+        } else if (entitlement && entitlement.source === 'access_code') {
+            billing = billingState.copy || 'Complimentary access. No payment method is attached.';
+            copy = 'This account has complimentary Premium access. There is no Lemon Squeezy subscription to cancel.';
+            supportVisible = true;
+            upgradeVisible = entitlement.status === 'access_code_expired';
+        } else if (isPremium) {
+            billing = billingState.copy || 'Managed by support';
+            copy = 'Premium is active on this account. Contact support for billing changes.';
+            supportVisible = true;
+            upgradeVisible = false;
         }
 
+        return {
+            email: user && user.email ? user.email : 'No email on this account',
+            plan,
+            billing,
+            copy,
+            isLemon,
+            portalVisible,
+            upgradeVisible,
+            supportVisible,
+            deleteCopy: isLemon
+                ? 'Cancel billing in the secure Lemon Squeezy portal first. Then delete your BARK account, saved progress, trips, and leaderboard entry.'
+                : 'Delete your BARK account, saved progress, trips, and leaderboard entry.'
+        };
+    }
+
+    function updateDeleteAccountButton() {
+        const input = getElement('account-delete-confirm-input');
+        const button = getElement('account-delete-confirm-btn');
+        if (!button) return;
+        const confirmed = input && String(input.value || '').trim() === 'DELETE';
+        button.disabled = !confirmed || deleteAccountInFlight;
+    }
+
+    function renderAccountManagementModal() {
+        const user = getCurrentUserSafely();
+        const state = getAccountManagementState(user);
+        setText('account-management-email', state.email);
+        setText('account-management-plan', state.plan);
+        setText('account-management-billing', state.billing);
+        setText('account-management-copy', state.copy);
+        setText('account-management-delete-copy', state.deleteCopy);
+
+        setHidden('account-management-upgrade-btn', !state.upgradeVisible);
+        setHidden('account-management-portal-btn', !state.portalVisible);
+        setHidden('account-management-support-btn', !state.supportVisible);
+
+        setManagementButtonBusy('account-management-portal-btn', billingPortalInFlight, billingPortalInFlight ? 'Opening portal...' : 'Open secure billing portal');
+        setManagementButtonBusy('account-management-upgrade-btn', false, 'Upgrade to Premium');
+        setManagementButtonBusy('account-management-support-btn', false, 'Contact support');
+        setManagementButtonBusy('account-delete-confirm-btn', deleteAccountInFlight, deleteAccountInFlight ? 'Deleting account...' : 'Delete account');
+        updateDeleteAccountButton();
+    }
+
+    function closeAccountManagementModal() {
+        const overlay = getElement('account-management-overlay');
+        if (!overlay) return;
+        overlay.classList.remove('active');
+        overlay.setAttribute('aria-hidden', 'true');
+        setAccountManagementMessage('', 'neutral');
+        const input = getElement('account-delete-confirm-input');
+        if (input) input.value = '';
+        updateDeleteAccountButton();
+    }
+
+    function openSubscriptionManagement() {
+        const user = getCurrentUserSafely();
+        if (!user) {
+            setStatus('Please sign in first.', 'error');
+            return;
+        }
+        const overlay = getElement('account-management-overlay');
+        if (!overlay) return;
+        renderAccountManagementModal();
+        setAccountManagementMessage('', 'neutral');
+        overlay.classList.add('active');
+        overlay.setAttribute('aria-hidden', 'false');
+        const portalButton = getElement('account-management-portal-btn');
+        const upgradeButton = getElement('account-management-upgrade-btn');
+        const closeButton = getElement('account-management-close-btn');
+        const firstButton = portalButton && !portalButton.hidden ? portalButton : upgradeButton && !upgradeButton.hidden ? upgradeButton : closeButton;
+        if (firstButton) firstButton.focus({ preventScroll: true });
+    }
+
+    function openPremiumFromManagement() {
+        closeAccountManagementModal();
+        const paywall = window.BARK && window.BARK.paywall;
+        if (paywall && typeof paywall.openPaywall === 'function') {
+            paywall.openPaywall({ source: 'account-management' });
+            return;
+        }
+        setStatus('Premium checkout could not open. Please try again.', 'error');
+    }
+
+    function contactSupportFromManagement() {
+        const destination = validateSubscriptionDestination(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('B.A.R.K. account support')}`);
+        if (!destination) return;
+        window.location.assign(destination);
+    }
+
+    async function openBillingPortalFromManagement() {
+        if (billingPortalInFlight) return;
+
         try {
-            const currentUser = typeof firebase !== 'undefined' && typeof firebase.auth === 'function'
-                ? firebase.auth().currentUser
-                : null;
-            if (!currentUser) {
-                throw new Error('Please sign in first.');
-            }
+            const currentUser = getCurrentUserSafely();
+            if (!currentUser) throw new Error('Please sign in first.');
 
             const getCustomerPortalUrl = getCustomerPortalCallable();
-            if (!getCustomerPortalUrl) {
-                throw new Error('Subscription management could not open.');
-            }
+            if (!getCustomerPortalUrl) throw new Error('Subscription management could not open.');
 
-            button.disabled = true;
+            billingPortalInFlight = true;
+            renderAccountManagementModal();
+            setAccountManagementMessage('Opening secure Lemon Squeezy billing portal...', 'neutral');
             setStatus('Opening secure billing portal...', 'neutral');
             if (typeof window.BARK.incrementRequestCount === 'function') window.BARK.incrementRequestCount();
 
             const result = await getCustomerPortalUrl({});
-            console.log('[Billing] getCustomerPortalUrl response:', result);
             const data = result && result.data ? result.data : {};
             const signedUrl = data.url || data.customerPortalUrl;
-            console.log('[Billing] Customer portal URL returned:', signedUrl);
-            if (typeof window.alert === 'function') {
-                window.alert('Billing portal URL:\n' + signedUrl);
-            }
             applySyncedEntitlement(data.entitlement, currentUser, 'billing-portal-sync');
 
             if (isUnavailableLemonTestPortal(signedUrl)) {
+                setAccountManagementMessage(TEST_MODE_PORTAL_UNAVAILABLE_MESSAGE, 'error');
                 setStatus(TEST_MODE_PORTAL_UNAVAILABLE_MESSAGE, 'error');
                 return;
             }
@@ -673,9 +804,57 @@
             window.location.assign(safeDestination);
         } catch (error) {
             console.error('[authAccountUi] manage subscription URL failed:', error);
-            setStatus(getSubscriptionManagementErrorMessage(error), 'error');
+            const message = getSubscriptionManagementErrorMessage(error);
+            setAccountManagementMessage(message, 'error');
+            setStatus(message, 'error');
         } finally {
-            button.disabled = false;
+            billingPortalInFlight = false;
+            renderAccountManagementModal();
+        }
+    }
+
+    function getDeleteAccountCallable() {
+        if (typeof firebase === 'undefined' || typeof firebase.functions !== 'function') return null;
+        return firebase.functions().httpsCallable('deleteAccount');
+    }
+
+    async function deleteCurrentAccountFromManagement() {
+        const input = getElement('account-delete-confirm-input');
+        if (!input || String(input.value || '').trim() !== 'DELETE' || deleteAccountInFlight) return;
+
+        try {
+            const user = getCurrentUserSafely();
+            if (!user) throw new Error('Please sign in first.');
+            const deleteAccount = getDeleteAccountCallable();
+            if (!deleteAccount) throw new Error('Account deletion is unavailable right now.');
+
+            deleteAccountInFlight = true;
+            renderAccountManagementModal();
+            setAccountManagementMessage('Deleting account...', 'neutral');
+            if (typeof window.BARK.incrementRequestCount === 'function') window.BARK.incrementRequestCount();
+            await deleteAccount({ confirmation: 'DELETE' });
+
+            try {
+                await getFirebaseAuth().signOut();
+            } catch (signOutError) {
+                console.warn('[authAccountUi] sign out after account deletion failed:', signOutError);
+            }
+
+            closeAccountManagementModal();
+            showMode('signin', { focus: false });
+            refreshAccountDisplay();
+            setStatus('Account deleted. Your local session has been signed out.', 'success');
+        } catch (error) {
+            console.error('[authAccountUi] delete account failed:', error);
+            const code = error && error.code ? String(error.code) : '';
+            const message = code.includes('failed-precondition')
+                ? 'Type DELETE to confirm account deletion.'
+                : 'Account deletion could not be completed. Please contact support.';
+            setAccountManagementMessage(message, 'error');
+            setStatus(message, 'error');
+        } finally {
+            deleteAccountInFlight = false;
+            renderAccountManagementModal();
         }
     }
 
@@ -1017,6 +1196,13 @@
         node.addEventListener('submit', handler);
     }
 
+    function bindInput(id, handler) {
+        const node = getElement(id);
+        if (!node || node.dataset.accountBound === 'true') return;
+        node.dataset.accountBound = 'true';
+        node.addEventListener('input', handler);
+    }
+
     function subscribePremiumState() {
         const premiumService = getPremiumService();
         if (!premiumService || typeof premiumService.subscribe !== 'function' || unsubscribePremium) return;
@@ -1051,6 +1237,11 @@
         bindClick('account-signout-btn', () => signOut());
         bindClick('account-switch-btn', () => signOut({ switchAccount: true }));
         bindClick('account-manage-subscription-btn', openSubscriptionManagement);
+        bindClick('account-management-close-btn', closeAccountManagementModal);
+        bindClick('account-management-upgrade-btn', openPremiumFromManagement);
+        bindClick('account-management-portal-btn', openBillingPortalFromManagement);
+        bindClick('account-management-support-btn', contactSupportFromManagement);
+        bindClick('account-delete-confirm-btn', deleteCurrentAccountFromManagement);
         bindClick('account-gate-close-btn', closeAccountPrompt);
         bindClick('account-gate-primary-btn', () => focusAccountForm('create'));
         bindClick('account-gate-secondary-btn', () => focusAccountForm('signin'));
@@ -1060,6 +1251,7 @@
         bindSubmit('account-signin-form', signInWithEmail);
         bindSubmit('account-create-form', createAccount);
         bindSubmit('account-reset-form', sendPasswordReset);
+        bindInput('account-delete-confirm-input', updateDeleteAccountButton);
 
         const accountGateOverlay = getElement('account-gate-overlay');
         if (accountGateOverlay && accountGateOverlay.dataset.accountOverlayBound !== 'true') {
@@ -1078,9 +1270,31 @@
             }
         }
 
+        const accountManagementOverlay = getElement('account-management-overlay');
+        if (accountManagementOverlay && accountManagementOverlay.dataset.accountOverlayBound !== 'true') {
+            accountManagementOverlay.dataset.accountOverlayBound = 'true';
+            const bindDismissableOverlay = window.BARK.DOM && window.BARK.DOM.bindDismissableOverlay;
+            if (typeof bindDismissableOverlay === 'function') {
+                bindDismissableOverlay({
+                    overlay: accountManagementOverlay,
+                    surface: '.account-management-modal',
+                    onDismiss: closeAccountManagementModal
+                });
+            } else {
+                accountManagementOverlay.addEventListener('click', (event) => {
+                    if (event.target === accountManagementOverlay) closeAccountManagementModal();
+                });
+            }
+        }
+
         document.addEventListener('keydown', (event) => {
-            const overlay = getElement('account-gate-overlay');
-            if (event.key === 'Escape' && overlay && overlay.classList.contains('active')) {
+            const accountOverlay = getElement('account-gate-overlay');
+            const managementOverlay = getElement('account-management-overlay');
+            if (event.key === 'Escape' && managementOverlay && managementOverlay.classList.contains('active')) {
+                closeAccountManagementModal();
+                return;
+            }
+            if (event.key === 'Escape' && accountOverlay && accountOverlay.classList.contains('active')) {
                 closeAccountPrompt();
             }
         });
@@ -1110,7 +1324,8 @@
         focusEmailVerificationPanel,
         needsEmailVerification,
         signOut,
-        openSubscriptionManagement
+        openSubscriptionManagement,
+        closeAccountManagementModal
     };
     window.BARK.initAuthAccountUi = initAuthAccountUi;
 

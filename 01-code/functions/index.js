@@ -2048,6 +2048,7 @@ async function processLemonSqueezyWebhookEntitlement({ uid, eventName, eventId, 
     }
 
     const userRef = db.collection("users").doc(uid);
+    const deletedUserRef = db.collection("_deletedUsers").doc(uid);
     const eventDocId = buildLemonSqueezyEventDocId(eventId);
     const eventRef = db.collection(LEMONSQUEEZY_PROCESSED_EVENTS_COLLECTION).doc(eventDocId);
     const eventBase = {
@@ -2069,6 +2070,16 @@ async function processLemonSqueezyWebhookEntitlement({ uid, eventName, eventId, 
         const eventSnapshot = await transaction.get(eventRef);
         if (eventSnapshot && eventSnapshot.exists) {
             return { duplicate: true };
+        }
+
+        const deletedUserSnapshot = await transaction.get(deletedUserRef);
+        if (deletedUserSnapshot && deletedUserSnapshot.exists) {
+            transaction.set(eventRef, {
+                ...eventBase,
+                processingStatus: "ignored",
+                reason: "account_deleted"
+            }, { merge: false });
+            return { ignored: true, reason: "account_deleted" };
         }
 
         const userSnapshot = await transaction.get(userRef);
@@ -2155,6 +2166,101 @@ function getServerTimestamp(options = {}) {
     return typeof options.serverTimestamp === "function"
         ? options.serverTimestamp()
         : FieldValue.serverTimestamp();
+}
+
+function getCallableRequestData(requestOrData) {
+    return requestOrData && requestOrData.data && typeof requestOrData.data === "object"
+        ? requestOrData.data
+        : requestOrData || {};
+}
+
+async function deleteFirestoreDoc(ref) {
+    if (ref && typeof ref.delete === "function") {
+        await ref.delete();
+    }
+}
+
+async function setFirestoreDoc(ref, data, options = {}) {
+    if (ref && typeof ref.set === "function") {
+        await ref.set(data, options);
+    }
+}
+
+async function deleteKnownUserSubcollections(db, userRef, options = {}) {
+    const subcollections = options.userSubcollections || ["savedRoutes"];
+    for (const collectionName of subcollections) {
+        if (!userRef || typeof userRef.collection !== "function") continue;
+        const collectionRef = userRef.collection(collectionName);
+        if (!collectionRef || typeof collectionRef.get !== "function") continue;
+        const snapshot = await collectionRef.get();
+        const docs = snapshot && Array.isArray(snapshot.docs) ? snapshot.docs : [];
+        if (docs.length === 0) continue;
+
+        if (db && typeof db.batch === "function") {
+            const batch = db.batch();
+            docs.forEach(doc => {
+                if (doc && doc.ref && typeof batch.delete === "function") batch.delete(doc.ref);
+            });
+            if (typeof batch.commit === "function") await batch.commit();
+            continue;
+        }
+
+        for (const doc of docs) {
+            if (doc && doc.ref) await deleteFirestoreDoc(doc.ref);
+        }
+    }
+}
+
+async function handleDeleteAccount(requestOrData, context, options = {}) {
+    const uid = requireAuthCallable(context);
+    const data = getCallableRequestData(requestOrData);
+    if (!data || data.confirmation !== "DELETE") {
+        throw new functions.https.HttpsError("failed-precondition", "Type DELETE to confirm account deletion.");
+    }
+
+    const db = options.firestore || admin.firestore();
+    const auth = options.auth || admin.auth();
+    const timestamp = getServerTimestamp(options);
+    const userRef = db.collection("users").doc(uid);
+    const leaderboardRef = db.collection("leaderboard").doc(uid);
+    const deletedUserRef = db.collection("_deletedUsers").doc(uid);
+
+    await deleteKnownUserSubcollections(db, userRef, options);
+
+    if (db && typeof db.batch === "function") {
+        const batch = db.batch();
+        batch.set(deletedUserRef, {
+            uid,
+            deletedAt: timestamp,
+            source: "user_request"
+        }, { merge: true });
+        batch.delete(userRef);
+        batch.delete(leaderboardRef);
+        await batch.commit();
+    } else {
+        await setFirestoreDoc(deletedUserRef, {
+            uid,
+            deletedAt: timestamp,
+            source: "user_request"
+        }, { merge: true });
+        await deleteFirestoreDoc(userRef);
+        await deleteFirestoreDoc(leaderboardRef);
+    }
+
+    try {
+        await auth.deleteUser(uid);
+    } catch (error) {
+        if (!error || error.code !== "auth/user-not-found") {
+            console.error("[account] Firebase Auth user deletion failed.", {
+                uid,
+                code: error && error.code ? error.code : null,
+                message: error && error.message ? error.message : String(error)
+            });
+            throw new functions.https.HttpsError("internal", "Account deletion could not complete.");
+        }
+    }
+
+    return { deleted: true };
 }
 
 function safeResponse(res, status, body) {
@@ -2381,6 +2487,10 @@ exports.submitFeedback = functions.https.onCall(async (requestOrData, context) =
     return handleSubmitFeedback(requestOrData, context);
 });
 
+exports.deleteAccount = functions.https.onCall(async (requestOrData, context) => {
+    return handleDeleteAccount(requestOrData, context);
+});
+
 if (process.env.NODE_ENV === "test") {
     exports.__test = {
         normalizeEntitlement,
@@ -2394,6 +2504,7 @@ if (process.env.NODE_ENV === "test") {
         getFeedbackRateLimit,
         enforceFeedbackRateLimit,
         handleSubmitFeedback,
+        handleDeleteAccount,
         requirePremiumCallable,
         handlePremiumRoute,
         handlePremiumGeocode,

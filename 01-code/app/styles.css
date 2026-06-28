@@ -2707,6 +2707,221 @@ body.app-tab-active #slide-panel {
     letter-spacing: 0;
 }
 
+.account-management-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10030;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(15, 23, 42, 0.62);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.account-management-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.account-management-modal {
+    position: relative;
+    width: min(100%, 440px);
+    max-height: 88vh;
+    overflow-y: auto;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #1e293b;
+    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.32);
+    padding: 24px;
+}
+
+.account-management-close-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.account-management-eyebrow {
+    width: fit-content;
+    max-width: calc(100% - 48px);
+    margin-bottom: 10px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: #ecfdf5;
+    color: #047857;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.account-management-modal h2 {
+    margin: 0 42px 8px 0;
+    color: #0f172a;
+    font-size: 24px;
+    line-height: 1.1;
+    font-weight: 900;
+}
+
+.account-management-copy {
+    margin: 0 0 16px;
+    color: #475569;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.account-management-summary {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.account-management-summary div {
+    display: grid;
+    gap: 4px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.account-management-summary span {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.account-management-summary strong {
+    color: #0f172a;
+    font-size: 14px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.account-management-actions {
+    display: grid;
+    gap: 10px;
+}
+
+.account-management-primary-btn,
+.account-management-secondary-btn,
+.account-management-delete-btn {
+    min-height: 44px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.account-management-primary-btn {
+    border: 0;
+    background: #0f766e;
+    color: #ffffff;
+    box-shadow: 0 8px 18px rgba(15, 118, 110, 0.22);
+}
+
+.account-management-secondary-btn {
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #475569;
+}
+
+.account-management-primary-btn:disabled,
+.account-management-secondary-btn:disabled,
+.account-management-delete-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.account-management-message {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1d4ed8;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.4;
+}
+
+.account-management-message[data-tone="error"] {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #b91c1c;
+}
+
+.account-management-message[data-tone="success"] {
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+    color: #047857;
+}
+
+.account-management-danger {
+    display: grid;
+    gap: 10px;
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid #fee2e2;
+}
+
+.account-management-danger-copy {
+    padding: 12px;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    background: #fef2f2;
+}
+
+.account-management-danger h3 {
+    margin: 0 0 6px;
+    color: #991b1b;
+    font-size: 16px;
+    font-weight: 900;
+}
+
+.account-management-danger p {
+    margin: 0;
+    color: #7f1d1d;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.account-management-danger label {
+    color: #475569;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.account-management-danger input {
+    width: 100%;
+    min-height: 42px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.account-management-delete-btn {
+    border: 0;
+    background: #dc2626;
+    color: #ffffff;
+}
+
 .paywall-overlay[data-paywall-state="premium"] .paywall-feature-list {
     display: none;
 }

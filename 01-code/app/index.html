@@ -17,7 +17,7 @@
 
     <!-- QRCode JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="styles.css?v=58">
+    <link rel="stylesheet" href="styles.css?v=59">
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
     <link rel="stylesheet" href="styles/trophyCase.css?v=2">
 
@@ -710,7 +710,7 @@
                         </div>
 
                         <p class="settings-version-footer">
-                            US BARK Ranger © v<span id="settings-app-version">39</span>
+                            US BARK Ranger © v<span id="settings-app-version">40</span>
                         </p>
 
                     </div>
@@ -1361,6 +1361,62 @@
         </div>
     </div>
 
+    <div id="account-management-overlay" class="account-management-overlay" aria-hidden="true">
+        <div class="account-management-modal" role="dialog" aria-modal="true" aria-labelledby="account-management-title">
+            <button type="button" id="account-management-close-btn" class="account-management-close-btn" aria-label="Close account management">
+                &times;
+            </button>
+            <div id="account-management-eyebrow" class="account-management-eyebrow">Account</div>
+            <h2 id="account-management-title">Manage account</h2>
+            <p id="account-management-copy" class="account-management-copy">
+                Review your account and billing options.
+            </p>
+
+            <div class="account-management-summary">
+                <div>
+                    <span>Signed in as</span>
+                    <strong id="account-management-email">Not signed in</strong>
+                </div>
+                <div>
+                    <span>Plan</span>
+                    <strong id="account-management-plan">Loading</strong>
+                </div>
+                <div>
+                    <span>Billing</span>
+                    <strong id="account-management-billing">Loading</strong>
+                </div>
+            </div>
+
+            <div class="account-management-actions">
+                <button type="button" id="account-management-upgrade-btn" class="account-management-primary-btn">
+                    Upgrade to Premium
+                </button>
+                <button type="button" id="account-management-portal-btn" class="account-management-secondary-btn">
+                    Open secure billing portal
+                </button>
+                <button type="button" id="account-management-support-btn" class="account-management-secondary-btn">
+                    Contact support
+                </button>
+            </div>
+
+            <div id="account-management-message" class="account-management-message" hidden></div>
+
+            <div class="account-management-danger">
+                <div class="account-management-danger-copy">
+                    <h3>Delete account</h3>
+                    <p id="account-management-delete-copy">
+                        Delete your BARK account, saved progress, trips, and leaderboard entry. If you have a Lemon Squeezy subscription, cancel billing in the secure billing portal first.
+                    </p>
+                </div>
+                <label for="account-delete-confirm-input">Type DELETE to confirm</label>
+                <input id="account-delete-confirm-input" type="text" autocomplete="off" inputmode="text" placeholder="DELETE">
+                <button type="button" id="account-delete-confirm-btn" class="account-management-delete-btn" disabled>
+                    Delete account
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div id="account-gate-overlay" class="account-gate-overlay" aria-hidden="true">
         <div class="account-gate-modal" role="dialog" aria-modal="true" aria-labelledby="account-gate-title">
             <button type="button" id="account-gate-close-btn" class="account-gate-close-btn" aria-label="Close account prompt">
@@ -1422,7 +1478,7 @@
     <script src="services/checkinService.js?v=14" defer></script>
     <script src="services/authPremiumUi.js?v=3" defer></script>
     <script src="services/premiumService.js?v=2" defer></script>
-    <script src="services/authAccountUi.js?v=14" defer></script>
+    <script src="services/authAccountUi.js?v=15" defer></script>
     <script src="modules/paywallController.js?v=10" defer></script>
     <script src="services/authService.js?v=50" defer></script>
     <script src="modules/markerLayerPolicy.js?v=2" defer></script>

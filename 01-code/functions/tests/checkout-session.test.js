@@ -12,6 +12,7 @@ const {
         shouldAcceptLemonSqueezyWebhookMode,
         handleGetCustomerPortalUrl,
         handleCreateCheckoutSession,
+        handleDeleteAccount,
         buildLemonSqueezySubscriptionsListUrl,
         selectRestorableLemonSqueezySubscription,
         handleRestorePremiumPurchase,
@@ -119,6 +120,79 @@ function makeUserFirestore(userData = {}) {
                     return ref.set(value, options);
                 }
             });
+        }
+    };
+}
+
+function makeDeleteAccountFirestore() {
+    const state = {
+        deletedDocs: [],
+        setDocs: [],
+        batchCommits: 0,
+        savedRouteDeletes: 0
+    };
+    const refs = new Map();
+
+    function makeRef(path) {
+        if (refs.has(path)) return refs.get(path);
+        const ref = {
+            path,
+            async get() {
+                return { exists: path.startsWith('users/'), data: () => ({}) };
+            },
+            async set(data, options = {}) {
+                state.setDocs.push({ path, data, options });
+            },
+            async delete() {
+                state.deletedDocs.push(path);
+                if (path.includes('/savedRoutes/')) state.savedRouteDeletes += 1;
+            },
+            collection(name) {
+                return {
+                    async get() {
+                        if (path === 'users/delete-user' && name === 'savedRoutes') {
+                            return {
+                                docs: [
+                                    { ref: makeRef('users/delete-user/savedRoutes/route-a') },
+                                    { ref: makeRef('users/delete-user/savedRoutes/route-b') }
+                                ]
+                            };
+                        }
+                        return { docs: [] };
+                    }
+                };
+            }
+        };
+        refs.set(path, ref);
+        return ref;
+    }
+
+    return {
+        state,
+        collection(name) {
+            return {
+                doc(id) {
+                    return makeRef(`${name}/${id}`);
+                }
+            };
+        },
+        batch() {
+            const ops = [];
+            return {
+                set(ref, data, options = {}) {
+                    ops.push({ type: 'set', ref, data, options });
+                },
+                delete(ref) {
+                    ops.push({ type: 'delete', ref });
+                },
+                async commit() {
+                    state.batchCommits += 1;
+                    for (const op of ops) {
+                        if (op.type === 'set') await op.ref.set(op.data, op.options);
+                        if (op.type === 'delete') await op.ref.delete();
+                    }
+                }
+            };
         }
     };
 }
@@ -604,6 +678,54 @@ describe("Lemon Squeezy checkout session callable", () => {
         );
 
         assert.equal(firestoreTouched, false);
+    });
+});
+
+describe("Account deletion callable", () => {
+    it("rejects unauthenticated account deletion", async () => {
+        await assertRejectsCode(
+            handleDeleteAccount({ confirmation: "DELETE" }, {}, {
+                firestore: makeDeleteAccountFirestore(),
+                auth: { deleteUser: async () => {} }
+            }),
+            "unauthenticated"
+        );
+    });
+
+    it("requires explicit DELETE confirmation", async () => {
+        await assertRejectsCode(
+            handleDeleteAccount({ confirmation: "delete" }, authedContext("delete-user"), {
+                firestore: makeDeleteAccountFirestore(),
+                auth: { deleteUser: async () => {} }
+            }),
+            "failed-precondition"
+        );
+    });
+
+    it("deletes profile data, saved routes, leaderboard row, tombstones the uid, and removes auth user", async () => {
+        const firestore = makeDeleteAccountFirestore();
+        const deletedAuthUsers = [];
+
+        const result = await handleDeleteAccount({ confirmation: "DELETE" }, authedContext("delete-user"), {
+            firestore,
+            auth: {
+                async deleteUser(uid) {
+                    deletedAuthUsers.push(uid);
+                }
+            },
+            serverTimestamp: () => "server-now"
+        });
+
+        assert.equal(result.deleted, true);
+        assert.deepEqual(deletedAuthUsers, ["delete-user"]);
+        assert.equal(firestore.state.savedRouteDeletes, 2);
+        assert.ok(firestore.state.deletedDocs.includes("users/delete-user"));
+        assert.ok(firestore.state.deletedDocs.includes("leaderboard/delete-user"));
+        assert.deepEqual(firestore.state.setDocs.find(doc => doc.path === "_deletedUsers/delete-user").data, {
+            uid: "delete-user",
+            deletedAt: "server-now",
+            source: "user_request"
+        });
     });
 });
 

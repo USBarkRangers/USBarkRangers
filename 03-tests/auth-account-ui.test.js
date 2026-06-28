@@ -139,6 +139,7 @@ function loadAuthAccountUi(overrides = {}) {
         'account-management-billing',
         'account-management-upgrade-btn',
         'account-management-portal-btn',
+        'account-management-cancel-subscription-btn',
         'account-management-support-btn',
         'account-management-message',
         'account-management-delete-copy',
@@ -225,7 +226,7 @@ function loadAuthAccountUi(overrides = {}) {
         }
     };
     const locationAssignCalls = [];
-    const premiumEntitlement = overrides.premiumEntitlement || {
+    let premiumEntitlement = overrides.premiumEntitlement || {
         premium: false,
         status: 'free',
         source: 'none',
@@ -235,11 +236,24 @@ function loadAuthAccountUi(overrides = {}) {
     const premiumService = overrides.premiumService || {
         getEntitlement: () => ({ ...premiumEntitlement }),
         isPremium: () => Boolean(overrides.premiumActive),
+        setEntitlement: entitlement => {
+            premiumEntitlement = entitlement && typeof entitlement === 'object'
+                ? { ...entitlement }
+                : {
+                    premium: false,
+                    status: 'free',
+                    source: 'none',
+                    providerCustomerId: null,
+                    providerSubscriptionId: null
+                };
+        },
         subscribe: () => {}
     };
     const hasCustomerPortalMock = Object.prototype.hasOwnProperty.call(overrides, 'customerPortalUrl') ||
         Object.prototype.hasOwnProperty.call(overrides, 'customerPortalData') ||
-        Boolean(overrides.customerPortalError);
+        Boolean(overrides.customerPortalError) ||
+        Object.prototype.hasOwnProperty.call(overrides, 'cancelSubscriptionData') ||
+        Boolean(overrides.cancelSubscriptionError);
 
     const context = {
         window: {
@@ -268,6 +282,15 @@ function loadAuthAccountUi(overrides = {}) {
                 httpsCallable(name) {
                     return async (payload) => {
                         portalCalls.push({ name, payload });
+                        if (name === 'cancelPremiumSubscription') {
+                            if (overrides.cancelSubscriptionError) throw overrides.cancelSubscriptionError;
+                            return {
+                                data: overrides.cancelSubscriptionData || {
+                                    canceled: true,
+                                    entitlement: overrides.cancelSubscriptionEntitlement || null
+                                }
+                            };
+                        }
                         if (name !== 'getCustomerPortalUrl') throw new Error(`Unexpected callable ${name}`);
                         if (overrides.customerPortalError) throw overrides.customerPortalError;
                         const data = Object.prototype.hasOwnProperty.call(overrides, 'customerPortalData')
@@ -313,6 +336,7 @@ function loadAuthAccountUi(overrides = {}) {
         portalCalls,
         alertCalls,
         locationAssignCalls,
+        premiumService,
         writes,
         element: id => document.element(id)
     };
@@ -685,12 +709,58 @@ test('manage subscription shows dashboard message for blocked Lemon test portal'
     assert.deepEqual(harness.alertCalls, []);
     assert.equal(
         harness.element('account-auth-message').textContent,
-        'Customer portal is unavailable while the Lemon Squeezy store is not activated. Manage this test subscription from the Lemon Squeezy dashboard.'
+        'This looks like a Lemon Squeezy test subscription, so the customer portal is unavailable. Use Cancel subscription here or manage it from the Lemon Squeezy dashboard.'
     );
     assert.equal(
         harness.element('account-management-message').textContent,
-        'Customer portal is unavailable while the Lemon Squeezy store is not activated. Manage this test subscription from the Lemon Squeezy dashboard.'
+        'This looks like a Lemon Squeezy test subscription, so the customer portal is unavailable. Use Cancel subscription here or manage it from the Lemon Squeezy dashboard.'
     );
+});
+
+test('manage account can cancel Lemon subscription from the app', async () => {
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'active',
+            source: 'lemon_squeezy',
+            providerCustomerId: 'cus_cancel',
+            providerSubscriptionId: 'sub_cancel'
+        },
+        cancelSubscriptionData: {
+            canceled: true,
+            entitlement: {
+                premium: true,
+                status: 'cancelled_active',
+                source: 'lemon_squeezy',
+                providerSubscriptionId: 'sub_cancel',
+                currentPeriodEnd: '2099-02-01T00:00:00.000Z'
+            }
+        }
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'cancel-user',
+        email: 'cancel@example.com',
+        displayName: 'Cancel Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await harness.element('account-manage-subscription-btn').dispatch('click');
+    assert.equal(harness.element('account-management-overlay').classList.contains('active'), true);
+    assert.equal(harness.element('account-management-cancel-subscription-btn').hidden, false);
+
+    await harness.element('account-management-cancel-subscription-btn').dispatch('click');
+
+    const cancelCall = harness.portalCalls.find(call => call.name === 'cancelPremiumSubscription');
+    assert.ok(cancelCall);
+    assert.equal(JSON.stringify(cancelCall.payload), '{}');
+    assert.equal(
+        harness.element('account-management-message').textContent,
+        'Subscription renewal canceled. Premium stays active until the current billing period ends.'
+    );
+    assert.equal(harness.premiumService.getEntitlement().status, 'cancelled_active');
 });
 
 test('manage subscription shows friendly message when no active subscription exists', async () => {

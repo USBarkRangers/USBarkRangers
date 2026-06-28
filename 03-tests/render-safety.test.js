@@ -105,6 +105,16 @@ test('marker panel URL extraction accepts only safe http links', () => {
     ]);
 });
 
+test('marker panel opens only for real park data', () => {
+    const safety = loadPanelRendererSafety();
+
+    assert.equal(safety.hasUsableParkData(null), false);
+    assert.equal(safety.hasUsableParkData({ _parkData: { name: 'Park Name' } }), false);
+    assert.equal(safety.hasUsableParkData({ _parkData: { name: '  ' } }), false);
+    assert.equal(safety.hasUsableParkData({ _parkData: { name: 'Acadia National Park', id: 'acadia' } }), true);
+    assert.equal(safety.hasUsableParkData({ _parkData: { name: 'Mapped Stop', lat: '44.3', lng: '-68.2' } }), true);
+});
+
 test('free visit limit uses premium paywall modal instead of browser alert when available', () => {
     const safety = loadPanelRendererSafety();
 

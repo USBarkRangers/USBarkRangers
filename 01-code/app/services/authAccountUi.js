@@ -18,6 +18,7 @@
     const BILLING_FIX_BUILD = 'billing-fix-build: 2026-05-11-1345';
     const LEMON_SQUEEZY_STORE_HOST = 'usbarkrangers.lemonsqueezy.com';
     const TEST_MODE_PORTAL_UNAVAILABLE_MESSAGE = 'This looks like a Lemon Squeezy test subscription, so the customer portal is unavailable. Use Cancel subscription here or manage it from the Lemon Squeezy dashboard.';
+    const CANCEL_SUBSCRIPTION_WARNING = 'Cancels renewal only. Premium stays active until the paid period ends.';
 
     console.log(BILLING_FIX_BUILD);
     window.BARK.billingFixBuild = BILLING_FIX_BUILD;
@@ -729,10 +730,12 @@
         setText('account-management-billing', state.billing);
         setText('account-management-copy', state.copy);
         setText('account-management-delete-copy', state.deleteCopy);
+        setText('account-management-cancel-warning', CANCEL_SUBSCRIPTION_WARNING);
 
         setHidden('account-management-upgrade-btn', !state.upgradeVisible);
         setHidden('account-management-portal-btn', !state.portalVisible);
         setHidden('account-management-cancel-subscription-btn', !state.cancelVisible);
+        setHidden('account-management-cancel-warning', !state.cancelVisible);
         setHidden('account-management-support-btn', !state.supportVisible);
 
         setManagementButtonBusy('account-management-portal-btn', billingPortalInFlight, billingPortalInFlight ? 'Opening portal...' : 'Open secure billing portal');

@@ -731,6 +731,49 @@ describe("Account deletion callable", () => {
         });
     });
 
+    it("deletes verified free accounts without Lemon API configuration", async () => {
+        const firestore = makeDeleteAccountFirestore({
+            entitlement: {
+                premium: false,
+                status: "free",
+                source: "none"
+            }
+        });
+        const deletedAuthUsers = [];
+
+        const result = await handleDeleteAccount({ confirmation: "DELETE" }, authedContext("free-delete-user", {
+            email: "free@example.test",
+            email_verified: true,
+            firebase: { sign_in_provider: "password" }
+        }), {
+            firestore,
+            auth: {
+                async deleteUser(uid) {
+                    deletedAuthUsers.push(uid);
+                }
+            },
+            axiosGet: async () => {
+                throw new Error("free account deletion must not query Lemon Squeezy");
+            },
+            axiosDelete: async () => {
+                throw new Error("free account deletion must not cancel Lemon Squeezy");
+            },
+            serverTimestamp: () => "server-now"
+        });
+
+        assert.equal(result.deleted, true);
+        assert.equal(result.subscriptionCanceled, false);
+        assert.deepEqual(deletedAuthUsers, ["free-delete-user"]);
+        assert.ok(firestore.state.deletedDocs.includes("users/free-delete-user"));
+        assert.deepEqual(firestore.state.setDocs.find(doc => doc.path === "_deletedUsers/free-delete-user").data, {
+            uid: "free-delete-user",
+            deletedAt: "server-now",
+            source: "user_request",
+            lemonSubscriptionCanceled: false,
+            lemonSubscriptionId: null
+        });
+    });
+
     it("cancels an active Lemon subscription before deleting account data", async () => {
         const firestore = makeDeleteAccountFirestore({
             entitlement: {

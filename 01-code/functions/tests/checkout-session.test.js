@@ -124,7 +124,7 @@ function makeUserFirestore(userData = {}) {
     };
 }
 
-function makeDeleteAccountFirestore() {
+function makeDeleteAccountFirestore(userData = {}) {
     const state = {
         deletedDocs: [],
         setDocs: [],
@@ -138,7 +138,7 @@ function makeDeleteAccountFirestore() {
         const ref = {
             path,
             async get() {
-                return { exists: path.startsWith('users/'), data: () => ({}) };
+                return { exists: path.startsWith('users/'), data: () => ({ ...userData }) };
             },
             async set(data, options = {}) {
                 state.setDocs.push({ path, data, options });
@@ -724,8 +724,118 @@ describe("Account deletion callable", () => {
         assert.deepEqual(firestore.state.setDocs.find(doc => doc.path === "_deletedUsers/delete-user").data, {
             uid: "delete-user",
             deletedAt: "server-now",
-            source: "user_request"
+            source: "user_request",
+            lemonSubscriptionCanceled: false,
+            lemonSubscriptionId: null
         });
+    });
+
+    it("cancels an active Lemon subscription before deleting account data", async () => {
+        const firestore = makeDeleteAccountFirestore({
+            entitlement: {
+                premium: true,
+                status: "active",
+                source: "lemon_squeezy",
+                providerSubscriptionId: "sub_delete_123"
+            }
+        });
+        const deletedAuthUsers = [];
+        const lemonCalls = [];
+
+        const result = await handleDeleteAccount({ confirmation: "DELETE" }, authedContext("delete-user"), {
+            firestore,
+            auth: {
+                async deleteUser(uid) {
+                    deletedAuthUsers.push(uid);
+                }
+            },
+            apiKey: config.apiKey,
+            axiosGet: async (url, requestConfig) => {
+                lemonCalls.push({ method: "GET", url, requestConfig });
+                return {
+                    data: {
+                        data: {
+                            id: "sub_delete_123",
+                            type: "subscriptions",
+                            attributes: {
+                                test_mode: true,
+                                store_id: 363425,
+                                variant_id: 1604336,
+                                status: "active"
+                            }
+                        }
+                    }
+                };
+            },
+            axiosDelete: async (url, requestConfig) => {
+                lemonCalls.push({ method: "DELETE", url, requestConfig });
+                return { data: { data: { id: "sub_delete_123" } } };
+            },
+            serverTimestamp: () => "server-now"
+        });
+
+        assert.equal(result.deleted, true);
+        assert.equal(result.subscriptionCanceled, true);
+        assert.deepEqual(deletedAuthUsers, ["delete-user"]);
+        assert.deepEqual(lemonCalls.map(call => `${call.method} ${call.url}`), [
+            "GET https://api.lemonsqueezy.com/v1/subscriptions/sub_delete_123",
+            "DELETE https://api.lemonsqueezy.com/v1/subscriptions/sub_delete_123"
+        ]);
+        assert.equal(lemonCalls[1].requestConfig.headers.Authorization, "Bearer test-api-key");
+        assert.ok(firestore.state.deletedDocs.includes("users/delete-user"));
+        assert.deepEqual(firestore.state.setDocs.find(doc => doc.path === "_deletedUsers/delete-user").data, {
+            uid: "delete-user",
+            deletedAt: "server-now",
+            source: "user_request",
+            lemonSubscriptionCanceled: true,
+            lemonSubscriptionId: "sub_delete_123"
+        });
+    });
+
+    it("does not delete account data when Lemon subscription cancellation fails", async () => {
+        const firestore = makeDeleteAccountFirestore({
+            entitlement: {
+                premium: true,
+                status: "active",
+                source: "lemon_squeezy",
+                providerSubscriptionId: "sub_delete_fail"
+            }
+        });
+        const deletedAuthUsers = [];
+
+        await assertRejectsCode(
+            handleDeleteAccount({ confirmation: "DELETE" }, authedContext("delete-user"), {
+                firestore,
+                auth: {
+                    async deleteUser(uid) {
+                        deletedAuthUsers.push(uid);
+                    }
+                },
+                apiKey: config.apiKey,
+                axiosGet: async () => ({
+                    data: {
+                        data: {
+                            id: "sub_delete_fail",
+                            type: "subscriptions",
+                            attributes: {
+                                test_mode: true,
+                                store_id: 363425,
+                                variant_id: 1604336,
+                                status: "active"
+                            }
+                        }
+                    }
+                }),
+                axiosDelete: async () => {
+                    throw new Error("lemon unavailable");
+                }
+            }),
+            "failed-precondition"
+        );
+
+        assert.deepEqual(deletedAuthUsers, []);
+        assert.deepEqual(firestore.state.deletedDocs, []);
+        assert.deepEqual(firestore.state.setDocs, []);
     });
 });
 

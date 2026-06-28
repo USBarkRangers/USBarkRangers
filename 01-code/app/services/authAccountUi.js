@@ -847,8 +847,11 @@
         } catch (error) {
             console.error('[authAccountUi] delete account failed:', error);
             const code = error && error.code ? String(error.code) : '';
-            const message = code.includes('failed-precondition')
+            const errorMessage = error && typeof error.message === 'string' ? error.message : '';
+            const message = code.includes('failed-precondition') && /DELETE/i.test(errorMessage)
                 ? 'Type DELETE to confirm account deletion.'
+                : /subscription|billing|Premium/i.test(errorMessage)
+                    ? errorMessage
                 : 'Account deletion could not be completed. Please contact support.';
             setAccountManagementMessage(message, 'error');
             setStatus(message, 'error');

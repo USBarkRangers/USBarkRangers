@@ -717,6 +717,37 @@ test('manage subscription shows dashboard message for blocked Lemon test portal'
     );
 });
 
+test('manage subscription opens live portal when Lemon includes test_mode false', async () => {
+    const livePortalUrl = 'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh&store_domain=usbarkrangers.lemonsqueezy.com&test_mode=false&user=123';
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'active',
+            source: 'lemon_squeezy',
+            providerCustomerId: 'cus_live_mode',
+            providerSubscriptionId: 'sub_live_mode'
+        },
+        customerPortalUrl: livePortalUrl
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'live-mode-user',
+        email: 'live-mode@example.com',
+        displayName: 'Live Mode Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await openManagementPortal(harness);
+
+    assert.deepEqual(harness.locationAssignCalls, [livePortalUrl]);
+    assert.notEqual(
+        harness.element('account-management-message').textContent,
+        'This looks like a Lemon Squeezy test subscription, so the customer portal is unavailable. Use Cancel subscription here or manage it from the Lemon Squeezy dashboard.'
+    );
+});
+
 test('manage account can cancel Lemon subscription from the app', async () => {
     const harness = loadAuthAccountUi({
         premiumActive: true,

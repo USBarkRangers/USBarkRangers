@@ -838,6 +838,74 @@ describe("Account deletion callable", () => {
         assert.deepEqual(firestore.state.deletedDocs, []);
         assert.deepEqual(firestore.state.setDocs, []);
     });
+
+    it("does not block account deletion on stale test-mode billing in live mode", async () => {
+        const firestore = makeDeleteAccountFirestore({
+            entitlement: {
+                premium: false,
+                status: "expired",
+                source: "lemon_squeezy",
+                providerSubscriptionId: "sub_old_test"
+            }
+        });
+        const deletedAuthUsers = [];
+        const lemonCalls = [];
+
+        const result = await handleDeleteAccount({ confirmation: "DELETE" }, authedContext("delete-user", {
+            email: "ranger@example.test",
+            email_verified: true,
+            firebase: { sign_in_provider: "password" }
+        }), {
+            firestore,
+            auth: {
+                async deleteUser(uid) {
+                    deletedAuthUsers.push(uid);
+                }
+            },
+            apiKey: config.apiKey,
+            env: {
+                BARK_LEMON_MODE: "live",
+                BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
+                BARK_LEMONSQUEEZY_STORE_ID: "363425",
+                BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "1834440",
+                BARK_APP_BASE_URL: "https://barkrangermap-auth.web.app"
+            },
+            axiosGet: async (url, requestConfig) => {
+                lemonCalls.push({ method: "GET", url, requestConfig });
+                if (url.includes("/v1/subscriptions?")) {
+                    return { data: { data: [] } };
+                }
+                assert.equal(url, "https://api.lemonsqueezy.com/v1/subscriptions/sub_old_test");
+                return {
+                    data: {
+                        data: {
+                            id: "sub_old_test",
+                            type: "subscriptions",
+                            attributes: {
+                                test_mode: true,
+                                store_id: 363425,
+                                variant_id: 1604336,
+                                status: "active"
+                            }
+                        }
+                    }
+                };
+            },
+            axiosDelete: async () => {
+                throw new Error("stale test subscriptions should not be canceled in live mode");
+            },
+            serverTimestamp: () => "server-now"
+        });
+
+        assert.equal(result.deleted, true);
+        assert.equal(result.subscriptionCanceled, false);
+        assert.deepEqual(deletedAuthUsers, ["delete-user"]);
+        assert.deepEqual(lemonCalls.map(call => call.url), [
+            "https://api.lemonsqueezy.com/v1/subscriptions/sub_old_test",
+            "https://api.lemonsqueezy.com/v1/subscriptions?filter%5Bstore_id%5D=363425&filter%5Bvariant_id%5D=1834440&filter%5Buser_email%5D=ranger%40example.test&page%5Bsize%5D=10"
+        ]);
+        assert.ok(firestore.state.deletedDocs.includes("users/delete-user"));
+    });
 });
 
 describe("Lemon Squeezy customer portal callable", () => {
@@ -1049,6 +1117,114 @@ describe("Lemon Squeezy customer portal callable", () => {
         );
         assert.equal(result.entitlement.status, "active");
         assert.equal(result.entitlement.providerSubscriptionId, "sub_live_123");
+        assert.equal(firestore.state.writes.length, 1);
+    });
+
+    it("falls back to live email lookup when a stored subscription id is still test-mode", async () => {
+        const calls = [];
+        const firestore = makeUserFirestore({
+            entitlement: {
+                premium: false,
+                status: "expired",
+                source: "lemon_squeezy",
+                providerSubscriptionId: "sub_old_test"
+            }
+        });
+
+        const result = await handleGetCustomerPortalUrl(
+            {},
+            authedContext("live-email-user", {
+                email: "ranger@example.test",
+                email_verified: true,
+                firebase: { sign_in_provider: "password" }
+            }),
+            {
+                firestore,
+                apiKey: config.apiKey,
+                env: {
+                    BARK_LEMON_MODE: "live",
+                    BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
+                    BARK_LEMONSQUEEZY_STORE_ID: "363425",
+                    BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "1834440",
+                    BARK_APP_BASE_URL: "https://barkrangermap-auth.web.app"
+                },
+                axiosGet: async (url, requestConfig) => {
+                    calls.push({ url, requestConfig });
+                    if (url === "https://api.lemonsqueezy.com/v1/subscriptions/sub_old_test") {
+                        return {
+                            data: {
+                                data: {
+                                    id: "sub_old_test",
+                                    type: "subscriptions",
+                                    attributes: {
+                                        test_mode: true,
+                                        store_id: 363425,
+                                        variant_id: 1604336,
+                                        user_email: "ranger@example.test",
+                                        status: "active",
+                                        urls: {
+                                            customer_portal: "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=old-test&test_mode=1"
+                                        }
+                                    }
+                                }
+                            }
+                        };
+                    }
+                    if (url.includes("/v1/subscriptions?")) {
+                        return {
+                            data: {
+                                data: [{
+                                    id: "sub_live_456",
+                                    type: "subscriptions",
+                                    attributes: {
+                                        test_mode: false,
+                                        store_id: 363425,
+                                        variant_id: 1834440,
+                                        user_email: "ranger@example.test",
+                                        status: "active",
+                                        renews_at: "2099-02-01T00:00:00.000Z",
+                                        updated_at: "2026-06-28T00:00:00.000Z"
+                                    }
+                                }]
+                            }
+                        };
+                    }
+                    assert.equal(url, "https://api.lemonsqueezy.com/v1/subscriptions/sub_live_456");
+                    return {
+                        data: {
+                            data: {
+                                id: "sub_live_456",
+                                type: "subscriptions",
+                                attributes: {
+                                    test_mode: false,
+                                    store_id: 363425,
+                                    variant_id: 1834440,
+                                    user_email: "ranger@example.test",
+                                    status: "active",
+                                    renews_at: "2099-02-01T00:00:00.000Z",
+                                    updated_at: "2026-06-28T00:00:00.000Z",
+                                    urls: {
+                                        customer_portal: "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=live"
+                                    }
+                                }
+                            }
+                        }
+                    };
+                }
+            }
+        );
+
+        assert.deepEqual(calls.map(call => call.url), [
+            "https://api.lemonsqueezy.com/v1/subscriptions/sub_old_test",
+            "https://api.lemonsqueezy.com/v1/subscriptions?filter%5Bstore_id%5D=363425&filter%5Bvariant_id%5D=1834440&filter%5Buser_email%5D=ranger%40example.test&page%5Bsize%5D=10",
+            "https://api.lemonsqueezy.com/v1/subscriptions/sub_live_456"
+        ]);
+        assert.equal(
+            result.url,
+            "https://usbarkrangers.lemonsqueezy.com/billing?expires=2099999999&signature=live"
+        );
+        assert.equal(result.entitlement.status, "active");
+        assert.equal(result.entitlement.providerSubscriptionId, "sub_live_456");
         assert.equal(firestore.state.writes.length, 1);
     });
 

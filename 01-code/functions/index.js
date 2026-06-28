@@ -1438,6 +1438,40 @@ function selectRestorableLemonSqueezySubscription(subscriptions, email, options 
         .map(item => item.subscription)[0] || null;
 }
 
+function normalizeLemonSqueezyBoolean(value) {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") {
+        if (value === 1) return true;
+        if (value === 0) return false;
+    }
+    if (typeof value === "string") {
+        const text = value.trim().toLowerCase();
+        if (text === "true" || text === "1" || text === "yes") return true;
+        if (text === "false" || text === "0" || text === "no") return false;
+    }
+    return null;
+}
+
+function lemonSqueezyAttributesMatchConfiguredMode(attributes = {}, config = {}) {
+    if (!attributes || attributes.test_mode === undefined) return true;
+    const testMode = normalizeLemonSqueezyBoolean(attributes.test_mode);
+    if (testMode === null) return true;
+    const mode = config && config.mode ? config.mode : getLemonSqueezyModeConfig(config);
+    return testMode === mode.checkoutTestMode;
+}
+
+async function buildLemonSqueezySubscriptionApiTargetByEmail(email, config, options = {}) {
+    const subscription = await findLemonSqueezySubscriptionByEmail(email, config, options);
+    const subscriptionId = cleanOptionalId(subscription && subscription.id);
+    if (!subscriptionId) return null;
+    return {
+        type: "subscription",
+        id: subscriptionId,
+        url: `${LEMONSQUEEZY_SUBSCRIPTIONS_URL}/${encodeURIComponent(subscriptionId)}`,
+        subscription
+    };
+}
+
 function shouldCancelLemonSqueezySubscriptionAttributes(attributes = {}) {
     if (attributes.cancelled === true || attributes.canceled === true) return false;
     const status = cleanOptionalString(attributes.status);
@@ -1679,6 +1713,7 @@ async function handleGetCustomerPortalUrl(requestOrData, context, options = {}) 
     });
     const config = getLemonSqueezyConfig(options);
     const get = options.axiosGet || axios.get;
+    const canFallbackByEmail = Boolean(isCallableEmailVerified(context) && email);
 
     let apiTarget = null;
     let subscriptionListMatch = null;
@@ -1692,18 +1727,8 @@ async function handleGetCustomerPortalUrl(requestOrData, context, options = {}) 
             );
         }
         try {
-            const listResponse = await get(buildLemonSqueezySubscriptionsListUrl(config, email), {
-                headers: {
-                    "Accept": "application/vnd.api+json",
-                    "Content-Type": "application/vnd.api+json",
-                    "Authorization": `Bearer ${config.apiKey}`
-                }
-            });
-            const subscriptions = getLemonSqueezySubscriptionListFromResponse(listResponse);
-            subscriptionListMatch = selectRestorableLemonSqueezySubscription(subscriptions, email, {
-                ...options,
-                config
-            });
+            apiTarget = await buildLemonSqueezySubscriptionApiTargetByEmail(email, config, options);
+            subscriptionListMatch = apiTarget && apiTarget.subscription ? apiTarget.subscription : null;
         } catch (error) {
             if (error instanceof functions.https.HttpsError) throw error;
             console.error("[payments] Customer portal email fallback lookup failed.", {
@@ -1714,50 +1739,83 @@ async function handleGetCustomerPortalUrl(requestOrData, context, options = {}) 
             throw new functions.https.HttpsError("internal", "Subscription management could not open.");
         }
 
-        if (!subscriptionListMatch) {
+        if (!apiTarget || !subscriptionListMatch) {
             throw new functions.https.HttpsError(
                 "failed-precondition",
                 "No active subscription was found for this account."
             );
         }
-
-        apiTarget = {
-            type: "subscription",
-            id: subscriptionListMatch.id,
-            url: `${LEMONSQUEEZY_SUBSCRIPTIONS_URL}/${encodeURIComponent(subscriptionListMatch.id)}`
-        };
     }
 
     try {
-        console.log("[payments] Customer portal Lemon API lookup starting.", {
-            uid,
-            hasSubscriptionId,
-            hasCustomerId,
-            lookupType: apiTarget.type,
-            lemonApiEndpoint: apiTarget.url
-        });
-        const response = await get(apiTarget.url, {
-            headers: {
-                "Accept": "application/vnd.api+json",
-                "Content-Type": "application/vnd.api+json",
-                "Authorization": `Bearer ${config.apiKey}`
-            }
-        });
-        console.log("[payments] Customer portal Lemon API response received.", {
-            uid,
-            hasSubscriptionId,
-            hasCustomerId,
-            lookupType: apiTarget.type,
-            lemonApiEndpoint: apiTarget.url,
-            lemonResponseStatus: response && response.status ? response.status : null
-        });
+        const fetchPortalTarget = async (target) => {
+            console.log("[payments] Customer portal Lemon API lookup starting.", {
+                uid,
+                hasSubscriptionId,
+                hasCustomerId,
+                lookupType: target.type,
+                lemonApiEndpoint: target.url
+            });
+            const targetResponse = await get(target.url, {
+                headers: {
+                    "Accept": "application/vnd.api+json",
+                    "Content-Type": "application/vnd.api+json",
+                    "Authorization": `Bearer ${config.apiKey}`
+                }
+            });
+            console.log("[payments] Customer portal Lemon API response received.", {
+                uid,
+                hasSubscriptionId,
+                hasCustomerId,
+                lookupType: target.type,
+                lemonApiEndpoint: target.url,
+                lemonResponseStatus: targetResponse && targetResponse.status ? targetResponse.status : null
+            });
+            return targetResponse;
+        };
 
-        const attributes = response &&
+        let response = await fetchPortalTarget(apiTarget);
+        let attributes = response &&
             response.data &&
             response.data.data &&
             response.data.data.attributes;
         if (attributes && attributes.store_id !== undefined && String(attributes.store_id) !== String(config.storeId)) {
             throw new functions.https.HttpsError("permission-denied", "Subscription store mismatch.");
+        }
+        if (attributes && !lemonSqueezyAttributesMatchConfiguredMode(attributes, config)) {
+            console.warn("[payments] Stored Lemon billing reference did not match configured mode.", {
+                uid,
+                lookupType: apiTarget.type,
+                providerSubscriptionId: apiTarget.type === "subscription" ? apiTarget.id : null,
+                providerCustomerId: apiTarget.type === "customer" ? apiTarget.id : null,
+                providerTestMode: attributes.test_mode,
+                expectedTestMode: config.mode.checkoutTestMode
+            });
+            let fallbackTarget = null;
+            if (canFallbackByEmail) {
+                fallbackTarget = await buildLemonSqueezySubscriptionApiTargetByEmail(email, config, options);
+            }
+            if (!fallbackTarget) {
+                throw new functions.https.HttpsError(
+                    "failed-precondition",
+                    "No active live subscription was found for this account."
+                );
+            }
+            apiTarget = fallbackTarget;
+            response = await fetchPortalTarget(apiTarget);
+            attributes = response &&
+                response.data &&
+                response.data.data &&
+                response.data.data.attributes;
+            if (attributes && attributes.store_id !== undefined && String(attributes.store_id) !== String(config.storeId)) {
+                throw new functions.https.HttpsError("permission-denied", "Subscription store mismatch.");
+            }
+            if (attributes && !lemonSqueezyAttributesMatchConfiguredMode(attributes, config)) {
+                throw new functions.https.HttpsError(
+                    "failed-precondition",
+                    "No active live subscription was found for this account."
+                );
+            }
         }
 
         let syncResult = null;
@@ -2361,12 +2419,34 @@ async function cancelLemonSqueezySubscriptionBeforeAccountDeletion({ uid, userDa
             return { checked: true, canceled: false, reason: "no_subscription" };
         }
 
-        const subscriptionUrl = `${LEMONSQUEEZY_SUBSCRIPTIONS_URL}/${encodeURIComponent(subscriptionId)}`;
+        let subscriptionUrl = `${LEMONSQUEEZY_SUBSCRIPTIONS_URL}/${encodeURIComponent(subscriptionId)}`;
         if (!subscriptionAttributes) {
             const response = await get(subscriptionUrl, {
                 headers: getLemonSqueezyApiHeaders(config)
             });
             subscriptionAttributes = getLemonSqueezySubscriptionAttributesFromResponse(response);
+        }
+
+        if (!lemonSqueezyAttributesMatchConfiguredMode(subscriptionAttributes, config)) {
+            console.warn("[account] Stored Lemon billing reference did not match configured mode.", {
+                uid,
+                providerSubscriptionId: subscriptionId,
+                providerTestMode: subscriptionAttributes ? subscriptionAttributes.test_mode : null,
+                expectedTestMode: config.mode.checkoutTestMode
+            });
+            if (canCheckByEmail) {
+                const liveSubscription = await findLemonSqueezySubscriptionByEmail(email, config, options);
+                const liveSubscriptionId = cleanOptionalId(liveSubscription && liveSubscription.id);
+                if (liveSubscriptionId) {
+                    subscriptionId = liveSubscriptionId;
+                    subscriptionAttributes = getLemonSqueezySubscriptionAttributes(liveSubscription);
+                    subscriptionUrl = `${LEMONSQUEEZY_SUBSCRIPTIONS_URL}/${encodeURIComponent(subscriptionId)}`;
+                } else {
+                    return { checked: true, canceled: false, reason: "mode_mismatch_no_subscription" };
+                }
+            } else {
+                return { checked: true, canceled: false, reason: "mode_mismatch" };
+            }
         }
 
         if (subscriptionAttributes && subscriptionAttributes.store_id !== undefined && String(subscriptionAttributes.store_id) !== String(config.storeId)) {

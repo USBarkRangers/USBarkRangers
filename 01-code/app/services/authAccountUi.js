@@ -613,9 +613,14 @@
         try {
             const url = new URL(value, window.location.href);
             const normalizedPathname = (url.pathname || '/').replace(/\/+$/, '') || '/';
+            const testModeValue = url.searchParams.get('test_mode');
+            const normalizedTestMode = testModeValue === null
+                ? ''
+                : String(testModeValue).trim().toLowerCase();
             return url.hostname === LEMON_SQUEEZY_STORE_HOST &&
                 normalizedPathname === '/billing' &&
-                url.searchParams.has('test_mode');
+                url.searchParams.has('test_mode') &&
+                (normalizedTestMode === '' || normalizedTestMode === '1' || normalizedTestMode === 'true' || normalizedTestMode === 'yes');
         } catch (error) {
             return false;
         }

@@ -10,6 +10,8 @@
     const PRICE_COPY = '$15/year';
     const PROVIDER = 'lemonsqueezy';
     const DEFAULT_VERIFYING_FALLBACK_MS = 15000;
+    const CHECKOUT_EXTERNAL_PENDING_KEY = 'bark_checkout_external_pending';
+    const CHECKOUT_EXTERNAL_STARTED_KEY = 'bark_checkout_external_started_at';
 
     let initialized = false;
     let lastSource = 'manual';
@@ -172,6 +174,36 @@
         button.textContent = options.text;
         button.disabled = options.disabled === true;
         button.dataset.mode = options.mode || '';
+        if (options.busy === true) {
+            button.setAttribute('aria-busy', 'true');
+        } else {
+            button.removeAttribute('aria-busy');
+        }
+    }
+
+    function markExternalCheckoutPending() {
+        try {
+            sessionStorage.setItem(CHECKOUT_EXTERNAL_PENDING_KEY, '1');
+            sessionStorage.setItem(CHECKOUT_EXTERNAL_STARTED_KEY, String(Date.now()));
+        } catch (error) {
+            // Best-effort only; Safari private/storage edge cases should not block checkout.
+        }
+    }
+
+    function closeMapSurfacesForCheckout() {
+        markExternalCheckoutPending();
+        if (window.BARK && typeof window.BARK.closeMapOnlySurfaces === 'function') {
+            window.BARK.closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
+            return;
+        }
+
+        const slidePanel = getElement('slide-panel');
+        if (slidePanel) slidePanel.classList.remove('open');
+        const panelTitle = getElement('panel-title');
+        if (panelTitle) panelTitle.textContent = 'Park Name';
+        if (window.BARK && typeof window.BARK.clearActivePin === 'function') {
+            window.BARK.clearActivePin();
+        }
     }
 
     function formatAccessDate(value) {
@@ -575,6 +607,18 @@
         setText('profile-premium-eyebrow', mode === 'premium' ? (isAccessCodePremium ? 'Free access' : 'Premium') : 'Premium map tools');
         setText('profile-premium-price', mode === 'premium' ? (isAccessCodePremium ? 'No renewal' : 'Active') : PRICE_COPY);
 
+        if (checkoutInFlight) {
+            setText('profile-premium-status', 'Opening secure checkout');
+            setText('profile-premium-copy', 'Loading payment page...');
+            setButtonState(getElement('profile-premium-action'), {
+                text: 'Loading payment page...',
+                disabled: true,
+                mode: 'checkout-loading',
+                busy: true
+            });
+            return;
+        }
+
         if (mode === 'premium') {
             setText('profile-premium-status', isAccessCodePremium ? 'Free Premium Access' : 'Premium active');
             setText('profile-premium-copy', state.body);
@@ -669,12 +713,13 @@
 
         setButtonState(getElement('paywall-primary-btn'), {
             text: checkoutInFlight
-                ? 'Opening checkout...'
+                ? 'Loading payment page...'
                 : restorePurchaseInFlight && state.mode === 'verification-delayed'
                     ? 'Rechecking purchase...'
                     : state.primaryText,
             disabled: state.primaryDisabled === true || checkoutInFlight || (restorePurchaseInFlight && state.mode === 'verification-delayed'),
-            mode: state.mode
+            mode: checkoutInFlight ? 'checkout-loading' : state.mode,
+            busy: checkoutInFlight
         });
         setButtonState(getElement('paywall-restore-btn'), {
             text: restorePurchaseInFlight ? 'Rechecking purchase...' : 'Restore purchase',
@@ -691,6 +736,16 @@
     function renderPremiumUpgradeButton(state) {
         const button = getElement('premium-upgrade-btn');
         if (!button) return;
+        if (checkoutInFlight) {
+            button.textContent = 'Loading payment page...';
+            button.dataset.mode = 'checkout-loading';
+            button.disabled = true;
+            button.setAttribute('aria-busy', 'true');
+            button.title = '';
+            return;
+        }
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
         if (state.mode === 'email-unverified') {
             button.textContent = 'Verify email to unlock Premium';
             button.dataset.mode = state.mode;
@@ -814,6 +869,7 @@
         checkoutInFlight = true;
         restoreStatusMessage = null;
         renderCurrentState();
+        let checkoutHandoffStarted = false;
 
         try {
             const createCheckoutSession = getCheckoutCallable();
@@ -823,12 +879,22 @@
             const result = await createCheckoutSession({});
             const checkoutUrl = validateCheckoutUrl(result && result.data && result.data.checkoutUrl);
             if (!checkoutUrl) throw new Error('Checkout URL was missing from the backend response.');
+            closeMapSurfacesForCheckout();
+            checkoutHandoffStarted = true;
             window.location.assign(checkoutUrl);
+            setTimeout(() => {
+                if (document.hidden) return;
+                checkoutInFlight = false;
+                renderCurrentState();
+            }, 8000);
         } catch (error) {
             console.error('[paywallController] createCheckoutSession failed:', error);
             const message = error && error.message && /paused|disabled|unavailable/i.test(error.message)
                 ? error.message
                 : 'Checkout could not start. Please try again in a moment or contact support.';
+            checkoutInFlight = false;
+            restoreStatusMessage = message;
+            renderCurrentState();
             setText('paywall-body', message);
             setButtonState(getElement('paywall-primary-btn'), {
                 text: 'Try again',
@@ -836,8 +902,10 @@
                 mode: 'error'
             });
         } finally {
-            checkoutInFlight = false;
-            renderProfileCard(getState());
+            if (!checkoutHandoffStarted) {
+                checkoutInFlight = false;
+                renderCurrentState();
+            }
         }
     }
 

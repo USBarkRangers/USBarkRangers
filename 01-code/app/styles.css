@@ -2422,6 +2422,15 @@ body.app-tab-active #slide-panel {
     transform: scale(0.98);
 }
 
+.premium-upgrade-btn:disabled,
+.premium-upgrade-btn[data-mode="checkout-loading"] {
+    background: #0f766e;
+    color: #ffffff;
+    opacity: 0.92;
+    cursor: progress;
+    transform: none;
+}
+
 .premium-unlocked .premium-upgrade-btn {
     display: none;
 }
@@ -2490,9 +2499,16 @@ body.app-tab-active #slide-panel {
 }
 
 .paywall-card-action:disabled {
-    opacity: 0.72;
+    background: #0f766e;
+    color: #ffffff;
+    opacity: 0.86;
     cursor: default;
     transform: none;
+}
+
+.paywall-card-action[data-mode="checkout-loading"] {
+    opacity: 1;
+    cursor: progress;
 }
 
 .paywall-card-note {
@@ -2650,8 +2666,15 @@ body.app-tab-active #slide-panel {
 }
 
 .paywall-primary-btn:disabled {
-    opacity: 0.72;
+    background: #0f766e;
+    color: #ffffff;
+    opacity: 0.86;
     cursor: default;
+}
+
+.paywall-primary-btn[data-mode="checkout-loading"] {
+    opacity: 1;
+    cursor: progress;
 }
 
 .paywall-secondary-btn,

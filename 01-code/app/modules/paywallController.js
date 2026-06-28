@@ -55,6 +55,22 @@
         return 'Please verify your email before using Premium checkout, coupons, or premium routing.';
     }
 
+    function focusEmailVerificationPanel() {
+        closePaywall();
+        const accountUi = window.BARK && window.BARK.authAccountUi;
+        if (accountUi && typeof accountUi.focusEmailVerificationPanel === 'function') {
+            accountUi.focusEmailVerificationPanel();
+            return;
+        }
+
+        const profileTab = document.querySelector('.nav-item[data-target="profile-view"]');
+        if (profileTab) profileTab.click();
+        setTimeout(() => {
+            const panel = getElement('account-email-verification-panel');
+            if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 120);
+    }
+
     function isPremiumActive() {
         const premiumService = getPremiumService();
         return Boolean(
@@ -472,6 +488,18 @@
             };
         }
 
+        if (needsEmailVerification(user) && !isPremiumActive()) {
+            return {
+                mode: 'email-unverified',
+                title: 'Verify your email to upgrade',
+                eyebrow: 'Email verification required',
+                body: getEmailVerificationMessage(),
+                primaryText: 'Verify email',
+                secondaryVisible: true,
+                clearVisible: returnState !== null
+            };
+        }
+
         if (isPremiumActive()) {
             let activeCopy = 'Premium is active on this account.';
             let eyebrow = 'Unlocked';
@@ -570,6 +598,18 @@
             return;
         }
 
+        if (mode === 'email-unverified') {
+            setText('profile-premium-eyebrow', 'Email verification required');
+            setText('profile-premium-price', PRICE_COPY);
+            setText('profile-premium-status', 'Verify email first');
+            setText('profile-premium-copy', getEmailVerificationMessage());
+            setButtonState(getElement('profile-premium-action'), {
+                text: 'Verify email',
+                mode
+            });
+            return;
+        }
+
         if (mode === 'verifying' || mode === 'verification-delayed') {
             setText('profile-premium-status', mode === 'verification-delayed' ? 'Still verifying premium' : 'Verifying payment...');
             setText('profile-premium-copy', mode === 'verification-delayed'
@@ -643,8 +683,29 @@
         });
 
         renderProfileCard(state);
+        renderPremiumUpgradeButton(state);
         scheduleVerificationFallbackRender(state);
         return state;
+    }
+
+    function renderPremiumUpgradeButton(state) {
+        const button = getElement('premium-upgrade-btn');
+        if (!button) return;
+        if (state.mode === 'email-unverified') {
+            button.textContent = 'Verify email to unlock Premium';
+            button.dataset.mode = state.mode;
+            button.title = getEmailVerificationMessage();
+            return;
+        }
+        if (state.mode === 'signed-out' || state.mode === 'verify-signed-out') {
+            button.textContent = 'Sign in to unlock Premium';
+            button.dataset.mode = state.mode;
+            button.title = '';
+            return;
+        }
+        button.textContent = 'Upgrade to Premium';
+        button.dataset.mode = state.mode;
+        button.title = '';
     }
 
     function openPaywall(options = {}) {
@@ -727,6 +788,11 @@
 
         if (state.mode === 'signed-out' || state.mode === 'verify-signed-out') {
             focusSignIn();
+            return;
+        }
+
+        if (state.mode === 'email-unverified') {
+            focusEmailVerificationPanel();
             return;
         }
 
@@ -833,6 +899,11 @@
             const target = event.target;
             if (target && target.closest && target.closest('#premium-upgrade-btn')) return;
             event.preventDefault();
+            const user = getCurrentUser();
+            if (needsEmailVerification(user)) {
+                focusEmailVerificationPanel();
+                return;
+            }
             const source = target && target.closest && target.closest('#toggle-virtual-trail, #toggle-completed-trails')
                 ? 'virtual-trails'
                 : target && target.closest && target.closest('#visited-filter, #map-style-select')
@@ -840,6 +911,15 @@
                     : 'premium-map-tools';
             openPaywall({ source });
         }, true);
+    }
+
+    function handlePremiumUpgradeButton() {
+        const state = getState();
+        if (state.mode === 'email-unverified') {
+            focusEmailVerificationPanel();
+            return;
+        }
+        openPaywall({ source: 'premium-map-tools' });
     }
 
     function bindAuthObserverWhenReady(attempt = 0) {
@@ -877,8 +957,8 @@
         bindClick('paywall-clear-url-btn', clearCheckoutParams);
         bindClick('paywall-restore-btn', restorePurchase);
         bindClick('paywall-primary-btn', startCheckout);
-        bindClick('profile-premium-action', () => openPaywall({ source: 'profile-premium-card' }));
-        bindClick('premium-upgrade-btn', () => openPaywall({ source: 'premium-map-tools' }));
+        bindClick('profile-premium-action', startCheckout);
+        bindClick('premium-upgrade-btn', handlePremiumUpgradeButton);
 
         const overlay = getElement('paywall-overlay');
         if (overlay && overlay.dataset.paywallBound !== 'true') {

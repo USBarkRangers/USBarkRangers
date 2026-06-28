@@ -26,6 +26,7 @@
     let activeMode = 'signin';
     let unsubscribePremium = null;
     let lastVerificationEmailSentAt = 0;
+    let verificationCooldownTimer = null;
     let lastBillingSyncKey = '';
     let lastBillingSyncAt = 0;
     let lastBillingReturnSyncAt = 0;
@@ -261,6 +262,42 @@
         return Math.max(0, VERIFICATION_RESEND_COOLDOWN_MS - (now - lastVerificationEmailSentAt));
     }
 
+    function getCurrentUserSafely() {
+        try {
+            return getFirebaseAuth().currentUser;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function stopVerificationCooldownTimer() {
+        if (!verificationCooldownTimer) return;
+        if (typeof clearInterval === 'function') {
+            clearInterval(verificationCooldownTimer);
+        } else if (typeof window !== 'undefined' && typeof window.clearInterval === 'function') {
+            window.clearInterval(verificationCooldownTimer);
+        }
+        verificationCooldownTimer = null;
+    }
+
+    function startVerificationCooldownTimer() {
+        if (verificationCooldownTimer) return;
+        const scheduleInterval = typeof setInterval === 'function'
+            ? setInterval
+            : typeof window !== 'undefined' && typeof window.setInterval === 'function'
+                ? window.setInterval.bind(window)
+                : null;
+        if (!scheduleInterval) return;
+
+        verificationCooldownTimer = scheduleInterval(() => {
+            const user = getCurrentUserSafely();
+            updateEmailVerificationPanel(user);
+            if (!needsEmailVerification(user) || getVerificationCooldownRemainingMs() <= 0) {
+                stopVerificationCooldownTimer();
+            }
+        }, 1000);
+    }
+
     function updateEmailVerificationPanel(user) {
         const panel = getElement('account-email-verification-panel');
         if (!panel) return;
@@ -269,6 +306,7 @@
         panel.hidden = !showPanel;
         if (!showPanel) {
             setButtonTextAndDisabled('account-resend-verification-btn', 'Resend verification email', false);
+            stopVerificationCooldownTimer();
             return;
         }
 
@@ -283,6 +321,9 @@
             cooldownRemainingMs > 0
         );
         setButtonTextAndDisabled('account-refresh-verification-btn', 'I verified, refresh status', false);
+
+        if (cooldownRemainingMs > 0) startVerificationCooldownTimer();
+        else stopVerificationCooldownTimer();
     }
 
     function getUserDisplayName(user) {
@@ -674,12 +715,7 @@
     }
 
     function refreshAccountDisplay(options = {}) {
-        let user = null;
-        try {
-            user = getFirebaseAuth().currentUser;
-        } catch (error) {
-            user = null;
-        }
+        const user = getCurrentUserSafely();
 
         const signedIn = Boolean(user);
         setHidden('account-status-card', !signedIn);
@@ -719,12 +755,7 @@
     }
 
     async function refreshEmailVerificationStatus(options = {}) {
-        let user = null;
-        try {
-            user = getFirebaseAuth().currentUser;
-        } catch (error) {
-            user = null;
-        }
+        let user = getCurrentUserSafely();
 
         if (!user) {
             refreshAccountDisplay();
@@ -752,6 +783,9 @@
             await persistEmailVerificationState(user);
         }
         refreshAccountDisplay();
+        if (window.BARK.paywall && typeof window.BARK.paywall.renderCurrentState === 'function') {
+            window.BARK.paywall.renderCurrentState();
+        }
 
         if (options.silent !== true) {
             setStatus(user.emailVerified === true
@@ -798,6 +832,26 @@
     async function resendVerificationEmail() {
         const user = getFirebaseAuth().currentUser;
         await sendVerificationEmailForUser(user);
+    }
+
+    function focusEmailVerificationPanel(options = {}) {
+        closeAccountPrompt();
+        const profileTab = document.querySelector('.nav-item[data-target="profile-view"]');
+        if (profileTab) profileTab.click();
+
+        setTimeout(() => {
+            const user = getCurrentUserSafely();
+            updateEmailVerificationPanel(user);
+            const panel = getElement('account-email-verification-panel');
+            const resend = getElement('account-resend-verification-btn');
+            const refresh = getElement('account-refresh-verification-btn');
+            if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            if (refresh) refresh.focus({ preventScroll: true });
+            else if (resend) resend.focus({ preventScroll: true });
+            if (options.status !== false) {
+                setStatus('Verify your email, then refresh status to unlock Premium checkout.', 'neutral');
+            }
+        }, 120);
     }
 
     function seedAccountEmailFields(email) {
@@ -1053,6 +1107,7 @@
         refreshAccountDisplay,
         refreshEmailVerificationStatus,
         resendVerificationEmail,
+        focusEmailVerificationPanel,
         needsEmailVerification,
         signOut,
         openSubscriptionManagement

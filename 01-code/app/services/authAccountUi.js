@@ -17,7 +17,7 @@
     const BILLING_RETURN_SYNC_MIN_INTERVAL_MS = 5 * 1000;
     const BILLING_FIX_BUILD = 'billing-fix-build: 2026-05-11-1345';
     const LEMON_SQUEEZY_STORE_HOST = 'usbarkrangers.lemonsqueezy.com';
-    const TEST_MODE_PORTAL_UNAVAILABLE_MESSAGE = 'Customer portal is unavailable while the Lemon Squeezy store is not activated. Manage this test subscription from the Lemon Squeezy dashboard.';
+    const TEST_MODE_PORTAL_UNAVAILABLE_MESSAGE = 'This looks like a Lemon Squeezy test subscription, so the customer portal is unavailable. Use Cancel subscription here or manage it from the Lemon Squeezy dashboard.';
 
     console.log(BILLING_FIX_BUILD);
     window.BARK.billingFixBuild = BILLING_FIX_BUILD;
@@ -31,6 +31,7 @@
     let lastBillingSyncAt = 0;
     let lastBillingReturnSyncAt = 0;
     let billingPortalInFlight = false;
+    let cancelSubscriptionInFlight = false;
     let deleteAccountInFlight = false;
 
     const ACCOUNT_PROMPT_COPY = {
@@ -528,6 +529,11 @@
         return firebase.functions().httpsCallable('getCustomerPortalUrl');
     }
 
+    function getCancelSubscriptionCallable() {
+        if (typeof firebase === 'undefined' || typeof firebase.functions !== 'function') return null;
+        return firebase.functions().httpsCallable('cancelPremiumSubscription');
+    }
+
     function applySyncedEntitlement(entitlement, user, reason) {
         if (!entitlement || typeof entitlement !== 'object') return;
         const premiumService = getPremiumService();
@@ -663,13 +669,15 @@
         let billing = 'No paid billing attached';
         let copy = 'Manage your account, upgrade to Premium, or delete your account.';
         let portalVisible = false;
+        let cancelVisible = false;
         let upgradeVisible = !isPremium;
         let supportVisible = false;
 
         if (isLemon) {
             billing = billingState.copy || 'Managed securely by Lemon Squeezy';
-            copy = 'Use the secure Lemon Squeezy portal to cancel, resume, update payment method, or review billing details.';
+            copy = 'Use the secure Lemon Squeezy portal to update payment details, or cancel renewal directly here.';
             portalVisible = true;
+            cancelVisible = !['cancelled_active', 'canceled', 'expired', 'refunded'].includes(entitlement.status);
             supportVisible = true;
             upgradeVisible = ['expired', 'canceled', 'refunded'].includes(entitlement.status);
         } else if (entitlement && entitlement.source === 'access_code') {
@@ -691,10 +699,11 @@
             copy,
             isLemon,
             portalVisible,
+            cancelVisible,
             upgradeVisible,
             supportVisible,
             deleteCopy: isLemon
-                ? 'Cancel billing in the secure Lemon Squeezy portal first. Then delete your BARK account, saved progress, trips, and leaderboard entry.'
+                ? 'Deleting your account also attempts to cancel Lemon Squeezy billing first. For extra control, cancel the subscription above before deleting your BARK account, saved progress, trips, and leaderboard entry.'
                 : 'Delete your BARK account, saved progress, trips, and leaderboard entry.'
         };
     }
@@ -718,9 +727,11 @@
 
         setHidden('account-management-upgrade-btn', !state.upgradeVisible);
         setHidden('account-management-portal-btn', !state.portalVisible);
+        setHidden('account-management-cancel-subscription-btn', !state.cancelVisible);
         setHidden('account-management-support-btn', !state.supportVisible);
 
         setManagementButtonBusy('account-management-portal-btn', billingPortalInFlight, billingPortalInFlight ? 'Opening portal...' : 'Open secure billing portal');
+        setManagementButtonBusy('account-management-cancel-subscription-btn', cancelSubscriptionInFlight, cancelSubscriptionInFlight ? 'Canceling subscription...' : 'Cancel subscription');
         setManagementButtonBusy('account-management-upgrade-btn', false, 'Upgrade to Premium');
         setManagementButtonBusy('account-management-support-btn', false, 'Contact support');
         setManagementButtonBusy('account-delete-confirm-btn', deleteAccountInFlight, deleteAccountInFlight ? 'Deleting account...' : 'Delete account');
@@ -809,6 +820,46 @@
             setStatus(message, 'error');
         } finally {
             billingPortalInFlight = false;
+            renderAccountManagementModal();
+        }
+    }
+
+    async function cancelSubscriptionFromManagement() {
+        if (cancelSubscriptionInFlight) return;
+
+        try {
+            const currentUser = getCurrentUserSafely();
+            if (!currentUser) throw new Error('Please sign in first.');
+
+            const cancelPremiumSubscription = getCancelSubscriptionCallable();
+            if (!cancelPremiumSubscription) throw new Error('Subscription cancellation is unavailable right now.');
+
+            cancelSubscriptionInFlight = true;
+            renderAccountManagementModal();
+            setAccountManagementMessage('Canceling subscription renewal...', 'neutral');
+            setStatus('Canceling subscription renewal...', 'neutral');
+            if (typeof window.BARK.incrementRequestCount === 'function') window.BARK.incrementRequestCount();
+
+            const result = await cancelPremiumSubscription({});
+            const data = result && result.data ? result.data : {};
+            applySyncedEntitlement(data.entitlement, currentUser, 'billing-cancel-sync');
+            refreshAccountDisplay();
+            setAccountManagementMessage(
+                data.alreadyInactive
+                    ? 'Subscription renewal is already canceled.'
+                    : 'Subscription renewal canceled. Premium stays active until the current billing period ends.',
+                'success'
+            );
+            setStatus('Subscription renewal canceled.', 'success');
+        } catch (error) {
+            console.error('[authAccountUi] cancel subscription failed:', error);
+            const message = error && typeof error.message === 'string' && error.message
+                ? error.message
+                : 'Subscription could not be canceled. Open the billing portal or contact support.';
+            setAccountManagementMessage(message, 'error');
+            setStatus(message, 'error');
+        } finally {
+            cancelSubscriptionInFlight = false;
             renderAccountManagementModal();
         }
     }
@@ -1243,6 +1294,7 @@
         bindClick('account-management-close-btn', closeAccountManagementModal);
         bindClick('account-management-upgrade-btn', openPremiumFromManagement);
         bindClick('account-management-portal-btn', openBillingPortalFromManagement);
+        bindClick('account-management-cancel-subscription-btn', cancelSubscriptionFromManagement);
         bindClick('account-management-support-btn', contactSupportFromManagement);
         bindClick('account-delete-confirm-btn', deleteCurrentAccountFromManagement);
         bindClick('account-gate-close-btn', closeAccountPrompt);

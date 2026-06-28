@@ -13,6 +13,7 @@ const {
         handleGetCustomerPortalUrl,
         handleCreateCheckoutSession,
         handleDeleteAccount,
+        handleCancelPremiumSubscription,
         buildLemonSqueezySubscriptionsListUrl,
         selectRestorableLemonSqueezySubscription,
         handleRestorePremiumPurchase,
@@ -1285,6 +1286,121 @@ describe("Lemon Squeezy customer portal callable", () => {
             ),
             "permission-denied"
         );
+    });
+});
+
+describe("Lemon Squeezy subscription cancellation callable", () => {
+    it("rejects unauthenticated cancellation requests", async () => {
+        await assertRejectsCode(
+            handleCancelPremiumSubscription({}, {}, {
+                firestore: makeDeleteAccountFirestore(),
+                auth: { deleteUser: async () => {} }
+            }),
+            "unauthenticated"
+        );
+    });
+
+    it("cancels an active subscription without deleting account data", async () => {
+        const firestore = makeDeleteAccountFirestore({
+            entitlement: {
+                premium: true,
+                status: "active",
+                source: "lemon_squeezy",
+                providerSubscriptionId: "sub_cancel_button"
+            }
+        });
+        const lemonCalls = [];
+
+        const result = await handleCancelPremiumSubscription({}, authedContext("delete-user"), {
+            firestore,
+            apiKey: config.apiKey,
+            axiosGet: async (url, requestConfig) => {
+                lemonCalls.push({ method: "GET", url, requestConfig });
+                return {
+                    data: {
+                        data: {
+                            id: "sub_cancel_button",
+                            type: "subscriptions",
+                            attributes: {
+                                test_mode: true,
+                                store_id: 363425,
+                                variant_id: 1604336,
+                                status: "active",
+                                updated_at: "2026-06-28T00:00:00.000Z"
+                            }
+                        }
+                    }
+                };
+            },
+            axiosDelete: async (url, requestConfig) => {
+                lemonCalls.push({ method: "DELETE", url, requestConfig });
+                return {
+                    data: {
+                        data: {
+                            id: "sub_cancel_button",
+                            type: "subscriptions",
+                            attributes: {
+                                test_mode: true,
+                                store_id: 363425,
+                                variant_id: 1604336,
+                                status: "cancelled",
+                                ends_at: "2099-02-01T00:00:00.000Z",
+                                updated_at: "2026-06-28T00:00:01.000Z"
+                            }
+                        }
+                    }
+                };
+            }
+        });
+
+        assert.equal(result.canceled, true);
+        assert.equal(result.entitlement.status, "cancelled_active");
+        assert.deepEqual(lemonCalls.map(call => `${call.method} ${call.url}`), [
+            "GET https://api.lemonsqueezy.com/v1/subscriptions/sub_cancel_button",
+            "DELETE https://api.lemonsqueezy.com/v1/subscriptions/sub_cancel_button"
+        ]);
+        assert.deepEqual(firestore.state.deletedDocs, []);
+        assert.equal(firestore.state.setDocs.length, 1);
+        assert.equal(firestore.state.setDocs[0].data.entitlement.status, "cancelled_active");
+    });
+
+    it("does not mutate app data when subscription cancellation fails", async () => {
+        const firestore = makeDeleteAccountFirestore({
+            entitlement: {
+                premium: true,
+                status: "active",
+                source: "lemon_squeezy",
+                providerSubscriptionId: "sub_cancel_fail"
+            }
+        });
+
+        await assertRejectsCode(
+            handleCancelPremiumSubscription({}, authedContext("delete-user"), {
+                firestore,
+                apiKey: config.apiKey,
+                axiosGet: async () => ({
+                    data: {
+                        data: {
+                            id: "sub_cancel_fail",
+                            type: "subscriptions",
+                            attributes: {
+                                test_mode: true,
+                                store_id: 363425,
+                                variant_id: 1604336,
+                                status: "active"
+                            }
+                        }
+                    }
+                }),
+                axiosDelete: async () => {
+                    throw new Error("lemon unavailable");
+                }
+            }),
+            "failed-precondition"
+        );
+
+        assert.deepEqual(firestore.state.deletedDocs, []);
+        assert.deepEqual(firestore.state.setDocs, []);
     });
 });
 

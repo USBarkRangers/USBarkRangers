@@ -1472,6 +1472,42 @@ async function syncLemonSqueezySubscriptionEntitlementFromApi({ uid, providerSub
     }, syncOptions);
 }
 
+async function writeLemonSqueezySubscriptionEntitlementFromApi({ userRef, userData, providerSubscriptionId, response }, options = {}) {
+    const attributes = getLemonSqueezySubscriptionAttributesFromResponse(response);
+    const eventName = getLemonSqueezySubscriptionSyncEventName(attributes);
+    const syncOptions = {
+        ...options,
+        providerSync: true
+    };
+    const payload = buildLemonSqueezySubscriptionSyncPayload(providerSubscriptionId, response, eventName);
+    const mapping = mapLemonSqueezyEntitlement(payload, eventName, syncOptions);
+    if (mapping.action !== "write") {
+        return { ignored: true, reason: mapping.reason || "ignored" };
+    }
+
+    const existingEntitlement = userData && userData.entitlement && typeof userData.entitlement === "object"
+        ? userData.entitlement
+        : {};
+    if (existingEntitlement.status === "manual_active" && existingEntitlement.source !== "lemon_squeezy") {
+        return { ignored: true, reason: "manual_override" };
+    }
+    if (isStaleLemonSqueezyEvent(existingEntitlement, mapping)) {
+        return { ignored: true, reason: "stale_event" };
+    }
+
+    const entitlement = {
+        ...mapping.entitlement,
+        updatedAt: getServerTimestamp(options),
+        lastProviderEventId: payload.meta.event_id,
+        lastProviderEventName: eventName,
+        lastProviderEventAt: mapping.providerEventAt,
+        lastProviderEventAtMs: mapping.providerEventAtMs,
+        lastProviderEventRank: mapping.providerEventRank
+    };
+    await setFirestoreDoc(userRef, { entitlement }, { merge: true });
+    return { processed: true, entitlement };
+}
+
 async function getCurrentStoredEntitlement(db, uid) {
     const userDoc = await db.collection("users").doc(uid).get();
     const userData = userDoc && userDoc.exists && typeof userDoc.data === "function"
@@ -2318,11 +2354,16 @@ async function cancelLemonSqueezySubscriptionBeforeAccountDeletion({ uid, userDa
             return { checked: true, canceled: false, reason: "already_inactive", providerSubscriptionId: subscriptionId };
         }
 
-        await deleteRequest(subscriptionUrl, {
+        const cancelResponse = await deleteRequest(subscriptionUrl, {
             headers: getLemonSqueezyApiHeaders(config)
         });
 
-        return { checked: true, canceled: true, providerSubscriptionId: subscriptionId };
+        return {
+            checked: true,
+            canceled: true,
+            providerSubscriptionId: subscriptionId,
+            response: cancelResponse
+        };
     } catch (error) {
         if (error instanceof functions.https.HttpsError) throw error;
         console.error("[account] Lemon Squeezy subscription cancellation before account deletion failed.", {
@@ -2336,6 +2377,54 @@ async function cancelLemonSqueezySubscriptionBeforeAccountDeletion({ uid, userDa
             "Premium subscription cancellation could not be verified. Manage billing first, then delete the account."
         );
     }
+}
+
+async function handleCancelPremiumSubscription(requestOrData, context, options = {}) {
+    void requestOrData;
+    const uid = requireAuthCallable(context);
+    const db = options.firestore || admin.firestore();
+    const userRef = db.collection("users").doc(uid);
+    const userDoc = userRef && typeof userRef.get === "function" ? await userRef.get() : null;
+    if (!userDoc || !userDoc.exists || typeof userDoc.data !== "function") {
+        throw new functions.https.HttpsError("not-found", "User account not found.");
+    }
+
+    const userData = userDoc.data() || {};
+    const cancellation = await cancelLemonSqueezySubscriptionBeforeAccountDeletion({
+        uid,
+        userData,
+        context,
+        options
+    });
+
+    let entitlement = await getCurrentStoredEntitlement(db, uid);
+    if (cancellation.canceled === true && cancellation.response) {
+        try {
+            const syncResult = await writeLemonSqueezySubscriptionEntitlementFromApi({
+                userRef,
+                userData,
+                providerSubscriptionId: cancellation.providerSubscriptionId,
+                response: cancellation.response
+            }, {
+                ...options,
+                firestore: db
+            });
+            if (syncResult && syncResult.entitlement) entitlement = syncResult.entitlement;
+        } catch (syncError) {
+            console.error("[account] Lemon Squeezy cancellation sync failed.", {
+                uid,
+                providerSubscriptionId: cancellation.providerSubscriptionId || null,
+                message: syncError && syncError.message ? syncError.message : String(syncError)
+            });
+        }
+    }
+
+    return {
+        canceled: cancellation.canceled === true,
+        alreadyInactive: cancellation.reason === "already_inactive",
+        providerSubscriptionId: cancellation.providerSubscriptionId || null,
+        entitlement
+    };
 }
 
 async function handleDeleteAccount(requestOrData, context, options = {}) {
@@ -2615,6 +2704,12 @@ exports.restorePremiumPurchase = functions
         return handleRestorePremiumPurchase(requestOrData, context);
     });
 
+exports.cancelPremiumSubscription = functions
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY"] })
+    .https.onCall(async (requestOrData, context) => {
+        return handleCancelPremiumSubscription(requestOrData, context);
+    });
+
 exports.lemonSqueezyWebhook = functions
     .runWith({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET"] })
     .https.onRequest(async (req, res) => {
@@ -2647,6 +2742,7 @@ if (process.env.NODE_ENV === "test") {
         enforceFeedbackRateLimit,
         handleSubmitFeedback,
         handleDeleteAccount,
+        handleCancelPremiumSubscription,
         requirePremiumCallable,
         handlePremiumRoute,
         handlePremiumGeocode,

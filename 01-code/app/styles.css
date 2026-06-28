@@ -2817,6 +2817,7 @@ body.app-tab-active #slide-panel {
 
 .account-management-primary-btn,
 .account-management-secondary-btn,
+.account-management-cancel-btn,
 .account-management-delete-btn {
     min-height: 44px;
     border-radius: 8px;
@@ -2838,8 +2839,15 @@ body.app-tab-active #slide-panel {
     color: #475569;
 }
 
+.account-management-cancel-btn {
+    border: 1px solid #fed7aa;
+    background: #fff7ed;
+    color: #9a3412;
+}
+
 .account-management-primary-btn:disabled,
 .account-management-secondary-btn:disabled,
+.account-management-cancel-btn:disabled,
 .account-management-delete-btn:disabled {
     opacity: 0.6;
     cursor: default;

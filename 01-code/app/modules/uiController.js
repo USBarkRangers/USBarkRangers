@@ -31,9 +31,37 @@ function syncAppTabMode() {
     document.body.classList.toggle('app-tab-active', isAppTabActive());
 }
 
-function closeMapOnlySurfaces() {
+function resetSlidePanelShell() {
+    const title = document.getElementById('panel-title');
+    if (title) title.textContent = 'Park Name';
+}
+
+function getUsableActivePinMarker() {
+    const marker = window.BARK && window.BARK.activePinMarker;
+    const data = marker && marker._parkData;
+    const name = data && typeof data.name === 'string' ? data.name.trim() : '';
+    if (!data || !name || name === 'Park Name') return null;
+    if (!data.id && !Number.isFinite(Number(data.lat)) && !Number.isFinite(Number(data.lng))) return null;
+    return marker;
+}
+
+function closeMapOnlySurfaces(options = {}) {
     const panel = document.getElementById('slide-panel');
-    if (panel) panel.classList.remove('open');
+    if (panel) {
+        panel.classList.remove('open');
+        if (options.resetPanel !== false) resetSlidePanelShell();
+    }
+    if (options.clearActivePin !== false && window.BARK && typeof window.BARK.clearActivePin === 'function') {
+        window.BARK.clearActivePin();
+    }
+}
+
+function closeStaleSlidePanel(reason) {
+    void reason;
+    const panel = document.getElementById('slide-panel');
+    if (!panel || !panel.classList.contains('open')) return;
+    if (getUsableActivePinMarker()) return;
+    closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
 }
 
 function settleAppViewportAfterKeyboard() {
@@ -299,11 +327,16 @@ if (bottomNav) {
     bindFixedSurfaceScrollGuard(bottomNav);
 }
 
+window.addEventListener('pageshow', () => closeStaleSlidePanel('pageshow'));
+window.addEventListener('focus', () => closeStaleSlidePanel('focus'));
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden === false) closeStaleSlidePanel('visibilitychange');
+});
+
 // Close panel and clear pin
 if (closeSlideBtn) {
     closeSlideBtn.addEventListener('click', () => {
-        slidePanel.classList.remove('open');
-        window.BARK.clearActivePin();
+        closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
     });
 }
 
@@ -322,7 +355,7 @@ navItems.forEach(btn => {
         if (targetId === 'map-view') {
             uiViews.forEach(v => v.classList.remove('active'));
             syncAppTabMode();
-            closeMapOnlySurfaces();
+            closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
             requestAnimationFrame(() => {
                 if (filterPanel) filterPanel.style.display = 'flex';
                 if (leafletControls.length) leafletControls[0].style.display = 'block';
@@ -342,7 +375,7 @@ navItems.forEach(btn => {
             });
             syncAppTabMode();
             if (filterPanel) filterPanel.style.display = 'none';
-            if (slidePanel) slidePanel.classList.remove('open');
+            closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
             if (leafletControls.length) leafletControls[0].style.display = 'none';
         }
     });
@@ -352,8 +385,7 @@ navItems.forEach(btn => {
 if (window.map) {
     // Close panel when clicking on map
     map.on('click', () => {
-        if (slidePanel) slidePanel.classList.remove('open');
-        window.BARK.clearActivePin();
+        closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
         document.getElementById('filter-panel').classList.add('collapsed');
     });
 

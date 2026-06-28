@@ -111,6 +111,14 @@ function createMetaPill(icon, value, fallback) {
     return pill;
 }
 
+function hasUsableParkData(marker) {
+    const data = marker && marker._parkData;
+    if (!data || typeof data !== 'object') return false;
+    const name = typeof data.name === 'string' ? data.name.trim() : '';
+    if (!name || name === 'Park Name') return false;
+    return Boolean(data.id || (Number.isFinite(Number(data.lat)) && Number.isFinite(Number(data.lng))));
+}
+
 function openFreeAccountPrompt(source) {
     const accountUi = window.BARK && window.BARK.authAccountUi;
     if (accountUi && typeof accountUi.openAccountPrompt === 'function') {
@@ -178,6 +186,7 @@ function buildMapSearchUrl(name, lat, lng, provider) {
 
 window.BARK.panelRendererSafety = {
     getSafeHttpUrls,
+    hasUsableParkData,
     openFreeVisitLimitPaywall,
     setTextWithLineBreaks
 };
@@ -193,6 +202,14 @@ function renderMarkerClickPanel(context) {
     const videoEl = context.videoEl;
     const firebaseService = window.BARK.services && window.BARK.services.firebase;
     const refreshOnly = context.refreshOnly === true;
+
+    if (!hasUsableParkData(marker)) {
+        if (slidePanel) slidePanel.classList.remove('open');
+        if (window.BARK.activePinMarker === marker && typeof window.BARK.clearActivePin === 'function') {
+            window.BARK.clearActivePin();
+        }
+        return;
+    }
 
     if (!refreshOnly && window.BARK.activePinMarker && window.BARK.activePinMarker._icon) {
         window.BARK.activePinMarker._icon.classList.remove('active-pin');

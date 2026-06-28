@@ -1129,18 +1129,24 @@ async function initFirebase() {
     // Email Suggestion Template
     const emailSuggestBtn = document.getElementById('email-suggest-btn');
     if (emailSuggestBtn) {
-        const subject = encodeURIComponent("B.A.R.K. Map: Suggest a New Place");
+        const subject = encodeURIComponent("B.A.R.K. Map: Suggestion or App Improvement");
         const bodyTemplate = [
-            "--- B.A.R.K. Ranger Map Suggestion ---",
+            "--- B.A.R.K. Ranger Map Suggestion ---", "",
+            "Suggestion Type (Missing Location / App Improvement / Correction):", "",
+            "--- Missing Location Details ---",
             "Park Name:", "State:",
             "Swag Available (Tag/Bandana/Certificate/Other):",
             "Cost (Free/$$/Other):", "Park Entrance Fee:",
             "ADA Accessibility Areas:", "Useful Info / Rules:",
             "Official Website Link:", "",
+            "--- App Improvement Details ---",
+            "What should we improve?",
+            "What happened or what would you like to happen?",
+            "Device/browser if relevant:", "",
             "--- IMPORTANT ---",
-            "Please attach photos of the swag, the park entrance, or any relevant signage to help us verify this location! 🐾"
+            "For missing locations, please attach photos of the swag, park entrance, or relevant signage if you have them."
         ].join("\n");
-        emailSuggestBtn.href = `mailto:usbarkrangers@gmail.com?subject=${subject}&body=${encodeURIComponent(bodyTemplate)}`;
+        emailSuggestBtn.href = `mailto:cswarm34@gmail.com?subject=${subject}&body=${encodeURIComponent(bodyTemplate)}`;
     }
 }
 

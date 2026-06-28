@@ -140,6 +140,7 @@ function loadAuthAccountUi(overrides = {}) {
         'account-management-upgrade-btn',
         'account-management-portal-btn',
         'account-management-cancel-subscription-btn',
+        'account-management-cancel-warning',
         'account-management-support-btn',
         'account-management-message',
         'account-management-delete-copy',
@@ -253,7 +254,9 @@ function loadAuthAccountUi(overrides = {}) {
         Object.prototype.hasOwnProperty.call(overrides, 'customerPortalData') ||
         Boolean(overrides.customerPortalError) ||
         Object.prototype.hasOwnProperty.call(overrides, 'cancelSubscriptionData') ||
-        Boolean(overrides.cancelSubscriptionError);
+        Boolean(overrides.cancelSubscriptionError) ||
+        Object.prototype.hasOwnProperty.call(overrides, 'deleteAccountData') ||
+        Boolean(overrides.deleteAccountError);
 
     const context = {
         window: {
@@ -288,6 +291,15 @@ function loadAuthAccountUi(overrides = {}) {
                                 data: overrides.cancelSubscriptionData || {
                                     canceled: true,
                                     entitlement: overrides.cancelSubscriptionEntitlement || null
+                                }
+                            };
+                        }
+                        if (name === 'deleteAccount') {
+                            if (overrides.deleteAccountError) throw overrides.deleteAccountError;
+                            return {
+                                data: overrides.deleteAccountData || {
+                                    deleted: true,
+                                    subscriptionCanceled: false
                                 }
                             };
                         }
@@ -781,6 +793,11 @@ test('manage account can cancel Lemon subscription from the app', async () => {
     await harness.element('account-manage-subscription-btn').dispatch('click');
     assert.equal(harness.element('account-management-overlay').classList.contains('active'), true);
     assert.equal(harness.element('account-management-cancel-subscription-btn').hidden, false);
+    assert.equal(harness.element('account-management-cancel-warning').hidden, false);
+    assert.equal(
+        harness.element('account-management-cancel-warning').textContent,
+        'Cancels renewal only. Premium stays active until the paid period ends.'
+    );
 
     await harness.element('account-management-cancel-subscription-btn').dispatch('click');
 
@@ -792,6 +809,68 @@ test('manage account can cancel Lemon subscription from the app', async () => {
         'Subscription renewal canceled. Premium stays active until the current billing period ends.'
     );
     assert.equal(harness.premiumService.getEntitlement().status, 'cancelled_active');
+});
+
+test('manage account hides subscription cancellation warning for free users', async () => {
+    const harness = loadAuthAccountUi({
+        premiumActive: false,
+        premiumEntitlement: {
+            premium: false,
+            status: 'free',
+            source: 'none'
+        },
+        deleteAccountData: {
+            deleted: true,
+            subscriptionCanceled: false
+        }
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'free-user',
+        email: 'free@example.com',
+        displayName: 'Free Ranger',
+        providerData: [{ providerId: 'password' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await harness.element('account-manage-subscription-btn').dispatch('click');
+
+    assert.equal(harness.element('account-management-cancel-subscription-btn').hidden, true);
+    assert.equal(harness.element('account-management-cancel-warning').hidden, true);
+});
+
+test('free users can delete account from management modal', async () => {
+    const harness = loadAuthAccountUi({
+        premiumActive: false,
+        premiumEntitlement: {
+            premium: false,
+            status: 'free',
+            source: 'none'
+        },
+        deleteAccountData: {
+            deleted: true,
+            subscriptionCanceled: false
+        }
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'free-delete-user',
+        email: 'free-delete@example.com',
+        displayName: 'Free Delete Ranger',
+        providerData: [{ providerId: 'password' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await harness.element('account-manage-subscription-btn').dispatch('click');
+    harness.element('account-delete-confirm-input').value = 'DELETE';
+    await harness.element('account-delete-confirm-input').dispatch('input');
+    await harness.element('account-delete-confirm-btn').dispatch('click');
+
+    const deleteCall = harness.portalCalls.find(call => call.name === 'deleteAccount');
+    assert.ok(deleteCall);
+    assert.equal(JSON.stringify(deleteCall.payload), '{"confirmation":"DELETE"}');
+    assert.equal(harness.auth.currentUser, null);
+    assert.equal(harness.element('account-auth-message').dataset.tone, 'success');
 });
 
 test('manage subscription shows friendly message when no active subscription exists', async () => {

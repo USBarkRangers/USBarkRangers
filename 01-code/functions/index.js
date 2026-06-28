@@ -1294,6 +1294,16 @@ function getLemonSqueezyBillingReference(userData = {}) {
     };
 }
 
+function hasLemonSqueezyBillingSignal(billingReference = {}) {
+    const entitlement = billingReference.entitlement && typeof billingReference.entitlement === "object"
+        ? billingReference.entitlement
+        : {};
+    const source = (cleanOptionalString(entitlement.source) || "").toLowerCase();
+    return source === "lemon_squeezy" ||
+        Boolean(cleanOptionalId(billingReference.providerSubscriptionId)) ||
+        Boolean(cleanOptionalId(billingReference.providerCustomerId));
+}
+
 function buildLemonSqueezyCustomerPortalApiTarget(billingReference) {
     const providerSubscriptionId = cleanOptionalId(billingReference && billingReference.providerSubscriptionId);
     const providerCustomerId = cleanOptionalId(billingReference && billingReference.providerCustomerId);
@@ -2400,6 +2410,10 @@ async function cancelLemonSqueezySubscriptionBeforeAccountDeletion({ uid, userDa
     }
 
     const canCheckByEmail = Boolean(email && isCallableEmailVerified(context));
+    if (!hasLemonSqueezyBillingSignal(billingReference)) {
+        return { checked: false, canceled: false, reason: "no_lemon_billing_signal" };
+    }
+
     if (!subscriptionId && !canCheckByEmail) {
         return { checked: false, canceled: false, reason: "no_subscription_reference" };
     }
@@ -2827,9 +2841,11 @@ exports.submitFeedback = functions.https.onCall(async (requestOrData, context) =
     return handleSubmitFeedback(requestOrData, context);
 });
 
-exports.deleteAccount = functions.https.onCall(async (requestOrData, context) => {
-    return handleDeleteAccount(requestOrData, context);
-});
+exports.deleteAccount = functions
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY"] })
+    .https.onCall(async (requestOrData, context) => {
+        return handleDeleteAccount(requestOrData, context);
+    });
 
 if (process.env.NODE_ENV === "test") {
     exports.__test = {
@@ -2864,6 +2880,7 @@ if (process.env.NODE_ENV === "test") {
         handleGetCustomerPortalUrl,
         buildLemonSqueezySubscriptionsListUrl,
         getLemonSqueezySubscriptionListFromResponse,
+        hasLemonSqueezyBillingSignal,
         selectRestorableLemonSqueezySubscription,
         handleRestorePremiumPurchase,
         handleRedeemAccessOrPromoCode,

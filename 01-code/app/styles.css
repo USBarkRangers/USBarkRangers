@@ -2324,7 +2324,7 @@ body.app-tab-active #slide-panel {
 
 .home-qr-card {
     display: grid;
-    gap: 14px;
+    gap: 16px;
     margin-top: 30px;
     padding: 16px;
     border: 1px solid rgba(15, 23, 42, 0.08);
@@ -2336,7 +2336,7 @@ body.app-tab-active #slide-panel {
 
 .home-qr-copy {
     display: grid;
-    gap: 4px;
+    gap: 6px;
 }
 
 .home-qr-copy span {
@@ -2354,13 +2354,6 @@ body.app-tab-active #slide-panel {
     line-height: 1.1;
 }
 
-.home-qr-copy p {
-    margin: 0;
-    color: #64748b;
-    font-size: 13px;
-    line-height: 1.4;
-}
-
 .home-qr-image-wrap {
     justify-self: center;
     display: block;
@@ -2370,6 +2363,7 @@ body.app-tab-active #slide-panel {
     border-radius: 8px;
     background: #ffffff;
     box-shadow: 0 8px 22px rgba(15, 23, 42, 0.12);
+    cursor: pointer;
 }
 
 .home-qr-image {
@@ -2379,16 +2373,55 @@ body.app-tab-active #slide-panel {
     border-radius: 4px;
 }
 
-.home-qr-download {
+.official-qr-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10060;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    padding: 22px;
+    background: rgba(15, 23, 42, 0.72);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+}
+
+.official-qr-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.official-qr-modal {
+    position: relative;
+    width: min(100%, 360px);
+    padding: 18px;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 28px 72px rgba(15, 23, 42, 0.36);
+}
+
+.official-qr-close-btn {
+    position: absolute;
+    top: -14px;
+    right: -14px;
+    width: 46px;
+    height: 46px;
+    border: 0;
+    border-radius: 50%;
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 34px;
+    line-height: 1;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.24);
+    cursor: pointer;
+}
+
+.official-qr-modal-image {
+    display: block;
     width: 100%;
-    min-height: 44px;
+    height: auto;
     border-radius: 8px;
-    font-weight: 800;
-    text-decoration: none;
 }
 
 /* Custom slider */

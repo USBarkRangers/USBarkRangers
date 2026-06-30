@@ -238,10 +238,31 @@ window.BARK.initWatermarkTool = initWatermarkTool;
 
 // ====== OFFICIAL QR ASSET ======
 function initOfficialQRCode() {
-    const downloadQrBtn = document.getElementById('download-qr-btn');
-    if (!downloadQrBtn) return;
-    downloadQrBtn.setAttribute('href', 'assets/images/usbarkrangers-qr.jpeg');
-    downloadQrBtn.setAttribute('download', 'US-BARK-Rangers-QR.jpeg');
+    const openButton = document.getElementById('official-qr-open-btn');
+    const overlay = document.getElementById('official-qr-overlay');
+    const closeButton = document.getElementById('official-qr-close-btn');
+    if (!openButton || !overlay || !closeButton) return;
+
+    const closeOverlay = () => {
+        overlay.classList.remove('active');
+        overlay.setAttribute('aria-hidden', 'true');
+        openButton.focus({ preventScroll: true });
+    };
+
+    const openOverlay = () => {
+        overlay.classList.add('active');
+        overlay.setAttribute('aria-hidden', 'false');
+        closeButton.focus({ preventScroll: true });
+    };
+
+    openButton.addEventListener('click', openOverlay);
+    closeButton.addEventListener('click', closeOverlay);
+    overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) closeOverlay();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && overlay.classList.contains('active')) closeOverlay();
+    });
 }
 
 window.BARK.initOfficialQRCode = initOfficialQRCode;

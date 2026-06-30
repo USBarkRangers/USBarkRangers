@@ -236,31 +236,15 @@ function initWatermarkTool() {
 
 window.BARK.initWatermarkTool = initWatermarkTool;
 
-// ====== QR CODE ======
-function initQRCode() {
-    const shareSelect = document.getElementById('share-link-select');
-    const qrContainer = document.getElementById('qr-code-container');
+// ====== OFFICIAL QR ASSET ======
+function initOfficialQRCode() {
     const downloadQrBtn = document.getElementById('download-qr-btn');
-
-    if (shareSelect && qrContainer && typeof QRCode !== 'undefined') {
-        let qrcode = new QRCode(qrContainer, { text: "https://usbarkrangers.github.io/USBarkRangers/", width: 160, height: 160, colorDark: "#1976D2", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.H });
-
-        shareSelect.addEventListener('change', (e) => { let val = e.target.value; if (val === 'app') val = "https://usbarkrangers.github.io/USBarkRangers/"; qrcode.clear(); qrcode.makeCode(val); });
-
-        if (downloadQrBtn) {
-            downloadQrBtn.addEventListener('click', () => {
-                const img = qrContainer.querySelector('img'); const canvas = qrContainer.querySelector('canvas');
-                let dataUrl = '';
-                if (img && img.src && img.src.startsWith('data:')) dataUrl = img.src;
-                else if (canvas) dataUrl = canvas.toDataURL("image/png");
-                if (dataUrl) { const link = document.createElement('a'); link.download = 'BarkRanger_QRCode.png'; link.href = dataUrl; document.body.appendChild(link); link.click(); document.body.removeChild(link); }
-                else alert('QR Code not ready yet.');
-            });
-        }
-    }
+    if (!downloadQrBtn) return;
+    downloadQrBtn.setAttribute('href', 'assets/images/usbarkrangers-qr.jpeg');
+    downloadQrBtn.setAttribute('download', 'US-BARK-Rangers-QR.jpeg');
 }
 
-window.BARK.initQRCode = initQRCode;
+window.BARK.initOfficialQRCode = initOfficialQRCode;
 
 // ====== CSV EXPORT ======
 function initCSVExport() {

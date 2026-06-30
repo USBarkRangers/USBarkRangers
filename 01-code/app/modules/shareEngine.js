@@ -30,6 +30,17 @@ function hasShareVisitedPlace(placeOrId) {
     return false;
 }
 
+function getLocalIsoDateString(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function getWatermarkPhotoFilename(date = new Date()) {
+    return `USBARKRANGERSPHOTO_${getLocalIsoDateString(date)}.jpg`;
+}
+
 // ====== LAZY-LOAD html2canvas ======
 async function loadScreenshotEngine() {
     if (typeof html2canvas !== 'undefined') return true;
@@ -217,7 +228,7 @@ function initWatermarkTool() {
         img.onload = () => { currentPhotoImg = img; if (wmLogoSize) { wmLogoSize.value = 10; wmLogoSizeVal.textContent = '10%'; } drawWatermark(10); };
         img.src = URL.createObjectURL(file);
     });
-    wmDownload.addEventListener('click', () => { const link = document.createElement('a'); link.download = 'bark-ranger-swag-polaroid.jpg'; link.href = wmCanvas.toDataURL('image/jpeg', 1.0); link.click(); });
+    wmDownload.addEventListener('click', () => { const link = document.createElement('a'); link.download = getWatermarkPhotoFilename(); link.href = wmCanvas.toDataURL('image/jpeg', 1.0); link.click(); });
     if (wmHighRes) { wmHighRes.addEventListener('change', () => drawWatermark(parseInt(wmLogoSize.value, 10))); }
 
     const wmClearBtn = document.getElementById('wm-clear');

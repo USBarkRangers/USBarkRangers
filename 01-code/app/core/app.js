@@ -174,7 +174,7 @@
         await callInit('initTrainingUI', 'Expedition engine initialized');
         await callInit('initTripPlanner', 'Trip planner initialized');
         await callInit('initWatermarkTool', 'Watermark tool initialized');
-        await callInit('initQRCode', 'QR code initialized');
+        await callInit('initOfficialQRCode', 'Official QR initialized');
         await callInit('initCSVExport', 'Share engine initialized');
 
         // 4. Firebase — separate try/catch because a throw here means auth is gone,

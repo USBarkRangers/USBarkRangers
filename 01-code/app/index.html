@@ -15,9 +15,7 @@
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js" defer></script>
 
-    <!-- QRCode JS -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="styles.css?v=60">
+    <link rel="stylesheet" href="styles.css?v=61">
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
     <link rel="stylesheet" href="styles/trophyCase.css?v=2">
 
@@ -371,22 +369,19 @@
                 </a>
             </div>
 
-            <div id="share-portal"
-                style="margin-top: 30px; background: white; padding: 15px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.03); box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center;">
-                <h4 style="margin-bottom: 15px; color: #333; font-size: 15px;">🔗 Share the Adventure</h4>
-                <select id="share-link-select"
-                    style="display: block; width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: rgba(255,255,255,0.8); margin-bottom: 20px; font-weight: 600;">
-                    <option value="https://usbarkrangers.github.io/USBarkRangers/">The Map</option>
-                    <option value="https://facebook.com/groups/usbarkrangers">Facebook Group</option>
-                    <option value="https://instagram.com/usbarkrangers">Instagram</option>
-                    <option value="https://youtube.com/usbarkrangers">YouTube</option>
-                </select>
-                <div
-                    style="background: white; border-radius: 12px; padding: 15px; display: inline-block; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 15px;">
-                    <div id="qr-code-container"></div>
+            <div id="share-portal" class="home-qr-card">
+                <div class="home-qr-copy">
+                    <span>Official QR</span>
+                    <h4>US BARK Rangers</h4>
+                    <p>One clean code for sharing the map.</p>
                 </div>
-                <button id="download-qr-btn" class="glass-btn primary-btn"
-                    style="width: 100%; border-radius: 8px; padding: 10px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 8px;">
+                <a class="home-qr-image-wrap" href="assets/images/usbarkrangers-qr.jpeg" target="_blank" rel="noopener"
+                    aria-label="Open US BARK Rangers QR code">
+                    <img id="official-qr-code" class="home-qr-image" src="assets/images/usbarkrangers-qr.jpeg"
+                        alt="US BARK Rangers QR code" width="391" height="400" loading="lazy">
+                </a>
+                <a id="download-qr-btn" class="glass-btn primary-btn home-qr-download"
+                    href="assets/images/usbarkrangers-qr.jpeg" download="US-BARK-Rangers-QR.jpeg">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         stroke-linecap="round" stroke-linejoin="round">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -394,7 +389,7 @@
                         <line x1="12" y1="15" x2="12" y2="3"></line>
                     </svg>
                     Download QR Code
-                </button>
+                </a>
             </div>
         </div>
 
@@ -710,7 +705,7 @@
                         </div>
 
                         <p class="settings-version-footer">
-                            US BARK Ranger © v<span id="settings-app-version">44</span>
+                            US BARK Ranger © v<span id="settings-app-version">45</span>
                         </p>
 
                     </div>
@@ -1471,7 +1466,7 @@
     <script src="repos/ParkRepo.js?v=1" defer></script>
     <script src="repos/VaultRepo.js?v=6" defer></script>
     <script src="modules/launchFlags.js?v=1" defer></script>
-    <script src="modules/barkState.js?v=6" defer></script>
+    <script src="modules/barkState.js?v=7" defer></script>
     <script src="modules/barkConfig.js?v=10" defer></script>
     <script src="config/domRefs.js?v=4" defer></script>
     <script src="state/settingsStore.js?v=4" defer></script>
@@ -1499,12 +1494,12 @@
     <script src="modules/profileEngine.js?v=10" defer></script>
     <script src="modules/expeditionEngine.js?v=5" defer></script>
     <script src="engines/tripPlannerCore.js?v=15" defer></script>
-    <script src="modules/shareEngine.js?v=4" defer></script>
+    <script src="modules/shareEngine.js?v=5" defer></script>
     <script src="modules/settingsController.js?v=9" defer></script>
     <script src="modules/uiController.js?v=16" defer></script>
 
     <!-- ENTRY POINT: Bootstrap Orchestrator (must load LAST) -->
-    <script src="core/app.js?v=29" defer></script>
+    <script src="core/app.js?v=30" defer></script>
     <!-- SCORING PROTOCOL MODAL -->
     <div id="scoring-modal" class="scoring-modal-overlay">
         <div class="scoring-modal-card">

@@ -76,11 +76,15 @@ function openFreeAccountPrompt(source) {
 function blockLockedTrailToggle(button) {
     if (button) {
         button.classList.remove('active');
-        button.disabled = true;
+        button.disabled = false;
         button.setAttribute('aria-disabled', 'true');
     }
     removeTrailLayerGroup(virtualTrailLayerGroup);
     removeTrailLayerGroup(completedTrailsLayerGroup);
+    const paywall = window.BARK && window.BARK.paywall;
+    if (paywall && typeof paywall.openPaywall === 'function') {
+        paywall.openPaywall({ source: 'trail-tracker' });
+    }
 }
 
 function setDisplay(id, value) {

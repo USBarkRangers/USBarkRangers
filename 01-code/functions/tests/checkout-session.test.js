@@ -40,6 +40,7 @@ const config = {
     apiKey: "test-api-key",
     storeId: "363425",
     annualVariantId: "1604336",
+    supporterVariantId: "2604336",
     appBaseUrl: "https://outswarming.github.io/bark-ranger-map/"
 };
 
@@ -258,7 +259,7 @@ describe("Lemon Squeezy checkout session helpers", () => {
         const url = new URL(buildLemonSqueezySubscriptionsListUrl(config, "ranger@example.test"));
         assert.equal(url.origin + url.pathname, "https://api.lemonsqueezy.com/v1/subscriptions");
         assert.equal(url.searchParams.get("filter[store_id]"), "363425");
-        assert.equal(url.searchParams.get("filter[variant_id]"), "1604336");
+        assert.equal(url.searchParams.get("filter[variant_id]"), null);
         assert.equal(url.searchParams.get("filter[user_email]"), "ranger@example.test");
         assert.equal(url.searchParams.get("page[size]"), "10");
     });
@@ -326,11 +327,43 @@ describe("Lemon Squeezy checkout session helpers", () => {
         assert.equal(payload.data.attributes.checkout_data.email, "ranger@example.test");
         assert.equal(payload.data.attributes.checkout_data.name, "Ranger Tester");
         assert.equal(payload.data.attributes.checkout_data.custom.firebase_uid, "real-user");
-        assert.equal(payload.data.attributes.checkout_data.custom.plan, "annual");
+        assert.equal(payload.data.attributes.checkout_data.custom.plan, "standard_annual");
+        assert.equal(payload.data.attributes.checkout_data.custom.tier, "standard");
         assert.equal(payload.data.attributes.checkout_data.custom.provider_mode, "test");
         assert.deepEqual(payload.data.attributes.checkout_options, { discount: true });
         assert.equal(payload.data.relationships.store.data.id, "363425");
         assert.equal(payload.data.relationships.variant.data.id, "1604336");
+    });
+
+    it("builds a supporter checkout payload with the configured supporter variant", () => {
+        const payload = buildLemonSqueezyCheckoutPayload({
+            uid: "supporter-user",
+            token: { email: "supporter@example.test" },
+            config,
+            tier: "supporter"
+        });
+
+        assert.deepEqual(payload.data.attributes.product_options.enabled_variants, [2604336]);
+        assert.equal(payload.data.relationships.variant.data.id, "2604336");
+        assert.equal(payload.data.attributes.checkout_data.custom.plan, "supporter_annual");
+        assert.equal(payload.data.attributes.checkout_data.custom.tier, "supporter");
+    });
+
+    it("builds a supporter checkout with custom annual price when no supporter variant is configured", () => {
+        const payload = buildLemonSqueezyCheckoutPayload({
+            uid: "supporter-user",
+            token: { email: "supporter@example.test" },
+            config: {
+                ...config,
+                supporterVariantId: null
+            },
+            tier: "supporter"
+        });
+
+        assert.deepEqual(payload.data.attributes.product_options.enabled_variants, [1604336]);
+        assert.equal(payload.data.relationships.variant.data.id, "1604336");
+        assert.equal(payload.data.attributes.custom_price, 4900);
+        assert.equal(payload.data.attributes.checkout_data.custom.tier, "supporter");
     });
 
     it("builds live checkout only with explicit live mode, approval, and live ids", () => {
@@ -341,6 +374,7 @@ describe("Lemon Squeezy checkout session helpers", () => {
                 BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
                 BARK_LEMONSQUEEZY_STORE_ID: "999001",
                 BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "888002",
+                BARK_LEMONSQUEEZY_SUPPORTER_VARIANT_ID: "888003",
                 BARK_APP_BASE_URL: "https://barkranger.example/"
             }
         });
@@ -523,6 +557,63 @@ describe("Lemon Squeezy checkout session callable", () => {
         assert.equal(captured.body.data.attributes.checkout_data.custom.provider_mode, "test");
         assert.equal(captured.body.data.attributes.checkout_data.email, "server-user@example.test");
         assert.equal(captured.body.data.attributes.checkout_data.name, "Server User");
+    });
+
+    it("uses the server-configured supporter variant for supporter checkout", async () => {
+        let capturedBody = null;
+
+        const result = await handleCreateCheckoutSession(
+            { tier: "supporter", variantId: "client-forged-supporter" },
+            authedContext("supporter-user", {
+                email: "supporter@example.test",
+                email_verified: true,
+                firebase: { sign_in_provider: "password" }
+            }),
+            {
+                ...config,
+                axiosPost: async (_url, body) => {
+                    capturedBody = body;
+                    return {
+                        data: {
+                            data: {
+                                attributes: {
+                                    url: "https://usbarkrangers.lemonsqueezy.com/checkout/supporter-session"
+                                }
+                            }
+                        }
+                    };
+                }
+            }
+        );
+
+        assert.equal(result.checkoutUrl, "https://usbarkrangers.lemonsqueezy.com/checkout/supporter-session");
+        assert.deepEqual(capturedBody.data.attributes.product_options.enabled_variants, [2604336]);
+        assert.equal(capturedBody.data.relationships.variant.data.id, "2604336");
+        assert.equal(capturedBody.data.attributes.checkout_data.custom.firebase_uid, "supporter-user");
+        assert.equal(capturedBody.data.attributes.checkout_data.custom.tier, "supporter");
+    });
+
+    it("rejects unsupported checkout tiers before calling Lemon Squeezy", async () => {
+        let postCalls = 0;
+
+        await assertRejectsCode(
+            handleCreateCheckoutSession(
+                { tier: "lifetime" },
+                authedContext("bad-tier-user", {
+                    email_verified: true,
+                    firebase: { sign_in_provider: "password" }
+                }),
+                {
+                    ...config,
+                    axiosPost: async () => {
+                        postCalls += 1;
+                    }
+                }
+            ),
+            "invalid-argument"
+        );
+
+        assert.equal(postCalls, 0);
     });
 
     it("ignores client-provided uid, price, variant, and test mode", async () => {
@@ -945,7 +1036,7 @@ describe("Account deletion callable", () => {
         assert.deepEqual(deletedAuthUsers, ["delete-user"]);
         assert.deepEqual(lemonCalls.map(call => call.url), [
             "https://api.lemonsqueezy.com/v1/subscriptions/sub_old_test",
-            "https://api.lemonsqueezy.com/v1/subscriptions?filter%5Bstore_id%5D=363425&filter%5Bvariant_id%5D=1834440&filter%5Buser_email%5D=ranger%40example.test&page%5Bsize%5D=10"
+            "https://api.lemonsqueezy.com/v1/subscriptions?filter%5Bstore_id%5D=363425&filter%5Buser_email%5D=ranger%40example.test&page%5Bsize%5D=10"
         ]);
         assert.ok(firestore.state.deletedDocs.includes("users/delete-user"));
     });
@@ -1151,7 +1242,7 @@ describe("Lemon Squeezy customer portal callable", () => {
         assert.equal(calls.length, 2);
         const lookupUrl = new URL(calls[0].url);
         assert.equal(lookupUrl.searchParams.get("filter[store_id]"), "363425");
-        assert.equal(lookupUrl.searchParams.get("filter[variant_id]"), "1834440");
+        assert.equal(lookupUrl.searchParams.get("filter[variant_id]"), null);
         assert.equal(lookupUrl.searchParams.get("filter[user_email]"), "ranger@example.test");
         assert.equal(calls[0].requestConfig.headers.Authorization, "Bearer test-api-key");
         assert.equal(
@@ -1259,7 +1350,7 @@ describe("Lemon Squeezy customer portal callable", () => {
 
         assert.deepEqual(calls.map(call => call.url), [
             "https://api.lemonsqueezy.com/v1/subscriptions/sub_old_test",
-            "https://api.lemonsqueezy.com/v1/subscriptions?filter%5Bstore_id%5D=363425&filter%5Bvariant_id%5D=1834440&filter%5Buser_email%5D=ranger%40example.test&page%5Bsize%5D=10",
+            "https://api.lemonsqueezy.com/v1/subscriptions?filter%5Bstore_id%5D=363425&filter%5Buser_email%5D=ranger%40example.test&page%5Bsize%5D=10",
             "https://api.lemonsqueezy.com/v1/subscriptions/sub_live_456"
         ]);
         assert.equal(

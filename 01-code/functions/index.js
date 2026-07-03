@@ -975,10 +975,12 @@ const DEFAULT_APP_BASE_URL = "https://outswarming.github.io/bark-ranger-map/";
 const BARK_LEMON_MODE_ENV = "BARK_LEMON_MODE";
 const BARK_LEMONSQUEEZY_STORE_ID_ENV = "BARK_LEMONSQUEEZY_STORE_ID";
 const BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID_ENV = "BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID";
+const BARK_LEMONSQUEEZY_SUPPORTER_VARIANT_ID_ENV = "BARK_LEMONSQUEEZY_SUPPORTER_VARIANT_ID";
 const BARK_APP_BASE_URL_ENV = "BARK_APP_BASE_URL";
 const LEMONSQUEEZY_LIVE_APPROVAL_ENV = "BARK_LEMON_LIVE_MODE_APPROVAL";
 const LEMONSQUEEZY_LIVE_APPROVAL_VALUE = "CARTER_APPROVED_LIVE_RC";
 const LEMONSQUEEZY_MODE_LOCK_REASON = "Lemon Squeezy live mode remains locked until Carter explicitly approves the final RC switch.";
+const SUPPORTER_CUSTOM_PRICE_CENTS = 4900;
 const LEMONSQUEEZY_SUPPORTED_EVENTS = new Set([
     "subscription_created",
     "subscription_updated",
@@ -1005,6 +1007,18 @@ const LEMONSQUEEZY_EVENT_STATUS_RANK = Object.freeze({
     refunded: 600
 });
 const ACCESS_CODE_AUDIENCES = new Set(["admin_mod", "vip", "support", "tester", "general"]);
+const CHECKOUT_TIERS = Object.freeze({
+    standard: Object.freeze({
+        id: "standard",
+        plan: "annual",
+        customPlan: "standard_annual"
+    }),
+    supporter: Object.freeze({
+        id: "supporter",
+        plan: "supporter_annual",
+        customPlan: "supporter_annual"
+    })
+});
 
 function cleanOptionalString(value) {
     return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -1061,6 +1075,13 @@ function getLemonSqueezyProviderConfig(options = {}) {
             BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID_ENV
         )
         : DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID;
+    const supporterVariantIdRaw = options.supporterVariantId || env[BARK_LEMONSQUEEZY_SUPPORTER_VARIANT_ID_ENV];
+    const supporterVariantId = cleanOptionalString(supporterVariantIdRaw)
+        ? getRequiredPositiveId(
+            supporterVariantIdRaw,
+            BARK_LEMONSQUEEZY_SUPPORTER_VARIANT_ID_ENV
+        )
+        : null;
     const appBaseUrl = mode.mode === "live"
         ? getRequiredHttpsUrl(
             options.appBaseUrl || env[BARK_APP_BASE_URL_ENV],
@@ -1071,6 +1092,7 @@ function getLemonSqueezyProviderConfig(options = {}) {
     return {
         storeId,
         annualVariantId,
+        supporterVariantId,
         appBaseUrl,
         mode
     };
@@ -1188,17 +1210,49 @@ function buildCheckoutReturnUrl(appBaseUrl, state) {
     return url.toString();
 }
 
-function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config }) {
+function getCheckoutTierFromRequest(data = {}) {
+    const tier = cleanOptionalString(data && data.tier) || CHECKOUT_TIERS.standard.id;
+    if (!Object.prototype.hasOwnProperty.call(CHECKOUT_TIERS, tier)) {
+        throw new functions.https.HttpsError("invalid-argument", "Unsupported premium tier.");
+    }
+    return tier;
+}
+
+function getLemonSqueezySupportedVariantIds(config) {
+    return [
+        cleanOptionalId(config && config.annualVariantId),
+        cleanOptionalId(config && config.supporterVariantId)
+    ].filter(Boolean);
+}
+
+function getLemonSqueezyVariantIdForTier(config, tier) {
+    if (tier === CHECKOUT_TIERS.supporter.id) {
+        return cleanOptionalId(config && config.supporterVariantId) || cleanOptionalId(config && config.annualVariantId);
+    }
+
+    return cleanOptionalId(config && config.annualVariantId);
+}
+
+function isSupportedLemonSqueezyVariant(config, variantId) {
+    if (!variantId) return true;
+    return getLemonSqueezySupportedVariantIds(config).some(id => String(id) === String(variantId));
+}
+
+function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config, tier = CHECKOUT_TIERS.standard.id }) {
     const mode = getLemonSqueezyModeConfig(config);
     const successUrl = buildCheckoutReturnUrl(config.appBaseUrl, "success");
     const cancelUrl = buildCheckoutReturnUrl(config.appBaseUrl, "canceled");
     const email = cleanOptionalString(token.email);
     const name = cleanOptionalString(token.name) || cleanOptionalString(token.displayName);
+    const selectedTier = getCheckoutTierFromRequest({ tier });
+    const selectedVariantId = getLemonSqueezyVariantIdForTier(config, selectedTier);
+    const tierConfig = CHECKOUT_TIERS[selectedTier];
     const checkoutData = {
         custom: {
             firebase_uid: uid,
             source: "bark_ranger_map",
-            plan: "annual",
+            plan: tierConfig.customPlan,
+            tier: selectedTier,
             provider_mode: mode.mode,
             cancel_url: cancelUrl
         }
@@ -1212,8 +1266,11 @@ function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config }) {
             type: "checkouts",
             attributes: {
                 test_mode: mode.checkoutTestMode,
+                ...(selectedTier === CHECKOUT_TIERS.supporter.id && !cleanOptionalId(config.supporterVariantId)
+                    ? { custom_price: SUPPORTER_CUSTOM_PRICE_CENTS }
+                    : {}),
                 product_options: {
-                    enabled_variants: [Number(config.annualVariantId)],
+                    enabled_variants: [Number(selectedVariantId)],
                     redirect_url: successUrl,
                     receipt_button_text: "Return to BARK Ranger Map",
                     receipt_link_url: successUrl
@@ -1233,7 +1290,7 @@ function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config }) {
                 variant: {
                     data: {
                         type: "variants",
-                        id: String(config.annualVariantId)
+                        id: String(selectedVariantId)
                     }
                 }
             }
@@ -1390,7 +1447,6 @@ function buildLemonSqueezySubscriptionSyncEventId(providerSubscriptionId, attrib
 function buildLemonSqueezySubscriptionsListUrl(config, email) {
     const url = new URL(LEMONSQUEEZY_SUBSCRIPTIONS_URL);
     url.searchParams.set("filter[store_id]", String(config.storeId));
-    url.searchParams.set("filter[variant_id]", String(config.annualVariantId));
     url.searchParams.set("filter[user_email]", email);
     url.searchParams.set("page[size]", "10");
     return url.toString();
@@ -1421,7 +1477,7 @@ function subscriptionMatchesRestoreRequest(subscription, email, options = {}) {
     if (attributes.store_id !== undefined && String(attributes.store_id) !== String(config.storeId)) return false;
 
     const variantId = getLemonSqueezyVariantId({ data: subscription }, attributes);
-    if (variantId && String(variantId) !== String(config.annualVariantId)) return false;
+    if (!isSupportedLemonSqueezyVariant(config, variantId)) return false;
 
     const eventName = getLemonSqueezySubscriptionSyncEventName(attributes);
     const payload = buildLemonSqueezySubscriptionSyncPayload(subscription.id, { data: { data: subscription } }, eventName);
@@ -1657,7 +1713,8 @@ async function handleCreateCheckoutSession(requestOrData, context, options = {})
     const uid = requireVerifiedEmailCallable(context);
     const config = getLemonSqueezyConfig(options);
     const token = context && context.auth && context.auth.token ? context.auth.token : {};
-    const payload = buildLemonSqueezyCheckoutPayload({ uid, token, config });
+    const tier = getCheckoutTierFromRequest(requestOrData);
+    const payload = buildLemonSqueezyCheckoutPayload({ uid, token, config, tier });
     const post = options.axiosPost || axios.post;
 
     try {
@@ -2152,7 +2209,7 @@ function mapLemonSqueezyEntitlement(payload, eventName, options = {}) {
     }
 
     const variantId = getLemonSqueezyVariantId(payload, attributes);
-    if (variantId && String(variantId) !== String(config.annualVariantId)) {
+    if (!isSupportedLemonSqueezyVariant(config, variantId)) {
         return { action: "ignore", reason: "variant_mismatch" };
     }
 

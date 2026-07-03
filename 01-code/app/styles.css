@@ -2697,16 +2697,73 @@ body.app-tab-active #slide-panel {
 }
 
 .paywall-body-copy {
-    margin: 0 0 16px;
+    margin: 0 0 12px;
     color: #475569;
     font-size: 14px;
     line-height: 1.5;
 }
 
+.paywall-tier-group {
+    display: grid;
+    gap: 8px;
+    margin: 0 0 14px;
+}
+
+.paywall-tier-option {
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 10px;
+    align-items: center;
+    min-height: 56px;
+    padding: 10px 12px;
+    border: 1px solid #dbe3ec;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #0f172a;
+    text-align: left;
+    cursor: pointer;
+}
+
+.paywall-tier-option.selected {
+    border: 3px solid #0f766e;
+    padding: 8px 10px;
+    background: #f0fdfa;
+}
+
+.paywall-tier-radio {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #cbd5e1;
+    border-radius: 50%;
+    background: #ffffff;
+}
+
+.paywall-tier-option.selected .paywall-tier-radio {
+    border: 5px solid #0f766e;
+}
+
+.paywall-tier-copy {
+    display: grid;
+    gap: 2px;
+}
+
+.paywall-tier-title {
+    font-size: 14px;
+    line-height: 1.2;
+    font-weight: 900;
+}
+
+.paywall-tier-subtext {
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.35;
+    font-weight: 650;
+}
+
 .paywall-feature-list {
     display: grid;
     gap: 8px;
-    margin: 0 0 18px;
+    margin: 0 0 14px;
     padding: 0;
     list-style: none;
 }
@@ -2746,7 +2803,7 @@ body.app-tab-active #slide-panel {
 
 .paywall-actions {
     display: grid;
-    gap: 10px;
+    gap: 8px;
 }
 
 .paywall-primary-btn,
@@ -2780,24 +2837,45 @@ body.app-tab-active #slide-panel {
 }
 
 .paywall-secondary-btn,
-.paywall-restore-btn,
 .paywall-clear-url-btn {
     border: 1px solid #cbd5e1;
     background: #f8fafc;
     color: #475569;
 }
 
-.paywall-restore-btn,
 .paywall-clear-url-btn {
     width: 100%;
     margin-top: 10px;
 }
 
+.paywall-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    align-items: center;
+    justify-content: center;
+    margin: 12px 0 0;
+    text-align: center;
+}
+
 .paywall-support-copy {
-    margin: 14px 0 0;
     color: #64748b;
-    font-size: 12px;
-    line-height: 1.45;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.paywall-restore-btn {
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.35;
+    font-weight: 900;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    box-shadow: none;
 }
 
 .paywall-source {

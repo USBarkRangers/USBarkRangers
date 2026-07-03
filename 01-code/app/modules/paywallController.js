@@ -8,6 +8,10 @@
     window.BARK.services = window.BARK.services || {};
 
     const PRICE_COPY = '$15/year';
+    const PREMIUM_TIERS = Object.freeze({
+        standard: 'standard',
+        supporter: 'supporter'
+    });
     const PROVIDER = 'lemonsqueezy';
     const DEFAULT_VERIFYING_FALLBACK_MS = 15000;
     const CHECKOUT_EXTERNAL_PENDING_KEY = 'bark_checkout_external_pending';
@@ -21,6 +25,7 @@
     let checkoutInFlight = false;
     let restorePurchaseInFlight = false;
     let restoreStatusMessage = null;
+    let selectedTier = PREMIUM_TIERS.standard;
     let unsubscribePremium = null;
     let verificationFallbackTimer = null;
 
@@ -167,6 +172,25 @@
         const node = getElement(id);
         if (!node) return;
         node.hidden = !visible;
+    }
+
+    function isCheckoutTier(value) {
+        return value === PREMIUM_TIERS.standard || value === PREMIUM_TIERS.supporter;
+    }
+
+    function setSelectedTier(tier) {
+        selectedTier = isCheckoutTier(tier) ? tier : PREMIUM_TIERS.standard;
+        document.querySelectorAll('.paywall-tier-option[data-tier]').forEach(option => {
+            const isSelected = option.dataset.tier === selectedTier;
+            option.classList.toggle('selected', isSelected);
+            option.setAttribute('aria-checked', isSelected ? 'true' : 'false');
+            option.tabIndex = isSelected ? 0 : -1;
+        });
+    }
+
+    function setTierSelectorVisible(visible) {
+        const group = getElement('paywall-tier-group');
+        if (group) group.hidden = visible === false;
     }
 
     function setButtonState(button, options) {
@@ -704,12 +728,13 @@
 
         setText('paywall-eyebrow', state.eyebrow);
         setText('paywall-title', state.title);
-        setText('paywall-price', PRICE_COPY);
         setText('paywall-body', state.body);
         setText('paywall-source', `Opened from ${lastSource.replace(/-/g, ' ')}`);
         setVisible('paywall-clear-url-btn', state.clearVisible === true);
         setVisible('paywall-restore-btn', state.restoreVisible === true);
         setVisible('paywall-secondary-btn', state.secondaryVisible !== false);
+        setTierSelectorVisible(!['premium', 'verifying', 'verification-delayed', 'checkout-disabled'].includes(state.mode));
+        setSelectedTier(selectedTier);
 
         setButtonState(getElement('paywall-primary-btn'), {
             text: checkoutInFlight
@@ -876,7 +901,7 @@
             if (typeof window.BARK.incrementRequestCount === 'function') {
                 window.BARK.incrementRequestCount();
             }
-            const result = await createCheckoutSession({});
+            const result = await createCheckoutSession({ tier: selectedTier });
             const checkoutUrl = validateCheckoutUrl(result && result.data && result.data.checkoutUrl);
             if (!checkoutUrl) throw new Error('Checkout URL was missing from the backend response.');
             closeMapSurfacesForCheckout();
@@ -1027,6 +1052,28 @@
         bindClick('paywall-primary-btn', startCheckout);
         bindClick('profile-premium-action', startCheckout);
         bindClick('premium-upgrade-btn', handlePremiumUpgradeButton);
+
+        document.querySelectorAll('.paywall-tier-option[data-tier]').forEach(option => {
+            option.addEventListener('click', () => setSelectedTier(option.dataset.tier));
+            option.addEventListener('keydown', event => {
+                if (
+                    event.key !== 'ArrowDown' &&
+                    event.key !== 'ArrowUp' &&
+                    event.key !== 'ArrowLeft' &&
+                    event.key !== 'ArrowRight'
+                ) {
+                    return;
+                }
+                event.preventDefault();
+                const nextTier = selectedTier === PREMIUM_TIERS.standard
+                    ? PREMIUM_TIERS.supporter
+                    : PREMIUM_TIERS.standard;
+                setSelectedTier(nextTier);
+                const nextOption = document.querySelector(`.paywall-tier-option[data-tier="${nextTier}"]`);
+                if (nextOption) nextOption.focus({ preventScroll: true });
+            });
+        });
+        setSelectedTier(selectedTier);
 
         const overlay = getElement('paywall-overlay');
         if (overlay && overlay.dataset.paywallBound !== 'true') {

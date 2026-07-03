@@ -88,7 +88,7 @@ window.BARK = window.BARK || {};
                 btn.setAttribute('aria-disabled', 'false');
             } else {
                 btn.classList.remove('active');
-                btn.disabled = true;
+                btn.disabled = false;
                 btn.setAttribute('aria-disabled', 'true');
             }
         });

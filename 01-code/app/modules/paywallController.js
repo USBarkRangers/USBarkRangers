@@ -14,18 +14,18 @@
     });
     const TIER_FEATURES = Object.freeze({
         standard: Object.freeze([
-            'Visited-aware map filters',
-            'Advanced map styles',
-            'Virtual and completed trail controls',
-            'Add any town or city to trip plans',
-            'Premium routing tools'
+            "Know which parks you've conquered",
+            'Cleaner, sharper map styles',
+            'Track virtual & completed trails',
+            'Plan trips to any town or city',
+            'Get there with smarter routing'
         ]),
         supporter: Object.freeze([
-            'Everything included in Standard Premium',
-            'Supports the small team building BARK Ranger',
-            'Helps fund new map features and fixes',
-            'Early access to new features when available',
-            'Optional supporter tier: choose it only if you want to help'
+            'Everything in Standard, plus our thanks',
+            'Keeps BARK Ranger ad-free & independent',
+            'Funds new parks & features',
+            'Founding supporter status',
+            'Fully optional - Standard has every tool'
         ])
     });
     const PROVIDER = 'lemonsqueezy';
@@ -311,6 +311,8 @@
 
         if ([
             'virtual-trails',
+            'trail-tracker',
+            'walk-tracker',
             'premium-virtual-trail',
             'premium-trail-controls',
             'toggle-virtual-trail',

@@ -81,6 +81,10 @@ function blockLockedTrailToggle(button) {
     }
     removeTrailLayerGroup(virtualTrailLayerGroup);
     removeTrailLayerGroup(completedTrailsLayerGroup);
+    openTrailTrackerPremiumPrompt();
+}
+
+function openTrailTrackerPremiumPrompt() {
     const paywall = window.BARK && window.BARK.paywall;
     if (paywall && typeof paywall.openPaywall === 'function') {
         paywall.openPaywall({ source: 'trail-tracker' });
@@ -1010,6 +1014,10 @@ const WalkTracker = {
     async start() {
         if (!getCurrentFirebaseUser()) {
             openFreeAccountPrompt('expedition');
+            return;
+        }
+        if (!isExpeditionPremiumUnlocked()) {
+            openTrailTrackerPremiumPrompt();
             return;
         }
         if (!navigator.geolocation) return alert('GPS not supported');

@@ -12,6 +12,22 @@
         standard: 'standard',
         supporter: 'supporter'
     });
+    const TIER_FEATURES = Object.freeze({
+        standard: Object.freeze([
+            'Visited-aware map filters',
+            'Advanced map styles',
+            'Virtual and completed trail controls',
+            'Add any town or city to trip plans',
+            'Premium routing tools'
+        ]),
+        supporter: Object.freeze([
+            'Everything included in Standard Premium',
+            'Supports the small team building BARK Ranger',
+            'Helps fund new map features and fixes',
+            'Early access to new features when available',
+            'Optional supporter tier: choose it only if you want to help'
+        ])
+    });
     const PROVIDER = 'lemonsqueezy';
     const DEFAULT_VERIFYING_FALLBACK_MS = 15000;
     const CHECKOUT_EXTERNAL_PENDING_KEY = 'bark_checkout_external_pending';
@@ -186,6 +202,18 @@
             option.setAttribute('aria-checked', isSelected ? 'true' : 'false');
             option.tabIndex = isSelected ? 0 : -1;
         });
+        renderTierFeatureList();
+    }
+
+    function renderTierFeatureList() {
+        const list = getElement('paywall-feature-list') || document.querySelector('.paywall-feature-list');
+        if (!list) return;
+        const features = TIER_FEATURES[selectedTier] || TIER_FEATURES.standard;
+        list.replaceChildren(...features.map(feature => {
+            const item = document.createElement('li');
+            item.textContent = feature;
+            return item;
+        }));
     }
 
     function setTierSelectorVisible(visible) {

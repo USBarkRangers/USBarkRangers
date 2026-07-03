@@ -1011,12 +1011,16 @@ const CHECKOUT_TIERS = Object.freeze({
     standard: Object.freeze({
         id: "standard",
         plan: "annual",
-        customPlan: "standard_annual"
+        customPlan: "standard_annual",
+        productName: "US BARK Rangers Premium",
+        productDescription: "Annual Premium access for BARK Ranger map tools, offline support, and route planning."
     }),
     supporter: Object.freeze({
         id: "supporter",
         plan: "supporter_annual",
-        customPlan: "supporter_annual"
+        customPlan: "supporter_annual",
+        productName: "US BARK Rangers Supporter",
+        productDescription: "Annual Premium access plus extra support for new BARK Ranger features."
     })
 });
 
@@ -1233,6 +1237,21 @@ function getLemonSqueezyVariantIdForTier(config, tier) {
     return cleanOptionalId(config && config.annualVariantId);
 }
 
+function requireConfiguredSupporterVariantForLiveCheckout(config, selectedTier, mode) {
+    if (selectedTier !== CHECKOUT_TIERS.supporter.id) return;
+    if (mode && mode.mode !== "live") return;
+    if (cleanOptionalId(config && config.supporterVariantId)) return;
+
+    console.error("[payments] Supporter checkout blocked: live mode needs a real Lemon Squeezy supporter variant id.", {
+        envKey: BARK_LEMONSQUEEZY_SUPPORTER_VARIANT_ID_ENV,
+        annualVariantId: cleanOptionalId(config && config.annualVariantId) || null
+    });
+    throw new functions.https.HttpsError(
+        "failed-precondition",
+        "Supporter checkout is almost ready. Please choose Standard for now or contact support."
+    );
+}
+
 function isSupportedLemonSqueezyVariant(config, variantId) {
     if (!variantId) return true;
     return getLemonSqueezySupportedVariantIds(config).some(id => String(id) === String(variantId));
@@ -1245,6 +1264,7 @@ function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config, tier = CHEC
     const email = cleanOptionalString(token.email);
     const name = cleanOptionalString(token.name) || cleanOptionalString(token.displayName);
     const selectedTier = getCheckoutTierFromRequest({ tier });
+    requireConfiguredSupporterVariantForLiveCheckout(config, selectedTier, mode);
     const selectedVariantId = getLemonSqueezyVariantIdForTier(config, selectedTier);
     const tierConfig = CHECKOUT_TIERS[selectedTier];
     const checkoutData = {
@@ -1270,6 +1290,8 @@ function buildLemonSqueezyCheckoutPayload({ uid, token = {}, config, tier = CHEC
                     ? { custom_price: SUPPORTER_CUSTOM_PRICE_CENTS }
                     : {}),
                 product_options: {
+                    name: tierConfig.productName,
+                    description: tierConfig.productDescription,
                     enabled_variants: [Number(selectedVariantId)],
                     redirect_url: successUrl,
                     receipt_button_text: "Return to BARK Ranger Map",

@@ -320,6 +320,7 @@ describe("Lemon Squeezy checkout session helpers", () => {
         assert.equal(payload.data.type, "checkouts");
         assert.equal(payload.data.attributes.test_mode, true);
         assert.deepEqual(payload.data.attributes.product_options.enabled_variants, [1604336]);
+        assert.equal(payload.data.attributes.product_options.name, "US BARK Rangers Premium");
         assert.equal(
             payload.data.attributes.product_options.redirect_url,
             "https://outswarming.github.io/bark-ranger-map/?checkout=success&provider=lemonsqueezy"
@@ -344,7 +345,13 @@ describe("Lemon Squeezy checkout session helpers", () => {
         });
 
         assert.deepEqual(payload.data.attributes.product_options.enabled_variants, [2604336]);
+        assert.equal(payload.data.attributes.product_options.name, "US BARK Rangers Supporter");
+        assert.match(
+            payload.data.attributes.product_options.description,
+            /extra support for new BARK Ranger features/
+        );
         assert.equal(payload.data.relationships.variant.data.id, "2604336");
+        assert.equal(payload.data.attributes.custom_price, undefined);
         assert.equal(payload.data.attributes.checkout_data.custom.plan, "supporter_annual");
         assert.equal(payload.data.attributes.checkout_data.custom.tier, "supporter");
     });
@@ -363,7 +370,32 @@ describe("Lemon Squeezy checkout session helpers", () => {
         assert.deepEqual(payload.data.attributes.product_options.enabled_variants, [1604336]);
         assert.equal(payload.data.relationships.variant.data.id, "1604336");
         assert.equal(payload.data.attributes.custom_price, 4900);
+        assert.equal(payload.data.attributes.product_options.name, "US BARK Rangers Supporter");
         assert.equal(payload.data.attributes.checkout_data.custom.tier, "supporter");
+    });
+
+    it("blocks live supporter checkout when the $49 Lemon Squeezy variant is not configured", () => {
+        const liveConfig = getLemonSqueezyConfig({
+            apiKey: "live-api-key",
+            env: {
+                BARK_LEMON_MODE: "live",
+                BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
+                BARK_LEMONSQUEEZY_STORE_ID: "999001",
+                BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "888002",
+                BARK_APP_BASE_URL: "https://barkranger.example/"
+            }
+        });
+
+        assert.throws(
+            () => buildLemonSqueezyCheckoutPayload({
+                uid: "live-user",
+                token: { email: "live@example.test" },
+                config: liveConfig,
+                tier: "supporter"
+            }),
+            (error) => getHttpsErrorCode(error) === "failed-precondition" &&
+                /Supporter checkout is almost ready/.test(error.message)
+        );
     });
 
     it("builds live checkout only with explicit live mode, approval, and live ids", () => {

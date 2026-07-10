@@ -12,6 +12,9 @@
         standard: 'standard',
         supporter: 'supporter'
     });
+    const VISIBLE_PREMIUM_TIERS = Object.freeze([
+        PREMIUM_TIERS.standard
+    ]);
     const TIER_FEATURES = Object.freeze({
         standard: Object.freeze([
             "Know which parks you've conquered",
@@ -194,8 +197,38 @@
         return value === PREMIUM_TIERS.standard || value === PREMIUM_TIERS.supporter;
     }
 
+    function isVisibleCheckoutTier(value) {
+        return VISIBLE_PREMIUM_TIERS.includes(value);
+    }
+
+    function getDefaultVisibleTier() {
+        return VISIBLE_PREMIUM_TIERS[0] || PREMIUM_TIERS.standard;
+    }
+
+    function getVisibleTierOptions() {
+        return Array.from(document.querySelectorAll('.paywall-tier-option[data-tier]'))
+            .filter(option => isVisibleCheckoutTier(option.dataset.tier));
+    }
+
+    function syncTierOptionVisibility() {
+        document.querySelectorAll('.paywall-tier-option[data-tier]').forEach(option => {
+            const visible = isVisibleCheckoutTier(option.dataset.tier);
+            option.hidden = visible === false;
+            option.disabled = visible === false;
+            option.setAttribute('aria-hidden', visible ? 'false' : 'true');
+            if (!visible) {
+                option.setAttribute('aria-checked', 'false');
+                option.tabIndex = -1;
+                option.classList.remove('selected');
+            }
+        });
+    }
+
     function setSelectedTier(tier) {
-        selectedTier = isCheckoutTier(tier) ? tier : PREMIUM_TIERS.standard;
+        selectedTier = isCheckoutTier(tier) && isVisibleCheckoutTier(tier)
+            ? tier
+            : getDefaultVisibleTier();
+        syncTierOptionVisibility();
         document.querySelectorAll('.paywall-tier-option[data-tier]').forEach(option => {
             const isSelected = option.dataset.tier === selectedTier;
             option.classList.toggle('selected', isSelected);
@@ -923,6 +956,9 @@
 
         checkoutInFlight = true;
         restoreStatusMessage = null;
+        selectedTier = isVisibleCheckoutTier(selectedTier)
+            ? selectedTier
+            : getDefaultVisibleTier();
         renderCurrentState();
         let checkoutHandoffStarted = false;
 
@@ -1084,6 +1120,7 @@
         bindClick('premium-upgrade-btn', handlePremiumUpgradeButton);
 
         document.querySelectorAll('.paywall-tier-option[data-tier]').forEach(option => {
+            if (!isVisibleCheckoutTier(option.dataset.tier)) return;
             option.addEventListener('click', () => setSelectedTier(option.dataset.tier));
             option.addEventListener('keydown', event => {
                 if (
@@ -1095,11 +1132,11 @@
                     return;
                 }
                 event.preventDefault();
-                const nextTier = selectedTier === PREMIUM_TIERS.standard
-                    ? PREMIUM_TIERS.supporter
-                    : PREMIUM_TIERS.standard;
+                const visibleOptions = getVisibleTierOptions();
+                const currentIndex = visibleOptions.findIndex(visibleOption => visibleOption.dataset.tier === selectedTier);
+                const nextOption = visibleOptions[(currentIndex + 1) % visibleOptions.length] || visibleOptions[0];
+                const nextTier = nextOption ? nextOption.dataset.tier : getDefaultVisibleTier();
                 setSelectedTier(nextTier);
-                const nextOption = document.querySelector(`.paywall-tier-option[data-tier="${nextTier}"]`);
                 if (nextOption) nextOption.focus({ preventScroll: true });
             });
         });

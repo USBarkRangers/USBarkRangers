@@ -210,6 +210,18 @@
             .filter(option => isVisibleCheckoutTier(option.dataset.tier));
     }
 
+    function setTierOptionSelectionState(option, selected) {
+        if (!option) return;
+        const value = selected ? 'true' : 'false';
+        if (option.getAttribute('role') === 'radio') {
+            option.setAttribute('aria-checked', value);
+            option.removeAttribute('aria-pressed');
+        } else {
+            option.setAttribute('aria-pressed', value);
+            option.removeAttribute('aria-checked');
+        }
+    }
+
     function syncTierOptionVisibility() {
         document.querySelectorAll('.paywall-tier-option[data-tier]').forEach(option => {
             const visible = isVisibleCheckoutTier(option.dataset.tier);
@@ -217,7 +229,7 @@
             option.disabled = visible === false;
             option.setAttribute('aria-hidden', visible ? 'false' : 'true');
             if (!visible) {
-                option.setAttribute('aria-checked', 'false');
+                setTierOptionSelectionState(option, false);
                 option.tabIndex = -1;
                 option.classList.remove('selected');
             }
@@ -232,7 +244,7 @@
         document.querySelectorAll('.paywall-tier-option[data-tier]').forEach(option => {
             const isSelected = option.dataset.tier === selectedTier;
             option.classList.toggle('selected', isSelected);
-            option.setAttribute('aria-checked', isSelected ? 'true' : 'false');
+            setTierOptionSelectionState(option, isSelected);
             option.tabIndex = isSelected ? 0 : -1;
         });
         renderTierFeatureList();

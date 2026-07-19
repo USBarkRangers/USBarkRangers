@@ -5,6 +5,7 @@ const axios = require("axios");
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { google } = require('googleapis');
 const { createHash, createHmac, randomUUID, timingSafeEqual } = require("crypto");
+const nodemailer = require("nodemailer");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -2721,6 +2722,15 @@ async function handleLemonSqueezyWebhook(req, res, options = {}) {
     const secret = getLemonSqueezyWebhookSecret(options);
     if (!secret) {
         console.error("[payments] Lemon Squeezy webhook secret is not configured.");
+        await deliverPaymentAlert(
+            buildPaymentAlertPayload(
+                "lemonSqueezyWebhook",
+                new Error("Webhook secret is not configured — payment events cannot be processed."),
+                {},
+                { critical: true }
+            ),
+            options
+        );
         return safeResponse(res, 500, { ok: false, error: "webhook_not_configured" });
     }
 
@@ -2753,14 +2763,29 @@ async function handleLemonSqueezyWebhook(req, res, options = {}) {
         return safeResponse(res, 200, { ok: true, ignored: true, reason: mapping.reason || "ignored" });
     }
 
-    const result = await processLemonSqueezyWebhookEntitlement({
-        uid,
-        eventName,
-        eventId,
-        rawBody,
-        mapping,
-        payload
-    }, options);
+    let result;
+    try {
+        result = await processLemonSqueezyWebhookEntitlement({
+            uid,
+            eventName,
+            eventId,
+            rawBody,
+            mapping,
+            payload
+        }, options);
+    } catch (error) {
+        // A paid customer may now be charged-but-not-upgraded. Alert, and return
+        // 500 so Lemon Squeezy retries — duplicate events are deduped upstream.
+        await deliverPaymentAlert(
+            buildPaymentAlertPayload("lemonSqueezyWebhook", error, { uid }, {
+                eventName,
+                eventId,
+                critical: true
+            }),
+            options
+        );
+        return safeResponse(res, 500, { ok: false, error: "processing_failed" });
+    }
 
     if (result.duplicate) {
         return safeResponse(res, 200, { ok: true, duplicate: true });
@@ -2864,6 +2889,135 @@ async function handlePremiumGeocode(requestOrData, context, options = {}) {
     }
 }
 
+// ===== PAYMENT ERROR ALERTING =====
+// Emails a monitored inbox when a payment-critical function fails in a way that
+// signals a real problem (unexpected crash or server fault), so a charged-but-
+// not-upgraded customer never slips by unnoticed. Client-fault errors (auth,
+// rate limit, validation, "please verify email") are intentionally NOT alerted
+// so the inbox stays signal, not noise. A high-severity "[PAYMENT_ALERT]" log
+// line is always emitted, so alerts are recorded even if email is unavailable.
+
+const PAYMENT_ALERT_SERVER_FAULT_CODES = new Set([
+    "internal", "unknown", "unavailable", "data-loss", "deadline-exceeded", "aborted"
+]);
+
+// paymentAlertEmailSender is wired to a real email transport by
+// initPaymentAlertEmailSender() when alert-email env/secrets are configured.
+// Until then it stays null and alerts are log-only (safe, non-breaking).
+let paymentAlertEmailSender = null;
+
+function setPaymentAlertEmailSender(sender) {
+    paymentAlertEmailSender = typeof sender === "function" ? sender : null;
+}
+
+function shouldAlertOnPaymentError(error) {
+    if (!error) return false;
+    // A non-HttpsError is an unexpected crash — always worth an alert.
+    const code = error instanceof functions.https.HttpsError ? error.code : null;
+    if (!code) return true;
+    return PAYMENT_ALERT_SERVER_FAULT_CODES.has(code);
+}
+
+function extractAlertIdentity(context) {
+    const auth = context && context.auth;
+    if (!auth) return { uid: null, email: null };
+    const token = auth.token || {};
+    return { uid: auth.uid || null, email: token.email || null };
+}
+
+function buildPaymentAlertPayload(fnName, error, identity = {}, extra = {}) {
+    return {
+        fn: fnName,
+        uid: identity.uid || null,
+        email: identity.email || null,
+        errorCode: (error && error.code) || null,
+        errorMessage: (error && error.message) || String(error),
+        stack: (error && error.stack) || null,
+        project: process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || null,
+        timestamp: new Date().toISOString(),
+        ...extra
+    };
+}
+
+async function deliverPaymentAlert(payload, options = {}) {
+    console.error("[PAYMENT_ALERT]", JSON.stringify(payload));
+    const sender = options.emailSender || paymentAlertEmailSender;
+    if (typeof sender !== "function") return { emailed: false, reason: "no_sender" };
+    try {
+        await sender(payload);
+        return { emailed: true };
+    } catch (sendErr) {
+        // Never let alert delivery failure mask or replace the original error.
+        console.error("[PAYMENT_ALERT] email delivery failed:", sendErr && sendErr.message);
+        return { emailed: false, reason: "send_failed" };
+    }
+}
+
+function formatPaymentAlertEmailBody(payload) {
+    return [
+        `A payment-critical function failed on US BARK Rangers.`,
+        payload.critical ? `\n*** CRITICAL: a customer may be charged but not upgraded. ***` : "",
+        ``,
+        `Function:    ${payload.fn}`,
+        `Time:        ${payload.timestamp}`,
+        `Project:     ${payload.project || "unknown"}`,
+        payload.uid ? `User UID:    ${payload.uid}` : null,
+        payload.email ? `User email:  ${payload.email}` : null,
+        payload.eventName ? `Event:       ${payload.eventName}` : null,
+        payload.eventId ? `Event ID:    ${payload.eventId}` : null,
+        `Error code:  ${payload.errorCode || "n/a"}`,
+        `Error:       ${payload.errorMessage}`,
+        payload.stack ? `\nStack:\n${payload.stack}` : null,
+        ``,
+        `Check function logs:`,
+        `https://console.firebase.google.com/project/${payload.project || "barkrangermap-auth"}/functions/logs`
+    ].filter((line) => line !== null).join("\n");
+}
+
+// Wires the alert email transport from Firebase secrets on cold start. When the
+// alert credentials are absent (e.g. local tests), it stays log-only and never
+// throws — payment behavior is unaffected either way.
+function initPaymentAlertEmailSender() {
+    const user = process.env.ALERT_EMAIL_USER;
+    const pass = process.env.ALERT_EMAIL_PASSWORD;
+    if (!user || !pass) return;
+
+    const to = process.env.ALERT_EMAIL_TO || user;
+    const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: { user, pass }
+    });
+
+    setPaymentAlertEmailSender(async (payload) => {
+        await transporter.sendMail({
+            from: `US BARK Rangers Alerts <${user}>`,
+            to,
+            subject: `[BARK ALERT] ${payload.fn} failed${payload.critical ? " (CRITICAL)" : ""}`,
+            text: formatPaymentAlertEmailBody(payload)
+        });
+    });
+}
+
+// Wraps an onCall handler so any qualifying failure fires an alert, then
+// re-throws the original error unchanged (client behavior is preserved).
+function wrapCallableWithPaymentAlert(fnName, handler) {
+    return async (requestOrData, context) => {
+        try {
+            return await handler(requestOrData, context);
+        } catch (error) {
+            if (shouldAlertOnPaymentError(error)) {
+                await deliverPaymentAlert(
+                    buildPaymentAlertPayload(fnName, error, extractAlertIdentity(context))
+                );
+            }
+            throw error;
+        }
+    };
+}
+
+// Attempt to wire alert email from secrets on cold start (log-only if absent).
+initPaymentAlertEmailSender();
+
 exports.getPremiumRoute = functions
     .runWith({ secrets: ["ORS_API_KEY"], timeoutSeconds: 120 })
     .https.onCall(async (requestOrData, context) => {
@@ -2877,37 +3031,27 @@ exports.getPremiumGeocode = functions
     });
 
 exports.createCheckoutSession = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY"] })
-    .https.onCall(async (requestOrData, context) => {
-        return handleCreateCheckoutSession(requestOrData, context);
-    });
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .https.onCall(wrapCallableWithPaymentAlert("createCheckoutSession", handleCreateCheckoutSession));
 
 exports.redeemAccessOrPromoCode = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY"] })
-    .https.onCall(async (requestOrData, context) => {
-        return handleRedeemAccessOrPromoCode(requestOrData, context);
-    });
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .https.onCall(wrapCallableWithPaymentAlert("redeemAccessOrPromoCode", handleRedeemAccessOrPromoCode));
 
 exports.getCustomerPortalUrl = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY"] })
-    .https.onCall(async (requestOrData, context) => {
-        return handleGetCustomerPortalUrl(requestOrData, context);
-    });
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .https.onCall(wrapCallableWithPaymentAlert("getCustomerPortalUrl", handleGetCustomerPortalUrl));
 
 exports.restorePremiumPurchase = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY"] })
-    .https.onCall(async (requestOrData, context) => {
-        return handleRestorePremiumPurchase(requestOrData, context);
-    });
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .https.onCall(wrapCallableWithPaymentAlert("restorePremiumPurchase", handleRestorePremiumPurchase));
 
 exports.cancelPremiumSubscription = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY"] })
-    .https.onCall(async (requestOrData, context) => {
-        return handleCancelPremiumSubscription(requestOrData, context);
-    });
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .https.onCall(wrapCallableWithPaymentAlert("cancelPremiumSubscription", handleCancelPremiumSubscription));
 
 exports.lemonSqueezyWebhook = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
     .https.onRequest(async (req, res) => {
         return handleLemonSqueezyWebhook(req, res);
     });
@@ -2975,7 +3119,13 @@ if (process.env.NODE_ENV === "test") {
         handleLemonSqueezyWebhook,
         calculateServerLeaderboardScore,
         handleSyncLeaderboardScore,
-        getManualCoordinates
+        getManualCoordinates,
+        shouldAlertOnPaymentError,
+        extractAlertIdentity,
+        buildPaymentAlertPayload,
+        deliverPaymentAlert,
+        wrapCallableWithPaymentAlert,
+        setPaymentAlertEmailSender
     };
 }
 

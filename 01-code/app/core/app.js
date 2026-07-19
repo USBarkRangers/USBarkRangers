@@ -176,6 +176,7 @@
         await callInit('initWatermarkTool', 'Watermark tool initialized');
         await callInit('initOfficialQRCode', 'Official QR initialized');
         await callInit('initCSVExport', 'Share engine initialized');
+        await callInit('initFirstOpenDisclaimer', 'First-open disclaimer initialized');
 
         // 4. Firebase — separate try/catch because a throw here means auth is gone,
         //    not just one feature. Named clearly so the console error is unambiguous.

@@ -44,6 +44,16 @@ const FEEDBACK_RATE_LIMIT = {
     message: "Feedback submission limit reached. Please try again shortly."
 };
 
+// Caps how many client-error ALERT EMAILS a single user can trigger per window.
+// Firestore records of client errors are NOT capped — every report is logged;
+// only the email side is throttled so one user's broken screen can't flood.
+const CLIENT_ERROR_RATE_LIMIT = {
+    maxRequests: 6,
+    windowMs: 60 * 60 * 1000,
+    envMaxKey: "BARK_RATE_LIMIT_CLIENT_ERROR_MAX",
+    envWindowKey: "BARK_RATE_LIMIT_CLIENT_ERROR_WINDOW_MS"
+};
+
 const FUNCTION_FLAG_CONFIG = Object.freeze({
     getPremiumRoute: {
         envKey: "BARK_ENABLE_PREMIUM_ROUTE",
@@ -2939,10 +2949,52 @@ function buildPaymentAlertPayload(fnName, error, identity = {}, extra = {}) {
     };
 }
 
+// In-memory alert throttle (per function instance). Stops an outage or an error
+// loop from flooding the inbox: the same error signature emails at most once per
+// cooldown, with a hard hourly cap. Every alert is still logged regardless, so
+// nothing is lost — only the email side is throttled.
+const ALERT_DEDUP_COOLDOWN_MS = 5 * 60 * 1000;
+const ALERT_MAX_EMAILS_PER_HOUR = 20;
+const _alertSignatureLastSent = new Map();
+let _alertHourWindowStart = 0;
+let _alertHourEmailCount = 0;
+
+function resetAlertThrottle() {
+    _alertSignatureLastSent.clear();
+    _alertHourWindowStart = 0;
+    _alertHourEmailCount = 0;
+}
+
+function alertEmailAllowed(payload, now = Date.now()) {
+    if (now - _alertHourWindowStart >= 60 * 60 * 1000) {
+        _alertHourWindowStart = now;
+        _alertHourEmailCount = 0;
+    }
+    if (_alertHourEmailCount >= ALERT_MAX_EMAILS_PER_HOUR) return false;
+
+    const signature = [
+        payload.fn || "unknown",
+        payload.errorCode || "",
+        String(payload.errorMessage || "").slice(0, 140)
+    ].join("|");
+    const lastSent = _alertSignatureLastSent.get(signature);
+    if (lastSent && (now - lastSent) < ALERT_DEDUP_COOLDOWN_MS) return false;
+
+    _alertSignatureLastSent.set(signature, now);
+    _alertHourEmailCount += 1;
+    if (_alertSignatureLastSent.size > 500) {
+        for (const [key, ts] of _alertSignatureLastSent) {
+            if (now - ts > ALERT_DEDUP_COOLDOWN_MS) _alertSignatureLastSent.delete(key);
+        }
+    }
+    return true;
+}
+
 async function deliverPaymentAlert(payload, options = {}) {
     console.error("[PAYMENT_ALERT]", JSON.stringify(payload));
     const sender = options.emailSender || paymentAlertEmailSender;
     if (typeof sender !== "function") return { emailed: false, reason: "no_sender" };
+    if (!alertEmailAllowed(payload)) return { emailed: false, reason: "throttled" };
     try {
         await sender(payload);
         return { emailed: true };
@@ -2963,6 +3015,11 @@ function formatPaymentAlertEmailBody(payload) {
         `Project:     ${payload.project || "unknown"}`,
         payload.uid ? `User UID:    ${payload.uid}` : null,
         payload.email ? `User email:  ${payload.email}` : null,
+        payload.source ? `Source:      ${payload.source}` : null,
+        payload.appVersion ? `App version: ${payload.appVersion}` : null,
+        payload.clientPath ? `Path:        ${payload.clientPath}` : null,
+        payload.userAgent ? `User agent:  ${payload.userAgent}` : null,
+        Number.isFinite(payload.durationMs) ? `Freeze (ms): ${payload.durationMs}` : null,
         payload.eventName ? `Event:       ${payload.eventName}` : null,
         payload.eventId ? `Event ID:    ${payload.eventId}` : null,
         `Error code:  ${payload.errorCode || "n/a"}`,
@@ -3015,20 +3072,135 @@ function wrapCallableWithPaymentAlert(fnName, handler) {
     };
 }
 
+// ===== CLIENT-SIDE ERROR REPORTING =====
+// The browser app reports uncaught errors, unhandled promise rejections, and UI
+// freezes here. Every report is written to the "clientErrors" collection (the
+// durable log); an alert email is sent only while under the per-user cap so a
+// single broken screen can't flood the inbox. Reporting must never disrupt the
+// app, so persistence and email failures are swallowed.
+
+const CLIENT_ERROR_TYPES = new Set(["error", "unhandledrejection", "freeze", "boot", "other"]);
+
+function cleanClientErrorType(value) {
+    const text = typeof value === "string" ? value.trim().toLowerCase() : "";
+    return CLIENT_ERROR_TYPES.has(text) ? text : "error";
+}
+
+function getClientErrorRateLimit(options = {}) {
+    const env = options.env || process.env;
+    const override = options.clientErrorRateLimit || {};
+    return {
+        maxRequests: parsePositiveInteger(
+            override.maxRequests === undefined ? env[CLIENT_ERROR_RATE_LIMIT.envMaxKey] : override.maxRequests,
+            CLIENT_ERROR_RATE_LIMIT.maxRequests
+        ),
+        windowMs: parsePositiveInteger(
+            override.windowMs === undefined ? env[CLIENT_ERROR_RATE_LIMIT.envWindowKey] : override.windowMs,
+            CLIENT_ERROR_RATE_LIMIT.windowMs
+        )
+    };
+}
+
+// True if this uid may still receive a client-error alert email this window (and
+// records the send). Never throws on over-limit — it just returns false so the
+// report is logged without an email.
+async function clientErrorEmailAllowed(uid, options = {}) {
+    const limit = getClientErrorRateLimit(options);
+    const db = options.firestore || admin.firestore();
+    if (!db || typeof db.runTransaction !== "function") return false;
+
+    const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
+    const windowStart = Math.floor(now / limit.windowMs) * limit.windowMs;
+    const windowEndsAt = windowStart + limit.windowMs;
+    const safeUid = encodeURIComponent(uid);
+    const ref = db.collection("_clientErrorEmailLimits").doc(`${safeUid}_${windowStart}`);
+
+    let allowed = false;
+    await db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(ref);
+        const currentCount = snapshot.exists ? Number(snapshot.data().count || 0) : 0;
+        if (currentCount >= limit.maxRequests) {
+            allowed = false;
+            return;
+        }
+        allowed = true;
+        transaction.set(ref, {
+            uid,
+            count: currentCount + 1,
+            limit: limit.maxRequests,
+            windowStart: Timestamp.fromMillis(windowStart),
+            windowEndsAt: Timestamp.fromMillis(windowEndsAt),
+            expiresAt: Timestamp.fromMillis(windowEndsAt + 24 * 60 * 60 * 1000),
+            updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+    });
+    return allowed;
+}
+
+async function handleReportClientError(requestOrData, context, options = {}) {
+    const uid = requireAuthCallable(context);
+    const payload = getCallablePayload(requestOrData);
+    const token = getCallableAuthToken(context);
+    const db = options.firestore || admin.firestore();
+
+    const type = cleanClientErrorType(payload.type);
+    const durationMsRaw = Number(payload.durationMs);
+    const record = {
+        uid,
+        email: cleanFeedbackString(token.email, 254),
+        type,
+        message: cleanFeedbackString(payload.message, 500) || "(no message)",
+        stack: cleanFeedbackString(payload.stack, 4000),
+        path: cleanFeedbackString(payload.path, 300),
+        userAgent: cleanFeedbackString(payload.userAgent, 300),
+        appVersion: cleanFeedbackString(payload.appVersion == null ? "" : String(payload.appVersion), 20),
+        durationMs: Number.isFinite(durationMsRaw) ? durationMsRaw : null,
+        source: "client",
+        status: "new",
+        createdAt: FieldValue.serverTimestamp()
+    };
+
+    // Always persist first — this is the durable log even when email is throttled.
+    try {
+        await db.collection("clientErrors").add(record);
+    } catch (err) {
+        console.error("[clientError] failed to persist report:", err && err.message);
+    }
+
+    // Email under the per-uid cap; swallow every issue so the client is never disrupted.
+    try {
+        if (await clientErrorEmailAllowed(uid, options)) {
+            await deliverPaymentAlert(buildPaymentAlertPayload(
+                `client/${type}`,
+                { message: record.message, stack: record.stack },
+                { uid, email: record.email },
+                {
+                    source: "client",
+                    clientPath: record.path,
+                    userAgent: record.userAgent,
+                    appVersion: record.appVersion,
+                    durationMs: record.durationMs,
+                    critical: type === "freeze"
+                }
+            ), options);
+        }
+    } catch (err) {
+        console.error("[clientError] alert delivery issue:", err && err.message);
+    }
+
+    return { ok: true };
+}
+
 // Attempt to wire alert email from secrets on cold start (log-only if absent).
 initPaymentAlertEmailSender();
 
 exports.getPremiumRoute = functions
-    .runWith({ secrets: ["ORS_API_KEY"], timeoutSeconds: 120 })
-    .https.onCall(async (requestOrData, context) => {
-        return handlePremiumRoute(requestOrData, context);
-    });
+    .runWith({ secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"], timeoutSeconds: 120 })
+    .https.onCall(wrapCallableWithPaymentAlert("getPremiumRoute", handlePremiumRoute));
 
 exports.getPremiumGeocode = functions
-    .runWith({ secrets: ["ORS_API_KEY"] })
-    .https.onCall(async (requestOrData, context) => {
-        return handlePremiumGeocode(requestOrData, context);
-    });
+    .runWith({ secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .https.onCall(wrapCallableWithPaymentAlert("getPremiumGeocode", handlePremiumGeocode));
 
 exports.createCheckoutSession = functions
     .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
@@ -3056,18 +3228,24 @@ exports.lemonSqueezyWebhook = functions
         return handleLemonSqueezyWebhook(req, res);
     });
 
-exports.syncLeaderboardScore = functions.https.onCall(async (requestOrData, context) => {
-    return handleSyncLeaderboardScore(requestOrData, context);
-});
+exports.syncLeaderboardScore = functions
+    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .https.onCall(wrapCallableWithPaymentAlert("syncLeaderboardScore", handleSyncLeaderboardScore));
 
-exports.submitFeedback = functions.https.onCall(async (requestOrData, context) => {
-    return handleSubmitFeedback(requestOrData, context);
-});
+exports.submitFeedback = functions
+    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .https.onCall(wrapCallableWithPaymentAlert("submitFeedback", handleSubmitFeedback));
 
 exports.deleteAccount = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .https.onCall(wrapCallableWithPaymentAlert("deleteAccount", handleDeleteAccount));
+
+// Client-side error/freeze reports from the browser app. Handler swallows its
+// own failures and always returns ok, so it is intentionally not alert-wrapped.
+exports.reportClientError = functions
+    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
     .https.onCall(async (requestOrData, context) => {
-        return handleDeleteAccount(requestOrData, context);
+        return handleReportClientError(requestOrData, context);
     });
 
 if (process.env.NODE_ENV === "test") {
@@ -3125,7 +3303,13 @@ if (process.env.NODE_ENV === "test") {
         buildPaymentAlertPayload,
         deliverPaymentAlert,
         wrapCallableWithPaymentAlert,
-        setPaymentAlertEmailSender
+        setPaymentAlertEmailSender,
+        resetAlertThrottle,
+        alertEmailAllowed,
+        cleanClientErrorType,
+        getClientErrorRateLimit,
+        clientErrorEmailAllowed,
+        handleReportClientError
     };
 }
 

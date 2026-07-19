@@ -695,7 +695,7 @@
                         </div>
 
                         <p class="settings-version-footer">
-                            US BARK Ranger © v<span id="settings-app-version">54</span>
+                            US BARK Ranger © v<span id="settings-app-version">55</span>
                         </p>
                         <p class="settings-legal-links"
                             style="text-align: center; font-size: 12px; margin-top: 8px;">
@@ -1475,6 +1475,9 @@
     <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-functions-compat.js"></script>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+    <!-- Error/freeze reporter — load early so it catches errors during the rest of boot -->
+    <script src="modules/errorReporter.js?v=1" defer></script>
     <!-- Core Dependencies (load before modules) -->
     <script src="utils/geoUtils.js?v=1" defer></script>
     <script src="utils/scoringUtils.js?v=2" defer></script>

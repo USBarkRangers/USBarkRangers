@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { describe, it, afterEach } = require("node:test");
+const { describe, it, beforeEach, afterEach } = require("node:test");
 
 process.env.NODE_ENV = "test";
 
@@ -12,7 +12,8 @@ const {
         buildPaymentAlertPayload,
         deliverPaymentAlert,
         wrapCallableWithPaymentAlert,
-        setPaymentAlertEmailSender
+        setPaymentAlertEmailSender,
+        resetAlertThrottle
     }
 } = require("../index.js");
 
@@ -20,9 +21,15 @@ function httpsError(code, message = "boom") {
     return new functions.https.HttpsError(code, message);
 }
 
+beforeEach(() => {
+    // Start each test with a clean throttle so dedup/hourly caps don't bleed across tests.
+    resetAlertThrottle();
+});
+
 afterEach(() => {
     // Never leak a stubbed sender between tests.
     setPaymentAlertEmailSender(null);
+    resetAlertThrottle();
 });
 
 describe("shouldAlertOnPaymentError", () => {
@@ -104,6 +111,28 @@ describe("deliverPaymentAlert", () => {
         );
         assert.equal(result.emailed, false);
         assert.equal(result.reason, "send_failed");
+    });
+
+    it("throttles a repeated identical alert (dedup) but still logs it", async () => {
+        let sends = 0;
+        const sender = async () => { sends += 1; };
+        const payload = { fn: "getPremiumRoute", errorCode: "internal", errorMessage: "ORS down" };
+
+        const first = await deliverPaymentAlert(payload, { emailSender: sender });
+        const second = await deliverPaymentAlert(payload, { emailSender: sender });
+
+        assert.equal(first.emailed, true);
+        assert.equal(second.emailed, false);
+        assert.equal(second.reason, "throttled");
+        assert.equal(sends, 1);
+    });
+
+    it("does not throttle distinct error signatures", async () => {
+        let sends = 0;
+        const sender = async () => { sends += 1; };
+        await deliverPaymentAlert({ fn: "a", errorMessage: "one" }, { emailSender: sender });
+        await deliverPaymentAlert({ fn: "b", errorMessage: "two" }, { emailSender: sender });
+        assert.equal(sends, 2);
     });
 });
 

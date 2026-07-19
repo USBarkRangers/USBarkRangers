@@ -236,6 +236,9 @@ function parseCSVString(csvString, options = {}) {
         return;
     }
     isRendering = true;
+    if (window.BARK && typeof window.BARK.perfBreadcrumb === 'function') {
+        window.BARK.perfBreadcrumb('csv-parse:' + Math.round(csvString.length / 1024) + 'kb');
+    }
     Papa.parse(csvString, {
         header: true,
         dynamicTyping: true,

@@ -107,17 +107,24 @@ describe("handleReportClientError", () => {
         assert.equal(sent[0].source, "client");
     });
 
-    it("flags freezes as critical and carries the duration", async () => {
+    it("reports freezes with duration and context, without the payment-critical flag", async () => {
         const firestore = makeFirestore();
         const sent = [];
         await handleReportClientError(
-            { type: "freeze", message: "UI unresponsive", durationMs: 6200 },
+            {
+                type: "freeze",
+                message: "UI unresponsive",
+                durationMs: 6200,
+                context: "vis=visible;sinceVisChange=45s;crumbs=marker-sync:1987+2s"
+            },
             authedContext(),
             { firestore, emailSender: async (p) => { sent.push(p); } }
         );
         assert.equal(sent[0].fn, "client/freeze");
-        assert.equal(sent[0].critical, true);
+        assert.ok(!sent[0].critical);
         assert.equal(sent[0].durationMs, 6200);
+        assert.equal(sent[0].clientContext, "vis=visible;sinceVisChange=45s;crumbs=marker-sync:1987+2s");
+        assert.equal(firestore.state.adds[0].context, "vis=visible;sinceVisChange=45s;crumbs=marker-sync:1987+2s");
     });
 
     it("still persists but does NOT email once the per-user cap is hit", async () => {

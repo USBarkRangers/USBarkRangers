@@ -13,7 +13,8 @@ const {
         deliverPaymentAlert,
         wrapCallableWithPaymentAlert,
         setPaymentAlertEmailSender,
-        resetAlertThrottle
+        resetAlertThrottle,
+        formatPaymentAlertEmailBody
     }
 } = require("../index.js");
 
@@ -83,6 +84,36 @@ describe("buildPaymentAlertPayload", () => {
         assert.equal(payload.eventName, "order_created");
         assert.equal(payload.critical, true);
         assert.ok(payload.timestamp);
+    });
+});
+
+describe("formatPaymentAlertEmailBody", () => {
+    it("uses payment wording (and the CRITICAL banner) for server payment faults", () => {
+        const body = formatPaymentAlertEmailBody({
+            fn: "lemonSqueezyWebhook",
+            critical: true,
+            errorMessage: "boom",
+            timestamp: "t"
+        });
+        assert.ok(body.includes("payment-critical function failed"));
+        assert.ok(body.includes("charged but not upgraded"));
+    });
+
+    it("uses client wording WITHOUT payment language for client reports", () => {
+        const body = formatPaymentAlertEmailBody({
+            fn: "client/freeze",
+            source: "client",
+            critical: true, // even if set, client reports must never claim payment risk
+            errorMessage: "UI stalled for ~11226ms",
+            clientContext: "vis=visible;crumbs=marker-sync:1987+1s",
+            durationMs: 11226,
+            timestamp: "t"
+        });
+        assert.ok(body.includes("client-side issue"));
+        assert.ok(!body.includes("charged but not upgraded"));
+        assert.ok(!body.includes("payment-critical"));
+        assert.ok(body.includes("Context:     vis=visible;crumbs=marker-sync:1987+1s"));
+        assert.ok(body.includes("Freeze (ms): 11226"));
     });
 });
 

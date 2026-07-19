@@ -3006,9 +3006,12 @@ async function deliverPaymentAlert(payload, options = {}) {
 }
 
 function formatPaymentAlertEmailBody(payload) {
+    const isClientReport = payload.source === "client";
     return [
-        `A payment-critical function failed on US BARK Rangers.`,
-        payload.critical ? `\n*** CRITICAL: a customer may be charged but not upgraded. ***` : "",
+        isClientReport
+            ? `A user's browser reported a client-side issue on US BARK Rangers.`
+            : `A payment-critical function failed on US BARK Rangers.`,
+        (!isClientReport && payload.critical) ? `\n*** CRITICAL: a customer may be charged but not upgraded. ***` : "",
         ``,
         `Function:    ${payload.fn}`,
         `Time:        ${payload.timestamp}`,
@@ -3019,6 +3022,7 @@ function formatPaymentAlertEmailBody(payload) {
         payload.appVersion ? `App version: ${payload.appVersion}` : null,
         payload.clientPath ? `Path:        ${payload.clientPath}` : null,
         payload.userAgent ? `User agent:  ${payload.userAgent}` : null,
+        payload.clientContext ? `Context:     ${payload.clientContext}` : null,
         Number.isFinite(payload.durationMs) ? `Freeze (ms): ${payload.durationMs}` : null,
         payload.eventName ? `Event:       ${payload.eventName}` : null,
         payload.eventId ? `Event ID:    ${payload.eventId}` : null,
@@ -3042,14 +3046,26 @@ function initPaymentAlertEmailSender() {
     const to = process.env.ALERT_EMAIL_TO || user;
     const transporter = nodemailer.createTransport({
         service: "gmail",
-        auth: { user, pass }
+        auth: { user, pass },
+        // Pool the SMTP connection: without it every alert pays a fresh
+        // handshake (~8s of function time). Timeouts keep a bad SMTP day from
+        // hanging the function.
+        pool: true,
+        maxConnections: 1,
+        maxMessages: 50,
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000
     });
 
     setPaymentAlertEmailSender(async (payload) => {
+        const subject = payload.source === "client"
+            ? `[BARK ALERT] ${payload.fn} report`
+            : `[BARK ALERT] ${payload.fn} failed${payload.critical ? " (CRITICAL)" : ""}`;
         await transporter.sendMail({
             from: `US BARK Rangers Alerts <${user}>`,
             to,
-            subject: `[BARK ALERT] ${payload.fn} failed${payload.critical ? " (CRITICAL)" : ""}`,
+            subject,
             text: formatPaymentAlertEmailBody(payload)
         });
     });
@@ -3154,6 +3170,7 @@ async function handleReportClientError(requestOrData, context, options = {}) {
         path: cleanFeedbackString(payload.path, 300),
         userAgent: cleanFeedbackString(payload.userAgent, 300),
         appVersion: cleanFeedbackString(payload.appVersion == null ? "" : String(payload.appVersion), 20),
+        context: cleanFeedbackString(payload.context, 500),
         durationMs: Number.isFinite(durationMsRaw) ? durationMsRaw : null,
         source: "client",
         status: "new",
@@ -3179,8 +3196,8 @@ async function handleReportClientError(requestOrData, context, options = {}) {
                     clientPath: record.path,
                     userAgent: record.userAgent,
                     appVersion: record.appVersion,
-                    durationMs: record.durationMs,
-                    critical: type === "freeze"
+                    clientContext: record.context,
+                    durationMs: record.durationMs
                 }
             ), options);
         }
@@ -3306,6 +3323,7 @@ if (process.env.NODE_ENV === "test") {
         setPaymentAlertEmailSender,
         resetAlertThrottle,
         alertEmailAllowed,
+        formatPaymentAlertEmailBody,
         cleanClientErrorType,
         getClientErrorRateLimit,
         clientErrorEmailAllowed,

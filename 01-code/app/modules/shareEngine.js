@@ -66,6 +66,9 @@ async function executeCanvasExport(element, filename) {
     if (!element) return;
     element.style.left = '0';
     element.style.zIndex = '9999';
+    if (window.BARK && typeof window.BARK.perfBreadcrumb === 'function') {
+        window.BARK.perfBreadcrumb('canvas-export');
+    }
     try {
         const canvas = await html2canvas(element, { scale: 2, backgroundColor: '#0f172a' });
         const dataUrl = canvas.toDataURL('image/png');
@@ -121,6 +124,7 @@ window.shareVaultCard = async function () {
             badgeContainer.innerHTML += `<div style="width: 240px; height: 340px; background: ${bg}; border: 6px solid ${border}; border-radius: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); text-align: center; flex-shrink: 0;"><div style="font-size: 60px; margin-bottom: 12px;">${b.icon}</div><div style="font-size: 20px; font-weight: 900; color: ${textColor}; text-transform: uppercase; line-height: 1.1; margin-bottom: 12px;">${b.name}</div><div style="font-size: 13px; font-weight: 600; color: ${textColor}; opacity: 0.85; line-height: 1.4; padding: 0 10px;">${subtitle}</div></div>`;
         });
 
+        if (window.BARK && typeof window.BARK.perfBreadcrumb === 'function') window.BARK.perfBreadcrumb('vault-export');
         const canvas = await html2canvas(document.getElementById('vault-export-template'), { scale: 2, useCORS: true, backgroundColor: '#0f172a' });
         canvas.toBlob(async (blob) => {
             const file = new File([blob], "My_Bark_Ranger_Vault.png", { type: "image/png" });
@@ -146,6 +150,7 @@ window.shareSingleBadge = async function (name, icon, tier, isMystery, subtitle)
         const container = document.getElementById('single-export-card-container');
         container.innerHTML = `<div style="width: 500px; height: 600px; background: ${bg}; border: 12px solid ${border}; border-radius: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; box-shadow: 0 40px 80px rgba(0,0,0,0.6); text-align: center;"><div style="font-size: 150px; margin-bottom: 30px; filter: drop-shadow(0 10px 10px rgba(0,0,0,0.4));">${icon}</div><div style="font-size: 48px; font-weight: 900; color: ${textColor}; text-transform: uppercase; line-height: 1.1; margin-bottom: 20px;">${name}</div><div style="font-size: 24px; font-weight: 600; color: ${textColor}; opacity: 0.9; line-height: 1.4; padding: 0 20px;">${subtitle || ''}</div></div>`;
 
+        if (window.BARK && typeof window.BARK.perfBreadcrumb === 'function') window.BARK.perfBreadcrumb('single-export');
         const canvas = await html2canvas(document.getElementById('single-export-template'), { scale: 2, useCORS: true, backgroundColor: '#0f172a' });
         canvas.toBlob(async (blob) => {
             const file = new File([blob], `Unlocked_${name.replace(/\s+/g, '_')}.png`, { type: "image/png" });
@@ -201,6 +206,9 @@ function initWatermarkTool() {
         if (!currentPhotoImg || !currentLogoImg) return;
         const ctx = wmCanvas.getContext('2d');
         const isFullRes = wmHighRes && wmHighRes.checked;
+        if (window.BARK && typeof window.BARK.perfBreadcrumb === 'function') {
+            window.BARK.perfBreadcrumb('watermark-draw:' + (isFullRes ? 'full' : 'preview'));
+        }
         const PREVIEW_WIDTH = 1200;
         let width = currentPhotoImg.width, height = currentPhotoImg.height;
         if (!isFullRes && width > PREVIEW_WIDTH) { height = height * (PREVIEW_WIDTH / width); width = PREVIEW_WIDTH; }

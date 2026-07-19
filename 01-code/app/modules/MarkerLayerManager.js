@@ -248,6 +248,9 @@ class MarkerLayerManager {
     }
 
     moveMarkersToLayer(points, targetLayerType, options = {}) {
+        if (window.BARK && typeof window.BARK.perfBreadcrumb === 'function') {
+            window.BARK.perfBreadcrumb('marker-layers:' + points.length + (options.forceReset === true ? ':reset' : ''));
+        }
         if (options.forceReset === true) {
             this.resetLayerMembership(points);
         }
@@ -325,6 +328,9 @@ class MarkerLayerManager {
     }
 
     sync(points = (getParkRepo() ? getParkRepo().getAll() : []), options = {}) {
+        if (window.BARK && typeof window.BARK.perfBreadcrumb === 'function') {
+            window.BARK.perfBreadcrumb('marker-sync:' + points.length);
+        }
         const incomingIds = new Set();
         const shouldApplyLayers = options.applyLayers !== false;
         const targetLayerType = shouldApplyLayers ? this.getTargetLayerType() : null;

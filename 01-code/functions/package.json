@@ -15,6 +15,6 @@
   "main": "index.js",
   "private": true,
   "scripts": {
-    "test": "NODE_ENV=test node --test tests/ors-entitlement.test.js tests/checkout-session.test.js tests/lemonsqueezy-webhook.test.js tests/leaderboard-sync.test.js tests/lemon-coupon.test.js tests/feedback.test.js tests/payment-alert.test.js tests/client-error-report.test.js"
+    "test": "NODE_ENV=test node --test tests/ors-entitlement.test.js tests/checkout-session.test.js tests/lemonsqueezy-webhook.test.js tests/leaderboard-sync.test.js tests/lemon-coupon.test.js tests/feedback.test.js tests/payment-alert.test.js tests/client-error-report.test.js tests/error-digest.test.js"
   }
 }

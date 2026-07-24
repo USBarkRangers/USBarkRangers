@@ -26,8 +26,8 @@ window.BARK = window.BARK || {};
 (function () {
     // Overridable for tests via window.BARK_ERROR_REPORTER_CONFIG.
     const CFG = Object.assign({
-        maxReportsPerSession: 8,
-        minSendIntervalMs: 8000,
+        maxReportsPerSession: 15,   // more sensitive for the launch bug hunt
+        minSendIntervalMs: 3000,    // let distinct errors close together through
         heartbeatMs: 2000,
         freezeThresholdMs: 5000,    // only a stall beyond this counts as a freeze
         suspendCapMs: 30000,        // drift beyond this = tab suspension, not a freeze

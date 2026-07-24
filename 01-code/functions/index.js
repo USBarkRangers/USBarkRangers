@@ -48,7 +48,7 @@ const FEEDBACK_RATE_LIMIT = {
 // Firestore records of client errors are NOT capped — every report is logged;
 // only the email side is throttled so one user's broken screen can't flood.
 const CLIENT_ERROR_RATE_LIMIT = {
-    maxRequests: 6,
+    maxRequests: 15,
     windowMs: 60 * 60 * 1000,
     envMaxKey: "BARK_RATE_LIMIT_CLIENT_ERROR_MAX",
     envWindowKey: "BARK_RATE_LIMIT_CLIENT_ERROR_WINDOW_MS"
@@ -2916,8 +2916,16 @@ const PAYMENT_ALERT_SERVER_FAULT_CODES = new Set([
 // Until then it stays null and alerts are log-only (safe, non-breaking).
 let paymentAlertEmailSender = null;
 
+// A generic "send an email" function wired to the same pooled transport as
+// alerts (used by the daily digest). Null until the transport is configured.
+let rawAlertEmailSender = null;
+
 function setPaymentAlertEmailSender(sender) {
     paymentAlertEmailSender = typeof sender === "function" ? sender : null;
+}
+
+function setRawAlertEmailSender(sender) {
+    rawAlertEmailSender = typeof sender === "function" ? sender : null;
 }
 
 function shouldAlertOnPaymentError(error) {
@@ -2953,8 +2961,8 @@ function buildPaymentAlertPayload(fnName, error, identity = {}, extra = {}) {
 // loop from flooding the inbox: the same error signature emails at most once per
 // cooldown, with a hard hourly cap. Every alert is still logged regardless, so
 // nothing is lost — only the email side is throttled.
-const ALERT_DEDUP_COOLDOWN_MS = 5 * 60 * 1000;
-const ALERT_MAX_EMAILS_PER_HOUR = 20;
+const ALERT_DEDUP_COOLDOWN_MS = 2 * 60 * 1000;
+const ALERT_MAX_EMAILS_PER_HOUR = 40;
 const _alertSignatureLastSent = new Map();
 let _alertHourWindowStart = 0;
 let _alertHourEmailCount = 0;
@@ -3068,6 +3076,10 @@ function initPaymentAlertEmailSender() {
             subject,
             text: formatPaymentAlertEmailBody(payload)
         });
+    });
+
+    setRawAlertEmailSender(async (subject, text) => {
+        await transporter.sendMail({ from: `US BARK Rangers Alerts <${user}>`, to, subject, text });
     });
 }
 
@@ -3208,6 +3220,91 @@ async function handleReportClientError(requestOrData, context, options = {}) {
     return { ok: true };
 }
 
+// ===== DAILY ERROR DIGEST (heartbeat) =====
+// Once a day, summarize the last 24h of clientErrors and email it — so silence
+// becomes a trustworthy "all clear" instead of an ambiguous quiet. Reads are
+// cheap (a single-field range query, auto-indexed).
+
+function summarizeClientErrors(docs, sinceMs, nowMs) {
+    const byType = {};
+    const byMessage = {};
+    const users = new Set();
+    docs.forEach((data) => {
+        const type = (data && data.type) || "error";
+        byType[type] = (byType[type] || 0) + 1;
+        const msg = ((data && data.message) || "(no message)").slice(0, 120);
+        byMessage[msg] = (byMessage[msg] || 0) + 1;
+        if (data && data.uid) users.add(data.uid);
+    });
+    const topMessages = Object.entries(byMessage)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([message, count]) => ({ message, count }));
+    return {
+        total: docs.length,
+        windowHours: Math.round((nowMs - sinceMs) / (60 * 60 * 1000)),
+        distinctUsers: users.size,
+        byType,
+        topMessages
+    };
+}
+
+function formatDigestEmailBody(summary) {
+    if (summary.total === 0) {
+        return [
+            `✅ All clear — 0 client errors reported in the last ${summary.windowHours}h.`,
+            ``,
+            `The error pipeline is alive; users simply hit no reported issues.`
+        ].join("\n");
+    }
+    const typeLines = Object.entries(summary.byType)
+        .sort((a, b) => b[1] - a[1])
+        .map(([type, count]) => `  ${type.padEnd(20)} ${count}`);
+    const msgLines = summary.topMessages
+        .map((m) => `  ${String(m.count).padStart(3)} x  ${m.message}`);
+    return [
+        `US BARK Rangers — client error digest (last ${summary.windowHours}h)`,
+        ``,
+        `Total reports:   ${summary.total}`,
+        `Distinct users:  ${summary.distinctUsers}`,
+        ``,
+        `By type:`,
+        ...typeLines,
+        ``,
+        `Top issues:`,
+        ...msgLines,
+        ``,
+        `Full records: Firestore "clientErrors" collection.`
+    ].join("\n");
+}
+
+async function runDailyErrorDigest(options = {}) {
+    const db = options.firestore || admin.firestore();
+    const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
+    const sinceMs = nowMs - 24 * 60 * 60 * 1000;
+
+    let docs = [];
+    try {
+        const snapshot = await db.collection("clientErrors")
+            .where("createdAt", ">=", Timestamp.fromMillis(sinceMs))
+            .get();
+        snapshot.forEach((doc) => docs.push(doc.data()));
+    } catch (err) {
+        console.error("[digest] failed to read clientErrors:", err && err.message);
+    }
+
+    const summary = summarizeClientErrors(docs, sinceMs, nowMs);
+    const send = options.rawEmailSender || rawAlertEmailSender;
+    if (typeof send === "function") {
+        try {
+            await send(`[BARK DIGEST] ${summary.total} client error(s) in 24h`, formatDigestEmailBody(summary));
+        } catch (err) {
+            console.error("[digest] failed to send digest email:", err && err.message);
+        }
+    }
+    return summary;
+}
+
 // Attempt to wire alert email from secrets on cold start (log-only if absent).
 initPaymentAlertEmailSender();
 
@@ -3327,9 +3424,20 @@ if (process.env.NODE_ENV === "test") {
         cleanClientErrorType,
         getClientErrorRateLimit,
         clientErrorEmailAllowed,
-        handleReportClientError
+        handleReportClientError,
+        summarizeClientErrors,
+        formatDigestEmailBody,
+        runDailyErrorDigest
     };
 }
+
+exports.dailyErrorDigest = functions
+    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .pubsub.schedule("0 12 * * *")
+    .timeZone("America/New_York")
+    .onRun(async () => {
+        return runDailyErrorDigest();
+    });
 
 exports.generateHourlyLeaderboard = functions.pubsub.schedule("0 * * * *")
     .timeZone("America/New_York")

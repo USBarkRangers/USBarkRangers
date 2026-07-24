@@ -1324,6 +1324,28 @@
         </div>
     </div>
 
+    <div id="wm-save-overlay" class="wm-save-overlay" aria-hidden="true">
+        <div class="wm-save-modal" role="dialog" aria-modal="true" aria-labelledby="wm-save-title">
+            <button type="button" id="wm-save-close" class="wm-save-close" aria-label="Close">&times;</button>
+            <h3 id="wm-save-title" class="wm-save-title">Save Your Photo</h3>
+            <div class="wm-save-image-wrap">
+                <img id="wm-save-preview" class="wm-save-image" alt="Watermarked photo preview">
+            </div>
+            <div class="wm-save-progress" id="wm-save-progress" role="progressbar" aria-label="Preparing image"
+                aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div class="wm-save-progress-bar" id="wm-save-progress-bar"></div>
+            </div>
+            <p class="wm-save-status" id="wm-save-status">Preparing full-resolution image…</p>
+            <div class="wm-save-actions">
+                <button type="button" id="wm-save-share" class="glass-btn primary-btn wm-save-btn" disabled>
+                    Save to Photos / Files</button>
+                <button type="button" id="wm-save-download" class="glass-btn wm-save-btn wm-save-btn-secondary" disabled>
+                    Download to device</button>
+            </div>
+            <p class="wm-save-note">Saved as a lossless PNG at full resolution.</p>
+        </div>
+    </div>
+
     <div id="paywall-overlay" class="paywall-overlay" aria-hidden="true">
         <div class="paywall-modal" role="dialog" aria-modal="true" aria-labelledby="paywall-title">
             <button type="button" id="paywall-close-btn" class="paywall-close-btn" aria-label="Close paywall">

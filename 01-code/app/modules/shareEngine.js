@@ -38,7 +38,7 @@ function getLocalIsoDateString(date = new Date()) {
 }
 
 function getWatermarkPhotoFilename(date = new Date()) {
-    return `USBARKRANGERSPHOTO_${getLocalIsoDateString(date)}.jpg`;
+    return `USBARKRANGERSPHOTO_${getLocalIsoDateString(date)}.png`;
 }
 
 // ====== LAZY-LOAD html2canvas ======
@@ -236,7 +236,145 @@ function initWatermarkTool() {
         img.onload = () => { currentPhotoImg = img; if (wmLogoSize) { wmLogoSize.value = 10; wmLogoSizeVal.textContent = '10%'; } drawWatermark(10); };
         img.src = URL.createObjectURL(file);
     });
-    wmDownload.addEventListener('click', () => { const link = document.createElement('a'); link.download = getWatermarkPhotoFilename(); link.href = wmCanvas.toDataURL('image/jpeg', 1.0); link.click(); });
+    // ===== Save popup (lossless PNG, native share sheet, in-app download) =====
+    const saveOverlay = document.getElementById('wm-save-overlay');
+    const savePreview = document.getElementById('wm-save-preview');
+    const saveProgress = document.getElementById('wm-save-progress');
+    const saveProgressBar = document.getElementById('wm-save-progress-bar');
+    const saveStatus = document.getElementById('wm-save-status');
+    const saveShareBtn = document.getElementById('wm-save-share');
+    const saveDownloadBtn = document.getElementById('wm-save-download');
+    const saveCloseBtn = document.getElementById('wm-save-close');
+
+    let currentBlob = null;          // the full-resolution lossless PNG
+    let currentBlobUrl = null;       // object URL for the in-app download fallback
+
+    function makePreviewDataUrl(sourceCanvas, maxW) {
+        const scale = Math.min(1, maxW / sourceCanvas.width);
+        const pc = document.createElement('canvas');
+        pc.width = Math.max(1, Math.round(sourceCanvas.width * scale));
+        pc.height = Math.max(1, Math.round(sourceCanvas.height * scale));
+        pc.getContext('2d').drawImage(sourceCanvas, 0, 0, pc.width, pc.height);
+        return pc.toDataURL('image/jpeg', 0.82);
+    }
+
+    function setProgress(pct) {
+        if (saveProgressBar) saveProgressBar.style.width = pct + '%';
+        if (saveProgress) saveProgress.setAttribute('aria-valuenow', String(Math.round(pct)));
+    }
+
+    function revokeBlobUrl() {
+        if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null; }
+    }
+
+    function closeSaveModal() {
+        if (!saveOverlay) return;
+        saveOverlay.classList.remove('active');
+        saveOverlay.setAttribute('aria-hidden', 'true');
+        revokeBlobUrl();
+        currentBlob = null;
+        if (wmDownload) wmDownload.focus({ preventScroll: true });
+    }
+
+    const canShareFiles = () => {
+        try {
+            return !!(navigator.canShare && navigator.share &&
+                navigator.canShare({ files: [new File([new Blob()], 'x.png', { type: 'image/png' })] }));
+        } catch (e) { return false; }
+    };
+
+    function openSaveModal() {
+        if (!saveOverlay) {
+            // Ultra-safe fallback if the modal markup is missing: blob download, never a data-URL nav.
+            wmCanvas.toBlob((blob) => {
+                if (!blob) return;
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.download = getWatermarkPhotoFilename(); link.href = url;
+                document.body.appendChild(link); link.click(); document.body.removeChild(link);
+                setTimeout(() => URL.revokeObjectURL(url), 4000);
+            }, 'image/png');
+            return;
+        }
+
+        // Reset modal state.
+        revokeBlobUrl();
+        currentBlob = null;
+        if (saveShareBtn) saveShareBtn.disabled = true;
+        if (saveDownloadBtn) saveDownloadBtn.disabled = true;
+        if (saveProgress) saveProgress.classList.remove('done');
+        if (saveStatus) saveStatus.textContent = 'Preparing full-resolution image…';
+        if (saveProgressBar) { saveProgressBar.style.transition = 'none'; }
+        setProgress(0);
+        if (saveProgressBar) { void saveProgressBar.offsetWidth; saveProgressBar.style.transition = ''; }
+        if (savePreview) savePreview.src = makePreviewDataUrl(wmCanvas, 900);
+
+        // Share sheet is the primary path on mobile; hide it where files can't be shared.
+        if (saveShareBtn) saveShareBtn.style.display = canShareFiles() ? 'inline-block' : 'none';
+
+        saveOverlay.classList.add('active');
+        saveOverlay.setAttribute('aria-hidden', 'false');
+        if (saveCloseBtn) saveCloseBtn.focus({ preventScroll: true });
+
+        if (window.BARK && typeof window.BARK.perfBreadcrumb === 'function') {
+            window.BARK.perfBreadcrumb('watermark-encode:png');
+        }
+
+        // Kick the progress fill, then encode. Two frames let the bar paint before the
+        // (main-thread-blocking) PNG encode begins, so the fill is visible.
+        requestAnimationFrame(() => {
+            setProgress(88);
+            requestAnimationFrame(() => {
+                wmCanvas.toBlob((blob) => {
+                    if (!blob) {
+                        if (saveStatus) saveStatus.textContent = 'Could not prepare the image. Try again.';
+                        return;
+                    }
+                    currentBlob = blob;
+                    if (saveProgressBar) saveProgressBar.style.transition = 'width 0.25s ease';
+                    setProgress(100);
+                    if (saveProgress) saveProgress.classList.add('done');
+                    if (saveStatus) saveStatus.textContent = 'Full-resolution image ready.';
+                    if (saveShareBtn && canShareFiles()) saveShareBtn.disabled = false;
+                    if (saveDownloadBtn) saveDownloadBtn.disabled = false;
+                }, 'image/png');
+            });
+        });
+    }
+
+    wmDownload.addEventListener('click', openSaveModal);
+
+    if (saveShareBtn) {
+        saveShareBtn.addEventListener('click', async () => {
+            if (!currentBlob) return;
+            const file = new File([currentBlob], getWatermarkPhotoFilename(), { type: 'image/png' });
+            try {
+                await navigator.share({ files: [file], title: 'US BARK Rangers Photo' });
+                closeSaveModal();
+            } catch (err) { /* user cancelled the share sheet — keep the modal open */ }
+        });
+    }
+
+    if (saveDownloadBtn) {
+        saveDownloadBtn.addEventListener('click', () => {
+            if (!currentBlob) return;
+            revokeBlobUrl();
+            currentBlobUrl = URL.createObjectURL(currentBlob);
+            const link = document.createElement('a');
+            link.download = getWatermarkPhotoFilename();
+            link.href = currentBlobUrl;
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        });
+    }
+
+    if (saveCloseBtn) saveCloseBtn.addEventListener('click', closeSaveModal);
+    if (saveOverlay) {
+        saveOverlay.addEventListener('click', (event) => { if (event.target === saveOverlay) closeSaveModal(); });
+    }
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && saveOverlay && saveOverlay.classList.contains('active')) closeSaveModal();
+    });
+
     if (wmHighRes) { wmHighRes.addEventListener('change', () => drawWatermark(parseInt(wmLogoSize.value, 10))); }
 
     const wmClearBtn = document.getElementById('wm-clear');

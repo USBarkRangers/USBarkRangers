@@ -424,21 +424,24 @@ class GamificationEngine {
         let earlyB = vArray.some(p => { let h = new Date(p.ts || 0).getHours(); return h >= 4 && h < 7; });
         let loneW = vArray.some(p => { let d = new Date(p.ts || 0); return d.getMonth() === 11 && d.getDate() === 25; });
         
+        // `teaser` is the ≤3-word nudge shown on the hidden card; `hint` is the
+        // fuller line used when the feat is unlocked/shared.
         return [
-            { id: 'alphaDog', name: 'The Alpha Dog', hint: 'Prove you are the true leader of the pack.', icon: '🐺', ...check(userRank === 1, userRank === 1), criteria: 'Reach #1 on Leaderboard', classified: true, dateEarnedTs: userRank === 1 ? this._getStableTimestamp('alphaDog') : 0 },
-            { id: 'nightRanger', name: 'The Night Ranger', hint: 'The best time to explore is when everyone else is asleep.', icon: '🦉', ...check(nightR, nightR), criteria: 'Visit after Midnight', classified: true, dateEarnedTs: nightR ? this._getStableTimestamp('nightRanger') : 0 },
-            { id: 'earlyBird', name: 'The Early Bird', hint: 'The best trails belong to those who beat the sunrise.', icon: '🌅', ...check(earlyB, earlyB), criteria: 'Visit before 7 AM', classified: true, dateEarnedTs: earlyB ? this._getStableTimestamp('earlyBird') : 0 },
-            { id: 'marathoner', name: 'The Marathoner', hint: 'Visit 4 parks in a single 24-hour window.', icon: '🏃', ...check(marathoner, marathoner), criteria: '4 Parks in 24 Hours', classified: true, dateEarnedTs: marathoner ? this._getStableTimestamp('marathoner') : 0 },
-            { id: 'loneWolf', name: 'The Lone Wolf', hint: 'Explore a park on the quietest day of the year.', icon: '❄️', ...check(loneW, loneW), criteria: 'Visit on Christmas Day', classified: true, dateEarnedTs: loneW ? this._getStableTimestamp('loneWolf') : 0 },
-            { 
-                id: 'mapConqueror', 
-                name: 'The Map Conqueror', 
-                hint: 'Leave no stone unturned. Visit every single official site on the map.', 
-                icon: '🗺️', 
+            { id: 'alphaDog', name: 'The Alpha Dog', teaser: 'Lead the pack', hint: 'Prove you are the true leader of the pack.', icon: '🐺', ...check(userRank === 1, userRank === 1), criteria: 'Reach #1 on Leaderboard', classified: true, dateEarnedTs: userRank === 1 ? this._getStableTimestamp('alphaDog') : 0 },
+            { id: 'nightRanger', name: 'The Night Ranger', teaser: 'After midnight', hint: 'The best time to explore is when everyone else is asleep.', icon: '🦉', ...check(nightR, nightR), criteria: 'Visit after Midnight', classified: true, dateEarnedTs: nightR ? this._getStableTimestamp('nightRanger') : 0 },
+            { id: 'earlyBird', name: 'The Early Bird', teaser: 'Before sunrise', hint: 'The best trails belong to those who beat the sunrise.', icon: '🌅', ...check(earlyB, earlyB), criteria: 'Visit before 7 AM', classified: true, dateEarnedTs: earlyB ? this._getStableTimestamp('earlyBird') : 0 },
+            { id: 'marathoner', name: 'The Marathoner', teaser: 'One big day', hint: 'Visit 4 parks in a single 24-hour window.', icon: '🏃', ...check(marathoner, marathoner), criteria: '4 Parks in 24 Hours', classified: true, dateEarnedTs: marathoner ? this._getStableTimestamp('marathoner') : 0 },
+            { id: 'loneWolf', name: 'The Lone Wolf', teaser: 'The quiet day', hint: 'Explore a park on the quietest day of the year.', icon: '❄️', ...check(loneW, loneW), criteria: 'Visit on Christmas Day', classified: true, dateEarnedTs: loneW ? this._getStableTimestamp('loneWolf') : 0 },
+            {
+                id: 'mapConqueror',
+                name: 'The Map Conqueror',
+                teaser: 'The whole map',
+                hint: 'Leave no stone unturned. Visit every single official site on the map.',
+                icon: '🗺️',
                 criteria: 'Visit 100% of Map',
                 status: (uniqueVisitedSites >= (this.totalSystemParks || 1) && (this.totalSystemParks || 0) > 0) ? 'unlocked' : 'locked',
                 tier: (uniqueVisitedSites >= (this.totalSystemParks || 1)) ? 'verified' : 'honor',
-                classified: true, 
+                classified: true,
                 dateEarnedTs: (uniqueVisitedSites >= (this.totalSystemParks || 1)) ? this._getStableTimestamp('mapConqueror') : 0
             }
         ];

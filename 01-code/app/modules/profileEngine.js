@@ -465,10 +465,11 @@ async function evaluateAchievements(visitedPlacesMap) {
         const sub = getSubtitle(b);
         const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${esc(b.name)}', '${esc(b.icon)}', '${esc(b.tier)}', ${b.classified ? 'true' : 'false'}, '${esc(sub)}')" style="margin-top: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; color: white; font-size: 9px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">📸 SHARE</button>` : '';
 
-        const icon = isHiddenClassified ? '❓' : b.icon;
-        const displayName = isHiddenClassified ? '[CLASSIFIED]' : b.name;
-        const detailText = isHiddenClassified ? (b.hint || 'Rumor gathered from the field.') : (b.criteria || '');
-        const classifiedTag = b.classified ? '<div style="font-size: 8px; font-weight: 900; letter-spacing: 0.5px; color: #c084fc; margin-bottom: 2px;">🔒 CLASSIFIED</div>' : '';
+        const icon = isHiddenClassified ? '🔒' : b.icon;
+        const displayName = isHiddenClassified ? 'CLASSIFIED' : b.name;
+        // Hidden classified shows only a short teaser (≤3 words); unlocked shows real criteria.
+        const detailText = isHiddenClassified ? (b.teaser || '') : (b.criteria || '');
+        const classifiedTag = (b.classified && isU) ? '<div class="classified-tag">★ CLASSIFIED</div>' : '';
         const classifiedCls = b.classified ? ' classified-feat' : '';
 
         return `
@@ -479,7 +480,7 @@ async function evaluateAchievements(visitedPlacesMap) {
                     <div class="badge-icon">${icon}</div>
                     <div class="badge-details">
                         <h4>${displayName}</h4>
-                        <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-top: 4px;">${detailText}</div>
+                        ${detailText ? `<div class="badge-crit">${detailText}</div>` : ''}
                     </div>
                 </div>
                 <div class="badge-face badge-back">
@@ -541,7 +542,7 @@ async function evaluateAchievements(visitedPlacesMap) {
     });
 
     const nationalCardHtml = `
-        <div class="flip-scene" style="flex: 0 0 auto; width: 140px; scroll-snap-align: center;">
+        <div class="flip-scene">
             <div class="skeuo-badge" style="background: linear-gradient(135deg, #0f172a, #1e293b); border: 2px solid #3b82f6; box-shadow: 0 4px 15px rgba(59,130,246,0.3); border-radius: 16px; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px; text-align: center;">
                 <div style="font-size: 28px; margin-bottom: 4px;">🇺🇸</div>
                 <h4 style="color: #f1f5f9; font-size: 12px; font-weight: 900; text-transform: uppercase; margin: 0 0 8px 0;">National Map</h4>

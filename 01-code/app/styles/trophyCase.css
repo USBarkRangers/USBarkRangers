@@ -53,42 +53,30 @@
 
 @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
-/* --- UNIVERSAL HORIZONTAL CAROUSEL --- */
+/* --- UNIVERSAL TWO-ROW HORIZONTAL CAROUSEL --- */
+/* Cards flow down two rows, then into the next column, so the strip scrolls
+   left-to-right. One rule drives Rare Feats, Paws and States. */
 .badge-grid {
-    display: flex;
-    flex-wrap: nowrap;
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(2, auto);
+    grid-auto-columns: clamp(122px, 40vw, 150px);
+    justify-content: start;
+    align-items: stretch;
+    gap: 14px 14px;
     overflow-x: auto;
-    overflow-y: visible; /* Prevent 3D cards from clipping */
-    scroll-snap-type: x mandatory;
-    gap: 16px;
-    padding: 20px 16px;
+    overflow-y: visible; /* room for the 3D flip/lift */
+    scroll-snap-type: x proximity;
+    padding: 18px 16px 22px;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
 }
 
 .badge-grid::-webkit-scrollbar { display: none; }
+.badge-grid > * { scroll-snap-align: start; }
 
-/* FIX: Specific rules for States Grid to force horizontal swipe */
-#states-grid {
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    scroll-snap-type: x mandatory !important;
-    gap: 12px !important;
-    padding-bottom: 20px !important;
-    -webkit-overflow-scrolling: touch;
-}
-
-#states-grid::-webkit-scrollbar { display: none; }
-
-#states-grid .flip-scene {
-    flex: 0 0 auto !important;
-    width: 140px !important;
-    scroll-snap-align: center !important;
-}
-
-/* 3D COIN STYLING */
-.flip-scene { width: 130px; aspect-ratio: 1 / 1.1; cursor: default; }
+/* 3D COIN STYLING — cards fill the carousel column width */
+.flip-scene { width: 100%; aspect-ratio: 1 / 1.15; cursor: default; }
 .flip-scene.is-unlocked { cursor: pointer; }
 .flip-scene.is-unlocked:focus-visible {
     outline: 3px solid #38bdf8;
@@ -158,44 +146,38 @@
 .verified-tier .badge-front { background: linear-gradient(135deg, #FFDF00, #DAA520, #B8860B); border: 2px solid #996515; }
 .locked-tier .badge-front { background: #e2e8f0; border: 1px solid #cbd5e1; box-shadow: inset 0 2px 5px rgba(0,0,0,0.05); }
 
-/* --- CLASSIFIED DOSSIER FEATURE --- */
-.mystery-card {
-    flex: 0 0 auto;
-    width: 280px;
-    scroll-snap-align: center;
-    background: #0f172a;
-    border: 1px solid rgba(59, 130, 246, 0.2);
-    border-radius: 16px;
-    padding: 18px;
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.05);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+/* Criteria / teaser line on the card front, clamped so cards stay equal height */
+.badge-crit {
+    font-size: 10px;
+    font-weight: 600;
+    color: #94a3b8;
+    margin-top: 4px;
+    line-height: 1.25;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
-.mystery-card:hover {
-    border-color: #3b82f6;
-    box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
-    transform: translateY(-5px);
+/* --- CLASSIFIED FEATS (hidden until earned, shown after normal Rare Feats) --- */
+.classified-tag {
+    font-size: 8px;
+    font-weight: 900;
+    letter-spacing: 0.6px;
+    color: #f0abfc;
+    margin-bottom: 2px;
+    text-transform: uppercase;
 }
 
-.mystery-icon {
-    font-size: 42px;
-    color: #60a5fa;
-    text-shadow: 0 0 12px rgba(59, 130, 246, 0.6);
-    line-height: 1;
+/* Hidden classified card: soft purple, dashed, clearly a locked mystery */
+.classified-feat.locked .badge-front {
+    background: linear-gradient(135deg, #f5f3ff, #ede9fe);
+    border: 1px dashed #c4b5fd;
+    box-shadow: inset 0 2px 5px rgba(124, 58, 237, 0.06);
 }
-
-.mystery-info { flex: 1; }
-.mystery-title { font-size: 14px; font-weight: 800; color: #f1f5f9; margin-bottom: 4px; letter-spacing: 0.5px; }
-.mystery-hint { font-size: 11px; color: #38bdf8; font-style: italic; opacity: 0.8; line-height: 1.4; }
-
-.mystery-card.unlocked { 
-    background: linear-gradient(135deg, #1e293b, #0f172a); 
-    border-left: 4px solid #f59e0b; 
-}
-.mystery-card.unlocked .mystery-icon { color: #f59e0b; text-shadow: 0 0 12px rgba(245, 158, 11, 0.4); }
+.classified-feat.locked .badge-icon { opacity: 0.9; }
+.classified-feat.locked .badge-details h4 { color: #7c3aed; letter-spacing: 1.5px; }
+.classified-feat.locked .badge-crit { color: #a78bfa; font-style: italic; }
 
 /* Cleaned up Mobile Rules */
 .state-progress-wrap { 
@@ -231,70 +213,29 @@
     line-height: 1.1;
     color: inherit;
 }
-.badge-details p { font-size: 9px; margin: 0; opacity: 0.8; }.mystery-hint { font-size: 9px; }
-    .mystery-card { width: 250px; }
-}
-/* --- SURGICAL OVERRIDES FOR SIZING & LEGENDARY CARDS --- */
-
-/* 1. Force the Paws and States to remain large */
-.flip-scene { 
-    flex: 0 0 auto !important; 
-    width: 120px !important; 
-    scroll-snap-align: center; 
-    perspective: 800px;
+.badge-details p { font-size: 9px; margin: 0; opacity: 0.8; }
 }
 
-/* 2. Fix the Mobile Font Sizing for smaller cards */
+/* Keep the 3D perspective for the flip; card sizing is owned by the carousel. */
+.flip-scene { perspective: 800px; }
+
 @media (max-width: 600px) {
-    .flip-scene { width: 110px !important; }
     .badge-details h4 { font-size: 11px !important; }
 }
 
-/* 3. The True Legendary Drop for Declassified Dossiers */
-.mystery-card.unlocked { 
-    background: linear-gradient(135deg, #312e81, #7e22ce, #c026d3) !important; 
-    background-size: 200% 200% !important; 
-    animation: gradientShift 3s ease infinite !important;
-    border: 2px solid #e879f9 !important; 
-    box-shadow: 0 0 15px rgba(192, 38, 211, 0.6), inset 0 0 10px rgba(255,255,255,0.2) !important;
-    position: relative;
+/* Unlocked classified feat: the "declassified" reveal — purple and glowing. */
+.classified-feat.unlocked .badge-front {
+    background: linear-gradient(135deg, #312e81, #7e22ce, #c026d3);
+    border: 2px solid #e879f9;
+    box-shadow: 0 0 15px rgba(192, 38, 211, 0.5), inset 0 0 10px rgba(255,255,255,0.2);
     overflow: hidden;
 }
-
-/* The Watermark Stamp */
-.mystery-card.unlocked::after {
-    content: "DECLASSIFIED";
-    position: absolute;
-    font-weight: 900;
-    opacity: 0.1;
-    font-size: 38px;
-    transform: rotate(-10deg);
-    color: white;
-    top: 20%;
-    left: -5%;
-    pointer-events: none;
+.classified-feat.unlocked .badge-details h4,
+.classified-feat.unlocked .badge-crit {
+    color: #ffffff;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.6);
 }
-
-.mystery-card.unlocked .mystery-title {
-    color: #ffffff !important;
-    text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-    position: relative;
-    z-index: 2;
-}
-
-.mystery-card.unlocked .mystery-hint {
-    color: #a5f3fc !important; /* Bright cyan */
-    text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-    position: relative;
-    z-index: 2;
-}
-
-.mystery-card.unlocked .mystery-icon { 
-    color: #fef08a !important; 
-    text-shadow: 0 0 12px rgba(253, 224, 71, 0.8) !important; 
-    position: relative;
-    z-index: 2;
-}
+.classified-feat.unlocked .classified-tag { color: #f5d0fe; }
 
 /* --- LEADERBOARD RIVALRY ANIMATIONS --- */
 @keyframes pulse {

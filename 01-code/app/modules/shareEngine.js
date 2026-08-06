@@ -97,11 +97,12 @@ window.shareVaultCard = async function () {
         const visitedArray = getShareVisitedPlacesArray();
         const uid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : null;
         const achievements = await window.gamificationEngine.evaluateAndStoreAchievements(uid, visitedArray, null, window.currentWalkPoints || 0);
-        const isGlobalNumberOne = achievements.mysteryFeats.some(f => f.id === 'alphaDog' && f.status === 'unlocked');
+        // Classified feats now live inside rareFeats (flagged `classified`).
+        const isGlobalNumberOne = achievements.rareFeats.some(f => f.id === 'alphaDog' && f.status === 'unlocked');
 
-        let allUnlocked = [...achievements.mysteryFeats, ...achievements.rareFeats, ...achievements.paws, ...achievements.stateBadges].filter(b => b.status === 'unlocked');
+        let allUnlocked = [...achievements.rareFeats, ...achievements.paws, ...achievements.stateBadges].filter(b => b.status === 'unlocked');
         allUnlocked.sort((a, b) => {
-            if (a.isMystery !== b.isMystery) return a.isMystery ? -1 : 1;
+            if (Boolean(a.classified) !== Boolean(b.classified)) return a.classified ? -1 : 1;
             if (a.tier !== b.tier) return a.tier === 'verified' ? -1 : 1;
             return (b.dateEarnedTs || 0) - (a.dateEarnedTs || 0);
         });
@@ -117,7 +118,7 @@ window.shareVaultCard = async function () {
             let bg = b.tier === 'verified' ? 'linear-gradient(135deg, #FFDF00, #DAA520, #B8860B)' : 'linear-gradient(135deg, #A0522D, #8B4513)';
             let border = b.tier === 'verified' ? '#996515' : '#5C4033';
             let textColor = b.tier === 'verified' ? '#3b2f00' : '#fffaf0';
-            if (b.isMystery) { bg = 'linear-gradient(135deg, #312e81, #7e22ce, #c026d3)'; border = '#e879f9'; textColor = '#ffffff'; }
+            if (b.classified) { bg = 'linear-gradient(135deg, #312e81, #7e22ce, #c026d3)'; border = '#e879f9'; textColor = '#ffffff'; }
             let subtitle = b.desc || b.hint || '';
             if (!subtitle && b.id.includes('Paw')) subtitle = 'Verified Check-ins';
             if (!subtitle && b.id.includes('state')) subtitle = '100% Region Cleared';
@@ -139,13 +140,13 @@ window.shareVaultCard = async function () {
 };
 
 // ====== SINGLE BADGE SHARE ======
-window.shareSingleBadge = async function (name, icon, tier, isMystery, subtitle) {
+window.shareSingleBadge = async function (name, icon, tier, classified, subtitle) {
     try {
         await loadScreenshotEngine();
         let bg = tier === 'verified' ? 'linear-gradient(135deg, #FFDF00, #DAA520, #B8860B)' : 'linear-gradient(135deg, #A0522D, #8B4513)';
         let border = tier === 'verified' ? '#996515' : '#5C4033';
         let textColor = tier === 'verified' ? '#3b2f00' : '#fffaf0';
-        if (isMystery === 'true' || isMystery === true) { bg = 'linear-gradient(135deg, #312e81, #7e22ce, #c026d3)'; border = '#e879f9'; textColor = '#ffffff'; }
+        if (classified === 'true' || classified === true) { bg = 'linear-gradient(135deg, #312e81, #7e22ce, #c026d3)'; border = '#e879f9'; textColor = '#ffffff'; }
 
         const container = document.getElementById('single-export-card-container');
         container.innerHTML = `<div style="width: 500px; height: 600px; background: ${bg}; border: 12px solid ${border}; border-radius: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; box-shadow: 0 40px 80px rgba(0,0,0,0.6); text-align: center;"><div style="font-size: 150px; margin-bottom: 30px; filter: drop-shadow(0 10px 10px rgba(0,0,0,0.4));">${icon}</div><div style="font-size: 48px; font-weight: 900; color: ${textColor}; text-transform: uppercase; line-height: 1.1; margin-bottom: 20px;">${name}</div><div style="font-size: 24px; font-weight: 600; color: ${textColor}; opacity: 0.9; line-height: 1.4; padding: 0 20px;">${subtitle || ''}</div></div>`;

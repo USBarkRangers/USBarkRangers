@@ -453,22 +453,33 @@ async function evaluateAchievements(visitedPlacesMap) {
         </div>`;
     };
 
+    // One card renderer for Paws, Rare Feats and classified feats. Classified
+    // feats stay hidden until earned: their name, icon and criteria are masked
+    // (only the field-rumor hint shows) so unlocking them is still a reveal.
     const renderCoin = (b) => {
         const isU = b.status === 'unlocked';
+        const isHiddenClassified = b.classified && !isU;
         const tCl = isU ? (b.tier === 'verified' ? 'verified-tier' : 'honor-tier') : 'locked-tier';
         const upgradeCta = (isU && b.tier === 'honor') ? '<div class="upgrade-pill">⭐ VERIFY TO UPGRADE</div>' : '';
         const datePlaceholder = b.dateEarned || '--/--/----';
         const sub = getSubtitle(b);
-        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${esc(b.name)}', '${esc(b.icon)}', '${esc(b.tier)}', false, '${esc(sub)}')" style="margin-top: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; color: white; font-size: 9px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">📸 SHARE</button>` : '';
+        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${esc(b.name)}', '${esc(b.icon)}', '${esc(b.tier)}', ${b.classified ? 'true' : 'false'}, '${esc(sub)}')" style="margin-top: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; color: white; font-size: 9px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">📸 SHARE</button>` : '';
+
+        const icon = isHiddenClassified ? '❓' : b.icon;
+        const displayName = isHiddenClassified ? '[CLASSIFIED]' : b.name;
+        const detailText = isHiddenClassified ? (b.hint || 'Rumor gathered from the field.') : (b.criteria || '');
+        const classifiedTag = b.classified ? '<div style="font-size: 8px; font-weight: 900; letter-spacing: 0.5px; color: #c084fc; margin-bottom: 2px;">🔒 CLASSIFIED</div>' : '';
+        const classifiedCls = b.classified ? ' classified-feat' : '';
 
         return `
         <div ${getFlipSceneAttrs(b)}>
-            <div class="skeuo-badge ${tCl} ${isU ? 'unlocked hover-float' : 'locked'}">
+            <div class="skeuo-badge ${tCl} ${isU ? 'unlocked hover-float' : 'locked'}${classifiedCls}">
                 <div class="badge-face badge-front">
-                    <div class="badge-icon">${b.icon}</div>
+                    ${classifiedTag}
+                    <div class="badge-icon">${icon}</div>
                     <div class="badge-details">
-                        <h4>${b.name}</h4>
-                        <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-top: 4px;">${b.criteria || ''}</div>
+                        <h4>${displayName}</h4>
+                        <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-top: 4px;">${detailText}</div>
                     </div>
                 </div>
                 <div class="badge-face badge-back">
@@ -480,22 +491,8 @@ async function evaluateAchievements(visitedPlacesMap) {
         </div>`;
     };
 
-    const renderDossier = (b) => {
-        const isU = b.status === 'unlocked';
-        const sub = getSubtitle(b);
-        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${esc(b.name)}', '${esc(b.icon)}', 'verified', true, '${esc(sub)}')" class="mystery-share-btn" title="Share Milestone">📸</button>` : '';
-
-        return `
-        <div class="mystery-card ${isU ? 'unlocked' : 'locked'}">
-            <div class="mystery-icon">${isU ? b.icon : '?'}</div>
-            <div class="mystery-info">
-                <div class="mystery-title">${isU ? b.name : '[CLASSIFIED]'}</div>
-                <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-top: 4px;">${b.criteria || b.hint || ''}</div>
-            </div>
-            ${shareBtnHtml}
-        </div>`;
-    };
-
+    // Rare Feats renders normal feats then classified feats (ordering set by
+    // gamificationEngine.sortRareFeats); Paws uses the same coin renderer.
     window.BARK.safeUpdateHTML('rare-feats-grid', achievements.rareFeats.map(renderCoin).join(''));
     window.BARK.safeUpdateHTML('paws-grid', achievements.paws.map(renderCoin).join(''));
 
@@ -556,7 +553,6 @@ async function evaluateAchievements(visitedPlacesMap) {
         </div>`;
 
     window.BARK.safeUpdateHTML('states-grid', nationalCardHtml + achievements.stateBadges.map(renderStateBadge).join(''));
-    window.BARK.safeUpdateHTML('mystery-feats-dossier', achievements.mysteryFeats.map(renderDossier).join(''));
 
     document.querySelectorAll('.flip-scene.is-unlocked').forEach(scene => {
         const toggleFlip = () => {

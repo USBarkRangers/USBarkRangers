@@ -22,6 +22,15 @@ class GamificationEngine {
         this._sessionTimestamps = {};  // 🛡️ Session-level timestamp cache: once a badge is unlocked, its timestamp never changes
     }
 
+    // 🧹 Clear per-user caches on logout / account switch so one user's earned
+    // achievements and timestamps can't leak into the next session. The engine
+    // is a singleton (window.gamificationEngine), so without this a second user
+    // signing in without a page reload would inherit the first user's vault.
+    resetSession() {
+        this.achievementsCache = null;
+        this._sessionTimestamps = {};
+    }
+
     // 🛡️ Returns a stable per-session timestamp for a given badge ID.
     // Once a badge gets a timestamp, it keeps it for the rest of the session.
     _getStableTimestamp(badgeId) {
@@ -212,13 +221,19 @@ class GamificationEngine {
 
         const totalParks = Math.max(this.totalSystemParks || 1, 1);
 
+        // Rare Feats now carries its classified sub-group inline: normal feats
+        // first, classified feats after. One array, one renderer, one tab.
+        const rareFeats = this.sortRareFeats([
+            ...this.calculateRareFeats(stateVisitsTotalMap, stateVisitsVerifiedMap),
+            ...this.calculateClassifiedFeats(visitedParksArray, userRank, sortedVisits, visitProgress)
+        ]);
+
         return {
             totalScore: totalScore,
             title: this.calculateTitle(totalScore),
             paws: sortBadges(this.calculatePaws(visitProgress.totalVisitedSites, verifiedCount)),
-            rareFeats: sortBadges(this.calculateRareFeats(stateVisitsTotalMap, stateVisitsVerifiedMap)),
+            rareFeats: rareFeats,
             stateBadges: sortBadges(this.calculateStateBadges(stateVisitsTotalMap, stateVisitsVerifiedMap)),
-            mysteryFeats: this.calculateMysteryFeats(visitedParksArray, userRank, sortedVisits, visitProgress),
             nationalProgress: {
                 totalVisited: visitProgress.totalVisitedSites,
                 totalParks: this.totalSystemParks || 1,
@@ -233,7 +248,8 @@ class GamificationEngine {
 
         const db = firebase.firestore();
         const achievementsRef = db.collection('users').doc(userId).collection('achievements');
-        const allItems = [...achievementsData.rareFeats, ...achievementsData.paws, ...achievementsData.mysteryFeats, ...achievementsData.stateBadges];
+        // Classified feats now live inside rareFeats, so a single spread covers them.
+        const allItems = [...achievementsData.rareFeats, ...achievementsData.paws, ...achievementsData.stateBadges];
 
         // 🛡️ Pre-compute stable timestamps for all unlocked items before any DB work
         for (const item of allItems) {
@@ -291,7 +307,8 @@ class GamificationEngine {
         });
 
         achievementsData.paws = sortB(achievementsData.paws);
-        achievementsData.rareFeats = sortB(achievementsData.rareFeats);
+        // Keep classified feats grouped after normal feats (not plain unlocked-first).
+        achievementsData.rareFeats = this.sortRareFeats(achievementsData.rareFeats);
         achievementsData.stateBadges = sortB(achievementsData.stateBadges);
         return achievementsData;
     }
@@ -323,6 +340,19 @@ class GamificationEngine {
                 dateEarned: status === 'unlocked' ? new Date().toLocaleDateString() : null, 
                 dateEarnedTs: status === 'unlocked' ? this._getStableTimestamp(t.id) : 0 
             };
+        });
+    }
+
+    // Orders the combined Rare Feats array: normal feats first, then classified.
+    // Within each group, unlocked come first, then newest earned.
+    sortRareFeats(arr) {
+        const isUnlocked = b => (b.status === 'unlocked' ? 1 : 0);
+        return arr.sort((a, b) => {
+            const aClassified = a.classified ? 1 : 0;
+            const bClassified = b.classified ? 1 : 0;
+            if (aClassified !== bClassified) return aClassified - bClassified; // normal group first
+            if (isUnlocked(a) !== isUnlocked(b)) return isUnlocked(b) - isUnlocked(a);
+            return (b.dateEarnedTs || 0) - (a.dateEarnedTs || 0);
         });
     }
 
@@ -368,7 +398,10 @@ class GamificationEngine {
         });
     }
 
-    calculateMysteryFeats(vArray, userRank, sortedVisits = [], visitProgress = {}) {
+    // Classified feats: hidden until earned, rendered after normal Rare Feats
+    // inside the same Rare Feats tab. `classified: true` drives the hidden card
+    // treatment (locked shows "[CLASSIFIED]") and the purple share styling.
+    calculateClassifiedFeats(vArray, userRank, sortedVisits = [], visitProgress = {}) {
         const check = (cond, vCond) => ({ status: cond ? 'unlocked' : 'locked', tier: vCond ? 'verified' : 'honor' });
         const uniqueVisitedSites = Number.isFinite(Number(visitProgress.totalVisitedSites))
             ? Number(visitProgress.totalVisitedSites)
@@ -392,11 +425,11 @@ class GamificationEngine {
         let loneW = vArray.some(p => { let d = new Date(p.ts || 0); return d.getMonth() === 11 && d.getDate() === 25; });
         
         return [
-            { id: 'alphaDog', name: 'The Alpha Dog', hint: 'Prove you are the true leader of the pack.', icon: '🐺', ...check(userRank === 1, userRank === 1), criteria: 'Reach #1 on Leaderboard', isMystery: true, dateEarnedTs: userRank === 1 ? this._getStableTimestamp('alphaDog') : 0 },
-            { id: 'nightRanger', name: 'The Night Ranger', hint: 'The best time to explore is when everyone else is asleep.', icon: '🦉', ...check(nightR, nightR), criteria: 'Visit after Midnight', isMystery: true, dateEarnedTs: nightR ? this._getStableTimestamp('nightRanger') : 0 },
-            { id: 'earlyBird', name: 'The Early Bird', hint: 'The best trails belong to those who beat the sunrise.', icon: '🌅', ...check(earlyB, earlyB), criteria: 'Visit before 7 AM', isMystery: true, dateEarnedTs: earlyB ? this._getStableTimestamp('earlyBird') : 0 },
-            { id: 'marathoner', name: 'The Marathoner', hint: 'Visit 4 parks in a single 24-hour window.', icon: '🏃', ...check(marathoner, marathoner), criteria: '4 Parks in 24 Hours', isMystery: true, dateEarnedTs: marathoner ? this._getStableTimestamp('marathoner') : 0 },
-            { id: 'loneWolf', name: 'The Lone Wolf', hint: 'Explore a park on the quietest day of the year.', icon: '❄️', ...check(loneW, loneW), criteria: 'Visit on Christmas Day', isMystery: true, dateEarnedTs: loneW ? this._getStableTimestamp('loneWolf') : 0 },
+            { id: 'alphaDog', name: 'The Alpha Dog', hint: 'Prove you are the true leader of the pack.', icon: '🐺', ...check(userRank === 1, userRank === 1), criteria: 'Reach #1 on Leaderboard', classified: true, dateEarnedTs: userRank === 1 ? this._getStableTimestamp('alphaDog') : 0 },
+            { id: 'nightRanger', name: 'The Night Ranger', hint: 'The best time to explore is when everyone else is asleep.', icon: '🦉', ...check(nightR, nightR), criteria: 'Visit after Midnight', classified: true, dateEarnedTs: nightR ? this._getStableTimestamp('nightRanger') : 0 },
+            { id: 'earlyBird', name: 'The Early Bird', hint: 'The best trails belong to those who beat the sunrise.', icon: '🌅', ...check(earlyB, earlyB), criteria: 'Visit before 7 AM', classified: true, dateEarnedTs: earlyB ? this._getStableTimestamp('earlyBird') : 0 },
+            { id: 'marathoner', name: 'The Marathoner', hint: 'Visit 4 parks in a single 24-hour window.', icon: '🏃', ...check(marathoner, marathoner), criteria: '4 Parks in 24 Hours', classified: true, dateEarnedTs: marathoner ? this._getStableTimestamp('marathoner') : 0 },
+            { id: 'loneWolf', name: 'The Lone Wolf', hint: 'Explore a park on the quietest day of the year.', icon: '❄️', ...check(loneW, loneW), criteria: 'Visit on Christmas Day', classified: true, dateEarnedTs: loneW ? this._getStableTimestamp('loneWolf') : 0 },
             { 
                 id: 'mapConqueror', 
                 name: 'The Map Conqueror', 
@@ -405,7 +438,7 @@ class GamificationEngine {
                 criteria: 'Visit 100% of Map',
                 status: (uniqueVisitedSites >= (this.totalSystemParks || 1) && (this.totalSystemParks || 0) > 0) ? 'unlocked' : 'locked',
                 tier: (uniqueVisitedSites >= (this.totalSystemParks || 1)) ? 'verified' : 'honor',
-                isMystery: true, 
+                classified: true, 
                 dateEarnedTs: (uniqueVisitedSites >= (this.totalSystemParks || 1)) ? this._getStableTimestamp('mapConqueror') : 0
             }
         ];

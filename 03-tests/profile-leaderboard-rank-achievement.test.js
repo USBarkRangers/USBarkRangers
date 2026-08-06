@@ -79,7 +79,6 @@ function loadProfileEngineHarness() {
                         rareFeats: [],
                         paws: [],
                         stateBadges: [],
-                        mysteryFeats: [],
                         nationalProgress: {
                             percentComplete: 0,
                             totalVisited: 0,

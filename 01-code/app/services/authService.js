@@ -1134,6 +1134,12 @@ function resetLoggedOutRuntimeState() {
     resetSavedRouteLists();
     resetMapViewToGuestDefault();
 
+    // Clear the per-user achievement cache so a signed-out session can't reuse
+    // the previous user's earned achievements/timestamps.
+    if (window.gamificationEngine && typeof window.gamificationEngine.resetSession === 'function') {
+        window.gamificationEngine.resetSession();
+    }
+
     scheduleGuestMarkerRestore();
     if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
 }
@@ -1160,6 +1166,13 @@ function resetAccountScopedRuntimeState() {
     }
 
     resetSavedRouteLists();
+
+    // Clear the per-user achievement cache on account switch so the incoming
+    // user never sees the previous user's earned achievements/timestamps.
+    if (window.gamificationEngine && typeof window.gamificationEngine.resetSession === 'function') {
+        window.gamificationEngine.resetSession();
+    }
+
     if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
 }
 

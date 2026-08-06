@@ -73,7 +73,7 @@ test('duplicate Park IDs for the same physical site count once in national and s
     ]);
 
     const californiaBadge = result.stateBadges.find(badge => badge.id === 'state-ca');
-    const mapConqueror = result.mysteryFeats.find(badge => badge.id === 'mapConqueror');
+    const mapConqueror = result.rareFeats.find(badge => badge.id === 'mapConqueror');
 
     assert.equal(result.nationalProgress.totalVisited, 3);
     assert.equal(result.nationalProgress.totalParks, 3);
@@ -172,9 +172,9 @@ test('alpha dog mystery feat unlocks only when leaderboard rank is first', () =>
     const Engine = loadGamificationEngine();
     const engine = new Engine();
 
-    const firstPlace = engine.evaluate([], 1).mysteryFeats.find(feat => feat.id === 'alphaDog');
-    const unknownPlace = engine.evaluate([], null).mysteryFeats.find(feat => feat.id === 'alphaDog');
-    const secondPlace = engine.evaluate([], 2).mysteryFeats.find(feat => feat.id === 'alphaDog');
+    const firstPlace = engine.evaluate([], 1).rareFeats.find(feat => feat.id === 'alphaDog');
+    const unknownPlace = engine.evaluate([], null).rareFeats.find(feat => feat.id === 'alphaDog');
+    const secondPlace = engine.evaluate([], 2).rareFeats.find(feat => feat.id === 'alphaDog');
 
     assert.equal(firstPlace.status, 'unlocked');
     assert.equal(firstPlace.tier, 'verified');

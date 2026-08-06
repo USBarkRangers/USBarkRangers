@@ -9,10 +9,21 @@ window.BARK.bootOrder = window.BARK.bootOrder || {};
 window.BARK.bootOrder.barkStateParsedAt = Date.now();
 
 // ====== APP VERSION ======
-let APP_VERSION = parseInt(localStorage.getItem('bark_seen_version') || '57');
-console.log(`B.A.R.K. Engine v${APP_VERSION}: Performance Optimized`);
+// Versions are strings ("0.1", "0.2", ...) so early-access decimals survive
+// (parseInt("0.1") === 0 collapsed them before). Beta (GitHub Pages, *.github.io)
+// appends a "-beta" suffix to the DISPLAY label only; the account and backend are
+// identical to production.
+let APP_VERSION = String(localStorage.getItem('bark_seen_version') || '0.1');
+window.BARK.isBetaHost = function () {
+    return typeof location !== 'undefined' && /(^|\.)github\.io$/i.test(location.hostname || '');
+};
+window.BARK.getDisplayVersion = function (v) {
+    const base = String(v == null ? window.BARK.APP_VERSION : v);
+    return base + (window.BARK.isBetaHost() ? '-beta' : '');
+};
+console.log(`B.A.R.K. Engine v${window.BARK.getDisplayVersion(APP_VERSION)}: Performance Optimized`);
 window.BARK.APP_VERSION = APP_VERSION;
-window.BARK.setAppVersion = function (v) { APP_VERSION = v; window.BARK.APP_VERSION = v; };
+window.BARK.setAppVersion = function (v) { APP_VERSION = String(v); window.BARK.APP_VERSION = APP_VERSION; };
 
 // ====== SAFETY & COST CONTROLS ======
 let globalRequestCounter = 0;

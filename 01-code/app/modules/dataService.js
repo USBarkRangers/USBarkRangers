@@ -575,11 +575,14 @@ async function checkForUpdates() {
     if (!res.ok) throw new Error('version.json not found');
 
     const data = await res.json();
-    const remoteVersion = parseInt(data.version);
-    const seenVersion = parseInt(localStorage.getItem('bark_seen_version') || '0');
+    const remoteVersion = String(data.version);
+    const seenVersion = localStorage.getItem('bark_seen_version') || '';
 
     const versionLabel = document.getElementById('settings-app-version');
-    if (versionLabel) versionLabel.textContent = remoteVersion;
+    const displayVersion = window.BARK.getDisplayVersion
+        ? window.BARK.getDisplayVersion(remoteVersion)
+        : remoteVersion;
+    if (versionLabel) versionLabel.textContent = displayVersion;
 
     if (data.version && remoteVersion !== seenVersion) {
         const toast = document.getElementById('update-toast');

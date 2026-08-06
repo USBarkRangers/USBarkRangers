@@ -504,7 +504,9 @@ window.BARK.initSettings = function initSettings() {
         if (ultraLowToggle) ultraLowToggle.checked = window.ultraLowEnabled;
 
         const versionLabel = document.getElementById('settings-app-version');
-        if (versionLabel) versionLabel.textContent = window.BARK.APP_VERSION;
+        if (versionLabel) versionLabel.textContent = window.BARK.getDisplayVersion
+            ? window.BARK.getDisplayVersion(window.BARK.APP_VERSION)
+            : window.BARK.APP_VERSION;
 
         settingsGearBtn.addEventListener('click', () => {
             settingsOverlay.classList.add('active');

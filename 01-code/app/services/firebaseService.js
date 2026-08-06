@@ -600,7 +600,7 @@ async function syncUserProgress() {
             source: 'sync-user-progress-merged-write'
         });
 
-        window.syncState();
+        if (typeof window.syncState === 'function') window.syncState();
     } catch (error) {
         visitedArray.forEach(place => clearVisitedPlacePendingMutation(place && place.id));
         console.error("[firebaseService] syncUserProgress failed:", error);
@@ -643,6 +643,7 @@ async function updateVisitDate(parkId, newTs) {
     const tokenUid = getCurrentUser() ? getCurrentUser().uid : null;
     const token = vaultRepo && typeof vaultRepo.snapshot === 'function' ? vaultRepo.snapshot() : null;
     let rollbackToken = null;
+    let committed = false;
     try {
         const visitedEntry = getVisitedPlaceEntry(parkId);
         if (visitedEntry) {
@@ -660,12 +661,15 @@ async function updateVisitDate(parkId, newTs) {
             }
             stageVisitedPlaceUpsert(updatedPlace);
             await updateCurrentUserVisitedPlaces(getVisitedPlacesArray());
-            window.BARK.renderManagePortal();
+            // Server write succeeded past this point. A post-write render failure
+            // must NOT roll back a committed change.
+            committed = true;
+            if (typeof window.BARK.renderManagePortal === 'function') window.BARK.renderManagePortal();
         }
     } catch (error) {
-        if (vaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof vaultRepo.restore === 'function') {
+        if (!committed && vaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof vaultRepo.restore === 'function') {
             vaultRepo.restore(rollbackToken || token);
-        } else {
+        } else if (!committed) {
             clearVisitedPlacePendingMutation(parkId);
         }
         console.error("[firebaseService] updateVisitDate failed:", error);
@@ -688,6 +692,7 @@ async function removeVisitedPlace(placeOrId) {
     const tokenUid = getCurrentUser() ? getCurrentUser().uid : null;
     const token = vaultRepo && typeof vaultRepo.snapshot === 'function' ? vaultRepo.snapshot() : null;
     let rollbackToken = null;
+    let committed = false;
     try {
         const latestPlace = getLatestVisitedPlace(placeId);
         if (!latestPlace) {
@@ -717,13 +722,16 @@ async function removeVisitedPlace(placeOrId) {
             refreshVisitedCache('firebase-remove-visit');
             refreshVisitedVisuals('firebase-remove-visit');
             await syncUserProgress();
-            window.syncState();
-            window.BARK.renderManagePortal();
+            // Server delete succeeded past this point; a post-write render failure
+            // must NOT roll it back (that was resurrecting deleted visits).
+            committed = true;
+            if (typeof window.syncState === 'function') window.syncState();
+            if (typeof window.BARK.renderManagePortal === 'function') window.BARK.renderManagePortal();
         }
     } catch (error) {
-        if (vaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof vaultRepo.restore === 'function') {
+        if (!committed && vaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof vaultRepo.restore === 'function') {
             vaultRepo.restore(rollbackToken || token);
-        } else {
+        } else if (!committed) {
             clearVisitedPlacePendingMutation(placeId);
         }
         console.error("[firebaseService] removeVisitedPlace failed:", error);

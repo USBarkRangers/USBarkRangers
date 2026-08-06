@@ -215,35 +215,111 @@ function resumePendingGisSignInOnBoot() {
     setTimeout(maybeCompletePendingGisSignIn, 900);
 }
 
-async function signInWithGoogleGIS(forceChooser) {
+async function signInWithGoogleGIS() {
     await loadGoogleIdentityServices();
     initGoogleIdentityServices();
     ensureGisReturnHandler();
-
-    // "Switch account" signs out of Firebase, but GIS still holds the previous
-    // session's mediation state, so the next id.prompt() gets silently swallowed
-    // and the One Tap prompt ("the one line thing at the bottom") never reappears.
-    // disableAutoSelect() is Google's documented sign-out companion call: it resets
-    // that state so this press behaves exactly like a fresh home-screen install —
-    // the prompt shows, you go to the Google account and sign in, and the return
-    // handler completes it with no error. No popup (popups are blocked in iOS
-    // standalone), same One Tap path the fresh install already uses.
-    if (forceChooser && window.google.accounts.id
-        && typeof window.google.accounts.id.disableAutoSelect === 'function') {
-        try { window.google.accounts.id.disableAutoSelect(); } catch (e) { /* non-fatal */ }
-    }
-
     clearGoogleOneTapCooldown();
     gisAutoRetries = 0;
     setGisSignInPending(true);
     window.google.accounts.id.prompt();
 }
 
+// --- Standalone "switch / add account" via top-level OIDC redirect ---
+// One Tap only offers accounts already in the webview's Google session, so in a
+// standalone PWA it can't switch to or add a different account, and a popup-based
+// chooser just reloads the webview. Proven on-device: after "Switch account" the
+// One Tap prompt DOES display, but only for the account already signed in.
+//
+// A full-page redirect straight to Google (NOT through firebaseapp.com, which is
+// what breaks Firebase's signInWithRedirect here) shows Google's real account
+// chooser with prompt=select_account. Google returns an OIDC ID token in the URL
+// fragment; on the way back we exchange it for a Firebase credential. No popup,
+// no iframe, so it survives the standalone webview.
+const GOOGLE_OIDC_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_REDIRECT_STATE_KEY = 'bark_google_redirect';
+
+// Must EXACTLY match an "Authorized redirect URI" on the Web OAuth client
+// (GOOGLE_WEB_CLIENT_ID). Derived from the running origin so beta and production
+// each use their own registered URI. The URL fragment is ignored for matching.
+function getGoogleRedirectUri() {
+    return location.origin + location.pathname.replace(/index\.html?$/i, '');
+}
+
+function randomHexToken() {
+    const bytes = new Uint8Array(16);
+    (window.crypto || window.msCrypto).getRandomValues(bytes);
+    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function startGoogleRedirectSignIn() {
+    const state = randomHexToken();
+    const nonce = randomHexToken();
+    try {
+        localStorage.setItem(GOOGLE_REDIRECT_STATE_KEY, JSON.stringify({ state, ts: Date.now() }));
+    } catch (e) { /* non-fatal */ }
+    const params = new URLSearchParams({
+        client_id: GOOGLE_WEB_CLIENT_ID,
+        response_type: 'id_token',
+        scope: 'openid email profile',
+        redirect_uri: getGoogleRedirectUri(),
+        nonce,
+        state,
+        prompt: 'select_account'
+    });
+    window.location.assign(GOOGLE_OIDC_AUTH_ENDPOINT + '?' + params.toString());
+}
+
+// Called on boot: if we're returning from the redirect above, the fragment holds
+// the ID token. Validate the anti-CSRF state, scrub the URL, and sign in.
+async function maybeCompleteGoogleRedirectSignIn() {
+    if (typeof firebase === 'undefined' || !firebase.auth) return;
+    const hash = window.location.hash ? window.location.hash.slice(1) : '';
+    if (!hash) return;
+    const frag = new URLSearchParams(hash);
+    const idToken = frag.get('id_token');
+    const returnedState = frag.get('state');
+    const errorParam = frag.get('error');
+    if (!idToken && !errorParam) return; // not our redirect
+
+    let expectedState = null;
+    try {
+        const raw = localStorage.getItem(GOOGLE_REDIRECT_STATE_KEY);
+        if (raw) expectedState = (JSON.parse(raw) || {}).state;
+        localStorage.removeItem(GOOGLE_REDIRECT_STATE_KEY);
+    } catch (e) { /* non-fatal */ }
+    try {
+        history.replaceState(null, '', location.pathname + location.search);
+    } catch (e) { /* non-fatal */ }
+
+    if (errorParam) {
+        console.warn('[authService] Google redirect sign-in error:', errorParam);
+        return;
+    }
+    if (!expectedState || returnedState !== expectedState) {
+        console.warn('[authService] Google redirect state mismatch; ignoring token.');
+        return;
+    }
+
+    try {
+        const credential = firebase.auth.GoogleAuthProvider.credential(idToken);
+        await firebase.auth().signInWithCredential(credential);
+    } catch (error) {
+        console.error('[authService] Google redirect signInWithCredential failed:', error);
+    }
+}
+
 async function signInWithGoogleProvider(provider, options = {}) {
     const auth = firebase.auth();
 
     if (isStandaloneDisplayMode()) {
-        await signInWithGoogleGIS(options.forceAccountChooser === true);
+        // "Switch account" needs a real chooser, which One Tap can't give in
+        // standalone — send the user to Google's full account picker via redirect.
+        if (options.forceAccountChooser === true) {
+            startGoogleRedirectSignIn();
+            return;
+        }
+        await signInWithGoogleGIS();
         return;
     }
 
@@ -1100,6 +1176,11 @@ async function initFirebase() {
         throw error;
     }
 
+    // If we just came back from the standalone switch-account redirect, the ID
+    // token is waiting in the URL fragment — complete sign-in before anything else.
+    maybeCompleteGoogleRedirectSignIn()
+        .catch((error) => { console.warn('[authService] redirect completion skipped:', error); });
+
     // Bind the Google button before the auth observer finishes its first pass
     // so the account card is responsive even while Firebase restores state.
     bindGoogleSignInButton();
@@ -1313,6 +1394,9 @@ window.BARK.services.auth = {
     signInWithGoogleProvider,
     handleGoogleSignInClick,
     requestGoogleAccountChooser,
-    getEffectiveFirebaseConfig
+    getEffectiveFirebaseConfig,
+    startGoogleRedirectSignIn,
+    getGoogleRedirectUri,
+    maybeCompleteGoogleRedirectSignIn
 };
 window.BARK.initFirebase = initFirebase;

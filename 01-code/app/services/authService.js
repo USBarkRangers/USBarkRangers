@@ -140,10 +140,16 @@ function initGoogleIdentityServices() {
         callback: (response) => {
             if (!response || !response.credential) return;
             const credential = firebase.auth.GoogleAuthProvider.credential(response.credential);
-            firebase.auth().signInWithCredential(credential).catch((error) => {
-                console.error('[authService] GIS signInWithCredential failed:', error);
-                alert('Login Error: ' + (error && error.message ? error.message : 'unknown error'));
-            });
+            firebase.auth().signInWithCredential(credential)
+                .then(() => { setGisSignInPending(false); })
+                .catch((error) => {
+                    // No scary alert. On a fresh-installed standalone app the very
+                    // first attempt only establishes the Google session and can't
+                    // hand the credential back to the isolated webview; the return
+                    // handler re-prompts once the app is visible again and completes
+                    // it silently. Log quietly for diagnostics.
+                    console.warn('[authService] GIS credential deferred:', error && error.code);
+                });
         }
     });
 }
@@ -159,10 +165,63 @@ function clearGoogleOneTapCooldown() {
     } catch (e) { /* non-fatal */ }
 }
 
+// First sign-in on a fresh-installed standalone app has no Google session, so
+// Google shows a full sign-in page. That establishes the session but can't return
+// the credential to the isolated webview (the first attempt "fails"). Rather than
+// show an error, we remember the attempt and, when the app becomes visible again
+// (returning from Google's sign-in), silently re-prompt — a session now exists, so
+// One Tap completes instantly. Net effect: one tap, sign-in finishes on return.
+let gisSignInPending = false;
+let gisAutoRetries = 0;
+const GIS_MAX_AUTO_RETRIES = 1;
+
+function setGisSignInPending(pending) {
+    gisSignInPending = pending;
+    try {
+        if (pending) localStorage.setItem('bark_gis_pending', String(Date.now()));
+        else localStorage.removeItem('bark_gis_pending');
+    } catch (e) { /* non-fatal */ }
+}
+
+function maybeCompletePendingGisSignIn() {
+    if (typeof firebase === 'undefined' || !firebase.auth) return;
+    if (firebase.auth().currentUser) { setGisSignInPending(false); gisAutoRetries = 0; return; }
+    if (!gisSignInPending || gisAutoRetries >= GIS_MAX_AUTO_RETRIES) return;
+    if (!(window.google && window.google.accounts && window.google.accounts.id)) return;
+    gisAutoRetries += 1;
+    clearGoogleOneTapCooldown();
+    try { window.google.accounts.id.prompt(); } catch (e) { /* non-fatal */ }
+}
+
+let gisReturnHandlerBound = false;
+function ensureGisReturnHandler() {
+    if (gisReturnHandlerBound || typeof document === 'undefined') return;
+    gisReturnHandlerBound = true;
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') setTimeout(maybeCompletePendingGisSignIn, 500);
+    });
+}
+
+// Backup for the reload case: if the app reloaded mid first-time sign-in, finish it
+// once on boot. Clears the persisted flag immediately so it only gets one shot.
+function resumePendingGisSignInOnBoot() {
+    let ts = 0;
+    try { ts = Number(localStorage.getItem('bark_gis_pending') || 0); } catch (e) {}
+    setGisSignInPending(false);
+    if (!ts || (Date.now() - ts) > 180000) return;
+    if (firebase.auth().currentUser) return;
+    gisSignInPending = true;
+    gisAutoRetries = 0;
+    setTimeout(maybeCompletePendingGisSignIn, 900);
+}
+
 async function signInWithGoogleGIS() {
     await loadGoogleIdentityServices();
     initGoogleIdentityServices();
+    ensureGisReturnHandler();
     clearGoogleOneTapCooldown();
+    gisAutoRetries = 0;
+    setGisSignInPending(true);
     window.google.accounts.id.prompt();
 }
 
@@ -1038,7 +1097,11 @@ async function initFirebase() {
     // the config is ready before the user taps.
     if (isStandaloneDisplayMode()) {
         loadGoogleIdentityServices()
-            .then(() => { initGoogleIdentityServices(); })
+            .then(() => {
+                initGoogleIdentityServices();
+                ensureGisReturnHandler();
+                resumePendingGisSignInOnBoot();
+            })
             .catch((error) => { console.warn('[authService] GIS pre-warm skipped:', error); });
     }
 

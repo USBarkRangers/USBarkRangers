@@ -148,9 +148,21 @@ function initGoogleIdentityServices() {
     });
 }
 
+function clearGoogleOneTapCooldown() {
+    // One Tap records a dismissal cooldown in the `g_state` cookie
+    // (prompt's getNotDisplayedReason() becomes 'suppressed_by_user'), which
+    // stops it reopening after the user closes it — up to ~24h. Clearing the
+    // cookie before each prompt resets that, so every tap reopens the chooser.
+    try {
+        document.cookie = 'g_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+        document.cookie = 'g_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=' + location.hostname;
+    } catch (e) { /* non-fatal */ }
+}
+
 async function signInWithGoogleGIS() {
     await loadGoogleIdentityServices();
     initGoogleIdentityServices();
+    clearGoogleOneTapCooldown();
     window.google.accounts.id.prompt();
 }
 

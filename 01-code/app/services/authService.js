@@ -97,8 +97,70 @@ function isBenignGoogleSignInError(error) {
         || code === 'auth/user-cancelled';
 }
 
+// iOS home-screen (standalone) web apps can't complete Firebase's popup/redirect
+// OAuth: the popup can't open (it just reloads the app) and the firebaseapp.com
+// auth-iframe handshake fails with auth/network-request-failed. Detect that mode
+// and use Google Identity Services (accounts.google.com, no popup/iframe) to get
+// an ID token, then sign in with a credential — verified working in standalone.
+function isStandaloneDisplayMode() {
+    if (typeof window === 'undefined') return false;
+    if (window.navigator && window.navigator.standalone === true) return true;
+    return typeof window.matchMedia === 'function'
+        && window.matchMedia('(display-mode: standalone)').matches;
+}
+
+// Firebase's auto-created Web OAuth client (has usbarkrangers.github.io +
+// web.app + firebaseapp.com as authorized JS origins).
+const GOOGLE_WEB_CLIENT_ID = '564465144962-m32aoi179l1gjcvqr2r143tm4t5br913.apps.googleusercontent.com';
+
+let gisLoadPromise = null;
+function loadGoogleIdentityServices() {
+    if (window.google && window.google.accounts && window.google.accounts.id) return Promise.resolve();
+    if (gisLoadPromise) return gisLoadPromise;
+    gisLoadPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://accounts.google.com/gsi/client';
+        s.async = true;
+        s.defer = true;
+        s.onload = () => resolve();
+        s.onerror = () => { gisLoadPromise = null; reject(new Error('Could not load Google sign-in.')); };
+        document.head.appendChild(s);
+    });
+    return gisLoadPromise;
+}
+
+let gisInitialized = false;
+function initGoogleIdentityServices() {
+    if (gisInitialized) return;
+    gisInitialized = true;
+    window.google.accounts.id.initialize({
+        client_id: GOOGLE_WEB_CLIENT_ID,
+        use_fedcm_for_prompt: true,
+        auto_select: false,
+        callback: (response) => {
+            if (!response || !response.credential) return;
+            const credential = firebase.auth.GoogleAuthProvider.credential(response.credential);
+            firebase.auth().signInWithCredential(credential).catch((error) => {
+                console.error('[authService] GIS signInWithCredential failed:', error);
+                alert('Login Error: ' + (error && error.message ? error.message : 'unknown error'));
+            });
+        }
+    });
+}
+
+async function signInWithGoogleGIS() {
+    await loadGoogleIdentityServices();
+    initGoogleIdentityServices();
+    window.google.accounts.id.prompt();
+}
+
 async function signInWithGoogleProvider(provider, options = {}) {
     const auth = firebase.auth();
+
+    if (isStandaloneDisplayMode()) {
+        await signInWithGoogleGIS();
+        return;
+    }
 
     try {
         await auth.signInWithPopup(provider);

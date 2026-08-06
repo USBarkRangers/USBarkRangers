@@ -21,3 +21,12 @@ npm run test:functions
 npm run test:e2e:smoke
 npm run test:rules
 ```
+
+## Releases & environments
+
+- **Beta**: GitHub Pages (`main`) - <https://usbarkrangers.github.io/USBarkRangers/>
+- **Production**: Firebase Hosting - <https://barkrangermap-auth.web.app/>
+
+Both use the same Firebase backend; only the frontend build and version label
+differ (beta shows a `-beta` suffix). See [04-docs/RELEASE_FLOW.md](04-docs/RELEASE_FLOW.md)
+for the promote-to-production steps and [CHANGELOG.md](CHANGELOG.md) for version history.

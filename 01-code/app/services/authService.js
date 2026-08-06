@@ -219,36 +219,23 @@ async function signInWithGoogleGIS(forceChooser) {
     await loadGoogleIdentityServices();
     initGoogleIdentityServices();
     ensureGisReturnHandler();
+
+    // "Switch account" signs out of Firebase, but GIS still holds the previous
+    // session's mediation state, so the next id.prompt() gets silently swallowed
+    // and the One Tap prompt ("the one line thing at the bottom") never reappears.
+    // disableAutoSelect() is Google's documented sign-out companion call: it resets
+    // that state so this press behaves exactly like a fresh home-screen install —
+    // the prompt shows, you go to the Google account and sign in, and the return
+    // handler completes it with no error. No popup (popups are blocked in iOS
+    // standalone), same One Tap path the fresh install already uses.
+    if (forceChooser && window.google.accounts.id
+        && typeof window.google.accounts.id.disableAutoSelect === 'function') {
+        try { window.google.accounts.id.disableAutoSelect(); } catch (e) { /* non-fatal */ }
+    }
+
     clearGoogleOneTapCooldown();
     gisAutoRetries = 0;
     setGisSignInPending(true);
-
-    // "Switch account" (forceChooser) opens Google's full account chooser / sign-in
-    // page so the user can pick a different account or add a new one — One Tap only
-    // offers the account already in the session. The chooser establishes the chosen
-    // account; we sign in with its credential, and if that defers, the return
-    // handler completes it via One Tap (now showing the chosen account) as a backup.
-    if (forceChooser && window.google.accounts && window.google.accounts.oauth2
-        && typeof window.google.accounts.oauth2.initTokenClient === 'function') {
-        try {
-            window.google.accounts.oauth2.initTokenClient({
-                client_id: GOOGLE_WEB_CLIENT_ID,
-                scope: 'openid email profile',
-                prompt: 'select_account',
-                callback: (resp) => {
-                    if (!resp || !resp.access_token) return;
-                    const credential = firebase.auth.GoogleAuthProvider.credential(null, resp.access_token);
-                    firebase.auth().signInWithCredential(credential)
-                        .then(() => { setGisSignInPending(false); })
-                        .catch((error) => { console.warn('[authService] switch-account credential deferred:', error && error.code); });
-                }
-            }).requestAccessToken();
-            return;
-        } catch (error) {
-            console.warn('[authService] account chooser failed, falling back to One Tap:', error);
-        }
-    }
-
     window.google.accounts.id.prompt();
 }
 

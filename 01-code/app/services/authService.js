@@ -75,35 +75,13 @@ function bindGoogleSignInButton() {
     const googleBtn = document.getElementById('google-login-btn');
     if (!googleBtn || googleBtn.dataset.barkGoogleSignInBound === 'true') return;
     googleBtn.dataset.barkGoogleSignInBound = 'true';
+    // A single `click` handler only — mirrors the working JDD flow. iOS WKWebView
+    // blocks the OAuth popup when signInWithPopup is triggered from touchend or
+    // pointerup (surfaces as auth/network-request-failed in the standalone
+    // home-screen app), and only allows it from a genuine click. The old
+    // touchend/pointerup + delegated authCard bindings were what broke Google
+    // sign-in in the installed app on the github.io origin.
     googleBtn.addEventListener('click', handleGoogleSignInClick);
-    googleBtn.addEventListener('touchend', handleGoogleSignInClick, { passive: false });
-    googleBtn.addEventListener('pointerup', handleGoogleSignInClick);
-
-    const authCard = document.getElementById('account-auth-card');
-    if (authCard && authCard.dataset.barkGoogleSignInDelegated !== 'true') {
-        authCard.dataset.barkGoogleSignInDelegated = 'true';
-        const delegatedGoogleSignIn = (event) => {
-            const activeGoogleBtn = document.getElementById('google-login-btn');
-            if (!activeGoogleBtn || activeGoogleBtn.hidden) return;
-            if (event.target && event.target.closest && event.target.closest('#google-login-btn')) {
-                handleGoogleSignInClick(event);
-                return;
-            }
-            const point = event.changedTouches && event.changedTouches.length
-                ? event.changedTouches[0]
-                : event;
-            if (!Number.isFinite(point.clientX) || !Number.isFinite(point.clientY)) return;
-            const rect = activeGoogleBtn.getBoundingClientRect();
-            const insideButton = point.clientX >= rect.left
-                && point.clientX <= rect.right
-                && point.clientY >= rect.top
-                && point.clientY <= rect.bottom;
-            if (insideButton) handleGoogleSignInClick(event);
-        };
-        authCard.addEventListener('click', delegatedGoogleSignIn);
-        authCard.addEventListener('touchend', delegatedGoogleSignIn, { passive: false });
-        authCard.addEventListener('pointerup', delegatedGoogleSignIn);
-    }
 }
 
 function getEffectiveFirebaseConfig() {

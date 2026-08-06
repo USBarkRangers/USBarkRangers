@@ -1031,6 +1031,17 @@ async function initFirebase() {
     // so the account card is responsive even while Firebase restores state.
     bindGoogleSignInButton();
 
+    // Pre-warm Google Identity Services in standalone mode. initialize() fetches
+    // its One Tap config asynchronously; without this, the FIRST tap calls
+    // prompt() before that settles and One Tap silently no-ops (the "first press
+    // fails, second press works" symptom). Loading + initializing on boot means
+    // the config is ready before the user taps.
+    if (isStandaloneDisplayMode()) {
+        loadGoogleIdentityServices()
+            .then(() => { initGoogleIdentityServices(); })
+            .catch((error) => { console.warn('[authService] GIS pre-warm skipped:', error); });
+    }
+
     try {
         firebase.auth().onAuthStateChanged((user) => {
             try {

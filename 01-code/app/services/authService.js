@@ -119,25 +119,8 @@ function isBenignGoogleSignInError(error) {
         || code === 'auth/user-cancelled';
 }
 
-// iOS home-screen web apps run in a standalone WKWebView that cannot open the
-// OAuth popup, so signInWithPopup fails there with auth/network-request-failed.
-// In that mode we use the redirect flow instead (completed by getRedirectResult
-// in initFirebase). Safari tabs keep using the popup, which works fine.
-function isStandaloneDisplayMode() {
-    if (typeof window === 'undefined') return false;
-    if (window.navigator && window.navigator.standalone === true) return true;
-    return typeof window.matchMedia === 'function'
-        && window.matchMedia('(display-mode: standalone)').matches;
-}
-
 async function signInWithGoogleProvider(provider, options = {}) {
     const auth = firebase.auth();
-
-    if (isStandaloneDisplayMode() && typeof auth.signInWithRedirect === 'function') {
-        // Navigates away; the sign-in is finished by getRedirectResult() on return.
-        await auth.signInWithRedirect(provider);
-        return;
-    }
 
     try {
         await auth.signInWithPopup(provider);
@@ -990,17 +973,6 @@ async function initFirebase() {
     } catch (error) {
         console.error("[authService] initializeApp failed:", error);
         throw error;
-    }
-
-    // Complete any pending standalone-PWA redirect sign-in (see
-    // signInWithGoogleProvider) and surface non-benign errors. Resolves to null
-    // on a normal load with no redirect in progress.
-    try {
-        await firebase.auth().getRedirectResult();
-    } catch (error) {
-        if (!isBenignGoogleSignInError(error)) {
-            console.error('[authService] getRedirectResult failed:', error);
-        }
     }
 
     // Bind the Google button before the auth observer finishes its first pass

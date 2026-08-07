@@ -17,7 +17,7 @@
 
     <link rel="stylesheet" href="styles.css?v=64">
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
-    <link rel="stylesheet" href="styles/trophyCase.css?v=3">
+    <link rel="stylesheet" href="styles/trophyCase.css?v=4">
 
     <!-- PWA Manifest & App Icons -->
     <link rel="manifest" href="manifest.json">
@@ -1492,7 +1492,7 @@
     <!-- Core Dependencies (load before modules) -->
     <script src="utils/geoUtils.js?v=1" defer></script>
     <script src="utils/scoringUtils.js?v=2" defer></script>
-    <script src="gamificationLogic.js?v=9" defer></script>
+    <script src="gamificationLogic.js?v=10" defer></script>
     <script src="MapMarkerConfig.js?v=4" defer></script>
 
     <!-- NEW: Modular Architecture (strict load order) -->
@@ -1525,7 +1525,8 @@
     <script src="modules/searchEngine.js?v=6" defer></script>
     <script src="modules/dataService.js?v=10" defer></script>
     <script src="renderers/leaderboardRenderer.js?v=1" defer></script>
-    <script src="modules/profileEngine.js?v=13" defer></script>
+    <script src="modules/achievementsPanel.js?v=1" defer></script>
+    <script src="modules/profileEngine.js?v=14" defer></script>
     <!-- leaderboardEngine loads after profileEngine so the shared visit helpers are
          registered on window.BARK first. Calls in the other direction are late-bound. -->
     <script src="modules/leaderboardEngine.js?v=1" defer></script>

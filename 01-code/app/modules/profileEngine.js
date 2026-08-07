@@ -201,10 +201,23 @@ function renderManagePortal() {
 
 window.BARK.renderManagePortal = renderManagePortal;
 
-// ====== EVALUATE ACHIEVEMENTS ======
-async function evaluateAchievements(visitedPlacesMap) {
-    try {
-    const visitedArray = getProfileVisitedPlacesArray(visitedPlacesMap).map(rawVisit => {
+// ====== PROFILE REFRESH ======
+//
+// refreshProfile() is the one entry point that repaints the Profile screen. The
+// flow is deliberately linear so it can be read top to bottom:
+//
+//   1. gamificationLogic decides what is earned        (the brain)
+//   2. updateProfileBanner paints title/score/progress (this file)
+//   3. achievementsPanel paints the vault              (achievementsPanel.js)
+//   4. leaderboardEngine pushes the score              (leaderboardEngine.js)
+//
+// Each collaborator owns one job and none of them call back into this function
+// except leaderboardEngine, once, when the user's rank actually changes.
+
+// Visits do not always carry a state. Fill it in from the park catalogue so that
+// state badges and "unique states" feats evaluate correctly.
+function buildVisitedArrayWithStates(visitedPlacesMap) {
+    return getProfileVisitedPlacesArray(visitedPlacesMap).map(rawVisit => {
         if (!rawVisit || typeof rawVisit !== 'object') return rawVisit;
 
         const visit = { ...rawVisit };
@@ -215,23 +228,14 @@ async function evaluateAchievements(visitedPlacesMap) {
         }
         return visit;
     });
-    const userLocationMarker = window.BARK.getUserLocationMarker();
-    const parkRepo = getParkRepo();
-    const allPoints = parkRepo ? parkRepo.getAll() : [];
+}
 
-    let userId = null;
-    if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
-        userId = firebase.auth().currentUser.uid;
-    }
+// Points at which the user's title changes. Drives the "x / y PTS" progress bar.
+const TITLE_THRESHOLDS = [10, 25, 50, 100, 200, 300, 500];
 
-    // Rank comes from leaderboardEngine.js and feeds the "Alpha Dog" badge. Reached
-    // through window.BARK so this file doesn't depend on script load order.
-    const currentRank = typeof window.BARK.getCurrentLeaderboardRank === 'function'
-        ? window.BARK.getCurrentLeaderboardRank()
-        : null;
-    const achievements = await window.gamificationEngine.evaluateAndStoreAchievements(userId, visitedArray, currentRank, window.currentWalkPoints || 0);
-
-    // Update Banner
+// The banner across the top of the Profile screen: title, score, progress to next
+// title. Also fires the rank-up celebration when the title genuinely improves.
+function updateProfileBanner(achievements) {
     const titleEl = document.getElementById('current-title-label');
     const scoreEl = document.getElementById('stat-score');
     const progressFill = document.getElementById('tier-progress-fill');
@@ -241,6 +245,9 @@ async function evaluateAchievements(visitedPlacesMap) {
         const oldTitle = window._lastKnownRank || titleEl.textContent || 'B.A.R.K. Trainee';
         const newTitle = achievements.title;
         const isAuth = typeof firebase !== 'undefined' && firebase.auth().currentUser;
+
+        // Only celebrate once server data has settled, otherwise a cold start would
+        // congratulate the user for reaching a title they already had.
         const isSecurelyHydrated = window._serverPayloadSettled;
 
         if (isAuth && isSecurelyHydrated && window._lastKnownRank && oldTitle !== newTitle && newTitle !== 'B.A.R.K. Trainee') {
@@ -250,223 +257,71 @@ async function evaluateAchievements(visitedPlacesMap) {
         window._lastKnownRank = newTitle;
         titleEl.textContent = newTitle;
     }
+
     if (scoreEl) scoreEl.textContent = achievements.totalScore;
 
-    // Push the new score to the public leaderboard. If this changes the user's rank,
-    // leaderboardEngine calls back into evaluateAchievements once so "Alpha Dog" can
-    // settle; see setCurrentLeaderboardRank() there for why that terminates.
-    if (userId && typeof window.BARK.syncScoreToLeaderboard === 'function') {
-        await window.BARK.syncScoreToLeaderboard();
+    if (!progressFill) return;
+
+    const next = TITLE_THRESHOLDS.find(t => t > achievements.totalScore) || 500;
+    const prev = TITLE_THRESHOLDS[TITLE_THRESHOLDS.indexOf(next) - 1] || 0;
+    const pct = Math.min(100, ((achievements.totalScore - prev) / (next - prev)) * 100);
+    progressFill.style.width = pct + '%';
+
+    if (!fractionEl) return;
+
+    if (achievements.totalScore >= 500) {
+        fractionEl.textContent = 'MAX RANK ACHIEVED 🏆';
+        progressFill.style.width = '100%';
+    } else {
+        fractionEl.textContent = `${achievements.totalScore} / ${next} PTS`;
     }
+}
 
-    if (progressFill) {
-        const thresholds = [10, 25, 50, 100, 200, 300, 500];
-        const next = thresholds.find(t => t > achievements.totalScore) || 500;
-        const prev = thresholds[thresholds.indexOf(next) - 1] || 0;
-        const pct = Math.min(100, ((achievements.totalScore - prev) / (next - prev)) * 100);
-        progressFill.style.width = pct + "%";
+/**
+ * Repaint the Profile screen from the current visit data.
+ * Safe to call repeatedly; renderEngine debounces the callers.
+ */
+async function refreshProfile(visitedPlacesMap) {
+    try {
+        const visitedArray = buildVisitedArrayWithStates(visitedPlacesMap);
 
-        if (fractionEl) {
-            if (achievements.totalScore >= 500) {
-                fractionEl.textContent = 'MAX RANK ACHIEVED 🏆';
-                progressFill.style.width = "100%";
-            } else {
-                fractionEl.textContent = `${achievements.totalScore} / ${next} PTS`;
-            }
-        }
-    }
-
-    const getSubtitle = (b) => {
-        let s = b.desc || b.hint || '';
-        if (!s && b.id.includes('Paw')) s = 'Verified Check-ins';
-        if (!s && b.id.includes('state')) s = '100% cleared!!';
-        return s;
-    };
-
-    const esc = (str) => String(str || '').replace(/'/g, "\\'");
-    const escAttr = (str) => String(str || '')
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-    const getFlipSceneAttrs = (b) => {
-        if (b.status !== 'unlocked') return 'class="flip-scene"';
-        return `class="flip-scene is-unlocked" role="button" tabindex="0" aria-pressed="false" aria-label="Flip ${escAttr(b.name)} badge"`;
-    };
-
-    const renderStateBadge = (b) => {
-        const isU = b.status === 'unlocked';
-        const tCl = isU ? (b.tier === 'verified' ? 'verified-tier' : 'honor-tier') : 'locked-tier';
-        const datePlaceholder = b.dateEarned || '--/--/----';
-        const upgradeCta = (isU && b.tier === 'honor') ? '<div class="upgrade-pill">⭐ VERIFY TO UPGRADE</div>' : '';
-        const sub = getSubtitle(b);
-        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${esc(b.name)}', '${esc(b.icon)}', '${esc(b.tier)}', false, '${esc(sub)}')" style="margin-top: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; color: white; font-size: 9px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">📸 SHARE</button>` : '';
-
-        let progressHtml = '';
-        if (!isU && typeof b.percentComplete !== 'undefined') {
-            const pct = b.percentComplete;
-            progressHtml = `
-            <div class="state-progress-wrap">
-                <div class="state-progress-track">
-                    <div class="state-progress-fill" style="width: ${pct}%;"></div>
-                </div>
-                <span class="state-progress-text">${pct}%</span>
-            </div>`;
+        let userId = null;
+        if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
+            userId = firebase.auth().currentUser.uid;
         }
 
-        return `
-        <div ${getFlipSceneAttrs(b)}>
-            <div class="skeuo-badge ${tCl} ${isU ? 'unlocked hover-float' : 'locked'}">
-                <div class="badge-face badge-front">
-                    <div class="badge-icon">${b.icon}</div>
-                    <div class="badge-details">
-                        <h4>${b.name}</h4>
-                        <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-top: 4px;">${b.criteria || ''}</div>
-                    </div>
-                    ${progressHtml}
-                </div>
-                <div class="badge-face badge-back">
-                    <div class="engraved-date">EST. ${datePlaceholder}</div>
-                    ${upgradeCta}
-                    ${shareBtnHtml}
-                </div>
-            </div>
-        </div>`;
-    };
+        // Rank lives in leaderboardEngine.js and feeds the "Alpha Dog" badge.
+        // Reached through window.BARK so script load order cannot break it.
+        const currentRank = typeof window.BARK.getCurrentLeaderboardRank === 'function'
+            ? window.BARK.getCurrentLeaderboardRank()
+            : null;
 
-    // One card renderer for Paws, Rare Feats and classified feats. Classified
-    // feats stay hidden until earned: their name, icon and criteria are masked
-    // (only the field-rumor hint shows) so unlocking them is still a reveal.
-    const renderCoin = (b) => {
-        const isU = b.status === 'unlocked';
-        const isHiddenClassified = b.classified && !isU;
-        const tCl = isU ? (b.tier === 'verified' ? 'verified-tier' : 'honor-tier') : 'locked-tier';
-        const upgradeCta = (isU && b.tier === 'honor') ? '<div class="upgrade-pill">⭐ VERIFY TO UPGRADE</div>' : '';
-        const datePlaceholder = b.dateEarned || '--/--/----';
-        const sub = getSubtitle(b);
-        const shareBtnHtml = isU ? `<button onclick="shareSingleBadge('${esc(b.name)}', '${esc(b.icon)}', '${esc(b.tier)}', ${b.classified ? 'true' : 'false'}, '${esc(sub)}')" style="margin-top: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 20px; color: white; font-size: 9px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px;">📸 SHARE</button>` : '';
+        // 1. What has this user earned?
+        const achievements = await window.gamificationEngine.evaluateAndStoreAchievements(
+            userId, visitedArray, currentRank, window.currentWalkPoints || 0
+        );
 
-        const icon = isHiddenClassified ? '🔒' : b.icon;
-        const displayName = isHiddenClassified ? 'CLASSIFIED' : b.name;
-        // Hidden classified shows only a short teaser (≤3 words); unlocked shows real criteria.
-        const detailText = isHiddenClassified ? (b.teaser || '') : (b.criteria || '');
-        const classifiedTag = (b.classified && isU) ? '<div class="classified-tag">★ CLASSIFIED</div>' : '';
-        const classifiedCls = b.classified ? ' classified-feat' : '';
+        // 2. Banner.
+        updateProfileBanner(achievements);
 
-        return `
-        <div ${getFlipSceneAttrs(b)}>
-            <div class="skeuo-badge ${tCl} ${isU ? 'unlocked hover-float' : 'locked'}${classifiedCls}">
-                <div class="badge-face badge-front">
-                    ${classifiedTag}
-                    <div class="badge-icon">${icon}</div>
-                    <div class="badge-details">
-                        <h4>${displayName}</h4>
-                        ${detailText ? `<div class="badge-crit">${detailText}</div>` : ''}
-                    </div>
-                </div>
-                <div class="badge-face badge-back">
-                    <div class="engraved-date">EST. ${datePlaceholder}</div>
-                    ${upgradeCta}
-                    ${shareBtnHtml}
-                </div>
-            </div>
-        </div>`;
-    };
+        // 3. Vault. The panel needs location context only for the states distance sort.
+        const parkRepo = getParkRepo();
+        if (window.BARK.achievementsPanel && typeof window.BARK.achievementsPanel.render === 'function') {
+            window.BARK.achievementsPanel.render(achievements, {
+                userLocationMarker: window.BARK.getUserLocationMarker(),
+                allPoints: parkRepo ? parkRepo.getAll() : []
+            });
+        }
 
-    // Rare Feats renders normal feats then classified feats (ordering set by
-    // gamificationEngine.sortRareFeats); Paws uses the same coin renderer.
-    window.BARK.safeUpdateHTML('rare-feats-grid', achievements.rareFeats.map(renderCoin).join(''));
-    window.BARK.safeUpdateHTML('paws-grid', achievements.paws.map(renderCoin).join(''));
-
-    // --- STATES SORT: DISTANCE & COMPLETION ---
-    const stateDistances = {};
-    const refLatLng = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
-
-    if (allPoints && allPoints.length > 0) {
-        allPoints.forEach(p => {
-            if (p.state && p.lat && p.lng) {
-                const sts = String(p.state).split(/[,/]/);
-                const dist = window.BARK.haversineDistance(refLatLng.lat, refLatLng.lng, parseFloat(p.lat), parseFloat(p.lng));
-                sts.forEach(s => {
-                    const cleanSt = window.gamificationEngine.getNormalizedStateCode(s);
-                    if (cleanSt) {
-                        if (stateDistances[cleanSt] === undefined || dist < stateDistances[cleanSt]) {
-                            stateDistances[cleanSt] = dist;
-                        }
-                    }
-                });
-            }
-        });
-    }
-
-    let minOverallDist = Infinity;
-    let currentStateCode = null;
-    for (const [code, dist] of Object.entries(stateDistances)) {
-        if (dist < minOverallDist) { minOverallDist = dist; currentStateCode = code; }
-    }
-
-    achievements.stateBadges.sort((a, b) => {
-        const aCode = a.id.replace('state-', '').toUpperCase();
-        const bCode = b.id.replace('state-', '').toUpperCase();
-        const aIsCurrent = aCode === currentStateCode;
-        const bIsCurrent = bCode === currentStateCode;
-        if (aIsCurrent && !bIsCurrent) return -1;
-        if (!aIsCurrent && bIsCurrent) return 1;
-        const aUnlocked = a.status === 'unlocked';
-        const bUnlocked = b.status === 'unlocked';
-        if (aUnlocked && !bUnlocked) return -1;
-        if (!aUnlocked && bUnlocked) return 1;
-        if (aUnlocked && bUnlocked) return (b.dateEarnedTs || 0) - (a.dateEarnedTs || 0);
-        const aDist = stateDistances[aCode] !== undefined ? stateDistances[aCode] : Infinity;
-        const bDist = stateDistances[bCode] !== undefined ? stateDistances[bCode] : Infinity;
-        return aDist - bDist;
-    });
-
-    const nationalCardHtml = `
-        <div class="flip-scene">
-            <div class="skeuo-badge" style="background: linear-gradient(135deg, #0f172a, #1e293b); border: 2px solid #3b82f6; box-shadow: 0 4px 15px rgba(59,130,246,0.3); border-radius: 16px; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px; text-align: center;">
-                <div style="font-size: 28px; margin-bottom: 4px;">🇺🇸</div>
-                <h4 style="color: #f1f5f9; font-size: 12px; font-weight: 900; text-transform: uppercase; margin: 0 0 8px 0;">National Map</h4>
-                <div style="width: 80%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 6px; overflow: hidden; margin-bottom: 4px;">
-                    <div style="width: ${achievements.nationalProgress.percentComplete}%; height: 100%; background: linear-gradient(90deg, #38bdf8, #3b82f6); box-shadow: 0 0 8px rgba(56,189,248,0.6);"></div>
-                </div>
-                <span style="color: #94a3b8; font-size: 9px; font-weight: 800;">${achievements.nationalProgress.totalVisited} / ${achievements.nationalProgress.totalParks} SITES</span>
-            </div>
-        </div>`;
-
-    window.BARK.safeUpdateHTML('states-grid', nationalCardHtml + achievements.stateBadges.map(renderStateBadge).join(''));
-
-    document.querySelectorAll('.flip-scene.is-unlocked').forEach(scene => {
-        const toggleFlip = () => {
-            const isFlipped = scene.classList.toggle('is-flipped');
-            scene.setAttribute('aria-pressed', isFlipped ? 'true' : 'false');
-        };
-
-        scene.onclick = (event) => {
-            if (event.target.closest('button, a, input, select, textarea')) return;
-            toggleFlip();
-        };
-
-        scene.onkeydown = (event) => {
-            if (event.key !== 'Enter' && event.key !== ' ') return;
-            event.preventDefault();
-            toggleFlip();
-        };
-    });
-
-    // Re-bind tab listeners
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.onclick = (e) => {
-            e.preventDefault();
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            btn.classList.add('active');
-            const content = document.getElementById(btn.dataset.tab + '-content');
-            if (content) content.classList.add('active');
-        };
-    });
+        // 4. Leaderboard, last, so the screen is already painted before we go to the
+        //    network. If this changes the user's rank, leaderboardEngine calls back
+        //    into refreshProfile once so "Alpha Dog" can settle; see
+        //    setCurrentLeaderboardRank() there for why that terminates.
+        if (userId && typeof window.BARK.syncScoreToLeaderboard === 'function') {
+            await window.BARK.syncScoreToLeaderboard();
+        }
     } catch (error) {
-        console.error('[profileEngine] Achievement evaluation/render failed; profile update skipped.', {
+        console.error('[profileEngine] Profile refresh failed; profile update skipped.', {
             visitedCount: visitedPlacesMap && typeof visitedPlacesMap.size === 'number' ? visitedPlacesMap.size : null,
             currentWalkPoints: window.currentWalkPoints || 0,
             error
@@ -474,7 +329,10 @@ async function evaluateAchievements(visitedPlacesMap) {
     }
 }
 
-window.BARK.evaluateAchievements = evaluateAchievements;
+// `evaluateAchievements` is the historical name used by renderEngine.js and
+// leaderboardEngine.js. Kept as an alias so those call sites stay untouched.
+window.BARK.refreshProfile = refreshProfile;
+window.BARK.evaluateAchievements = refreshProfile;
 
 // ====== STATS UI ======
 function updateStatsUI() {

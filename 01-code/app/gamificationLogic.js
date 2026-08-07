@@ -504,10 +504,11 @@ class GamificationEngine {
         return thresholds.map(t => {
             let status = (totalVisits >= t.count) ? 'unlocked' : 'locked';
             let tier = (status === 'unlocked' && verifiedCount >= t.count) ? 'verified' : 'honor';
-            return { 
-                ...t, status, tier, 
-                dateEarned: status === 'unlocked' ? new Date().toLocaleDateString() : null, 
-                dateEarnedTs: status === 'unlocked' ? this._getStableTimestamp(t.id) : 0 
+            return {
+                ...t, status, tier,
+                category: 'paws',
+                dateEarned: status === 'unlocked' ? new Date().toLocaleDateString() : null,
+                dateEarnedTs: status === 'unlocked' ? this._getStableTimestamp(t.id) : 0
             };
         });
     }
@@ -546,12 +547,14 @@ class GamificationEngine {
         const hvE = this.eastCoastStates.some(st => verifiedMap[st] > 0);
         const hvW = this.westCoastStates.some(st => verifiedMap[st] > 0);
 
+        // `category` is the contract the UI filters on. Never infer a badge's kind
+        // from substrings of its id — 'fiftyStateClub' would false-match 'state'.
         return [
             { id: 'theExplorer', name: 'The Explorer', icon: '🗺️', ...evalF(uniqueTotal >= 5, uniqueVerified >= 5), criteria: '5 Unique States', dateEarnedTs: uniqueTotal >= 5 ? this._getStableTimestamp('theExplorer') : 0 },
             { id: 'theLocalLegend', name: 'The Local Legend', icon: '🏡', ...evalF(maxTotal >= 3, maxVerified >= 3), criteria: '3 Visits to 1 Park', dateEarnedTs: maxTotal >= 3 ? this._getStableTimestamp('theLocalLegend') : 0 },
             { id: 'coastToCoast', name: 'Coast-to-Coast', icon: '🌊', ...evalF(hasE && hasW, hvE && hvW), criteria: 'E & W Coast Visits', dateEarnedTs: (hasE && hasW) ? this._getStableTimestamp('coastToCoast') : 0 },
             { id: 'fiftyStateClub', name: '50-State Club', icon: '🦅', ...evalF(uniqueTotal >= 50, uniqueVerified >= 50), criteria: 'Visit all 50 States', dateEarnedTs: uniqueTotal >= 50 ? this._getStableTimestamp('fiftyStateClub') : 0 }
-        ];
+        ].map(feat => ({ ...feat, category: 'rareFeats' }));
     }
 
     calculateStateBadges(totalMap, verifiedMap) {
@@ -571,6 +574,8 @@ class GamificationEngine {
             const badgeId = `state-${code.toLowerCase()}`;
             return {
                 id: badgeId, name: stateName, icon: '📍', status, percentComplete, tier, criteria,
+                category: 'states',
+                stateCode: code,
                 dateEarned: status === 'unlocked' ? new Date().toLocaleDateString() : null, 
                 dateEarnedTs: status === 'unlocked' ? this._getStableTimestamp(badgeId) : 0
             };
@@ -623,7 +628,9 @@ class GamificationEngine {
                 classified: true,
                 dateEarnedTs: (uniqueVisitedSites >= (this.totalSystemParks || 1)) ? this._getStableTimestamp('mapConqueror') : 0
             }
-        ];
+        // Classified feats live in the Rare Feats tab, so they share its category;
+        // `classified: true` is what makes them render hidden and sort last.
+        ].map(feat => ({ ...feat, category: 'rareFeats' }));
     }
 }
 window.GamificationEngine = GamificationEngine;

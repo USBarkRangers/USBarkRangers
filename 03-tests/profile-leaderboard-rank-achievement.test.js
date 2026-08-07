@@ -95,7 +95,7 @@ function loadProfileEngineHarness() {
     // helpers on window.BARK; leaderboardEngine reads them back through window.BARK.
     // Loading both here means these tests exercise the real cross-file wiring rather
     // than a single file in isolation.
-    ['modules/profileEngine.js', 'modules/leaderboardEngine.js'].forEach(relativePath => {
+    ['modules/achievementsPanel.js', 'modules/profileEngine.js', 'modules/leaderboardEngine.js'].forEach(relativePath => {
         vm.runInContext(
             fs.readFileSync(path.join(repoRoot, '01-code', 'app', ...relativePath.split('/')), 'utf8'),
             sandbox

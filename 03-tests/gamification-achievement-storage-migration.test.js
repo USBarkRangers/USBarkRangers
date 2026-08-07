@@ -315,6 +315,54 @@ test('backfill never writes an undefined date, which Firestore would reject', as
     }
 });
 
+test('a completionist pays the legacy read once, then reloads all day for free', async () => {
+    // The reload scenario. Users treat this like a website and reload ~10x a day.
+    // Session 1 migrates them (one legacy read). Every reload after that must cost
+    // zero, because achievementsSchema lands on the user document and the next page
+    // load is primed straight off the snapshot the app already subscribes to.
+    const earnedAt = new Date('2023-08-08T08:00:00Z');
+    const everyBadge = {};
+    ['bronzePaw', 'silverPaw', 'goldPaw', 'platinumPaw', 'obsidianPaw',
+     'theExplorer', 'theLocalLegend', 'coastToCoast', 'fiftyStateClub',
+     'alphaDog', 'nightRanger', 'earlyBird', 'marathoner', 'loneWolf', 'mapConqueror']
+        .forEach(id => {
+            everyBadge[id] = { achievementId: id, tier: 'verified', dateEarned: { toDate: () => earnedAt } };
+        });
+
+    const stub = createFirestoreStub({ subcollectionDocs: everyBadge });
+    const Engine = loadEngine(stub.firebase);
+
+    // --- Session 1: unmigrated. Pays the legacy read exactly once. ---
+    const first = new Engine();
+    await first.evaluateAndStoreAchievements('user-1', visits(30));
+
+    assert.equal(stub.stats.subcollectionReads, 1, 'migration should read the subcollection once');
+    const migrationWrite = findUserDocWrite(stub.stats);
+    assert.ok(migrationWrite, 'migration must persist the map');
+    assert.equal(migrationWrite.payload.achievementsSchema, 2, 'schema marker must be written or reloads re-migrate');
+
+    // The user document now looks like this to every future page load.
+    const migratedUserDoc = {
+        achievements: migrationWrite.payload.achievements,
+        achievementsSchema: migrationWrite.payload.achievementsSchema
+    };
+
+    const readsAfterMigration = stub.stats.subcollectionReads;
+
+    // --- Sessions 2..11: ten reloads. Each is a fresh engine, like a new page load. ---
+    for (let reload = 0; reload < 10; reload += 1) {
+        const reloaded = new Engine();
+        reloaded.primeAchievementsFromUserDoc('user-1', migratedUserDoc);
+        await reloaded.evaluateAndStoreAchievements('user-1', visits(30));
+    }
+
+    assert.equal(
+        stub.stats.subcollectionReads,
+        readsAfterMigration,
+        'ten reloads after migration must cost zero additional achievement reads'
+    );
+});
+
 test('priming a different user clears the previous user cached achievements', async () => {
     const stub = createFirestoreStub();
     const engine = new (loadEngine(stub.firebase))({ legacySubcollectionEnabled: false });

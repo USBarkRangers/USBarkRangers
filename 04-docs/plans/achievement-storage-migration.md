@@ -66,12 +66,25 @@ So:
 Unlocks are rare, so this captures nearly all of the saving while remaining correct
 even with old clients live.
 
-**Phase 3.** Promote production to this client.
+**Phase 3 (done, 2026-08-07).** Production promoted to 0.16, tagged `prod-0.16`.
+Verified live: `version.json` reports 0.16 and the deployed `gamificationLogic.js`
+is byte-identical to local. Both surfaces now run the same client.
 
-**Phase 4.** Flip `legacySubcollectionEnabled` to `false` where the engine is
-constructed (`01-code/app/modules/barkState.js`). This drops the remaining
-verification read and the dual writes. Only safe after Phase 3, and worth little on
-its own now that Phase 2 has taken the routine read out.
+**Phase 4 (now unblocked).** Flip `legacySubcollectionEnabled` to `false` where the
+engine is constructed (`01-code/app/modules/barkState.js`). This drops the remaining
+verification read and the dual writes. Do not do this immediately: installed PWAs can
+keep running cached pre-0.16 JS for a while, and those clients write only the
+subcollection. Wait until that population has drained, then flip.
+
+Measured impact of what is already live, simulating one new user over a year
+(3,650 sessions, 365 sites visited):
+
+| | reads |
+|---|---|
+| lifetime, current code | 164 |
+| lifetime, old subcollection code | ~76,650 |
+
+Phase 4 removes most of the remaining 164.
 
 **Phase 5.** After enough time that no installed PWA is still running cached old JS,
 remove the legacy branch from `gamificationLogic.js` entirely.
@@ -83,6 +96,21 @@ the subcollection. With `legacySubcollectionEnabled` false there is no verificat
 step at all, so a badge earned on production would look brand new here and be
 rewritten with today's date, destroying the original earned date. Phase 2's lazy
 verification is exactly what makes the savings safe before that point.
+
+## Outstanding prerequisite from the 0.16 promotion
+
+Production 0.16 also carries the standalone (home-screen PWA) Google sign-in rework
+that had only ever run on beta. One piece of it is not yet complete on production:
+
+**`https://barkrangermap-auth.web.app/` must be registered as an Authorized redirect
+URI** on the Web OAuth client (`564465144962-m32aoi179l1gjcvqr2r143tm4t5br913`),
+in the Google Cloud Console. This is a separate list from Authorized JavaScript
+origins. The beta URL is already registered; production is not.
+
+Until it is added, standalone "switch account" on production fails with
+`redirect_uri_mismatch`. This is not a regression, that path could not work on 0.1
+either, but it is the one piece of the sign-in rework that production does not yet
+get. Normal sign-in (One Tap in standalone, popup in browser tabs) is unaffected.
 
 ## Rollback
 

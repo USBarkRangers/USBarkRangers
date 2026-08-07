@@ -77,7 +77,7 @@ function loadProfileHarness({ achievements } = {}) {
     };
 
     vm.createContext(sandbox);
-    ['modules/achievementsPanel.js', 'modules/profileEngine.js', 'modules/leaderboardEngine.js']
+    ['modules/achievementsPanel.js', 'modules/managePortal.js', 'modules/profileEngine.js', 'modules/leaderboardEngine.js']
         .forEach(rel => vm.runInContext(fs.readFileSync(path.join(APP, ...rel.split('/')), 'utf8'), sandbox));
 
     // Record the leaderboard sync without doing any network work.
@@ -135,6 +135,31 @@ test('a signed-out refresh paints the vault but does not touch the leaderboard',
 
     assert.ok(callOrder.includes('render:states-grid'), 'the vault still paints when signed out');
     assert.ok(!callOrder.includes('leaderboardSync'), 'no leaderboard write without a user');
+});
+
+test('updateStatsUI runs without a ReferenceError after the module split', () => {
+    // REGRESSION: renderManagePortal moved to managePortal.js but updateStatsUI kept
+    // calling it by bare name. That threw ReferenceError inside the auth state
+    // callback, which aborted sign-in AND stopped the leaderboard from loading.
+    // Cross-file calls must go through window.BARK.
+    const { sandbox } = loadProfileHarness();
+
+    assert.doesNotThrow(
+        () => sandbox.window.BARK.updateStatsUI(),
+        'updateStatsUI must not reference functions that live in another file'
+    );
+});
+
+test('every public profile entry point survives being called cold', () => {
+    // Cheap guard against the same class of bug in the other extracted modules:
+    // a bare reference to something that moved only blows up at call time.
+    const { sandbox } = loadProfileHarness();
+    const B = sandbox.window.BARK;
+
+    ['updateStatsUI', 'renderManagePortal'].forEach(name => {
+        assert.equal(typeof B[name], 'function', `${name} must be registered`);
+        assert.doesNotThrow(() => B[name](), `${name} threw when called`);
+    });
 });
 
 test('leaderboardEngine never calls back into achievements', () => {

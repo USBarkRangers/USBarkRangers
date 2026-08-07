@@ -1,23 +1,28 @@
 /**
- * profileEngine.js — the Profile screen: visit helpers, banner, stats, manage portal.
+ * profileEngine.js — the Profile screen: visit helpers, banner, stats, orchestration.
  *
  * WHAT THIS OWNS
- *   1. Visit helpers  — counting visits/states off VaultRepo. Shared with other modules.
- *   2. Manage portal  — the edit-your-visits UI.
- *   3. evaluateAchievements() — the profile refresh: asks gamificationLogic what the
- *      user has earned, updates the banner (title/score/progress), renders the vault,
- *      then triggers the leaderboard sync.
- *   4. Stats UI and the rank-up celebration.
+ *   1. Visit helpers — counting visits/states off VaultRepo. Shared with other modules.
+ *   2. refreshProfile() — the one entry point that repaints the Profile screen.
+ *   3. The banner (title/score/progress) and the rank-up celebration.
+ *   4. Stats UI.
  *
  * WHAT IT DOES NOT OWN
- *   The leaderboard. That is entirely modules/leaderboardEngine.js.
- *   Deciding which badges are earned. That is gamificationLogic.js.
+ *   The leaderboard          → modules/leaderboardEngine.js
+ *   Which badges are earned  → gamificationLogic.js
+ *   Drawing the badge vault  → modules/achievementsPanel.js
+ *   The manage-visits list   → modules/managePortal.js
  *
  * COLLABORATORS
- *   window.gamificationEngine        — decides earned badges (the "brain")
- *   window.BARK.getCurrentLeaderboardRank / syncScoreToLeaderboard — leaderboardEngine.js
+ *   window.gamificationEngine                  — decides earned badges (the "brain")
+ *   window.BARK.achievementsPanel.render       — paints the vault
+ *   window.BARK.renderManagePortal             — paints the manage list
+ *   window.BARK.getCurrentLeaderboardRank /
+ *   window.BARK.syncScoreToLeaderboard         — leaderboardEngine.js
  *
- * Cross-file calls go through window.BARK so load order cannot break them.
+ * EVERY cross-file call goes through window.BARK. A bare call to something that
+ * lives in another file only fails at runtime, and because this file runs inside
+ * the auth state callback, such a failure aborts sign-in as well.
  */
 window.BARK = window.BARK || {};
 
@@ -126,8 +131,10 @@ window.BARK.hasProfileVerifiedVisit = hasProfileVerifiedVisit;
 //   3. achievementsPanel paints the vault              (achievementsPanel.js)
 //   4. leaderboardEngine pushes the score              (leaderboardEngine.js)
 //
-// Each collaborator owns one job and none of them call back into this function
-// except leaderboardEngine, once, when the user's rank actually changes.
+// Each collaborator owns one job, and NONE of them call back into this function.
+// If step 4 discovers a new rank, this function re-evaluates once itself (see the
+// end of refreshProfile) rather than being called back — which is what keeps
+// achievements and the leaderboard from being mutually recursive.
 
 // Visits do not always carry a state. Fill it in from the park catalogue so that
 // state badges and "unique states" feats evaluate correctly.
@@ -314,7 +321,12 @@ function updateStatsUI() {
         }
     }
 
-    renderManagePortal();
+    // Lives in modules/managePortal.js, so it must be reached through window.BARK.
+    // A bare call here throws ReferenceError, and because updateStatsUI runs inside
+    // the auth state callback that aborts sign-in AND stops the leaderboard loading.
+    if (typeof window.BARK.renderManagePortal === 'function') {
+        window.BARK.renderManagePortal();
+    }
 }
 
 window.BARK.updateStatsUI = updateStatsUI;

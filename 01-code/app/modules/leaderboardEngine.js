@@ -9,14 +9,15 @@
  *                      renderers/leaderboardRenderer.js.
  *
  * WHAT IT DOES NOT OWN
- *   Achievements. The badge vault is achievementsPanel.js / gamificationLogic.js.
- *   The one place the two features touch is documented at setCurrentLeaderboardRank().
+ *   Achievements. This file knows nothing about badges and never calls into them.
+ *   The "Alpha Dog" badge does depend on rank, but profileEngine pulls the rank
+ *   from here after a sync rather than this file pushing to it — so the dependency
+ *   runs one way only. See setCurrentLeaderboardRank().
  *
  * COLLABORATORS (all reached late-bound through window.BARK so load order can't bite)
  *   window.BARK.leaderboardRenderer  — builds a single <li> row
  *   window.BARK.getProfileVisitedPlacesArray / getProfileTotalVisitedCount /
  *   hasProfileVerifiedVisit          — visit helpers owned by profileEngine.js
- *   window.BARK.evaluateAchievements — re-run the vault when this user's rank moves
  *   Cloud Function 'syncLeaderboardScore' — recomputes the score SERVER-side so a
  *                                          client cannot award itself points.
  *
@@ -24,10 +25,11 @@
  *   The leaderboard is public and competitive. The client sends no score at all; the
  *   callable reads visitedPlaces from the user document and derives the score itself.
  *
- * CROSS-FILE STATE
- *   The window._* globals below are deliberately global: authService.js resets them on
- *   logout and account switch so one user's rank/score can't leak into the next
- *   session. Do not move them into module scope without moving those resets too.
+ * SESSION STATE
+ *   All session state (rank, sync fingerprint, paging cursor) is private to this
+ *   file. authService clears it through the single exported resetLeaderboardState()
+ *   on logout and account switch, so one user's rank can never leak into the next
+ *   session. Nothing outside this file may mutate it.
  */
 window.BARK = window.BARK || {};
 
@@ -56,11 +58,57 @@ const LEADERBOARD_SYNC_RETRY_DELAY_MS = 10000;
 const LEADERBOARD_SYNC_WRITE_RETRY_MS = 250;
 
 let isFetchingMoreLeaderboard = false;
-let leaderboardRankAchievementRefreshInProgress = false;
 
-// Paging cursor for "Show More", and the last rank we told the rest of the app about.
-window._lastLeaderboardDoc = null;
-window._lastKnownLeaderboardRank = null;
+// --- Per-session state -------------------------------------------------------
+//
+// These used to be window._* globals set by name from three different files
+// (leaderboardEngine, barkState, authService). That made it easy for a new reset
+// path to forget one, and a forgotten reset means the NEXT user inherits the
+// previous user's rank and sync state. They now live here with a single mutation
+// entry point, resetLeaderboardState(), which authService calls on logout and on
+// account switch.
+let lastKnownRank = null;
+
+// -1, not 0, because 0 is a legitimate score. -1 means "never synced this session",
+// which is what forces the first sync to actually run.
+let lastSyncedScore = -1;
+let lastSyncedFingerprint = null;
+
+// Paging cursor for "Show More". null means there is no next page.
+let lastLeaderboardDoc = null;
+
+// The first page is fetched once per session; see loadLeaderboardOnce().
+let hasLoadedOnce = false;
+
+/** Clear everything session-scoped. Called by authService on logout / account switch. */
+function resetLeaderboardState() {
+    lastKnownRank = null;
+    lastSyncedScore = -1;
+    lastSyncedFingerprint = null;
+    lastLeaderboardDoc = null;
+    hasLoadedOnce = false;
+    cachedLeaderboardData = [];
+
+    _leaderboardSyncInProgress = false;
+    _leaderboardSyncQueued = false;
+    if (_leaderboardSyncRetryTimer !== null) {
+        clearTimeout(_leaderboardSyncRetryTimer);
+        _leaderboardSyncRetryTimer = null;
+    }
+    _lastLeaderboardSyncAttemptTime = 0;
+    _lastLeaderboardSyncAttemptFingerprint = null;
+}
+
+/** Read-only view of the sync state. Useful for debugging and asserted by tests. */
+function getLeaderboardSyncState() {
+    return {
+        lastSyncedScore,
+        lastSyncedFingerprint,
+        rank: lastKnownRank,
+        hasLoadedOnce,
+        hasMorePages: lastLeaderboardDoc !== null
+    };
+}
 
 // ---------------------------------------------------------------------------
 // Small accessors
@@ -139,48 +187,24 @@ function getSafeLeaderboardRankValue(rank) {
 }
 
 function getCurrentLeaderboardRank() {
-    return getSafeLeaderboardRankValue(window._lastKnownLeaderboardRank);
+    return getSafeLeaderboardRankValue(lastKnownRank);
 }
 
-// The one place the leaderboard reaches into achievements.
-//
-// WHY: the "Alpha Dog" badge unlocks at rank #1, so the vault can only be correct
-// once the rank is known. The vault is evaluated with whatever rank we had at the
-// time, so when the rank actually moves it has to be re-evaluated.
-//
-// WHY THIS DOES NOT LOOP FOREVER: setCurrentLeaderboardRank only calls this when
-// previousRank !== nextRank. The re-evaluation writes the same rank back, the
-// values now match, and the chain stops. The flag below only guards against a
-// second refresh starting while one is already running.
-function requestAchievementRefreshForLeaderboardRank() {
-    if (leaderboardRankAchievementRefreshInProgress) return;
-    if (typeof window.BARK.evaluateAchievements !== 'function') return;
-
-    if (typeof window.syncState === 'function') {
-        window.syncState();
-        return;
-    }
-
-    leaderboardRankAchievementRefreshInProgress = true;
-    Promise.resolve(window.BARK.evaluateAchievements())
-        .catch(error => console.error('[leaderboardEngine] Leaderboard-rank achievement refresh failed:', error))
-        .finally(() => {
-            leaderboardRankAchievementRefreshInProgress = false;
-        });
-}
-
-function setCurrentLeaderboardRank(rank, options = {}) {
-    const previousRank = getCurrentLeaderboardRank();
-    const nextRank = getSafeLeaderboardRankValue(rank);
-    window._lastKnownLeaderboardRank = nextRank;
-
-    // Only refresh on a real change — this comparison is what makes the
-    // leaderboard/achievements chain converge instead of ping-ponging.
-    if (options.refreshAchievements && previousRank !== nextRank) {
-        requestAchievementRefreshForLeaderboardRank();
-    }
-
-    return nextRank;
+/**
+ * Record where this user currently sits. Pure state, no side effects.
+ *
+ * This used to call back into window.BARK.evaluateAchievements() whenever the rank
+ * moved, because the "Alpha Dog" badge unlocks at rank #1. That made achievements
+ * and the leaderboard mutually dependent — achievements called the sync, the sync
+ * called achievements — and it needed a re-entrancy flag to stay convergent.
+ *
+ * That callback is gone. profileEngine.refreshProfile() now compares the rank
+ * before and after the sync and re-evaluates once, in a straight line, if it moved.
+ * The leaderboard no longer knows achievements exist.
+ */
+function setCurrentLeaderboardRank(rank) {
+    lastKnownRank = getSafeLeaderboardRankValue(rank);
+    return lastKnownRank;
 }
 
 function parseLeaderboardRankCount(countData) {
@@ -289,7 +313,7 @@ async function syncScoreToLeaderboard() {
     const localFingerprint = getLeaderboardSyncFingerprint(totalScore, totalVisitedCount, hasVerified);
 
     // Nothing changed since the last successful sync.
-    if (localFingerprint === window._lastSyncedLeaderboardFingerprint) return;
+    if (localFingerprint === lastSyncedFingerprint) return;
 
     // Already syncing — queue one follow-up rather than running two at once.
     if (_leaderboardSyncInProgress) {
@@ -338,15 +362,15 @@ async function syncScoreToLeaderboard() {
         const leaderboardHasVerified = synced.hasVerified === undefined ? hasVerified : !!synced.hasVerified;
 
         // Fingerprint the SERVER's answer, so the next call compares like with like.
-        window._lastSyncedScore = leaderboardScore;
-        window._lastSyncedLeaderboardFingerprint = getLeaderboardSyncFingerprint(
+        lastSyncedScore = leaderboardScore;
+        lastSyncedFingerprint = getLeaderboardSyncFingerprint(
             leaderboardScore,
             leaderboardVisitedCount,
             leaderboardHasVerified
         );
 
         const exactRank = await fetchExactLeaderboardRankForScore(leaderboardScore, 'score-sync');
-        setCurrentLeaderboardRank(exactRank, { refreshAchievements: true });
+        setCurrentLeaderboardRank(exactRank);
 
         // Patch this user's row in place rather than re-querying the collection.
         if (cachedLeaderboardData.length > 0) {
@@ -451,7 +475,7 @@ function renderLeaderboard(topUsers) {
 
     // Rendering is where this user's rank is finally known, so it's also where the
     // achievements refresh is triggered from (only if the rank actually moved).
-    if (uid) setCurrentLeaderboardRank(personalRank, { refreshAchievements: true });
+    if (uid) setCurrentLeaderboardRank(personalRank);
 
     if (rankEl) rankEl.textContent = 'Rank: ' + leaderboardRenderer.formatLeaderboardRank(personalRank);
 
@@ -483,7 +507,7 @@ function renderLeaderboard(topUsers) {
     }
 
     controlsEl.innerHTML = '';
-    if (window._lastLeaderboardDoc) {
+    if (lastLeaderboardDoc) {
         if (
             window.BARK &&
             typeof window.BARK.isLaunchFlagEnabled === 'function' &&
@@ -506,14 +530,24 @@ function renderLeaderboard(topUsers) {
     }
 }
 
-/** First page of the leaderboard. Guarded by _leaderboardLoadedOnce in authService. */
+/**
+ * Load the first page only if this session hasn't already. authService calls this
+ * when a user signs in, which can fire more than once per session.
+ */
+async function loadLeaderboardOnce() {
+    if (hasLoadedOnce) return;
+    hasLoadedOnce = true;
+    return loadLeaderboard();
+}
+
+/** First page of the leaderboard. Always refetches; see loadLeaderboardOnce(). */
 async function loadLeaderboard() {
     if (typeof firebase === 'undefined') return;
     try {
         window.BARK.incrementRequestCount();
         const snapshot = await leaderboardQuery().limit(5).get();
 
-        window._lastLeaderboardDoc = snapshot.empty ? null : snapshot.docs[snapshot.docs.length - 1];
+        lastLeaderboardDoc = snapshot.empty ? null : snapshot.docs[snapshot.docs.length - 1];
 
         const rows = [];
         snapshot.forEach(doc => rows.push(toLeaderboardRow(doc)));
@@ -528,7 +562,7 @@ async function loadLeaderboard() {
 
 /** Next page, appended to what's already on screen. */
 async function loadMoreLeaderboard() {
-    if (!window._lastLeaderboardDoc || isFetchingMoreLeaderboard) return;
+    if (!lastLeaderboardDoc || isFetchingMoreLeaderboard) return;
     if (
         window.BARK &&
         typeof window.BARK.isLaunchFlagEnabled === 'function' &&
@@ -543,13 +577,13 @@ async function loadMoreLeaderboard() {
 
     try {
         window.BARK.incrementRequestCount();
-        const snapshot = await leaderboardQuery().startAfter(window._lastLeaderboardDoc).limit(5).get();
+        const snapshot = await leaderboardQuery().startAfter(lastLeaderboardDoc).limit(5).get();
         if (snapshot.empty) {
-            window._lastLeaderboardDoc = null;
+            lastLeaderboardDoc = null;
             renderLeaderboard(cachedLeaderboardData);
             return;
         }
-        window._lastLeaderboardDoc = snapshot.docs[snapshot.docs.length - 1];
+        lastLeaderboardDoc = snapshot.docs[snapshot.docs.length - 1];
 
         // Drop the pinned self row; the next page may contain the real one, and if it
         // doesn't, appendPersonalFallbackIfMissing puts it back below.
@@ -579,5 +613,11 @@ window.BARK.syncScoreToLeaderboard = syncScoreToLeaderboard;
 window.BARK.getCurrentLeaderboardRank = getCurrentLeaderboardRank;
 window.BARK.setCurrentLeaderboardRank = setCurrentLeaderboardRank;
 window.BARK.loadLeaderboard = loadLeaderboard;
+window.BARK.loadLeaderboardOnce = loadLeaderboardOnce;
 window.BARK.loadMoreLeaderboard = loadMoreLeaderboard;
 window.BARK.renderLeaderboard = renderLeaderboard;
+
+// The ONLY way to clear leaderboard session state. authService calls this on logout
+// and account switch; adding a new field above needs no change at the call sites.
+window.BARK.resetLeaderboardState = resetLeaderboardState;
+window.BARK.getLeaderboardSyncState = getLeaderboardSyncState;

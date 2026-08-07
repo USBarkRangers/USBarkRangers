@@ -1109,10 +1109,11 @@ function scheduleGuestMarkerRestore() {
 
 function resetLoggedOutRuntimeState() {
     window._cloudSettingsLoaded = false;
-    window._leaderboardLoadedOnce = false;
-    window._lastKnownLeaderboardRank = null;
-    window._lastSyncedScore = -1;
-    window._lastSyncedLeaderboardFingerprint = null;
+    // Leaderboard session state is owned by leaderboardEngine.js; one call clears
+    // all of it, so adding a field there needs no change here.
+    if (typeof window.BARK.resetLeaderboardState === 'function') {
+        window.BARK.resetLeaderboardState();
+    }
     window._visitedPlacesServerSnapshotReceived = false;
     window._authoritativeProfileScoreSyncQueued = false;
     window.currentWalkPoints = 0;
@@ -1145,12 +1146,12 @@ function resetLoggedOutRuntimeState() {
 }
 
 function resetAccountScopedRuntimeState() {
-    window._leaderboardLoadedOnce = false;
+    // _lastKnownRank is the profile TITLE ("Trail Blazer"), owned by profileEngine —
+    // not the leaderboard rank, which resetLeaderboardState() handles.
     window._lastKnownRank = null;
-    window._lastKnownLeaderboardRank = null;
-    window._lastLeaderboardDoc = null;
-    window._lastSyncedScore = -1;
-    window._lastSyncedLeaderboardFingerprint = null;
+    if (typeof window.BARK.resetLeaderboardState === 'function') {
+        window.BARK.resetLeaderboardState();
+    }
     window._visitedPlacesServerSnapshotReceived = false;
     window._authoritativeProfileScoreSyncQueued = false;
     window.currentWalkPoints = 0;
@@ -1216,15 +1217,19 @@ async function initFirebase() {
     try {
         firebase.auth().onAuthStateChanged((user) => {
             try {
-                if (!Number.isFinite(Number(window._lastSyncedScore))) window._lastSyncedScore = -1;
-                if (typeof window._lastSyncedLeaderboardFingerprint !== 'string') {
-                    window._lastSyncedLeaderboardFingerprint = null;
-                }
                 window.isAdmin = false;
                 window._serverPayloadSettled = false;
                 window._firstServerPayloadReceived = false;
                 window._lastKnownRank = null;
-                window._lastKnownLeaderboardRank = null;
+
+                // Rank is unknown until the leaderboard is re-read for whoever is now
+                // signed in. leaderboardEngine owns the value; this is the public way
+                // to clear it. (The old defensive normalisation of _lastSyncedScore /
+                // _lastSyncedLeaderboardFingerprint is gone: the module now
+                // initialises its own defaults.)
+                if (typeof window.BARK.setCurrentLeaderboardRank === 'function') {
+                    window.BARK.setCurrentLeaderboardRank(null);
+                }
                 window.currentWalkPoints = window.currentWalkPoints || 0;
 
                 const loginContainer = document.getElementById('login-container');
@@ -1243,7 +1248,10 @@ async function initFirebase() {
                     lastAuthenticatedUid = user.uid;
                     window._serverPayloadSettled = false;
                     window._firstServerPayloadReceived = false;
-                    window._lastSyncedScore = -1;
+                    // (Removed: window._lastSyncedScore = -1. That value is written by
+                    // the sync and never read as a gate — resyncing is decided by the
+                    // fingerprint — so clearing it here did nothing. A genuine account
+                    // change is handled by resetAccountScopedRuntimeState() below.)
 
                     if (loginContainer) loginContainer.style.display = 'none';
                     if (offlineStatusContainer) offlineStatusContainer.style.display = 'block';
@@ -1312,9 +1320,10 @@ async function initFirebase() {
                                     refreshAuthSnapshotUi();
                                     maybeSyncAuthoritativeProfileScore('user-snapshot');
 
-                                    if (!window._leaderboardLoadedOnce) {
-                                        window._leaderboardLoadedOnce = true;
-                                        if (typeof window.BARK.loadLeaderboard === 'function') window.BARK.loadLeaderboard();
+                                    // The engine owns the once-per-session guard now;
+                                    // this snapshot handler can fire repeatedly.
+                                    if (typeof window.BARK.loadLeaderboardOnce === 'function') {
+                                        window.BARK.loadLeaderboardOnce();
                                     }
 
                                     window.dismissBarkLoader();

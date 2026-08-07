@@ -137,6 +137,57 @@ test('a signed-out refresh paints the vault but does not touch the leaderboard',
     assert.ok(!callOrder.includes('leaderboardSync'), 'no leaderboard write without a user');
 });
 
+test('leaderboardEngine never calls back into achievements', () => {
+    // The leaderboard used to call window.BARK.evaluateAchievements() whenever the
+    // rank moved, making the two features mutually recursive and requiring a
+    // re-entrancy flag. profileEngine now pulls the rank after the sync instead.
+    const source = fs.readFileSync(path.join(APP, 'modules', 'leaderboardEngine.js'), 'utf8');
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+    assert.ok(!code.includes('evaluateAchievements'),
+        'leaderboardEngine must not reference the achievements entry point');
+    assert.ok(!code.includes('refreshProfile'),
+        'leaderboardEngine must not reference the profile refresh');
+    assert.ok(!code.includes('refreshAchievements'),
+        'the refreshAchievements option should be gone entirely');
+});
+
+test('a rank change after sync re-evaluates the vault exactly once', async () => {
+    const { sandbox, callOrder } = loadProfileHarness();
+    sandbox.firebase = { auth: () => ({ currentUser: { uid: 'u1' } }) };
+
+    // The sync discovers the user is now #1, which is what "Alpha Dog" needs.
+    let rank = null;
+    sandbox.window.BARK.getCurrentLeaderboardRank = () => rank;
+    sandbox.window.BARK.syncScoreToLeaderboard = async () => {
+        callOrder.push('leaderboardSync');
+        rank = 1;
+    };
+
+    await sandbox.window.BARK.refreshProfile([]);
+
+    const brainRuns = callOrder.filter(c => c === 'brain').length;
+    assert.equal(brainRuns, 2, 'one evaluation before the sync, one after the rank moved');
+
+    // Bounded: exactly two, never more. A recursive design would keep going.
+    const vaultRenders = callOrder.filter(c => c === 'render:rare-feats-grid').length;
+    assert.equal(vaultRenders, 2, 'the vault repaints once with the corrected rank');
+    assert.equal(callOrder[callOrder.length - 1], 'render:states-grid', 'the repaint is the final step');
+});
+
+test('an unchanged rank does not trigger a second evaluation', async () => {
+    const { sandbox, callOrder } = loadProfileHarness();
+    sandbox.firebase = { auth: () => ({ currentUser: { uid: 'u1' } }) };
+
+    sandbox.window.BARK.getCurrentLeaderboardRank = () => 5;
+    sandbox.window.BARK.syncScoreToLeaderboard = async () => { callOrder.push('leaderboardSync'); };
+
+    await sandbox.window.BARK.refreshProfile([]);
+
+    assert.equal(callOrder.filter(c => c === 'brain').length, 1, 'no wasted second evaluation');
+    assert.equal(callOrder[callOrder.length - 1], 'leaderboardSync');
+});
+
 test('the vault renders badges from the category contract, not id substrings', () => {
     const { sandbox } = loadProfileHarness();
     const panel = sandbox.window.BARK.achievementsPanel;

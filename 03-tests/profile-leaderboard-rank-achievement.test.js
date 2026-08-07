@@ -121,7 +121,7 @@ test('profile leaderboard sync uses the server callable instead of direct Firest
     const harness = loadProfileEngineHarness();
     const callableCalls = [];
 
-    harness.sandbox.window._lastSyncedScore = -1;
+    harness.sandbox.window.BARK.resetLeaderboardState();
     harness.sandbox.window.currentWalkPoints = 4;
     harness.sandbox.window.BARK.repos.VaultRepo = {
         getVisits() {
@@ -172,15 +172,14 @@ test('profile leaderboard sync uses the server callable instead of direct Firest
 
     assert.equal(callableCalls.length, 1);
     assert.equal(callableCalls[0].name, 'syncLeaderboardScore');
-    assert.equal(harness.sandbox.window._lastSyncedScore, 7);
+    assert.equal(harness.sandbox.window.BARK.getLeaderboardSyncState().lastSyncedScore, 7);
 });
 
 test('profile leaderboard sync corrects zero scores instead of treating default zero as synced', async () => {
     const harness = loadProfileEngineHarness();
     const callableCalls = [];
 
-    harness.sandbox.window._lastSyncedScore = 0;
-    harness.sandbox.window._lastSyncedLeaderboardFingerprint = null;
+    harness.sandbox.window.BARK.resetLeaderboardState();
     harness.sandbox.window.currentWalkPoints = 0;
     harness.sandbox.window.BARK.repos.VaultRepo = {
         getVisits() {
@@ -224,9 +223,9 @@ test('profile leaderboard sync corrects zero scores instead of treating default 
     await harness.sandbox.window.BARK.syncScoreToLeaderboard();
 
     assert.deepEqual(callableCalls, ['syncLeaderboardScore']);
-    assert.equal(harness.sandbox.window._lastSyncedScore, 0);
+    assert.equal(harness.sandbox.window.BARK.getLeaderboardSyncState().lastSyncedScore, 0);
     assert.equal(
-        harness.sandbox.window._lastSyncedLeaderboardFingerprint,
+        harness.sandbox.window.BARK.getLeaderboardSyncState().lastSyncedFingerprint,
         JSON.stringify({ totalPoints: 0, totalVisited: 0, hasVerified: false })
     );
 });
@@ -236,12 +235,7 @@ test('profile leaderboard sync retries after visitedPlaces writes settle before 
     const callableCalls = [];
     let writeInFlight = true;
 
-    harness.sandbox.window._lastSyncedScore = 5;
-    harness.sandbox.window._lastSyncedLeaderboardFingerprint = JSON.stringify({
-        totalPoints: 5,
-        totalVisited: 5,
-        hasVerified: false
-    });
+    harness.sandbox.window.BARK.resetLeaderboardState();
     harness.sandbox.window.BARK.services.firebase = {
         hasVisitedPlacesWriteInFlight() {
             return writeInFlight;
@@ -298,5 +292,5 @@ test('profile leaderboard sync retries after visitedPlaces writes settle before 
     await new Promise(resolve => setTimeout(resolve, 300));
 
     assert.deepEqual(callableCalls, ['syncLeaderboardScore']);
-    assert.equal(harness.sandbox.window._lastSyncedScore, 4);
+    assert.equal(harness.sandbox.window.BARK.getLeaderboardSyncState().lastSyncedScore, 4);
 });

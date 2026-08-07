@@ -136,10 +136,9 @@ if (
 // ====== GAMIFICATION ENGINE INSTANCE ======
 window.gamificationEngine = new GamificationEngine();
 window.currentWalkPoints = window.currentWalkPoints || 0;
-window._lastSyncedScore = Number.isFinite(Number(window._lastSyncedScore)) ? Number(window._lastSyncedScore) : -1;
-window._lastSyncedLeaderboardFingerprint = typeof window._lastSyncedLeaderboardFingerprint === 'string'
-    ? window._lastSyncedLeaderboardFingerprint
-    : null;
+// (Leaderboard sync state used to be initialised here as window._* globals. It now
+// lives privately in modules/leaderboardEngine.js, which owns its own defaults and
+// exposes resetLeaderboardState() as the single way to clear it.)
 
 // ====== EXPOSE STATE TO BARK NAMESPACE ======
 // Using property accessors so modules always get live references

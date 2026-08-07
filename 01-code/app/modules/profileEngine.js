@@ -116,91 +116,6 @@ window.BARK.getProfileVisitedPlacesArray = getProfileVisitedPlacesArray;
 window.BARK.getProfileTotalVisitedCount = getProfileTotalVisitedCount;
 window.BARK.hasProfileVerifiedVisit = hasProfileVerifiedVisit;
 
-// ====== MANAGE PORTAL ======
-function padDatePart(value) {
-    return String(value).padStart(2, '0');
-}
-
-function formatVisitDateInputValue(ts) {
-    const date = new Date(ts);
-    if (Number.isNaN(date.getTime())) return '';
-
-    return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
-}
-
-function renderManagePortal() {
-    const listEl = document.getElementById('manage-places-list');
-    const countEl = document.getElementById('manage-portal-count');
-    if (!listEl || !countEl) return;
-
-    const visitedPlaces = getProfileVisitedPlacesArray();
-    countEl.textContent = visitedPlaces.length;
-    if (visitedPlaces.length === 0) {
-        listEl.innerHTML = '<li style="color: #888; font-style: italic; padding: 10px 0;">Get exploring!</li>';
-        return;
-    }
-
-    listEl.innerHTML = '';
-    const placesArray = visitedPlaces.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-    placesArray.forEach(place => {
-        const li = document.createElement('li');
-        li.style.cssText = 'display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-bottom: 1px solid rgba(0,0,0,0.05);';
-
-        const topRow = document.createElement('div');
-        topRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
-
-        const nameSpan = document.createElement('span');
-        nameSpan.textContent = place.verified ? `🐾 ${place.name}` : place.name;
-        nameSpan.style.cssText = 'font-weight: 600; color: #333; flex: 1;';
-
-        const removeBtn = document.createElement('button');
-        removeBtn.innerHTML = '&times;';
-        removeBtn.style.cssText = 'background: #fee2e2; color: #dc2626; border: none; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-weight: 800;';
-        removeBtn.onclick = () => window.BARK.removeVisitedPlace(place.id);
-
-        topRow.appendChild(nameSpan);
-        topRow.appendChild(removeBtn);
-
-        const controls = document.createElement('div');
-        controls.style.cssText = 'display: flex; align-items: center; gap: 8px;';
-
-        const dateInput = document.createElement('input');
-        dateInput.type = 'date';
-        dateInput.style.cssText = 'font-size: 11px; padding: 4px; border: 1px solid #ddd; border-radius: 4px; flex: 1;';
-        if (place.ts) {
-            dateInput.value = formatVisitDateInputValue(place.ts);
-        }
-
-        const updateBtn = document.createElement('button');
-        updateBtn.textContent = 'Update';
-        updateBtn.style.cssText = 'background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer;';
-        updateBtn.onclick = async () => {
-            if (dateInput.value) {
-                const newTs = new Date(dateInput.value + 'T12:00:00').getTime();
-                updateBtn.disabled = true;
-                try {
-                    await window.BARK.updateVisitDate(place.id, newTs);
-                    alert(`${place.name} date updated!`);
-                } catch (error) {
-                    alert(`Could not update ${place.name}. Please try again.`);
-                } finally {
-                    updateBtn.disabled = false;
-                }
-            }
-        };
-
-        controls.appendChild(dateInput);
-        controls.appendChild(updateBtn);
-
-        li.appendChild(topRow);
-        li.appendChild(controls);
-        listEl.appendChild(li);
-    });
-}
-
-window.BARK.renderManagePortal = renderManagePortal;
-
 // ====== PROFILE REFRESH ======
 //
 // refreshProfile() is the one entry point that repaints the Profile screen. The
@@ -277,6 +192,18 @@ function updateProfileBanner(achievements) {
     }
 }
 
+// Hand an evaluated achievements object to the vault. The panel needs location
+// context only for the states distance sort.
+function renderVault(achievements) {
+    if (!window.BARK.achievementsPanel || typeof window.BARK.achievementsPanel.render !== 'function') return;
+
+    const parkRepo = getParkRepo();
+    window.BARK.achievementsPanel.render(achievements, {
+        userLocationMarker: window.BARK.getUserLocationMarker(),
+        allPoints: parkRepo ? parkRepo.getAll() : []
+    });
+}
+
 /**
  * Repaint the Profile screen from the current visit data.
  * Safe to call repeatedly; renderEngine debounces the callers.
@@ -304,21 +231,31 @@ async function refreshProfile(visitedPlacesMap) {
         // 2. Banner.
         updateProfileBanner(achievements);
 
-        // 3. Vault. The panel needs location context only for the states distance sort.
-        const parkRepo = getParkRepo();
-        if (window.BARK.achievementsPanel && typeof window.BARK.achievementsPanel.render === 'function') {
-            window.BARK.achievementsPanel.render(achievements, {
-                userLocationMarker: window.BARK.getUserLocationMarker(),
-                allPoints: parkRepo ? parkRepo.getAll() : []
-            });
-        }
+        // 3. Vault.
+        renderVault(achievements);
 
         // 4. Leaderboard, last, so the screen is already painted before we go to the
-        //    network. If this changes the user's rank, leaderboardEngine calls back
-        //    into refreshProfile once so "Alpha Dog" can settle; see
-        //    setCurrentLeaderboardRank() there for why that terminates.
+        //    network.
         if (userId && typeof window.BARK.syncScoreToLeaderboard === 'function') {
             await window.BARK.syncScoreToLeaderboard();
+
+            // The sync may have discovered a new rank, and "Alpha Dog" unlocks at #1,
+            // so the vault we painted in step 3 can be one badge out of date.
+            //
+            // This is deliberately a straight-line step rather than a callback from
+            // leaderboardEngine. It runs AT MOST ONCE per refresh — there is no path
+            // back into refreshProfile — which is what keeps achievements and the
+            // leaderboard from being mutually recursive.
+            const rankAfterSync = typeof window.BARK.getCurrentLeaderboardRank === 'function'
+                ? window.BARK.getCurrentLeaderboardRank()
+                : null;
+
+            if (rankAfterSync !== currentRank) {
+                const rerated = await window.gamificationEngine.evaluateAndStoreAchievements(
+                    userId, visitedArray, rankAfterSync, window.currentWalkPoints || 0
+                );
+                renderVault(rerated);
+            }
         }
     } catch (error) {
         console.error('[profileEngine] Profile refresh failed; profile update skipped.', {

@@ -363,6 +363,61 @@ test('a completionist pays the legacy read once, then reloads all day for free',
     );
 });
 
+test('a brand new account with nothing earned is marked migrated on its first session', async () => {
+    // Without the schema marker a zero-badge account repeats the (empty) legacy
+    // read every session forever. New signups are the biggest cohort, so this is
+    // the most expensive leak to get wrong.
+    const stub = createFirestoreStub();
+    const Engine = loadEngine(stub.firebase);
+
+    const first = new Engine();
+    // A genuinely empty account: no visits, so nothing unlocks and there is
+    // nothing to record. This is the case that used to leave the marker unwritten.
+    const emptyResult = await first.evaluateAndStoreAchievements('new-user', []);
+    const anyUnlocked = [...emptyResult.paws, ...emptyResult.rareFeats, ...emptyResult.stateBadges]
+        .some(b => b.status === 'unlocked');
+    assert.equal(anyUnlocked, false, 'test premise: a visitless account must unlock nothing');
+
+    const userWrite = findUserDocWrite(stub.stats);
+    assert.ok(userWrite, 'a new account must still be marked migrated');
+    assert.equal(userWrite.payload.achievementsSchema, 2);
+
+    const migratedUserDoc = {
+        achievements: userWrite.payload.achievements,
+        achievementsSchema: userWrite.payload.achievementsSchema
+    };
+    const readsSoFar = stub.stats.subcollectionReads;
+
+    // Ten reloads while still having earned nothing.
+    for (let i = 0; i < 10; i += 1) {
+        const reloaded = new Engine();
+        reloaded.primeAchievementsFromUserDoc('new-user', migratedUserDoc);
+        await reloaded.evaluateAndStoreAchievements('new-user', []);
+    }
+
+    assert.equal(stub.stats.subcollectionReads, readsSoFar,
+        'a badge-less account must not re-read the subcollection on every reload');
+});
+
+test('earning many badges in one session costs a single verification read', async () => {
+    // "All 400 sites in a day": many badges unlock at once. Verification is
+    // per-session, not per-badge, so the burst costs one read and one user doc write.
+    const stub = createFirestoreStub();
+    const engine = new (loadEngine(stub.firebase))();
+    engine.primeAchievementsFromUserDoc('user-1', { achievements: {}, achievementsSchema: 2 });
+
+    const result = await engine.evaluateAndStoreAchievements('user-1', visits(120));
+
+    const unlockedCount = [...result.paws, ...result.rareFeats, ...result.stateBadges]
+        .filter(b => b.status === 'unlocked').length;
+    assert.ok(unlockedCount >= 5, `expected a burst of unlocks, saw ${unlockedCount}`);
+
+    assert.equal(stub.stats.subcollectionReads, 1, 'a burst of unlocks must still cost one verification read');
+    assert.equal(stub.stats.committedBatches, 1, 'all unlocks must land in a single batch');
+    const userWrites = stub.stats.writes.filter(w => w.ref && w.ref.__kind === 'userDoc');
+    assert.equal(userWrites.length, 1, 'the whole burst is one user document write');
+});
+
 test('priming a different user clears the previous user cached achievements', async () => {
     const stub = createFirestoreStub();
     const engine = new (loadEngine(stub.firebase))({ legacySubcollectionEnabled: false });

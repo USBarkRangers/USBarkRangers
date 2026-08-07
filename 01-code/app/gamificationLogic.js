@@ -454,7 +454,12 @@ class GamificationEngine {
                 };
             }
 
-            if (hasWrites) {
+            // needsBackfill on its own is enough to justify the write. A brand new
+            // account has nothing earned and nothing to record, but without the
+            // schema marker it would repeat the (empty) legacy read on every single
+            // session forever. One write now buys permanent silence, and an empty
+            // merged map cannot clobber anything.
+            if (hasWrites || needsBackfill) {
                 // One merged field update replaces up to 65 subcollection writes.
                 batch.set(userRef, {
                     achievements: mapUpdates,

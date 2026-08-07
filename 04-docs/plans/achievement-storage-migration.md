@@ -44,34 +44,45 @@ Verified in `03-tests/rules/firestore-entitlement.rules.test.js`:
 
 ## Rollout phases
 
-**Phase 1 (done, beta).** Dual-write and merge-read.
-- Reads merge the user document map with the legacy subcollection, preferring the
-  **earliest** `dateEarned` per badge. This is order-independent, so it does not
-  matter whether the map or a legacy client wrote first.
-- Writes go to both the map and the subcollection.
+**Phase 1 (done, beta).** Dual-write and backfill.
 - Existing users are backfilled onto the map on their next evaluation, so each user
   pays the legacy read exactly one more time.
-- No savings yet. This phase exists purely to be safe in both directions.
+- Writes go to both the map and the subcollection, so older clients still see badges.
 
-**Phase 2 (done).** Verified by `03-tests/gamification-achievement-storage-migration.test.js`.
+**Phase 2 (done, beta).** Lazy legacy verification. **This is where the savings land,
+and it does not require production to be promoted first.**
 
-**Phase 3.** Promote production to this client. Both surfaces then understand the map.
-This is the gate for Phase 4 and must not be skipped.
+Once a user's map is backfilled it is treated as authoritative and the routine
+subcollection read disappears. The legacy subcollection is consulted only when a
+badge is unlocked that the map has never recorded, which is the only moment an older
+client could be holding an earlier earned date that matters. Verification runs at
+most once per session.
+
+So:
+- steady-state session, nothing newly earned: **zero achievement reads**
+- session where something unlocks for the first time: one verification read, and the
+  legacy earned date still wins over today's
+
+Unlocks are rare, so this captures nearly all of the saving while remaining correct
+even with old clients live.
+
+**Phase 3.** Promote production to this client.
 
 **Phase 4.** Flip `legacySubcollectionEnabled` to `false` where the engine is
-constructed (`01-code/app/modules/barkState.js`). **This is where the savings land.**
-Keep the subcollection writes off but leave the data in place as a rollback path.
+constructed (`01-code/app/modules/barkState.js`). This drops the remaining
+verification read and the dual writes. Only safe after Phase 3, and worth little on
+its own now that Phase 2 has taken the routine read out.
 
 **Phase 5.** After enough time that no installed PWA is still running cached old JS,
 remove the legacy branch from `gamificationLogic.js` entirely.
 
-## Why Phase 4 cannot be done early
+## Why Phase 4 still cannot be done early
 
 Beta and production share one Firestore. A production client on old code writes only
-the subcollection. If this client read the map alone while such a client was live,
-a badge earned on production would look brand new here and be rewritten with today's
-date, destroying the original earned date. The merge-read in Phase 1 is what prevents
-that, and it is only safe to drop once every shipped client writes the map.
+the subcollection. With `legacySubcollectionEnabled` false there is no verification
+step at all, so a badge earned on production would look brand new here and be
+rewritten with today's date, destroying the original earned date. Phase 2's lazy
+verification is exactly what makes the savings safe before that point.
 
 ## Rollback
 

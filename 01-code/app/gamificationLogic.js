@@ -31,6 +31,7 @@ class GamificationEngine {
         this._userDocAchievements = null;
         this._userDocSchema = 0;
         this._primedUserId = null;
+        this._legacyVerified = false;
 
         // Legacy subcollection support. While older clients are still live they
         // only write the subcollection, so we must keep reading and writing it or
@@ -50,6 +51,7 @@ class GamificationEngine {
         this._userDocAchievements = null;
         this._userDocSchema = 0;
         this._primedUserId = null;
+        this._legacyVerified = false;
     }
 
     // Accepts earned achievements straight off the user document snapshot that
@@ -104,12 +106,18 @@ class GamificationEngine {
         const fromUserDoc = this._userDocAchievements || {};
         const mapIsBackfilled = this._userDocSchema >= ACHIEVEMENT_SCHEMA_VERSION;
 
-        // Fast path: map is backfilled and no legacy writer can be racing it.
-        if (mapIsBackfilled && !this.legacySubcollectionEnabled) {
+        // Fast path: the map has been backfilled, so trust it and read nothing.
+        // The legacy subcollection can still hold a badge an older client wrote,
+        // but that only changes the outcome if this session is about to record a
+        // badge the map has never seen. _verifyAgainstLegacy handles that case
+        // lazily, so a steady-state session costs zero achievement reads.
+        if (mapIsBackfilled) {
             this.achievementsCache = { ...fromUserDoc };
+            this._legacyVerified = !this.legacySubcollectionEnabled;
             return this.achievementsCache;
         }
 
+        // Unmigrated user: pay for the legacy read one last time, then backfill.
         const merged = { ...fromUserDoc };
         try {
             const snap = await achievementsRef.get();
@@ -122,8 +130,30 @@ class GamificationEngine {
             console.warn('[gamification] legacy achievement read failed; using user document map.', error);
         }
 
+        this._legacyVerified = true;
         this.achievementsCache = merged;
         return merged;
+    }
+
+    // Confirms an apparently-new badge against the legacy subcollection before we
+    // stamp it with today's date. Older clients write only the subcollection, so
+    // without this a badge they recorded would look brand new here and lose its
+    // original earned date. Runs at most once per session, and only when a badge
+    // is unlocked that the user document map has never seen.
+    async _verifyAgainstLegacy(achievementsRef) {
+        if (this._legacyVerified) return this.achievementsCache;
+        this._legacyVerified = true;
+
+        try {
+            const snap = await achievementsRef.get();
+            snap.forEach(doc => {
+                this.achievementsCache[doc.id] = this._mergeEarnedRecord(this.achievementsCache[doc.id], doc.data());
+            });
+        } catch (error) {
+            console.warn('[gamification] legacy achievement verification failed; treating map as complete.', error);
+        }
+
+        return this.achievementsCache;
     }
 
     // 🛡️ Returns a stable per-session timestamp for a given badge ID.
@@ -364,7 +394,14 @@ class GamificationEngine {
         const newlyEarnedIds = new Set();
 
         try {
-            const earned = await this._loadEarnedAchievements(achievementsRef);
+            let earned = await this._loadEarnedAchievements(achievementsRef);
+
+            // Only if something is unlocked that we have never recorded do we need
+            // the legacy subcollection, and then only to protect its earned date.
+            // In a steady-state session this is false and no read happens at all.
+            const hasUnrecordedUnlock = allItems.some(item => item.status === 'unlocked' && !earned[item.id]);
+            if (hasUnrecordedUnlock) earned = await this._verifyAgainstLegacy(achievementsRef);
+
             const batch = db.batch();
             const mapUpdates = {};
             let hasWrites = false;

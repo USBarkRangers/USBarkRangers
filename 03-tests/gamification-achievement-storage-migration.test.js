@@ -151,6 +151,80 @@ test('a primed user document map serves the vault without reading the subcollect
     assert.equal(result.paws.find(p => p.id === 'bronzePaw').dateEarnedTs, earnedMs);
 });
 
+test('a steady-state session reads nothing even while legacy dual-write is on', async () => {
+    // The money test. Legacy subcollection support is still enabled (production
+    // has not been promoted yet), but a migrated user with nothing new to record
+    // must not touch the achievements subcollection at all.
+    const earnedMs = new Date('2024-05-05T00:00:00Z').getTime();
+    const stub = createFirestoreStub({
+        subcollectionDocs: {
+            bronzePaw: { achievementId: 'bronzePaw', tier: 'honor', dateEarned: null }
+        }
+    });
+    const engine = new (loadEngine(stub.firebase))();
+    assert.equal(engine.legacySubcollectionEnabled, true, 'dual-write must still be on for this test to mean anything');
+
+    engine.primeAchievementsFromUserDoc('user-1', {
+        achievements: {
+            bronzePaw: { tier: 'honor', dateEarned: earnedMs },
+            theLocalLegend: { tier: 'honor', dateEarned: earnedMs },
+            marathoner: { tier: 'verified', dateEarned: earnedMs },
+            'state-oh': { tier: 'honor', dateEarned: earnedMs }
+        },
+        achievementsSchema: 2
+    });
+
+    await engine.evaluateAndStoreAchievements('user-1', visits(12));
+    await engine.evaluateAndStoreAchievements('user-1', visits(12));
+
+    assert.equal(stub.stats.subcollectionReads, 0, 'steady-state sessions must cost zero achievement reads');
+    assert.equal(stub.stats.committedBatches, 0, 'nothing changed, so nothing should be written');
+});
+
+test('an unrecorded unlock still verifies against legacy before stamping a date', async () => {
+    // Same setup, except silverPaw was earned earlier by an old client and only
+    // exists in the subcollection. The map has never seen it, so we must check
+    // before deciding it is brand new.
+    const earnedMs = new Date('2024-05-05T00:00:00Z').getTime();
+    const legacyEarnedAt = new Date('2023-06-06T10:00:00Z');
+    const stub = createFirestoreStub({
+        subcollectionDocs: {
+            silverPaw: { achievementId: 'silverPaw', tier: 'honor', dateEarned: { toDate: () => legacyEarnedAt } }
+        }
+    });
+    const engine = new (loadEngine(stub.firebase))();
+
+    engine.primeAchievementsFromUserDoc('user-1', {
+        achievements: {
+            bronzePaw: { tier: 'honor', dateEarned: earnedMs },
+            theLocalLegend: { tier: 'honor', dateEarned: earnedMs },
+            marathoner: { tier: 'verified', dateEarned: earnedMs },
+            'state-oh': { tier: 'honor', dateEarned: earnedMs }
+        },
+        achievementsSchema: 2
+    });
+
+    // 25 visits crosses the Silver Paw threshold.
+    const result = await engine.evaluateAndStoreAchievements('user-1', visits(25));
+
+    assert.equal(stub.stats.subcollectionReads, 1, 'an unseen unlock must trigger exactly one verification read');
+    const silver = result.paws.find(p => p.id === 'silverPaw');
+    assert.equal(silver.dateEarnedTs, legacyEarnedAt.getTime(), 'the legacy earned date must win over today');
+    assert.notEqual(silver.dateEarned, 'Just Now!', 'a badge earned long ago must not be labelled as new');
+});
+
+test('verification runs at most once per session', async () => {
+    const stub = createFirestoreStub();
+    const engine = new (loadEngine(stub.firebase))();
+    engine.primeAchievementsFromUserDoc('user-1', { achievements: {}, achievementsSchema: 2 });
+
+    await engine.evaluateAndStoreAchievements('user-1', visits(12));
+    await engine.evaluateAndStoreAchievements('user-1', visits(25));
+    await engine.evaluateAndStoreAchievements('user-1', visits(25));
+
+    assert.equal(stub.stats.subcollectionReads, 1, 'legacy verification must not repeat within a session');
+});
+
 test('an achievement earned by a legacy client keeps its original date', async () => {
     // The dangerous ordering: user doc map says "earned today", the legacy
     // subcollection holds the real, earlier date written by an old client.

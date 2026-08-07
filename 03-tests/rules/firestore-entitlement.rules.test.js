@@ -506,6 +506,47 @@ describe('Firestore entitlement and admin field rules', () => {
         }, { merge: true }));
     });
 
+    it('allows the achievements map and schema marker on the user document', async () => {
+        // The achievement migration writes earned badges as a map on the user
+        // document instead of one subcollection doc per badge. Verify both the
+        // create and update paths, and that another user still cannot write it.
+        const aliceDb = authedDb('alice');
+        const aliceRef = doc(aliceDb, 'users', 'alice');
+
+        // Create path: user document does not exist yet.
+        await assertSucceeds(setDoc(aliceRef, {
+            achievements: { bronzePaw: { tier: 'honor', dateEarned: serverTimestamp() } },
+            achievementsSchema: 2
+        }, { merge: true }));
+
+        // Update path: merge additional badges into the existing map.
+        await assertSucceeds(setDoc(aliceRef, {
+            achievements: {
+                silverPaw: { tier: 'verified', dateEarned: serverTimestamp() },
+                'state-oh': { tier: 'honor', dateEarned: serverTimestamp() }
+            },
+            achievementsSchema: 2
+        }, { merge: true }));
+
+        await assertSucceeds(getDoc(aliceRef));
+
+        // A different signed-in user must not be able to write Alice's badges.
+        const malloryDb = authedDb('mallory');
+        await assertFails(setDoc(doc(malloryDb, 'users', 'alice'), {
+            achievements: { obsidianPaw: { tier: 'verified', dateEarned: serverTimestamp() } },
+            achievementsSchema: 2
+        }, { merge: true }));
+    });
+
+    it('does not let the achievements map smuggle in a protected entitlement key', async () => {
+        const aliceDb = authedDb('alice');
+        await assertFails(setDoc(doc(aliceDb, 'users', 'alice'), {
+            achievements: { bronzePaw: { tier: 'honor', dateEarned: serverTimestamp() } },
+            achievementsSchema: 2,
+            entitlement: { premium: true, status: 'active' }
+        }, { merge: true }));
+    });
+
     it('allows exact BUG-001 owner achievement path and denies unsafe access', async () => {
         const runtimeUid = 'LkevgscKPvPqRg9c5YKKXVqtwv02';
         const achievementId = 'bug001RuntimeSmoke';

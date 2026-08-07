@@ -1279,6 +1279,13 @@ async function initFirebase() {
 
                                         reconcileVaultRepoFromUserSnapshot(user, data, doc.metadata);
 
+                                        // Hand earned achievements to the engine from the
+                                        // snapshot we already pay for, so the achievement
+                                        // vault costs zero extra Firestore reads.
+                                        if (window.gamificationEngine && typeof window.gamificationEngine.primeAchievementsFromUserDoc === 'function') {
+                                            window.gamificationEngine.primeAchievementsFromUserDoc(user.uid, data);
+                                        }
+
                                         updatePremiumEntitlement(data.entitlement, user, 'auth-user-snapshot');
 
                                         handleCloudSettingsHydration(data, doc.metadata);

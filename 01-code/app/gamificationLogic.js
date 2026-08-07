@@ -1,3 +1,9 @@
+// Earned achievements live as a map on the user document (`achievements`), which
+// the app already subscribes to, instead of a per-achievement subcollection that
+// cost one read per earned badge on every session. `achievementsSchema` marks a
+// user document whose map has been backfilled and is safe to read on its own.
+const ACHIEVEMENT_SCHEMA_VERSION = 2;
+
 class GamificationEngine {
     constructor(config = {}) {
         this.eastCoastStates = ['ME', 'NH', 'MA', 'RI', 'CT', 'NY', 'NJ', 'DE', 'MD', 'VA', 'NC', 'SC', 'GA', 'FL'];
@@ -20,6 +26,18 @@ class GamificationEngine {
         };
         this.achievementsCache = null; // 🛑 Initialize memory cache
         this._sessionTimestamps = {};  // 🛡️ Session-level timestamp cache: once a badge is unlocked, its timestamp never changes
+
+        // Earned achievements handed over from the user document snapshot.
+        this._userDocAchievements = null;
+        this._userDocSchema = 0;
+        this._primedUserId = null;
+
+        // Legacy subcollection support. While older clients are still live they
+        // only write the subcollection, so we must keep reading and writing it or
+        // an achievement they earn would look "new" here and lose its date. Set
+        // this false once every shipped client writes the map. Rollout phases:
+        // 04-docs/plans/achievement-storage-migration.md
+        this.legacySubcollectionEnabled = config.legacySubcollectionEnabled !== false;
     }
 
     // 🧹 Clear per-user caches on logout / account switch so one user's earned
@@ -29,6 +47,83 @@ class GamificationEngine {
     resetSession() {
         this.achievementsCache = null;
         this._sessionTimestamps = {};
+        this._userDocAchievements = null;
+        this._userDocSchema = 0;
+        this._primedUserId = null;
+    }
+
+    // Accepts earned achievements straight off the user document snapshot that
+    // authService already subscribes to. This is the whole point of the
+    // migration: the data arrives for free instead of costing one read per
+    // earned badge. Safe to call on every snapshot.
+    primeAchievementsFromUserDoc(userId, data) {
+        if (!userId || !data || typeof data !== 'object') return;
+
+        // A different user on the same singleton means the old cache is invalid.
+        if (this._primedUserId && this._primedUserId !== userId) this.resetSession();
+        this._primedUserId = userId;
+
+        const stored = data.achievements;
+        this._userDocAchievements = (stored && typeof stored === 'object') ? stored : {};
+        this._userDocSchema = Number(data.achievementsSchema) || 0;
+    }
+
+    // Firestore Timestamps, Dates and raw epoch numbers all show up here
+    // depending on whether a value came from the server, a pending local write
+    // or our own cache. Normalise to milliseconds; 0 means "unknown".
+    _toMillis(value) {
+        if (!value) return 0;
+        if (typeof value.toDate === 'function') {
+            const parsed = value.toDate();
+            return parsed ? parsed.getTime() : 0;
+        }
+        if (value instanceof Date) return value.getTime();
+        const numeric = Number(value);
+        return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+    }
+
+    // Between two records for the same achievement, keep the earlier earned date
+    // and the stronger tier. Order-independent, so it does not matter whether the
+    // map or the legacy subcollection is seen first.
+    _mergeEarnedRecord(a, b) {
+        if (!a) return b;
+        if (!b) return a;
+        const aMs = this._toMillis(a.dateEarned);
+        const bMs = this._toMillis(b.dateEarned);
+        const earlier = (aMs && bMs) ? (aMs <= bMs ? a : b) : (aMs ? a : b);
+        const tier = (a.tier === 'verified' || b.tier === 'verified') ? 'verified' : (earlier.tier || a.tier || b.tier);
+        return { tier, dateEarned: earlier.dateEarned };
+    }
+
+    // Returns { <achievementId>: { tier, dateEarned } } for everything already
+    // earned, cached for the session. Costs zero reads once the user document map
+    // is authoritative; falls back to the legacy subcollection otherwise.
+    async _loadEarnedAchievements(achievementsRef) {
+        if (this.achievementsCache) return this.achievementsCache;
+
+        const fromUserDoc = this._userDocAchievements || {};
+        const mapIsBackfilled = this._userDocSchema >= ACHIEVEMENT_SCHEMA_VERSION;
+
+        // Fast path: map is backfilled and no legacy writer can be racing it.
+        if (mapIsBackfilled && !this.legacySubcollectionEnabled) {
+            this.achievementsCache = { ...fromUserDoc };
+            return this.achievementsCache;
+        }
+
+        const merged = { ...fromUserDoc };
+        try {
+            const snap = await achievementsRef.get();
+            snap.forEach(doc => {
+                merged[doc.id] = this._mergeEarnedRecord(merged[doc.id], doc.data());
+            });
+        } catch (error) {
+            // A failed legacy read must not wipe what the user document already
+            // told us; fall back to the map rather than treating badges as new.
+            console.warn('[gamification] legacy achievement read failed; using user document map.', error);
+        }
+
+        this.achievementsCache = merged;
+        return merged;
     }
 
     // 🛡️ Returns a stable per-session timestamp for a given badge ID.
@@ -206,15 +301,6 @@ class GamificationEngine {
         let stateVisitsTotalMap = visitProgress.stateVisitsTotalMap;
         let stateVisitsVerifiedMap = visitProgress.stateVisitsVerifiedMap;
 
-        const sortBadges = (arr) => {
-            return arr.sort((a, b) => {
-                const aU = a.status === 'unlocked' ? 1 : 0;
-                const bU = b.status === 'unlocked' ? 1 : 0;
-                if (aU !== bU) return bU - aU; // Unlocked at the front
-                return (b.dateEarnedTs || 0) - (a.dateEarnedTs || 0); // Newest first
-            });
-        };
-
         const sortedVisits = [...visitedParksArray]
             .filter(p => p.ts)
             .sort((a, b) => a.ts - b.ts);
@@ -231,9 +317,9 @@ class GamificationEngine {
         return {
             totalScore: totalScore,
             title: this.calculateTitle(totalScore),
-            paws: sortBadges(this.calculatePaws(visitProgress.totalVisitedSites, verifiedCount)),
+            paws: this.sortBadges(this.calculatePaws(visitProgress.totalVisitedSites, verifiedCount)),
             rareFeats: rareFeats,
-            stateBadges: sortBadges(this.calculateStateBadges(stateVisitsTotalMap, stateVisitsVerifiedMap)),
+            stateBadges: this.sortBadges(this.calculateStateBadges(stateVisitsTotalMap, stateVisitsVerifiedMap)),
             nationalProgress: {
                 totalVisited: visitProgress.totalVisitedSites,
                 totalParks: this.totalSystemParks || 1,
@@ -242,74 +328,115 @@ class GamificationEngine {
         };
     }
 
+    // The single place earned dates are applied to badge objects. Everything
+    // else just decides what is earned; this decides what the card shows.
+    _applyEarnedDates(items, earned, newlyEarnedIds) {
+        for (const item of items) {
+            if (item.status !== 'unlocked') {
+                item.dateEarned = null;
+                item.dateEarnedTs = 0;
+                continue;
+            }
+
+            const record = earned[item.id];
+            const storedMs = this._toMillis(record && record.dateEarned);
+            const ms = storedMs || this._getStableTimestamp(item.id);
+
+            this._sessionTimestamps[item.id] = ms;
+            item.dateEarnedTs = ms;
+            // Earned during this evaluation gets the celebratory label; the cache
+            // already holds a real timestamp by now, so check the set, not the date.
+            item.dateEarned = newlyEarnedIds.has(item.id)
+                ? 'Just Now!'
+                : new Date(ms).toLocaleDateString();
+        }
+    }
+
     async evaluateAndStoreAchievements(userId, visitedParksArray, userRank = null, walkPoints = 0) {
         const achievementsData = this.evaluate(visitedParksArray, userRank, walkPoints);
         if (!userId || typeof firebase === 'undefined') return achievementsData;
 
         const db = firebase.firestore();
-        const achievementsRef = db.collection('users').doc(userId).collection('achievements');
+        const userRef = db.collection('users').doc(userId);
+        const achievementsRef = userRef.collection('achievements');
         // Classified feats now live inside rareFeats, so a single spread covers them.
         const allItems = [...achievementsData.rareFeats, ...achievementsData.paws, ...achievementsData.stateBadges];
-
-        // 🛡️ Pre-compute stable timestamps for all unlocked items before any DB work
-        for (const item of allItems) {
-            if (item.status === 'unlocked') {
-                item.dateEarnedTs = this._getStableTimestamp(item.id);
-                item.dateEarned = new Date(item.dateEarnedTs).toLocaleDateString();
-            }
-        }
+        const newlyEarnedIds = new Set();
 
         try {
+            const earned = await this._loadEarnedAchievements(achievementsRef);
             const batch = db.batch();
-            let hasChanges = false;
-            
-            // 🛑 PREVENT READ CASCADE: Only fetch from DB if cache is empty
-            if (!this.achievementsCache) {
-                const snap = await achievementsRef.get();
-                this.achievementsCache = {};
-                snap.forEach(doc => { this.achievementsCache[doc.id] = doc.data(); });
-            }
-            
-            const existingCache = this.achievementsCache;
-            
-            for (const item of allItems) {
-                if (item.status === 'unlocked') {
-                    const existing = existingCache[item.id];
-                    if (!existing || (existing.tier === 'honor' && item.tier === 'verified')) {
-                        batch.set(achievementsRef.doc(item.id), {
-                            achievementId: item.id, tier: item.tier, dateEarned: firebase.firestore.FieldValue.serverTimestamp()
-                        }, { merge: true });
-                        hasChanges = true;
-                        
-                        // 🛑 Update local cache immediately to prevent re-triggering
-                        this.achievementsCache[item.id] = { tier: item.tier, dateEarned: item.dateEarnedTs };
-                    }
-                    if (existing && existing.dateEarned) {
-                        const d = existing.dateEarned.toDate ? existing.dateEarned.toDate() : new Date(existing.dateEarned);
-                        item.dateEarned = d.toLocaleDateString();
-                        item.dateEarnedTs = d.getTime();
-                        // 🛡️ Also update session cache so it stays stable
-                        this._sessionTimestamps[item.id] = item.dateEarnedTs;
-                    } else if (hasChanges && (!existing || existing.tier !== item.tier)) {
-                        item.dateEarned = 'Just Now!';
-                        // 🛡️ Use the stable timestamp already set above
-                    }
+            const mapUpdates = {};
+            let hasWrites = false;
+
+            // Existing users predate the map; backfill everything already earned
+            // so this is the last session that pays for the legacy read.
+            const needsBackfill = this._userDocSchema < ACHIEVEMENT_SCHEMA_VERSION;
+            if (needsBackfill) {
+                for (const id of Object.keys(earned)) {
+                    const record = earned[id];
+                    if (!record) continue;
+                    // A legacy document can carry a null/pending dateEarned. Firestore
+                    // rejects undefined outright, which would fail the whole batch, so
+                    // fall back to a server timestamp rather than writing a hole.
+                    mapUpdates[id] = {
+                        tier: record.tier || 'honor',
+                        dateEarned: record.dateEarned || firebase.firestore.FieldValue.serverTimestamp()
+                    };
+                    hasWrites = true;
                 }
             }
-            if (hasChanges) await batch.commit();
-        } catch (e) { console.error('Sync error:', e); }
-        
-        const sortB = (arr) => arr.sort((a, b) => {
-            const aU = a.status === 'unlocked' ? 1 : 0;
-            const bU = b.status === 'unlocked' ? 1 : 0;
-            if (aU !== bU) return bU - aU;
-            return (b.dateEarnedTs || 0) - (a.dateEarnedTs || 0);
-        });
 
-        achievementsData.paws = sortB(achievementsData.paws);
+            for (const item of allItems) {
+                if (item.status !== 'unlocked') continue;
+
+                const existing = earned[item.id];
+                const isNew = !existing;
+                const isUpgrade = Boolean(existing) && existing.tier === 'honor' && item.tier === 'verified';
+                if (!isNew && !isUpgrade) continue;
+
+                // Upgrades keep the original earned date; only new badges get "now".
+                const dateEarned = (existing && existing.dateEarned)
+                    ? existing.dateEarned
+                    : firebase.firestore.FieldValue.serverTimestamp();
+
+                mapUpdates[item.id] = { tier: item.tier, dateEarned };
+                if (this.legacySubcollectionEnabled) {
+                    batch.set(achievementsRef.doc(item.id), {
+                        achievementId: item.id, tier: item.tier, dateEarned
+                    }, { merge: true });
+                }
+                hasWrites = true;
+                if (isNew) newlyEarnedIds.add(item.id);
+
+                // Update the cache immediately so a re-entrant evaluate in the
+                // same session cannot queue the same write twice.
+                earned[item.id] = {
+                    tier: item.tier,
+                    dateEarned: (existing && existing.dateEarned) ? existing.dateEarned : this._getStableTimestamp(item.id)
+                };
+            }
+
+            if (hasWrites) {
+                // One merged field update replaces up to 65 subcollection writes.
+                batch.set(userRef, {
+                    achievements: mapUpdates,
+                    achievementsSchema: ACHIEVEMENT_SCHEMA_VERSION
+                }, { merge: true });
+                await batch.commit();
+                this._userDocSchema = ACHIEVEMENT_SCHEMA_VERSION;
+            }
+
+            this._applyEarnedDates(allItems, earned, newlyEarnedIds);
+        } catch (e) {
+            console.error('Sync error:', e);
+            this._applyEarnedDates(allItems, this.achievementsCache || {}, newlyEarnedIds);
+        }
+
+        achievementsData.paws = this.sortBadges(achievementsData.paws);
         // Keep classified feats grouped after normal feats (not plain unlocked-first).
         achievementsData.rareFeats = this.sortRareFeats(achievementsData.rareFeats);
-        achievementsData.stateBadges = sortB(achievementsData.stateBadges);
+        achievementsData.stateBadges = this.sortBadges(achievementsData.stateBadges);
         return achievementsData;
     }
 
@@ -340,6 +467,16 @@ class GamificationEngine {
                 dateEarned: status === 'unlocked' ? new Date().toLocaleDateString() : null, 
                 dateEarnedTs: status === 'unlocked' ? this._getStableTimestamp(t.id) : 0 
             };
+        });
+    }
+
+    // Unlocked first, then newest earned. Used by Paws and States.
+    sortBadges(arr) {
+        return arr.sort((a, b) => {
+            const aU = a.status === 'unlocked' ? 1 : 0;
+            const bU = b.status === 'unlocked' ? 1 : 0;
+            if (aU !== bU) return bU - aU;
+            return (b.dateEarnedTs || 0) - (a.dateEarnedTs || 0);
         });
     }
 
@@ -448,3 +585,4 @@ class GamificationEngine {
     }
 }
 window.GamificationEngine = GamificationEngine;
+window.ACHIEVEMENT_SCHEMA_VERSION = ACHIEVEMENT_SCHEMA_VERSION;

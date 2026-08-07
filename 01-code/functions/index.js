@@ -3439,33 +3439,19 @@ exports.dailyErrorDigest = functions
         return runDailyErrorDigest();
     });
 
-exports.generateHourlyLeaderboard = functions.pubsub.schedule("0 * * * *")
-    .timeZone("America/New_York")
-    .onRun(async (context) => {
-        const db = admin.firestore();
-        try {
-            const snapshot = await db.collection("leaderboard").orderBy("totalPoints", "desc").limit(100).get();
-            const leaderboardArray = [];
-            snapshot.forEach((doc) => {
-                const data = doc.data();
-                leaderboardArray.push({
-                    uid: doc.id,
-                    displayName: data.displayName || "Anonymous Ranger",
-                    totalPoints: data.totalPoints || data.totalVisited || 0,
-                    totalVisited: data.totalVisited || 0,
-                    hasVerified: !!data.hasVerified
-                });
-            });
-            await db.collection("system").doc("leaderboardData").set({
-                topUsers: leaderboardArray,
-                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-            });
-            return null;
-        } catch (error) {
-            console.error("Error generating leaderboard:", error);
-            return null;
-        }
-    });
+// REMOVED 2026-08-07: generateHourlyLeaderboard.
+//
+// It ran every hour and read the whole `leaderboard` collection (limit 100, 80
+// documents in practice) to build a `system/leaderboardData` summary. Nothing
+// ever read that summary: the client renders the leaderboard by querying
+// `leaderboard` directly with limit(5) in profileEngine.js.
+//
+// That made it 80 reads/hour = ~1,920 reads/day = ~57,600/month for a document
+// no code opened, which was roughly the entire flat daily read floor on this
+// project (baseline was ~2,000 reads/day, and it did not move with traffic).
+//
+// If a precomputed top-N is ever wanted, rebuild it on demand or on a much
+// slower schedule, and make sure a reader exists before the writer ships.
 
 // ============================================================================
 // 2. DATA REFINERY: GEMINI AI EXTRACTION

@@ -97,20 +97,24 @@ step at all, so a badge earned on production would look brand new here and be
 rewritten with today's date, destroying the original earned date. Phase 2's lazy
 verification is exactly what makes the savings safe before that point.
 
-## Outstanding prerequisite from the 0.16 promotion
+## OAuth prerequisite from the 0.16 promotion (done 2026-08-07)
 
 Production 0.16 also carries the standalone (home-screen PWA) Google sign-in rework
-that had only ever run on beta. One piece of it is not yet complete on production:
+that had only ever run on beta. That rework needs the app URL registered as an
+**Authorized redirect URI** (a separate list from Authorized JavaScript origins).
 
-**`https://barkrangermap-auth.web.app/` must be registered as an Authorized redirect
-URI** on the Web OAuth client (`564465144962-m32aoi179l1gjcvqr2r143tm4t5br913`),
-in the Google Cloud Console. This is a separate list from Authorized JavaScript
-origins. The beta URL is already registered; production is not.
+`https://barkrangermap-auth.web.app/` was added to the Web OAuth client
+(`564465144962-m32aoi179l1gjcvqr2r143tm4t5br913`) via the Google Cloud Console on
+2026-08-07, and verified present after a page reload. The redirect URI list is now:
 
-Until it is added, standalone "switch account" on production fails with
-`redirect_uri_mismatch`. This is not a regression, that path could not work on 0.1
-either, but it is the one piece of the sign-in rework that production does not yet
-get. Normal sign-in (One Tap in standalone, popup in browser tabs) is unaffected.
+1. `https://barkrangermap-auth.firebaseapp.com/__/auth/handler` (Firebase, auto)
+2. `https://barkrangermap-auth.web.app/__/auth/handler` (Firebase, auto)
+3. `https://usbarkrangers.github.io/USBarkRangers/01-code/app/` (beta)
+4. `https://barkrangermap-auth.web.app/` (production, added 2026-08-07)
+
+Google warns changes can take five minutes to a few hours to take effect, so
+standalone switch-account on production may fail with `redirect_uri_mismatch` for a
+short window after the change.
 
 ## Rollback
 

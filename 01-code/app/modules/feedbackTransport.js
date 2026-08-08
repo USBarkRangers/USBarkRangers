@@ -137,6 +137,10 @@ window.BARK = window.BARK || {};
             subject: values.subjectLabel || null,
             parkId: values.parkId || null,
             screenshots: Array.isArray(values.screenshots) ? values.screenshots : [],
+            // Only read when there is no auth token to trust instead. A signed-in
+            // reporter's identity comes from the token, server-side.
+            contactName: values.name || null,
+            contactEmail: values.email || null,
             browser: collectBrowserMetadata()
         });
         return (response && response.data) || { ok: true };

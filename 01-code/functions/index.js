@@ -47,6 +47,28 @@ const FEEDBACK_RATE_LIMIT = {
     message: "Feedback submission limit reached. Please try again shortly."
 };
 
+// Feedback is the one callable a signed-out person can reach, so it is the one
+// place an abuser needs no account. Two limits stand in for the missing uid:
+// a tight per-connection budget, and a ceiling across all signed-out reporters
+// at once so a distributed run cannot flood the ops channels even while every
+// single connection stays under its own limit. Signed-in reports are unaffected
+// by both.
+const ANONYMOUS_FEEDBACK_RATE_LIMIT = {
+    maxRequests: 3,
+    windowMs: 60 * 60 * 1000,
+    envMaxKey: "BARK_RATE_LIMIT_ANON_FEEDBACK_MAX",
+    envWindowKey: "BARK_RATE_LIMIT_ANON_FEEDBACK_WINDOW_MS",
+    message: "That is as many reports as we can take from this connection in an hour."
+};
+
+const ANONYMOUS_FEEDBACK_GLOBAL_LIMIT = {
+    maxRequests: 60,
+    windowMs: 60 * 60 * 1000,
+    envMaxKey: "BARK_RATE_LIMIT_ANON_FEEDBACK_GLOBAL_MAX",
+    envWindowKey: "BARK_RATE_LIMIT_ANON_FEEDBACK_GLOBAL_WINDOW_MS",
+    message: "We are taking a lot of reports right now. Please try again shortly."
+};
+
 // Caps how many client-error ALERT EMAILS a single user can trigger per window.
 // Firestore records of client errors are NOT capped — every report is logged;
 // only the email side is throttled so one user's broken screen can't flood.
@@ -278,37 +300,42 @@ async function enforcePremiumCallableRateLimit(uid, action, options = {}) {
     });
 }
 
-function getFeedbackRateLimit(options = {}) {
+// Defaults, overridable by env var in production and by an options bag in tests.
+function resolveRateLimitConfig(defaults, override, options = {}) {
     const env = options.env || process.env;
-    const override = options.feedbackRateLimit || {};
+    const settings = override && typeof override === "object" ? override : {};
     return {
         maxRequests: parsePositiveInteger(
-            override.maxRequests === undefined ? env[FEEDBACK_RATE_LIMIT.envMaxKey] : override.maxRequests,
-            FEEDBACK_RATE_LIMIT.maxRequests
+            settings.maxRequests === undefined ? env[defaults.envMaxKey] : settings.maxRequests,
+            defaults.maxRequests
         ),
         windowMs: parsePositiveInteger(
-            override.windowMs === undefined ? env[FEEDBACK_RATE_LIMIT.envWindowKey] : override.windowMs,
-            FEEDBACK_RATE_LIMIT.windowMs
+            settings.windowMs === undefined ? env[defaults.envWindowKey] : settings.windowMs,
+            defaults.windowMs
         ),
-        message: typeof override.message === "string" && override.message.trim()
-            ? override.message.trim()
-            : FEEDBACK_RATE_LIMIT.message
+        message: typeof settings.message === "string" && settings.message.trim()
+            ? settings.message.trim()
+            : defaults.message
     };
 }
 
-async function enforceFeedbackRateLimit(uid, options = {}) {
-    const limit = getFeedbackRateLimit(options);
-    const db = options.firestore || admin.firestore();
+function getFeedbackRateLimit(options = {}) {
+    return resolveRateLimitConfig(FEEDBACK_RATE_LIMIT, options.feedbackRateLimit, options);
+}
+
+// One windowed counter, one transaction. Feedback's three limits — per signed-in
+// user, per signed-out connection, and the signed-out ceiling — differ only in
+// the document they count against and the numbers they enforce.
+async function consumeFeedbackRateLimit({ firestore, docId, limit, now, meta, logContext }) {
+    const db = firestore || admin.firestore();
     if (!db || typeof db.runTransaction !== "function") {
-        console.error("[feedback] Firestore transaction support is unavailable.", { uid });
+        console.error("[feedback] Firestore transaction support is unavailable.", logContext);
         throw new functions.https.HttpsError("internal", "Feedback rate limit could not be verified.");
     }
 
-    const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
     const windowStart = Math.floor(now / limit.windowMs) * limit.windowMs;
     const windowEndsAt = windowStart + limit.windowMs;
-    const safeUid = encodeURIComponent(uid);
-    const ref = db.collection("_feedbackRateLimits").doc(`${safeUid}_${windowStart}`);
+    const ref = db.collection("_feedbackRateLimits").doc(`${docId}_${windowStart}`);
 
     await db.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(ref);
@@ -323,7 +350,7 @@ async function enforceFeedbackRateLimit(uid, options = {}) {
         }
 
         transaction.set(ref, {
-            uid,
+            ...meta,
             action: "submitFeedback",
             count: currentCount + 1,
             limit: limit.maxRequests,
@@ -332,6 +359,56 @@ async function enforceFeedbackRateLimit(uid, options = {}) {
             expiresAt: Timestamp.fromMillis(windowEndsAt + 24 * 60 * 60 * 1000),
             updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
+    });
+}
+
+async function enforceFeedbackRateLimit(uid, options = {}) {
+    await consumeFeedbackRateLimit({
+        firestore: options.firestore,
+        docId: encodeURIComponent(uid),
+        limit: getFeedbackRateLimit(options),
+        now: Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now(),
+        meta: { uid },
+        logContext: { uid }
+    });
+}
+
+// The address is a bucket, not a record: it is hashed so Firestore never holds a
+// reporter's IP, and truncated because 16 hex characters separate buckets fine.
+// An unresolvable address shares one bucket, which is deliberately strict.
+function getFeedbackConnectionKey(context) {
+    const request = (context && context.rawRequest) || {};
+    const headers = request.headers || {};
+    const forwarded = typeof headers["x-forwarded-for"] === "string"
+        ? headers["x-forwarded-for"].split(",")[0].trim()
+        : "";
+    const address = forwarded || (typeof request.ip === "string" ? request.ip : "");
+    if (!address) return "unknown";
+    return createHash("sha256").update(address).digest("hex").slice(0, 16);
+}
+
+async function enforceAnonymousFeedbackRateLimit(connectionKey, options = {}) {
+    const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
+    const key = connectionKey || "unknown";
+
+    // Per-connection first, so an abuser is stopped by their own budget before
+    // they can spend anything from the shared ceiling.
+    await consumeFeedbackRateLimit({
+        firestore: options.firestore,
+        docId: `anon_${key}`,
+        limit: resolveRateLimitConfig(ANONYMOUS_FEEDBACK_RATE_LIMIT, options.anonymousFeedbackRateLimit, options),
+        now,
+        meta: { scope: "anonymous_connection", connectionKey: key },
+        logContext: { scope: "anonymous_connection" }
+    });
+
+    await consumeFeedbackRateLimit({
+        firestore: options.firestore,
+        docId: "anon_global",
+        limit: resolveRateLimitConfig(ANONYMOUS_FEEDBACK_GLOBAL_LIMIT, options.anonymousFeedbackGlobalLimit, options),
+        now,
+        meta: { scope: "anonymous_global" },
+        logContext: { scope: "anonymous_global" }
     });
 }
 
@@ -349,6 +426,15 @@ function cleanFeedbackText(value, maxLength = 2000) {
 function cleanFeedbackString(value, maxLength = 200) {
     const text = typeof value === "string" ? value.trim() : "";
     return text ? text.slice(0, maxLength) : null;
+}
+
+// A signed-out reporter types their own address, so unlike a token email it has
+// to be checked before it lands in a Discord field: one @, something either
+// side, and no whitespace that could break the embed apart.
+function cleanContactEmail(value) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!text || text.length > 254) return null;
+    return /^[^\s@]+@[^\s@.]+\.[^\s@]+$/.test(text) ? text : null;
 }
 
 function cleanFeedbackType(value) {
@@ -372,27 +458,42 @@ function cleanFeedbackBrowserMetadata(value) {
     };
 }
 
+// Signed out is allowed here, and only here. Losing those reports was worse than
+// the exposure: the people most likely to hit something broken are the ones who
+// never got as far as an account. What signing out costs is screenshots (they
+// would be an unauthenticated upload relayed straight to a team channel) and
+// identity, which becomes self-reported and is labelled that way in Discord.
 async function handleSubmitFeedback(requestOrData, context, options = {}) {
-    const uid = requireAuthCallable(context);
+    const uid = getCallableUid(context);
     const payload = getCallablePayload(requestOrData);
     const message = cleanFeedbackText(payload.message || payload.text);
     const type = cleanFeedbackType(payload.type);
     const browser = cleanFeedbackBrowserMetadata(payload.browser || payload.metadata);
 
     // Screenshots are validated before the rate limit is spent, so a rejected
-    // image does not cost the reporter one of their five submissions per hour.
+    // image does not cost the reporter one of their submissions for the hour.
     const screenshots = feedbackAttachments.normalizeFeedbackScreenshots(payload.screenshots);
     if (screenshots.error) {
         throw new functions.https.HttpsError("invalid-argument", screenshots.error);
+    }
+    if (!uid && screenshots.files.length) {
+        throw new functions.https.HttpsError("invalid-argument", "Sign in to send screenshots with a report.");
     }
 
     const token = getCallableAuthToken(context);
     const db = options.firestore || admin.firestore();
 
-    await enforceFeedbackRateLimit(uid, options);
+    if (uid) {
+        await enforceFeedbackRateLimit(uid, options);
+    } else {
+        await enforceAnonymousFeedbackRateLimit(getFeedbackConnectionKey(context), options);
+    }
 
+    // The token wins whenever there is one: a signed-in reporter never gets to
+    // claim someone else's name or address.
     const addPayload = {
-        uid,
+        uid: uid || null,
+        verifiedAccount: Boolean(uid),
         type,
         subject: cleanFeedbackString(payload.subject, 120),
         parkId: cleanFeedbackString(payload.parkId, 64),
@@ -400,9 +501,9 @@ async function handleSubmitFeedback(requestOrData, context, options = {}) {
         browser,
         // Images are relayed to Discord and dropped. Only the count is durable.
         screenshotCount: screenshots.files.length,
-        email: cleanFeedbackString(token.email, 254),
-        displayName: cleanFeedbackString(token.name, 120),
-        source: "app_feedback",
+        email: uid ? cleanFeedbackString(token.email, 254) : cleanContactEmail(payload.contactEmail),
+        displayName: uid ? cleanFeedbackString(token.name, 120) : cleanFeedbackString(payload.contactName, 120),
+        source: uid ? "app_feedback" : "app_feedback_anonymous",
         status: "new",
         createdAt: FieldValue.serverTimestamp()
     };
@@ -439,9 +540,16 @@ function postFeedbackToDiscord(record, options = {}) {
     // #support-inbox is Admin-only, so a support request can carry the address
     // needed to reply. Every other channel is visible to the whole team and gets
     // a masked address; the full record is always in Firestore.
-    const contact = opsDiscord.isAdminOnlyChannel(channel)
+    const address = opsDiscord.isAdminOnlyChannel(channel)
         ? (record.email || null)
         : opsDiscord.maskEmail(record.email);
+
+    // A signed-out reporter typed their own name and address, so nobody should
+    // read them as identity. Say so next to the value rather than in a footnote.
+    const verified = record.verifiedAccount !== false;
+    const contact = verified
+        ? address
+        : (address ? `${address} (self-reported)` : "none given");
 
     const subject = record.subject ? ` — ${record.subject}` : "";
 
@@ -452,6 +560,7 @@ function postFeedbackToDiscord(record, options = {}) {
         description: record.message,
         fields: [
             { name: "Contact", value: contact },
+            { name: "Reporter", value: verified ? null : "Signed out — unverified" },
             { name: "Park ID", value: record.parkId },
             { name: "Path", value: browser.path },
             { name: "Platform", value: browser.platform },
@@ -3558,6 +3667,9 @@ if (process.env.NODE_ENV === "test") {
         enforcePremiumCallableRateLimit,
         getFeedbackRateLimit,
         enforceFeedbackRateLimit,
+        enforceAnonymousFeedbackRateLimit,
+        getFeedbackConnectionKey,
+        cleanContactEmail,
         handleSubmitFeedback,
         handleDeleteAccount,
         handleCancelPremiumSubscription,

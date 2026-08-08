@@ -5,7 +5,9 @@ process.env.NODE_ENV = "test";
 
 const {
     __test: {
-        handleSubmitFeedback
+        handleSubmitFeedback,
+        getFeedbackConnectionKey,
+        cleanContactEmail
     }
 } = require("../index.js");
 
@@ -34,6 +36,12 @@ function authedContext(uid = "feedback-user", token = {}) {
     return { auth: { uid, token } };
 }
 
+// A signed-out call still arrives with an HTTP request behind it, which is the
+// only thing standing in for a uid on that path.
+function anonymousContext(ip = "203.0.113.9") {
+    return { rawRequest: { ip, headers: { "x-forwarded-for": `${ip}, 70.41.3.18` } } };
+}
+
 function getHttpsErrorCode(error) {
     return String(error && error.code ? error.code : "").replace(/^functions\//, "");
 }
@@ -51,7 +59,8 @@ function makeFirestore({ rateLimitCount } = {}) {
         adds: [],
         rateLimitReads: 0,
         rateLimitWrites: 0,
-        lastRateLimitDoc: null
+        lastRateLimitDoc: null,
+        rateLimitDocIds: []
     };
 
     function makeDocRef(collectionName, docId) {
@@ -79,6 +88,7 @@ function makeFirestore({ rateLimitCount } = {}) {
                 if (collectionName === "_feedbackRateLimits") {
                     state.rateLimitWrites += 1;
                     state.lastRateLimitDoc = docId;
+                    state.rateLimitDocIds.push(docId);
                     const previous = rateLimitDocs.get(docId) || {};
                     rateLimitDocs.set(docId, options.merge ? { ...previous, ...value } : { ...value });
                 }
@@ -159,16 +169,32 @@ describe("feedback callable", () => {
         assert.equal(feedback.browser.viewportWidth, 390);
     });
 
-    it("rejects signed-out feedback before writing anything", async () => {
+    it("records a signed-in report as verified", async () => {
         const firestore = makeFirestore();
+        await handleSubmitFeedback(
+            { message: "Verified." },
+            authedContext("alice", { email: "alice@example.test" }),
+            { firestore }
+        );
+        assert.equal(firestore.state.adds[0].verifiedAccount, true);
+        assert.equal(firestore.state.adds[0].source, "app_feedback");
+    });
 
-        await assertRejectsCode(
-            handleSubmitFeedback({ message: "Anonymous feedback" }, {}, { firestore }),
-            "unauthenticated"
+    it("never lets a signed-in reporter claim a different identity", async () => {
+        const firestore = makeFirestore();
+        await handleSubmitFeedback(
+            {
+                message: "Trying it on.",
+                contactName: "Someone Else",
+                contactEmail: "victim@example.test"
+            },
+            authedContext("alice", { email: "alice@example.test", name: "Alice Ranger" }),
+            { firestore }
         );
 
-        assert.equal(firestore.state.adds.length, 0);
-        assert.equal(firestore.state.rateLimitReads, 0);
+        const feedback = firestore.state.adds[0];
+        assert.equal(feedback.email, "alice@example.test");
+        assert.equal(feedback.displayName, "Alice Ranger");
     });
 
     it("rejects empty and oversized feedback", async () => {
@@ -209,6 +235,159 @@ describe("feedback callable", () => {
         assert.equal(firestore.state.rateLimitReads, 1);
         assert.equal(firestore.state.rateLimitWrites, 0);
         assert.equal(firestore.state.adds.length, 0);
+    });
+});
+
+describe("signed-out feedback", () => {
+    it("stores and posts the report, labelled unverified with a self-reported contact", async () => {
+        const firestore = makeFirestore();
+        const discord = discordRecorder();
+
+        const result = await handleSubmitFeedback(
+            {
+                message: "The map will not load for me.",
+                type: "bug",
+                contactName: "Passing Visitor",
+                contactEmail: "visitor@example.test"
+            },
+            anonymousContext(),
+            { firestore, ...discord.options }
+        );
+
+        assert.deepEqual(result, { ok: true, screenshotCount: 0 });
+
+        const feedback = firestore.state.adds[0];
+        assert.equal(feedback.uid, null);
+        assert.equal(feedback.verifiedAccount, false);
+        assert.equal(feedback.source, "app_feedback_anonymous");
+        assert.equal(feedback.email, "visitor@example.test");
+        assert.equal(feedback.displayName, "Passing Visitor");
+
+        const fields = discord.sent[0].payload.embeds[0].fields;
+        assert.equal(fields.find((f) => f.name === "Reporter").value, "Signed out — unverified");
+        assert.match(fields.find((f) => f.name === "Contact").value, /self-reported/);
+        // #bugs is not Admin-only, so the address is still masked there.
+        assert.match(fields.find((f) => f.name === "Contact").value, /^v\*\*\*@example\.test/);
+    });
+
+    it("says so plainly when a signed-out reporter left no way to reply", async () => {
+        const firestore = makeFirestore();
+        const discord = discordRecorder();
+
+        await handleSubmitFeedback(
+            { message: "No contact details.", contactEmail: "not-an-email" },
+            anonymousContext(),
+            { firestore, ...discord.options }
+        );
+
+        assert.equal(firestore.state.adds[0].email, null);
+        assert.equal(
+            discord.sent[0].payload.embeds[0].fields.find((f) => f.name === "Contact").value,
+            "none given"
+        );
+    });
+
+    it("refuses screenshots from a signed-out caller before spending anything", async () => {
+        const firestore = makeFirestore();
+
+        await assertRejectsCode(
+            handleSubmitFeedback(
+                { message: "With an image.", screenshots: [screenshot()] },
+                anonymousContext(),
+                { firestore }
+            ),
+            "invalid-argument"
+        );
+
+        assert.equal(firestore.state.adds.length, 0);
+        assert.equal(firestore.state.rateLimitReads, 0);
+    });
+
+    it("counts against both the per-connection budget and the shared ceiling", async () => {
+        const firestore = makeFirestore();
+
+        await handleSubmitFeedback(
+            { message: "One report." },
+            anonymousContext(),
+            { firestore, nowMillis: Date.parse("2026-08-08T12:00:00.000Z") }
+        );
+
+        assert.equal(firestore.state.rateLimitWrites, 2);
+        assert.ok(firestore.state.rateLimitDocIds.some((id) => id.startsWith("anon_") && !id.startsWith("anon_global")));
+        assert.ok(firestore.state.rateLimitDocIds.some((id) => id.startsWith("anon_global")));
+        // The bucket key is a hash, never the address itself.
+        assert.ok(!firestore.state.rateLimitDocIds.some((id) => id.includes("203.0.113.9")));
+    });
+
+    it("blocks a connection over its own budget without writing feedback", async () => {
+        const firestore = makeFirestore({ rateLimitCount: 3 });
+
+        await assertRejectsCode(
+            handleSubmitFeedback(
+                { message: "Flooding." },
+                anonymousContext(),
+                {
+                    firestore,
+                    nowMillis: Date.parse("2026-08-08T12:00:00.000Z"),
+                    anonymousFeedbackRateLimit: { maxRequests: 3, windowMs: 60 * 60 * 1000 }
+                }
+            ),
+            "resource-exhausted"
+        );
+
+        assert.equal(firestore.state.adds.length, 0);
+        assert.equal(firestore.state.rateLimitWrites, 0);
+    });
+
+    it("blocks on the shared ceiling even when the connection is under its own budget", async () => {
+        const firestore = makeFirestore();
+        const options = {
+            firestore,
+            nowMillis: Date.parse("2026-08-08T12:00:00.000Z"),
+            anonymousFeedbackRateLimit: { maxRequests: 50, windowMs: 60 * 60 * 1000 },
+            anonymousFeedbackGlobalLimit: { maxRequests: 2, windowMs: 60 * 60 * 1000 }
+        };
+
+        await handleSubmitFeedback({ message: "One." }, anonymousContext("198.51.100.1"), options);
+        await handleSubmitFeedback({ message: "Two." }, anonymousContext("198.51.100.2"), options);
+
+        await assertRejectsCode(
+            handleSubmitFeedback({ message: "Three." }, anonymousContext("198.51.100.3"), options),
+            "resource-exhausted"
+        );
+
+        assert.equal(firestore.state.adds.length, 2);
+    });
+});
+
+describe("feedback identity helpers", () => {
+    it("buckets a connection by a hash of the forwarded address", () => {
+        const key = getFeedbackConnectionKey(anonymousContext("203.0.113.9"));
+        assert.match(key, /^[a-f0-9]{16}$/);
+        assert.equal(key, getFeedbackConnectionKey(anonymousContext("203.0.113.9")));
+        assert.notEqual(key, getFeedbackConnectionKey(anonymousContext("203.0.113.10")));
+    });
+
+    it("prefers the client hop of x-forwarded-for over the proxy address", () => {
+        const forwarded = getFeedbackConnectionKey({
+            rawRequest: { ip: "10.0.0.1", headers: { "x-forwarded-for": "203.0.113.9, 10.0.0.1" } }
+        });
+        assert.equal(forwarded, getFeedbackConnectionKey({ rawRequest: { ip: "203.0.113.9", headers: {} } }));
+    });
+
+    it("falls back to one strict shared bucket when there is no address", () => {
+        assert.equal(getFeedbackConnectionKey({}), "unknown");
+        assert.equal(getFeedbackConnectionKey({ rawRequest: { headers: {} } }), "unknown");
+    });
+
+    it("only accepts a self-reported address that could actually be emailed", () => {
+        assert.equal(cleanContactEmail("  visitor@example.test "), "visitor@example.test");
+        assert.equal(cleanContactEmail("not-an-email"), null);
+        assert.equal(cleanContactEmail("two words@example.test"), null);
+        assert.equal(cleanContactEmail("break@example.test\nX-Injected: yes"), null);
+        assert.equal(cleanContactEmail("nodomain@localhost"), null);
+        assert.equal(cleanContactEmail(""), null);
+        assert.equal(cleanContactEmail(`${"a".repeat(250)}@example.test`), null);
     });
 });
 

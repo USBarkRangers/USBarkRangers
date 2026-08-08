@@ -303,16 +303,16 @@ window.BARK = window.BARK || {};
 
         const email = transport().buildEmail(values);
 
-        if (transport().getSignedInUser()) {
-            try {
-                Promise.resolve(transport().submitToBackend(values)).catch((error) => {
-                    // The reporter's own email is already on its way, so a failure
-                    // here costs the screenshots and the Discord post, not the report.
-                    console.warn('[feedback] submitFeedback failed; the email still carries it.', error);
-                });
-            } catch (error) {
-                console.warn('[feedback] submitFeedback could not start; the email still carries it.', error);
-            }
+        // Sent whether or not anyone is signed in: the backend takes signed-out
+        // reports too, it just labels them unverified and refuses screenshots.
+        try {
+            Promise.resolve(transport().submitToBackend(values)).catch((error) => {
+                // The reporter's own email is already on its way, so a failure
+                // here costs the screenshots and the Discord post, not the report.
+                console.warn('[feedback] submitFeedback failed; the email still carries it.', error);
+            });
+        } catch (error) {
+            console.warn('[feedback] submitFeedback could not start; the email still carries it.', error);
         }
 
         close();

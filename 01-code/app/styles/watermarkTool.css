@@ -1,0 +1,73 @@
+/* ===== Watermark tool: photo stage, logo layer, drag handle ===== */
+
+/* The stage is exactly the canvas box. The logo layer and the handle position
+   against it, so both stay glued to the photo through any responsive resize. */
+.wm-stage {
+    position: relative;
+    display: block;
+    line-height: 0;
+}
+
+.wm-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 8px;
+}
+
+/* Same pixel dimensions as the base canvas, stretched over the same box, so a
+   coordinate means the same thing on both. Never a pointer target. */
+.wm-logo-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+/* The only element that captures the drag. Scoped to the logo rather than the
+   whole canvas so `touch-action: none` doesn't cost the page its scroll on a phone. */
+.wm-logo-handle {
+    position: absolute;
+    touch-action: none;
+    cursor: grab;
+    border-radius: 8px;
+    border: 2px dashed transparent;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.wm-logo-handle:hover,
+.wm-logo-handle:focus-visible {
+    border-color: rgba(76, 175, 80, 0.9);
+    background: rgba(76, 175, 80, 0.12);
+    outline: none;
+}
+
+.wm-stage.wm-dragging .wm-logo-handle {
+    cursor: grabbing;
+    border-color: rgba(76, 175, 80, 0.9);
+    background: rgba(76, 175, 80, 0.12);
+    transition: none;
+}
+
+.wm-drag-hint {
+    margin: 10px 0 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #4CAF50;
+    text-align: center;
+    line-height: 1.4;
+}
+
+.wm-drag-hint[hidden] {
+    display: none;
+}
+
+/* Coarse pointers get a permanently visible outline: there is no hover to
+   discover the handle with. */
+@media (hover: none) {
+    .wm-logo-handle {
+        border-color: rgba(255, 255, 255, 0.75);
+    }
+}

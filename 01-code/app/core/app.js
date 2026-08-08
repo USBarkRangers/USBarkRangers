@@ -171,7 +171,8 @@
         await callInit('initTrailToggles', 'Trail toggles bound');
         await callInit('initSpinWheel', 'Spin wheel initialized');
         await callInit('initManualMiles', 'Manual miles initialized');
-        await callInit('initTrainingUI', 'Expedition engine initialized');
+        await callInit('initTrailOverlays', 'Trail overlays initialized');
+        await callInit('initWalkTracker', 'Walk tracker initialized');
         await callInit('initTripPlanner', 'Trip planner initialized');
         await callInit('initWatermarkTool', 'Watermark tool initialized');
         await callInit('initOfficialQRCode', 'Official QR initialized');

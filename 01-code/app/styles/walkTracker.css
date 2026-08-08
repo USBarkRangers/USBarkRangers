@@ -1,0 +1,64 @@
+/* ===== Live GPS Walk: the floating banner that follows the user across tabs ===== */
+
+/* The banner is the only piece of this feature visible outside the profile tab, so
+   it carries both jobs: show the running distance, and get back to either the card
+   (to stop) or the map (to follow the route). Two separate hit targets rather than
+   one, because tapping "how far am I" and "show me the map" want different places. */
+.live-walk-banner {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 30px;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid #10b981;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: white;
+    font-size: 14px;
+}
+
+.live-walk-banner button {
+    background: transparent;
+    border: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    border-radius: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 36px;      /* thumb-sized while walking */
+}
+
+.live-walk-banner__distance {
+    padding: 0 12px 0 16px;
+}
+
+.live-walk-banner__map {
+    padding: 0 14px;
+    font-size: 16px;
+    border-left: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 0 24px 24px 0;
+}
+
+.live-walk-banner__map:active {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.live-walk-banner__dot {
+    animation: live-walk-pulse 2s infinite;
+}
+
+@keyframes live-walk-pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}

@@ -264,6 +264,11 @@ Rewrote `handleCloudSettingsHydration` with one explicit path:
 **File:** `modules/expeditionEngine.js`
 **Date:** 2026-04-28
 
+> Later note: the boot hook named `initTrainingUI` throughout this entry was split
+> in two when the Live GPS Walk moved to `modules/walkTracker.js`. The layer-group
+> creation described here is now `initTrailOverlays`; the walk card is
+> `initWalkTracker`. The lazy-creation reasoning below still holds.
+
 **What was wrong:**
 `expeditionEngine.js` created `virtualTrailLayerGroup` and `completedTrailsLayerGroup` with `L.featureGroup()` at module scope. That code ran as soon as the script tag was parsed, before `core/app.js` could wrap anything in `callInit()`. If the Leaflet CDN failed or `L` was unavailable, this file threw `L is not defined` during parse. That meant the expedition module never finished registering its functions, and the error happened outside the boot summary.
 

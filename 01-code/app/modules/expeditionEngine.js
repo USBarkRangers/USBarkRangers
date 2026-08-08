@@ -1,6 +1,10 @@
 /**
- * expeditionEngine.js — Virtual Expedition Lifecycle, WalkTracker, Trail Overlays
+ * expeditionEngine.js — Virtual Expedition Lifecycle, Mileage Logging, Trail Overlays
  * Loaded EIGHTH in the boot sequence.
+ *
+ * The Live GPS Walk that feeds this mileage lives in modules/walkTracker.js, which
+ * loads after this file and reaches back through `window.BARK.processMileageAddition`
+ * and `window.BARK.expeditionGate`.
  */
 window.BARK = window.BARK || {};
 
@@ -26,7 +30,6 @@ let completedTrailsLayerGroup = null;
 const EMPTY_WALK_HISTORY_TEXT = 'No miles logged yet.';
 const EMPTY_MANAGE_WALKS_TEXT = 'No walks logged yet.';
 const EMPTY_COMPLETED_EXPEDITIONS_TEXT = 'No expeditions completed yet. Spin the wheel to start!';
-let resetWalkTrackerRuntime = function () {};
 
 function getMapRef() {
     return (typeof window.map !== 'undefined') ? window.map : null;
@@ -91,6 +94,15 @@ function openTrailTrackerPremiumPrompt() {
     }
 }
 
+// The Live GPS Walk sits behind the same account and premium checks the expedition
+// does, so walkTracker.js asks these rather than growing its own copy.
+window.BARK.expeditionGate = {
+    currentUser: getCurrentFirebaseUser,
+    isPremiumUnlocked: isExpeditionPremiumUnlocked,
+    promptAccount: openFreeAccountPrompt,
+    promptPremium: openTrailTrackerPremiumPrompt
+};
+
 function setDisplay(id, value) {
     const element = document.getElementById(id);
     if (element) element.style.display = value;
@@ -121,19 +133,6 @@ function resetActiveExpeditionUi() {
 
     const milesInput = document.getElementById('miles-input');
     if (milesInput) milesInput.value = '';
-
-    const trainingBtn = document.getElementById('training-action-btn');
-    if (trainingBtn) {
-        trainingBtn.textContent = 'Start Walk';
-        trainingBtn.className = 'glass-btn training-btn';
-    }
-
-    setDisplay('cancel-training-btn', 'none');
-
-    const trainingDesc = document.getElementById('training-desc');
-    if (trainingDesc) {
-        trainingDesc.innerHTML = 'Start walking away from home. Log your turnaround point to calculate total distance and earn <strong style="color: #f59e0b;">+0.5 PTS</strong>.';
-    }
 }
 
 function resetWalkHistorySurfaces() {
@@ -151,9 +150,19 @@ function resetWalkHistorySurfaces() {
     }
 }
 
+/**
+ * Drop any walk in progress. Called on sign-out and account switch, where the
+ * tracked miles belong to the user we just left. Resolved at call time because
+ * walkTracker.js loads after this file.
+ */
+function resetWalkTracker() {
+    const tracker = window.BARK.walkTracker;
+    if (tracker && typeof tracker.reset === 'function') tracker.reset();
+}
+
 function resetActiveExpeditionRuntimeState() {
     removeTrailLayerGroup(virtualTrailLayerGroup);
-    resetWalkTrackerRuntime();
+    resetWalkTracker();
 
     if (virtualTrailLayerGroup && typeof virtualTrailLayerGroup.clearLayers === 'function') {
         virtualTrailLayerGroup.clearLayers();
@@ -195,6 +204,10 @@ function ensureTrailLayerGroups() {
     if (!completedTrailsLayerGroup) completedTrailsLayerGroup = L.featureGroup();
     return true;
 }
+
+// Boot hook: build the overlay groups once Leaflet is up, so the first render
+// into them has a target.
+window.BARK.initTrailOverlays = ensureTrailLayerGroups;
 
 async function renderCompletedTrailsOverlay(completedExpeditions) {
     if (!ensureTrailLayerGroups()) return;
@@ -472,15 +485,6 @@ async function assignTrailToUser(uid, trail) {
 
 window.BARK.assignTrailToUser = assignTrailToUser;
 
-// ====== GPS DISTANCE HELPER ======
-function getDistanceMeters(lat1, lon1, lat2, lon2) {
-    const R = 6371e3;
-    const p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
-    const dp = (lat2 - lat1) * Math.PI / 180, dl = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 // ====== MILEAGE PROCESSING ======
 function getMileageContext(userData) {
     const data = userData || {};
@@ -611,6 +615,8 @@ async function processMileageAddition(milesToAdd, typeLabel, options = {}) {
         return false;
     }
 }
+
+window.BARK.processMileageAddition = processMileageAddition;
 
 // ====== MANUAL MILES ======
 function initManualMiles() {
@@ -1004,148 +1010,3 @@ function renderCompletedExpeditions(expeditionsArray) {
 }
 
 window.BARK.renderCompletedExpeditions = renderCompletedExpeditions;
-
-// ====== WALK TRACKER (Advanced GPS Tracking) ======
-const WalkTracker = {
-    watchId: null, wakeLock: null, points: [], totalMiles: 0, lastValidLocation: null,
-    manualFallbackMiles: 0,
-    isBlackedOut: false, blackoutStartTime: 0, boundVisibilityHandler: null,
-
-    async start() {
-        if (!getCurrentFirebaseUser()) {
-            openFreeAccountPrompt('expedition');
-            return;
-        }
-        if (!isExpeditionPremiumUnlocked()) {
-            openTrailTrackerPremiumPrompt();
-            return;
-        }
-        if (!navigator.geolocation) return alert('GPS not supported');
-        this.points = []; this.totalMiles = 0; this.manualFallbackMiles = 0; this.lastValidLocation = null;
-        try { if ('wakeLock' in navigator) this.wakeLock = await navigator.wakeLock.request('screen'); } catch (err) { console.warn('Wake Lock failed/denied:', err); }
-
-        const btn = document.getElementById('training-action-btn');
-        if (btn) { btn.textContent = 'Tracking Active 🟢'; btn.className = 'glass-btn training-btn active'; btn.onclick = () => this.stopAndSave(); }
-        const cancelBtn = document.getElementById('cancel-training-btn');
-        if (cancelBtn) cancelBtn.style.display = 'block';
-
-        this.watchId = navigator.geolocation.watchPosition((pos) => this.processGpsPing(pos), (err) => console.error("GPS Error:", err), { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
-        this.showFloatingBanner();
-        this.boundVisibilityHandler = this.handleVisibilityChange.bind(this);
-        document.addEventListener('visibilitychange', this.boundVisibilityHandler);
-    },
-
-    processGpsPing(pos) {
-        if (this.isBlackedOut) return;
-        const accMeters = pos.coords.accuracy;
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        if (accMeters > 25) return;
-        if (!this.lastValidLocation) { this.lastValidLocation = { lat, lng, ts: Date.now() }; this.points.push(this.lastValidLocation); return; }
-        const distMeters = getDistanceMeters(this.lastValidLocation.lat, this.lastValidLocation.lng, lat, lng);
-        if (distMeters > 5) {
-            const miles = distMeters * 0.000621371;
-            this.totalMiles += miles;
-            this.lastValidLocation = { lat, lng, ts: Date.now() };
-            this.points.push(this.lastValidLocation);
-            this.updateDistanceUI();
-        }
-    },
-
-    handleVisibilityChange() {
-        if (document.hidden) { this.isBlackedOut = true; this.blackoutStartTime = Date.now(); }
-        else {
-            this.isBlackedOut = false;
-            const blackoutDurationMins = (Date.now() - this.blackoutStartTime) / 60000;
-            if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then(wl => this.wakeLock = wl).catch(() => {});
-            if (blackoutDurationMins > 2) this.triggerBlackoutFallback(blackoutDurationMins);
-        }
-    },
-
-    triggerBlackoutFallback(minutesLost) {
-        const manualMiles = prompt(`Welcome back! iOS paused your GPS for ${Math.round(minutesLost)} minutes.\n\nWe tracked ${this.totalMiles.toFixed(2)} miles before the pause. How many missing miles? (Enter 0 if none)`);
-        const parsed = parseFloat(manualMiles);
-        if (!isNaN(parsed) && parsed > 0) {
-            this.totalMiles += parsed;
-            this.manualFallbackMiles += parsed;
-            this.updateDistanceUI();
-        }
-    },
-
-    async stopAndSave() {
-        const finalMiles = this.totalMiles;
-        const pointMiles = Math.max(0, finalMiles - this.manualFallbackMiles);
-        this.cleanup();
-        if (finalMiles < 0.05) alert("Not enough distance recorded to log an expedition.");
-        else { alert(`Expedition Complete! You logged ${finalMiles.toFixed(2)} miles.`); await processMileageAddition(finalMiles, 'GPS Active Track', { pointMiles }); }
-        initTrainingUI();
-    },
-
-    cancel() { this.cleanup(); initTrainingUI(); },
-
-    cleanup() {
-        if (this.watchId !== null) navigator.geolocation.clearWatch(this.watchId);
-        if (this.boundVisibilityHandler) document.removeEventListener('visibilitychange', this.boundVisibilityHandler);
-        if (this.wakeLock) { this.wakeLock.release().catch(() => {}); this.wakeLock = null; }
-        this.hideFloatingBanner();
-        this.watchId = null; this.boundVisibilityHandler = null; this.points = []; this.totalMiles = 0; this.manualFallbackMiles = 0; this.lastValidLocation = null; this.isBlackedOut = false;
-    },
-
-    showFloatingBanner() {
-        let banner = document.getElementById('live-walk-banner');
-        if (!banner) {
-            banner = document.createElement('div');
-            banner.id = 'live-walk-banner';
-            banner.style.cssText = `position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(15, 23, 42, 0.95); color: white; padding: 10px 24px; border-radius: 30px; z-index: 10000; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid #10b981; cursor: pointer; font-size: 14px; transition: all 0.3s ease;`;
-            banner.onclick = () => { const profileTab = document.querySelector('.nav-item[data-target="profile-view"]'); if (profileTab) profileTab.click(); };
-            document.body.appendChild(banner);
-            const style = document.createElement('style');
-            style.innerHTML = `@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }`;
-            document.head.appendChild(style);
-        }
-        banner.innerHTML = `<span style="animation: pulse 2s infinite;">🟢</span> <strong><span id="floating-distance">0.00</span> mi</strong>`;
-        banner.style.display = 'flex';
-    },
-
-    hideFloatingBanner() { const banner = document.getElementById('live-walk-banner'); if (banner) banner.style.display = 'none'; },
-
-    updateDistanceUI() {
-        const descEl = document.getElementById('training-desc');
-        if (descEl) descEl.innerHTML = `Distance: <strong style="color: #10b981;">${this.totalMiles.toFixed(2)} mi</strong>`;
-        const floatDistEl = document.getElementById('floating-distance');
-        if (floatDistEl) floatDistEl.textContent = this.totalMiles.toFixed(2);
-    }
-};
-
-resetWalkTrackerRuntime = function () {
-    WalkTracker.cleanup();
-};
-
-window.handleTrainingClick = function () {
-    const btn = document.getElementById('training-action-btn');
-    if (btn && btn.textContent.includes('Start')) WalkTracker.start();
-    else WalkTracker.stopAndSave();
-};
-
-window.cancelTrainingWalk = function () {
-    if (confirm("Are you sure you want to cancel your walk? You won't earn any points.")) WalkTracker.cancel();
-};
-
-function initTrainingUI() {
-    ensureTrailLayerGroups();
-
-    const btn = document.getElementById('training-action-btn');
-    const cancelBtn = document.getElementById('cancel-training-btn');
-    const descEl = document.getElementById('training-desc');
-    if (!WalkTracker.watchId) {
-        if (btn) { btn.textContent = 'Start Walk'; btn.className = 'glass-btn training-btn'; }
-        if (cancelBtn) cancelBtn.style.display = 'none';
-        if (descEl) descEl.innerHTML = 'Start walking away from home. Log your turnaround point to calculate total distance and earn <strong style="color: #f59e0b;">+0.5 PTS</strong>.';
-    } else {
-        if (btn) { btn.textContent = 'Tracking Active 🟢'; btn.className = 'glass-btn training-btn active'; }
-        if (cancelBtn) cancelBtn.style.display = 'block';
-        if (descEl) descEl.innerHTML = `Distance: <strong style="color: #10b981;">${WalkTracker.totalMiles.toFixed(2)} mi</strong>`;
-    }
-}
-
-window.BARK.initTrainingUI = initTrainingUI;

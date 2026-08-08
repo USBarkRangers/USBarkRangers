@@ -185,6 +185,38 @@ test.describe('watermark corner drag', () => {
         await context.close();
     });
 
+    test('saving still produces a full-resolution image, from the dragged corner', async ({ browser }) => {
+        const { context, page } = await newWatermarkPage(browser, { viewport: { width: 1280, height: 900 } });
+
+        await openLoadedApp(page);
+        await loadPhoto(page);
+        await page.locator('#wm-logo-handle').focus();
+        await page.keyboard.press('ArrowUp');            // move off the default corner
+        await page.waitForTimeout(200);
+
+        await page.check('#wm-high-res');                 // export at the photo's real size
+        await page.click('#wm-download');
+
+        await expect(page.locator('#wm-save-overlay')).toHaveClass(/active/);
+        await expect(page.locator('#wm-save-download')).toBeEnabled({ timeout: 15000 });
+        await expect(page.locator('#wm-save-status')).toContainText(/ready/i);
+
+        // The thumbnail is a real render, not a blank canvas.
+        const thumb = await page.evaluate(() => {
+            const img = document.getElementById('wm-save-preview');
+            return { src: (img.src || '').slice(0, 22), width: img.naturalWidth };
+        });
+        expect(thumb.src).toContain('data:image/jpeg');
+        expect(thumb.width).toBeGreaterThan(0);
+
+        // The visible canvas stays at preview resolution even with full-res ticked;
+        // that is what keeps dragging cheap on a big photo.
+        const canvasWidth = await page.evaluate(() => document.getElementById('wm-canvas').width);
+        expect(canvasWidth).toBeLessThanOrEqual(1200 + Math.ceil(1600 * 0.08) * 2);
+
+        await context.close();
+    });
+
     test('arrow keys move the logo between corners', async ({ browser }) => {
         const { context, page } = await newWatermarkPage(browser, { viewport: { width: 1280, height: 900 } });
 

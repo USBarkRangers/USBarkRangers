@@ -147,7 +147,12 @@ if (window.visualViewport) {
 
         document.body.classList.toggle('keyboard-open', isKeyboardOpen);
 
-        if (isKeyboardOpen && window.innerWidth < 768) {
+        // RISKY BETA viewport recovery keeps Chrome's reported innerWidth near
+        // 980px while presenting the app as a phone. Treat it as mobile here so
+        // the keyboard cannot leave map-only surfaces covering text inputs.
+        const isRecoveredDesktopViewportPhone = document.documentElement.classList
+            .contains('bark-risky-android-desktop-phone-recovery');
+        if (isKeyboardOpen && (window.innerWidth < 768 || isRecoveredDesktopViewportPhone)) {
             closeMapOnlySurfaces();
         }
     });

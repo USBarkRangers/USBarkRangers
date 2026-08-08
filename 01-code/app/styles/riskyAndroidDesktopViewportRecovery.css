@@ -1,0 +1,176 @@
+/*
+ * RISKY BETA EXPERIMENT — see modules/riskyAndroidDesktopViewportRecovery.js.
+ *
+ * This sheet deliberately loads last. It counter-scales only the standalone,
+ * tall-touch, ~980px Android PWA case selected by the matching JavaScript. It
+ * can cause problems with fixed overlays, keyboard resizing, or Leaflet. If a
+ * beta regression appears, disable the JavaScript kill switch or revert this
+ * entire experiment; do not copy these overrides into the normal app styles.
+ */
+
+html.bark-risky-android-desktop-phone-recovery body {
+    position: relative;
+    width: var(--bark-risky-phone-width) !important;
+    height: var(--bark-risky-phone-height) !important;
+    zoom: var(--bark-risky-phone-zoom);
+}
+
+/* Chrome's desktop viewport makes explicit vw/vh roots double-scale. Replace
+   them with the recovered logical phone dimensions. */
+html.bark-risky-android-desktop-phone-recovery #bark-loader,
+html.bark-risky-android-desktop-phone-recovery .ui-view,
+html.bark-risky-android-desktop-phone-recovery .modal-overlay {
+    width: var(--bark-risky-phone-width) !important;
+    height: var(--bark-risky-phone-height) !important;
+}
+
+html.bark-risky-android-desktop-phone-recovery .ui-view {
+    padding: 20px;
+    padding-bottom: 90px;
+}
+
+html.bark-risky-android-desktop-phone-recovery .filtered-pins-indicator {
+    bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+    max-width: min(390px, calc(var(--bark-risky-phone-width) - 28px));
+}
+
+html.bark-risky-android-desktop-phone-recovery .auth-failure-banner {
+    width: min(calc(var(--bark-risky-phone-width) - 28px), 520px);
+}
+
+html.bark-risky-android-desktop-phone-recovery .filter-content {
+    max-height: var(--bark-risky-filter-max-height);
+}
+
+/* Force the normal phone navigation even though Chrome still tells media
+   queries that the viewport is desktop-width. */
+html.bark-risky-android-desktop-phone-recovery .glass-nav {
+    bottom: 0;
+    left: 0;
+    width: var(--bark-risky-phone-width);
+    height: 75px;
+    border-radius: 12px 12px 0 0;
+    border: none;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+    transform: translate3d(0, 0, 0);
+    transition: transform 0.25s ease;
+}
+
+html.bark-risky-android-desktop-phone-recovery .nav-item {
+    height: 100%;
+    padding-bottom: env(safe-area-inset-bottom, 10px);
+}
+
+html.bark-risky-android-desktop-phone-recovery .leaflet-bottom {
+    bottom: 90px !important;
+}
+
+html.bark-risky-android-desktop-phone-recovery body.keyboard-open .glass-nav,
+html.bark-risky-android-desktop-phone-recovery body.keyboard-open #slide-panel {
+    transform: translate3d(0, 110%, 0) !important;
+    pointer-events: none;
+}
+
+/* Recreate the phone bottom sheet; the ordinary max-width:767px rule cannot
+   match while Chrome reports its synthetic 980px desktop viewport. */
+html.bark-risky-android-desktop-phone-recovery #slide-panel {
+    top: auto;
+    right: auto;
+    bottom: calc(75px + env(safe-area-inset-bottom, 0px));
+    left: 0;
+    width: 100%;
+    height: min(55%, calc(100% - 75px - env(safe-area-inset-bottom, 0px) - 16px));
+    max-height: calc(100% - 75px - env(safe-area-inset-bottom, 0px) - 16px);
+    border-radius: 28px 28px 0 0;
+    transform: translate3d(0, calc(100% + env(safe-area-inset-bottom, 0px) + 32px), 0);
+}
+
+html.bark-risky-android-desktop-phone-recovery #slide-panel.open {
+    transform: translate3d(0, 0, 0);
+}
+
+/* Viewport-height modal caps must be percentages of their recovered overlays,
+   not 85–90% of Chrome's synthetic desktop viewport. */
+html.bark-risky-android-desktop-phone-recovery .modal-card {
+    max-height: 85%;
+}
+
+html.bark-risky-android-desktop-phone-recovery .feedback-modal,
+html.bark-risky-android-desktop-phone-recovery .scoring-modal-card,
+html.bark-risky-android-desktop-phone-recovery .wm-save-modal {
+    max-height: 90%;
+}
+
+html.bark-risky-android-desktop-phone-recovery .paywall-modal,
+html.bark-risky-android-desktop-phone-recovery .account-management-modal,
+html.bark-risky-android-desktop-phone-recovery .account-gate-modal {
+    max-height: 88%;
+}
+
+html.bark-risky-android-desktop-phone-recovery .wm-save-image {
+    max-height: var(--bark-risky-image-max-height);
+}
+
+/* Small-phone component refinements duplicated intentionally because their
+   normal max-width media queries also see Chrome's synthetic 980px width. */
+html.bark-risky-android-desktop-phone-recovery .account-mode-tabs,
+html.bark-risky-android-desktop-phone-recovery .account-actions,
+html.bark-risky-android-desktop-phone-recovery .feedback-field-row,
+html.bark-risky-android-desktop-phone-recovery .feedback-type-group {
+    grid-template-columns: 1fr;
+}
+
+html.bark-risky-android-desktop-phone-recovery .account-card-header {
+    display: block;
+}
+
+html.bark-risky-android-desktop-phone-recovery .account-premium-pill {
+    display: inline-block;
+    max-width: 100%;
+    margin-top: 8px;
+}
+
+html.bark-risky-android-desktop-phone-recovery .premium-controls {
+    flex-direction: column;
+    gap: 8px;
+}
+
+html.bark-risky-android-desktop-phone-recovery .premium-trail-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+html.bark-risky-android-desktop-phone-recovery .premium-select {
+    width: 100%;
+    padding: 10px;
+    font-size: 14px;
+}
+
+html.bark-risky-android-desktop-phone-recovery .trip-day-page {
+    gap: 7px;
+}
+
+html.bark-risky-android-desktop-phone-recovery .trip-day-tab {
+    min-height: 38px;
+    gap: 5px;
+    padding: 7px 8px;
+    font-size: 12px;
+}
+
+html.bark-risky-android-desktop-phone-recovery .badge-icon {
+    margin-bottom: 4px;
+    font-size: 28px;
+}
+
+html.bark-risky-android-desktop-phone-recovery .badge-details h4 {
+    font-size: 11px !important;
+}
+
+html.bark-risky-android-desktop-phone-recovery .badge-details p {
+    margin: 0;
+    font-size: 9px;
+    opacity: 0.8;
+}
+
+html.bark-risky-android-desktop-phone-recovery .feedback-modal {
+    padding: 20px 16px;
+}

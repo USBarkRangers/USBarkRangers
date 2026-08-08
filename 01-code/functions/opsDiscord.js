@@ -55,7 +55,11 @@ const LIMIT_DESCRIPTION = 4096;
 const LIMIT_FIELD_NAME = 256;
 const LIMIT_FIELD_VALUE = 1024;
 const LIMIT_FIELDS = 25;
+const LIMIT_FILES = 3;
 const POST_TIMEOUT_MS = 5000;
+// Uploading a few hundred KB of screenshots is not a 5-second job on a cold
+// function, so file posts get their own budget.
+const FILE_POST_TIMEOUT_MS = 20000;
 
 // Injected in tests; null means "use axios".
 let discordSender = null;
@@ -145,7 +149,25 @@ function discordConfigured(options = {}) {
     return Object.keys(getWebhookMap(options)).length > 0;
 }
 
-function buildDiscordPayload({ title, description, fields, tier, url, footer }, options = {}) {
+// Attachments are optional and always defensive: this is the transport, and a
+// malformed file must degrade to "no picture" rather than lose the alert.
+function normalizeFiles(files) {
+    if (!Array.isArray(files)) return [];
+    return files
+        .filter((file) => file && Buffer.isBuffer(file.buffer) && file.buffer.length > 0)
+        .slice(0, LIMIT_FILES)
+        .map((file, index) => ({
+            name: typeof file.name === "string" && /^[a-z0-9._-]+$/i.test(file.name)
+                ? file.name
+                : `attachment-${index + 1}`,
+            contentType: typeof file.contentType === "string" && file.contentType
+                ? file.contentType
+                : "application/octet-stream",
+            buffer: file.buffer
+        }));
+}
+
+function buildDiscordPayload({ title, description, fields, tier, url, footer, files }, options = {}) {
     const tierConfig = TIERS[tier] || TIERS.important;
     const embed = {
         title: truncate(title, LIMIT_TITLE) || "Untitled",
@@ -168,6 +190,11 @@ function buildDiscordPayload({ title, description, fields, tier, url, footer }, 
         }));
     if (cleanFields.length) embed.fields = cleanFields;
 
+    // Pull the first upload into the embed itself so triage sees the screenshot
+    // without opening anything. The rest ride along as plain attachments.
+    const attachments = normalizeFiles(files);
+    if (attachments.length) embed.image = { url: `attachment://${attachments[0].name}` };
+
     const payload = { embeds: [embed] };
 
     // Only a critical alert pings, and only when the role id is configured —
@@ -183,11 +210,35 @@ function buildDiscordPayload({ title, description, fields, tier, url, footer }, 
     return payload;
 }
 
-async function defaultDiscordSender(webhookUrl, payload) {
+// Discord takes attachments as multipart: the embed JSON under `payload_json`
+// and each upload under `files[n]`. Node 20 ships FormData and Blob natively and
+// axios streams a spec FormData on its own, so this needs no new dependency.
+function buildDiscordFormData(payload, files) {
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify(payload));
+    files.forEach((file, index) => {
+        form.append(`files[${index}]`, new Blob([file.buffer], { type: file.contentType }), file.name);
+    });
+    return form;
+}
+
+async function defaultDiscordSender(webhookUrl, payload, meta = {}) {
     const post = axios.post;
-    await post(webhookUrl, payload, {
-        timeout: POST_TIMEOUT_MS,
-        headers: { "Content-Type": "application/json" }
+    const files = normalizeFiles(meta.files);
+
+    if (!files.length) {
+        await post(webhookUrl, payload, {
+            timeout: POST_TIMEOUT_MS,
+            headers: { "Content-Type": "application/json" }
+        });
+        return;
+    }
+
+    // axios sets the multipart boundary header from the FormData instance.
+    await post(webhookUrl, buildDiscordFormData(payload, files), {
+        timeout: FILE_POST_TIMEOUT_MS,
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity
     });
 }
 
@@ -212,9 +263,10 @@ async function postDiscord(message, options = {}) {
     }
 
     const sender = options.discordSender || discordSender || defaultDiscordSender;
+    const files = normalizeFiles(message.files);
     try {
-        await sender(webhookUrl, payload, { channel, tier: message.tier || "important" });
-        return { posted: true, channel };
+        await sender(webhookUrl, payload, { channel, tier: message.tier || "important", files });
+        return { posted: true, channel, files: files.length };
     } catch (err) {
         // A Discord failure is logged and dropped. The email transport and the
         // Firestore record are the durable path.
@@ -226,6 +278,8 @@ async function postDiscord(message, options = {}) {
 module.exports = {
     postDiscord,
     buildDiscordPayload,
+    buildDiscordFormData,
+    normalizeFiles,
     parseDiscordConfig,
     getDiscordConfig,
     getWebhookMap,

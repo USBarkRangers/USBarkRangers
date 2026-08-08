@@ -18,6 +18,7 @@
     <link rel="stylesheet" href="styles.css?v=64">
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
     <link rel="stylesheet" href="styles/trophyCase.css?v=5">
+    <link rel="stylesheet" href="styles/feedbackModal.css?v=1">
 
     <!-- PWA Manifest & App Icons -->
     <link rel="manifest" href="manifest.json">
@@ -1237,10 +1238,10 @@
             <div id="add-location-portal" class="profile-section-card"
                 style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; margin-bottom: 24px; border: 1px solid rgba(0,0,0,0.05);">
                 <div style="text-align: center;">
-                    <h3 style="color: #333; font-size: 16px; font-weight: 700; margin-bottom: 10px;">➕ Suggest a Missing
-                        Location or App Improvement</h3>
+                    <h3 style="color: #333; font-size: 16px; font-weight: 700; margin-bottom: 10px;">➕ Report a Bug,
+                        Missing Location, or Idea</h3>
                     <p style="font-size: 13px; color: #666; margin-bottom: 15px;">Help grow the map and improve the app.
-                        Tap below to send us the details via email.</p>
+                        One send reaches the team and opens an email you can edit.</p>
 
                     <a id="email-suggest-btn" href="#" class="glass-btn primary-btn"
                         style="text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; width: 100%; padding: 14px; border-radius: 12px;">
@@ -1250,7 +1251,7 @@
                             </path>
                             <polyline points="22,6 12,13 2,6"></polyline>
                         </svg>
-                        Email Suggestion
+                        Send Feedback
                     </a>
                 </div>
             </div>
@@ -1479,6 +1480,83 @@
         </div>
     </div>
 
+    <div id="feedback-overlay" class="feedback-overlay" aria-hidden="true">
+        <div id="feedback-modal" class="feedback-modal" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+            <button type="button" id="feedback-close-btn" class="feedback-close-btn" aria-label="Close feedback">
+                &times;
+            </button>
+            <div class="feedback-eyebrow">Feedback</div>
+            <h2 id="feedback-title">Tell us what you found</h2>
+            <p id="feedback-intro" class="feedback-intro">
+                One send: it reaches the team right away and opens a prefilled email you can edit.
+            </p>
+
+            <p id="feedback-signed-out-note" class="feedback-note" hidden>
+                You are signed out, so this will open as an email only. Sign in to send it instantly with screenshots.
+            </p>
+
+            <form id="feedback-form" class="feedback-form" novalidate>
+                <div class="feedback-field">
+                    <label for="feedback-subject-input">What is this about?</label>
+                    <div class="feedback-combobox">
+                        <input id="feedback-subject-input" type="text" role="combobox" autocomplete="off"
+                            aria-expanded="false" aria-autocomplete="list" aria-controls="feedback-subject-list"
+                            placeholder="General feedback, or search a B.A.R.K. stop">
+                        <ul id="feedback-subject-list" class="feedback-subject-list" role="listbox"
+                            aria-label="Feedback subject" hidden></ul>
+                    </div>
+                </div>
+
+                <div class="feedback-field">
+                    <span class="feedback-field-label" id="feedback-type-label">What kind of feedback?</span>
+                    <div id="feedback-type-group" class="feedback-type-group" role="group"
+                        aria-labelledby="feedback-type-label"></div>
+                </div>
+
+                <div class="feedback-field">
+                    <label for="feedback-message">Your message</label>
+                    <textarea id="feedback-message" rows="6" maxlength="2000"
+                        placeholder="What happened, what you expected, and where you were on the map."></textarea>
+                    <span id="feedback-message-count" class="feedback-counter">0 / 2000</span>
+                </div>
+
+                <div class="feedback-field-row">
+                    <div class="feedback-field">
+                        <label for="feedback-name">Name</label>
+                        <input id="feedback-name" type="text" autocomplete="name" maxlength="80">
+                    </div>
+                    <div class="feedback-field">
+                        <label for="feedback-email">Email</label>
+                        <input id="feedback-email" type="email" autocomplete="email" inputmode="email" maxlength="254">
+                    </div>
+                </div>
+
+                <div class="feedback-field" id="feedback-shots-row" hidden>
+                    <span class="feedback-field-label">Screenshots (optional)</span>
+                    <ul id="feedback-shots-list" class="feedback-shots-list"></ul>
+                    <input id="feedback-shots-input" class="feedback-visually-hidden" type="file" accept="image/*"
+                        multiple>
+                    <button type="button" id="feedback-shots-add" class="feedback-secondary-btn">
+                        Add screenshot (0/3)
+                    </button>
+                    <p class="feedback-hint">Shrunk on your device before sending. They go with the team report, not the email.</p>
+                </div>
+
+                <div id="feedback-status" class="feedback-status" role="status" hidden></div>
+
+                <button type="submit" id="feedback-submit-btn" class="feedback-primary-btn">Send feedback</button>
+            </form>
+
+            <div id="feedback-success" class="feedback-success" hidden>
+                <div class="feedback-success-mark" aria-hidden="true">✅</div>
+                <h3>Thank you</h3>
+                <p id="feedback-success-copy" class="feedback-success-copy"></p>
+                <button type="button" id="feedback-open-email-btn" class="feedback-primary-btn">Open the email</button>
+                <button type="button" id="feedback-success-close-btn" class="feedback-secondary-btn">Back to the map</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Firebase SDK (Compat Version) -->
     <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-auth-compat.js"></script>
@@ -1492,6 +1570,7 @@
     <!-- Core Dependencies (load before modules) -->
     <script src="utils/geoUtils.js?v=1" defer></script>
     <script src="utils/scoringUtils.js?v=2" defer></script>
+    <script src="utils/imageDownscale.js?v=1" defer></script>
     <script src="gamificationLogic.js?v=10" defer></script>
     <script src="MapMarkerConfig.js?v=4" defer></script>
 
@@ -1500,7 +1579,7 @@
     <script src="repos/ParkRepo.js?v=1" defer></script>
     <script src="repos/VaultRepo.js?v=3" defer></script>
     <script src="modules/launchFlags.js?v=1" defer></script>
-    <script src="modules/barkState.js?v=15" defer></script>
+    <script src="modules/barkState.js?v=16" defer></script>
     <script src="modules/barkConfig.js?v=8" defer></script>
     <script src="config/domRefs.js?v=4" defer></script>
     <script src="state/settingsStore.js?v=4" defer></script>
@@ -1515,13 +1594,13 @@
     <script src="services/premiumService.js?v=2" defer></script>
     <script src="services/authAccountUi.js?v=19" defer></script>
     <script src="modules/paywallController.js?v=15" defer></script>
-    <script src="services/authService.js?v=63" defer></script>
+    <script src="services/authService.js?v=64" defer></script>
     <script src="modules/markerLayerPolicy.js?v=2" defer></script>
     <script src="modules/MarkerLayerManager.js?v=13" defer></script>
     <script src="modules/TripLayerManager.js?v=6" defer></script>
     <script src="modules/mapEngine.js?v=2" defer></script>
     <script src="modules/renderEngine.js?v=9" defer></script>
-    <script src="renderers/panelRenderer.js?v=15" defer></script>
+    <script src="renderers/panelRenderer.js?v=16" defer></script>
     <script src="modules/searchEngine.js?v=6" defer></script>
     <script src="modules/dataService.js?v=10" defer></script>
     <script src="renderers/leaderboardRenderer.js?v=1" defer></script>
@@ -1537,6 +1616,11 @@
     <script src="modules/settingsController.js?v=10" defer></script>
     <script src="modules/uiController.js?v=16" defer></script>
     <script src="modules/firstOpenDisclaimer.js?v=2" defer></script>
+    <!-- Feedback dialog: transport and combobox load before the controller that uses them.
+         searchEngine must already be parsed — the combobox scores parks with it. -->
+    <script src="modules/feedbackTransport.js?v=1" defer></script>
+    <script src="modules/feedbackSubjectPicker.js?v=1" defer></script>
+    <script src="modules/feedbackModal.js?v=1" defer></script>
 
     <!-- ENTRY POINT: Bootstrap Orchestrator (must load LAST) -->
     <script src="core/app.js?v=30" defer></script>

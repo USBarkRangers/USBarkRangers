@@ -8,6 +8,7 @@ const { createHash, createHmac, randomUUID, timingSafeEqual } = require("crypto"
 const nodemailer = require("nodemailer");
 const opsDiscord = require("./opsDiscord.js");
 const opsMetrics = require("./opsMetrics.js");
+const feedbackAttachments = require("./feedbackAttachments.js");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -377,6 +378,14 @@ async function handleSubmitFeedback(requestOrData, context, options = {}) {
     const message = cleanFeedbackText(payload.message || payload.text);
     const type = cleanFeedbackType(payload.type);
     const browser = cleanFeedbackBrowserMetadata(payload.browser || payload.metadata);
+
+    // Screenshots are validated before the rate limit is spent, so a rejected
+    // image does not cost the reporter one of their five submissions per hour.
+    const screenshots = feedbackAttachments.normalizeFeedbackScreenshots(payload.screenshots);
+    if (screenshots.error) {
+        throw new functions.https.HttpsError("invalid-argument", screenshots.error);
+    }
+
     const token = getCallableAuthToken(context);
     const db = options.firestore || admin.firestore();
 
@@ -385,8 +394,12 @@ async function handleSubmitFeedback(requestOrData, context, options = {}) {
     const addPayload = {
         uid,
         type,
+        subject: cleanFeedbackString(payload.subject, 120),
+        parkId: cleanFeedbackString(payload.parkId, 64),
         message,
         browser,
+        // Images are relayed to Discord and dropped. Only the count is durable.
+        screenshotCount: screenshots.files.length,
         email: cleanFeedbackString(token.email, 254),
         displayName: cleanFeedbackString(token.name, 120),
         source: "app_feedback",
@@ -399,12 +412,12 @@ async function handleSubmitFeedback(requestOrData, context, options = {}) {
     // Best-effort ops notification. Firestore is the durable record; a Discord
     // failure must never turn a saved submission into a client-visible error.
     try {
-        await postFeedbackToDiscord(addPayload, options);
+        await postFeedbackToDiscord({ ...addPayload, files: screenshots.files }, options);
     } catch (err) {
         console.error("[feedback] Discord notify issue:", err && err.message);
     }
 
-    return { ok: true };
+    return { ok: true, screenshotCount: screenshots.files.length };
 }
 
 // Feedback lands in the channel that matches what it actually is, so triage
@@ -421,6 +434,7 @@ const FEEDBACK_DISCORD_CHANNELS = Object.freeze({
 function postFeedbackToDiscord(record, options = {}) {
     const channel = FEEDBACK_DISCORD_CHANNELS[record.type] || "customerFeedback";
     const browser = record.browser && typeof record.browser === "object" ? record.browser : {};
+    const files = Array.isArray(record.files) ? record.files : [];
 
     // #support-inbox is Admin-only, so a support request can carry the address
     // needed to reply. Every other channel is visible to the whole team and gets
@@ -429,17 +443,24 @@ function postFeedbackToDiscord(record, options = {}) {
         ? (record.email || null)
         : opsDiscord.maskEmail(record.email);
 
+    const subject = record.subject ? ` — ${record.subject}` : "";
+
     return opsDiscord.postDiscord({
         channel,
         tier: "important",
-        title: `New ${record.type.replace(/_/g, " ")} from ${record.displayName || "a user"}`,
+        title: `New ${record.type.replace(/_/g, " ")} from ${record.displayName || "a user"}${subject}`,
         description: record.message,
         fields: [
             { name: "Contact", value: contact },
+            { name: "Park ID", value: record.parkId },
             { name: "Path", value: browser.path },
-            { name: "Platform", value: browser.platform }
+            { name: "Platform", value: browser.platform },
+            { name: "Screenshots", value: files.length ? String(files.length) : null }
         ],
-        footer: "Firestore: feedback"
+        files,
+        // The reporter is emailed the same report and can edit it before sending,
+        // so the two halves can legitimately disagree.
+        footer: "Firestore: feedback · email may have been edited before sending"
     }, options);
 }
 
@@ -3597,7 +3618,8 @@ if (process.env.NODE_ENV === "test") {
         postDigestToDiscord,
         runOpsMetricsRollup,
         opsDiscord,
-        opsMetrics
+        opsMetrics,
+        feedbackAttachments
     };
 }
 

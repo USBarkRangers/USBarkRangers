@@ -335,6 +335,65 @@ describe("postFeedbackToDiscord", () => {
         assert.equal(contactOf(1), "c***@example.com");
     });
 
+    it("hands screenshots to the sender and counts them in a field", async () => {
+        const { sent, sender } = recorder();
+        await postFeedbackToDiscord(
+            {
+                type: "bug",
+                message: "m",
+                displayName: "Carter",
+                browser: {},
+                files: [{ name: "shot.png", contentType: "image/png", buffer: Buffer.from("PNGDATA") }]
+            },
+            { discordConfig: fullConfig(), discordSender: sender }
+        );
+
+        assert.equal(sent[0].meta.files.length, 1);
+        assert.equal(sent[0].payload.embeds[0].image.url, "attachment://shot.png");
+        const screenshots = sent[0].payload.embeds[0].fields.find((f) => f.name === "Screenshots");
+        assert.equal(screenshots.value, "1");
+    });
+});
+
+describe("attachment transport", () => {
+    it("builds multipart with payload_json plus one part per file", async () => {
+        const form = opsDiscord.buildDiscordFormData(
+            { embeds: [{ title: "t" }] },
+            [
+                { name: "one.png", contentType: "image/png", buffer: Buffer.from("AAA") },
+                { name: "two.jpg", contentType: "image/jpeg", buffer: Buffer.from("BBBB") }
+            ]
+        );
+
+        assert.deepEqual([...form.keys()], ["payload_json", "files[0]", "files[1]"]);
+        assert.equal(JSON.parse(form.get("payload_json")).embeds[0].title, "t");
+
+        const first = form.get("files[0]");
+        assert.equal(first.name, "one.png");
+        assert.equal(first.type, "image/png");
+        assert.equal(first.size, 3);
+        assert.equal(form.get("files[1]").size, 4);
+    });
+
+    it("drops malformed attachments rather than failing the post", () => {
+        const files = opsDiscord.normalizeFiles([
+            { name: "ok.png", contentType: "image/png", buffer: Buffer.from("A") },
+            { name: "empty.png", contentType: "image/png", buffer: Buffer.alloc(0) },
+            { name: "not a buffer", contentType: "image/png", buffer: "AAA" },
+            null,
+            { name: "../escape.png", contentType: "image/png", buffer: Buffer.from("B") }
+        ]);
+
+        assert.equal(files.length, 2);
+        assert.equal(files[0].name, "ok.png");
+        assert.equal(files[1].name, "attachment-2", "an unsafe name is replaced, not passed through");
+    });
+
+    it("never sends more than three files", () => {
+        const buffer = Buffer.from("A");
+        const files = opsDiscord.normalizeFiles(new Array(5).fill({ name: "a.png", contentType: "image/png", buffer }));
+        assert.equal(files.length, 3);
+    });
 });
 
 describe("postBillingEventToDiscord", () => {

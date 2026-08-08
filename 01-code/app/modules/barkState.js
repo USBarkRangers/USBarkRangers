@@ -47,7 +47,7 @@ const LAUNCH_FLAG_MESSAGES = Object.freeze({
     routeGenerationEnabled: 'Route generation is paused for beta safety. You can still plan stops manually.',
     premiumGeocodeEnabled: 'Global town search is paused for beta safety. Local B.A.R.K. stop search still works.',
     leaderboardDeepBrowsingEnabled: 'Leaderboard browsing is limited for beta safety. The top results and your rank are still available.',
-    feedbackEnabled: 'In-app feedback is paused for beta safety. Use the email suggestion option above for now.',
+    feedbackEnabled: 'In-app feedback is paused right now. Email usbarkrangers@gmail.com and we will still get it.',
     premiumRiskyToolsEnabled: 'Premium map tools are paused for beta safety. Your account and saved progress are unchanged.'
 });
 

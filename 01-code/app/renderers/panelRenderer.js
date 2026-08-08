@@ -237,9 +237,22 @@ function renderMarkerClickPanel(context) {
 
     const suggestEditBtn = document.getElementById('suggest-edit-btn');
     if (suggestEditBtn) {
+        // The href stays a real mailto so the button still works if the feedback
+        // modules failed to load; the click handler prefers the dialog, which
+        // reaches the team directly and can carry screenshots.
         const subject = encodeURIComponent(`B.A.R.K. Map Edit: ${d.name}`);
         const body = encodeURIComponent(`Park Name: ${d.name}\nID: ${d.id}\n\n--- Please describe the update below ---\n`);
         suggestEditBtn.href = `mailto:usbarkrangers@gmail.com?subject=${subject}&body=${body}`;
+        suggestEditBtn.onclick = (event) => {
+            const feedback = window.BARK.feedback;
+            if (!feedback || typeof feedback.open !== 'function') return;
+            event.preventDefault();
+            feedback.open({
+                source: 'park-panel',
+                typeId: 'correction',
+                park: { id: d.id, name: d.name, state: d.state }
+            });
+        };
     }
 
     // --- UPDATES & REPORTS ---

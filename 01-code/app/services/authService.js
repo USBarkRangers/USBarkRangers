@@ -1392,9 +1392,18 @@ async function initFirebase() {
         throw error;
     }
 
-    // Email Suggestion Template
+    // Community feedback entry point. The dialog is the real path; the mailto
+    // template below stays on the href as the fallback for a client where the
+    // feedback modules did not load.
     const emailSuggestBtn = document.getElementById('email-suggest-btn');
     if (emailSuggestBtn) {
+        emailSuggestBtn.onclick = (event) => {
+            const feedback = window.BARK.feedback;
+            if (!feedback || typeof feedback.open !== 'function') return;
+            event.preventDefault();
+            feedback.open({ source: 'profile-portal' });
+        };
+
         const subject = encodeURIComponent("B.A.R.K. Map: Suggestion or App Improvement");
         const bodyTemplate = [
             "--- B.A.R.K. Ranger Map Suggestion ---", "",

@@ -9,6 +9,27 @@ const {
     }
 } = require("../index.js");
 
+const PNG_BASE64 = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+    Buffer.alloc(32, 0x21)
+]).toString("base64");
+
+function screenshot(name = "shot.png", dataBase64 = PNG_BASE64) {
+    return { name, mimeType: "image/png", dataBase64 };
+}
+
+// Captures the Discord POST instead of hitting the network.
+function discordRecorder() {
+    const sent = [];
+    return {
+        sent,
+        options: {
+            webhookMap: { bugs: "https://discord.com/api/webhooks/1/bugs", customerFeedback: "https://discord.com/api/webhooks/1/cf" },
+            discordSender: async (url, payload, meta) => { sent.push({ url, payload, meta }); }
+        }
+    };
+}
+
 function authedContext(uid = "feedback-user", token = {}) {
     return { auth: { uid, token } };
 }
@@ -120,7 +141,7 @@ describe("feedback callable", () => {
             }
         );
 
-        assert.deepEqual(result, { ok: true });
+        assert.deepEqual(result, { ok: true, screenshotCount: 0 });
         assert.equal(firestore.state.rateLimitReads, 1);
         assert.equal(firestore.state.rateLimitWrites, 1);
         assert.equal(firestore.state.adds.length, 1);
@@ -188,5 +209,81 @@ describe("feedback callable", () => {
         assert.equal(firestore.state.rateLimitReads, 1);
         assert.equal(firestore.state.rateLimitWrites, 0);
         assert.equal(firestore.state.adds.length, 0);
+    });
+});
+
+describe("feedback screenshots", () => {
+    it("relays screenshots to Discord and stores only the count", async () => {
+        const firestore = makeFirestore();
+        const discord = discordRecorder();
+
+        const result = await handleSubmitFeedback(
+            {
+                message: "The pin is in the wrong spot.",
+                type: "bug",
+                subject: "Acadia National Park",
+                parkId: "park-123",
+                screenshots: [screenshot("map.png"), screenshot("closeup.png")]
+            },
+            authedContext("alice", { email: "alice@example.test", name: "Alice Ranger" }),
+            { firestore, ...discord.options }
+        );
+
+        assert.equal(result.screenshotCount, 2);
+
+        const feedback = firestore.state.adds[0];
+        assert.equal(feedback.screenshotCount, 2);
+        assert.equal(feedback.subject, "Acadia National Park");
+        assert.equal(feedback.parkId, "park-123");
+        assert.equal(feedback.files, undefined, "image buffers must never be written to Firestore");
+
+        assert.equal(discord.sent.length, 1);
+        const post = discord.sent[0];
+        assert.equal(post.meta.channel, "bugs");
+        assert.equal(post.meta.files.length, 2);
+        assert.ok(Buffer.isBuffer(post.meta.files[0].buffer));
+        assert.match(post.payload.embeds[0].title, /Acadia National Park/);
+        assert.equal(post.payload.embeds[0].image.url, "attachment://map.png");
+    });
+
+    it("rejects bad screenshots before spending the rate limit or writing", async () => {
+        const cases = [
+            { label: "too many", screenshots: new Array(4).fill(screenshot()) },
+            { label: "not an image", screenshots: [screenshot("evil.png", Buffer.from("#!/bin/sh", "ascii").toString("base64"))] },
+            { label: "unreadable", screenshots: [screenshot("broken.png", "%%%not-base64%%%")] },
+            { label: "not a list", screenshots: PNG_BASE64 }
+        ];
+
+        for (const testCase of cases) {
+            const firestore = makeFirestore();
+            await assertRejectsCode(
+                handleSubmitFeedback(
+                    { message: "Something is off.", screenshots: testCase.screenshots },
+                    authedContext("alice"),
+                    { firestore }
+                ),
+                "invalid-argument"
+            );
+            assert.equal(firestore.state.adds.length, 0, testCase.label);
+            assert.equal(firestore.state.rateLimitReads, 0, testCase.label);
+        }
+    });
+
+    it("keeps the Firestore write when Discord delivery throws", async () => {
+        const firestore = makeFirestore();
+
+        const result = await handleSubmitFeedback(
+            { message: "Discord is down but this must still land.", screenshots: [screenshot()] },
+            authedContext("alice", { email: "alice@example.test" }),
+            {
+                firestore,
+                webhookMap: { customerFeedback: "https://discord.com/api/webhooks/1/cf" },
+                discordSender: async () => { throw new Error("discord exploded"); }
+            }
+        );
+
+        assert.deepEqual(result, { ok: true, screenshotCount: 1 });
+        assert.equal(firestore.state.adds.length, 1);
+        assert.equal(firestore.state.adds[0].screenshotCount, 1);
     });
 });

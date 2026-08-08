@@ -1,0 +1,415 @@
+/*
+ * feedbackModal.css — the Feedback dialog.
+ * Follows the paywall/account-gate dialog language in styles.css: white card,
+ * slate text, teal primary action, .active on the overlay to show it.
+ */
+
+.feedback-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10030;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(15, 23, 42, 0.62);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.feedback-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.feedback-modal {
+    position: relative;
+    width: min(100%, 480px);
+    max-height: 90vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #1e293b;
+    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.32);
+    padding: 24px;
+}
+
+/* The dialog shows and hides sections with the `hidden` attribute, and several
+   of them carry a `display: flex` class that would otherwise win over the UA's
+   [hidden] rule. This keeps `hidden` meaning hidden. */
+.feedback-modal [hidden] {
+    display: none !important;
+}
+
+.feedback-close-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.feedback-eyebrow {
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #0f766e;
+}
+
+.feedback-modal h2 {
+    margin: 4px 42px 8px 0;
+    color: #0f172a;
+    font-size: 22px;
+    line-height: 1.15;
+    font-weight: 900;
+}
+
+.feedback-intro {
+    margin: 0 0 14px;
+    color: #475569;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.feedback-note {
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    color: #92400e;
+    font-size: 12.5px;
+    line-height: 1.45;
+    font-weight: 600;
+}
+
+/* ===== Fields ===== */
+
+.feedback-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.feedback-field {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.feedback-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.feedback-field label,
+.feedback-field-label {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
+.feedback-field input[type="text"],
+.feedback-field input[type="email"],
+.feedback-field textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 11px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #0f172a;
+    font: inherit;
+    font-size: 16px;   /* 16px keeps iOS Safari from zooming the page on focus */
+    line-height: 1.4;
+}
+
+.feedback-field textarea {
+    resize: vertical;
+    min-height: 120px;
+}
+
+.feedback-field input:focus,
+.feedback-field textarea:focus {
+    outline: none;
+    border-color: #0f766e;
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.16);
+}
+
+.feedback-counter {
+    align-self: flex-end;
+    font-size: 11px;
+    font-weight: 700;
+    color: #94a3b8;
+}
+
+.feedback-counter.is-full {
+    color: #b91c1c;
+}
+
+.feedback-hint {
+    margin: 2px 0 0;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: #94a3b8;
+}
+
+/* ===== Subject combobox ===== */
+
+.feedback-combobox {
+    position: relative;
+}
+
+.feedback-subject-list {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 5;
+    max-height: 240px;
+    overflow-y: auto;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 16px 32px rgba(15, 23, 42, 0.18);
+}
+
+.feedback-subject-option {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+}
+
+.feedback-subject-option.is-active {
+    background: #ecfdf5;
+}
+
+.feedback-subject-option-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.feedback-subject-option-hint {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: #94a3b8;
+}
+
+.feedback-subject-option--general .feedback-subject-option-label,
+.feedback-subject-option--missing .feedback-subject-option-label {
+    color: #0f766e;
+}
+
+/* ===== Type buttons ===== */
+
+.feedback-type-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.feedback-type-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: #ffffff;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: left;
+    line-height: 1.2;
+    cursor: pointer;
+}
+
+.feedback-type-btn.is-selected {
+    border-color: #0f766e;
+    background: #ecfdf5;
+    color: #0f766e;
+}
+
+.feedback-type-emoji {
+    font-size: 16px;
+}
+
+/* ===== Screenshots ===== */
+
+.feedback-shots-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.feedback-shots-list:empty {
+    display: none;
+}
+
+.feedback-shot {
+    position: relative;
+    width: 72px;
+    height: 72px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+}
+
+.feedback-shot-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.feedback-shot-remove {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 22px;
+    height: 22px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.72);
+    color: #ffffff;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.feedback-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ===== Status and actions ===== */
+
+.feedback-status {
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.45;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #b91c1c;
+}
+
+.feedback-status[data-tone="info"] {
+    background: #f0f9ff;
+    border-color: #bae6fd;
+    color: #075985;
+}
+
+.feedback-primary-btn,
+.feedback-secondary-btn {
+    width: 100%;
+    min-height: 46px;
+    border-radius: 9px;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.feedback-primary-btn {
+    border: 0;
+    background: #0f766e;
+    color: #ffffff;
+    box-shadow: 0 8px 18px rgba(15, 118, 110, 0.22);
+}
+
+.feedback-primary-btn:disabled {
+    opacity: 0.7;
+    cursor: progress;
+}
+
+.feedback-secondary-btn {
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #334155;
+}
+
+.feedback-secondary-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+/* ===== Success state ===== */
+
+.feedback-success {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+    padding: 8px 0 0;
+}
+
+.feedback-success-mark {
+    font-size: 40px;
+    line-height: 1;
+}
+
+.feedback-success h3 {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 900;
+    color: #0f172a;
+}
+
+.feedback-success-copy {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: #475569;
+}
+
+@media (max-width: 420px) {
+    .feedback-modal {
+        padding: 20px 16px;
+    }
+
+    .feedback-field-row,
+    .feedback-type-group {
+        grid-template-columns: 1fr;
+    }
+}

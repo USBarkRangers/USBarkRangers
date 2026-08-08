@@ -415,7 +415,6 @@ window.BARK = window.BARK || {};
         bindOnce(byId('feedback-form'), 'submit', handleSubmit);
         bindOnce(byId('feedback-message'), 'input', updateMessageCount);
         bindOnce(byId('feedback-close-btn'), 'click', close);
-        bindOnce(byId('feedback-success-close-btn'), 'click', close);
         bindOnce(byId('feedback-shots-add'), 'click', () => {
             const input = byId('feedback-shots-input');
             if (input) input.click();

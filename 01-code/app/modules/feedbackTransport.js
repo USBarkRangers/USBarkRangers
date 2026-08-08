@@ -13,7 +13,9 @@
 window.BARK = window.BARK || {};
 
 (function () {
-    const FEEDBACK_EMAIL = 'usbarkrangers@gmail.com';
+    // Both inboxes, so a report never waits on one person checking mail.
+    const FEEDBACK_EMAILS = ['usbarkrangers@gmail.com', 'cswarm34@gmail.com'];
+    const FEEDBACK_EMAIL = FEEDBACK_EMAILS.join(',');
     const MAX_MESSAGE_LENGTH = 2000;   // matches cleanFeedbackText in functions/index.js
 
     // What the reporter picks, and what the backend calls it. Backend types are
@@ -161,6 +163,7 @@ window.BARK = window.BARK || {};
         DEFAULT_TYPE_ID,
         MAX_MESSAGE_LENGTH,
         FEEDBACK_EMAIL,
+        FEEDBACK_EMAILS,
         getType,
         resolveBackendType,
         buildEmail,

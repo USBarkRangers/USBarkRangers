@@ -242,7 +242,7 @@ function renderMarkerClickPanel(context) {
         // reaches the team directly and can carry screenshots.
         const subject = encodeURIComponent(`B.A.R.K. Map Edit: ${d.name}`);
         const body = encodeURIComponent(`Park Name: ${d.name}\nID: ${d.id}\n\n--- Please describe the update below ---\n`);
-        suggestEditBtn.href = `mailto:usbarkrangers@gmail.com?subject=${subject}&body=${body}`;
+        suggestEditBtn.href = `mailto:usbarkrangers@gmail.com,cswarm34@gmail.com?subject=${subject}&body=${body}`;
         suggestEditBtn.onclick = (event) => {
             const feedback = window.BARK.feedback;
             if (!feedback || typeof feedback.open !== 'function') return;

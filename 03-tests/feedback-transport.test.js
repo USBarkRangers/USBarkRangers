@@ -89,7 +89,11 @@ test('buildEmail carries the context the report needs and stays a valid mailto',
     assert.match(email.body, /The tag pin sits in the ocean\./);
     assert.match(email.body, /2 screenshots went with the in-app report/);
 
-    assert.ok(email.url.startsWith('mailto:usbarkrangers@gmail.com?'));
+    // Both inboxes get it.
+    assert.equal(transport.FEEDBACK_EMAILS.join(','), 'usbarkrangers@gmail.com,cswarm34@gmail.com');
+    assert.ok(email.url.startsWith('mailto:usbarkrangers@gmail.com,cswarm34@gmail.com?'));
+    assert.equal(email.to, 'usbarkrangers@gmail.com,cswarm34@gmail.com');
+
     const parsed = new URL(email.url);
     assert.equal(parsed.searchParams.get('subject'), email.subject);
     assert.equal(parsed.searchParams.get('body'), email.body);

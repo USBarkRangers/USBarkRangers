@@ -240,6 +240,41 @@ test.describe('watermark corner drag', () => {
         await context.close();
     });
 
+    test('the clear button never covers the logo, in any corner, on a phone', async ({ browser }) => {
+        const { context, page } = await newWatermarkPage(browser, {
+            viewport: { width: 375, height: 812 },
+            isMobile: true,
+            hasTouch: true
+        });
+
+        await openLoadedApp(page);
+        await loadPhoto(page);
+
+        // The button is a fixed 44px while the canvas here is ~230px wide, so
+        // overlaying it on the image covered a top-right logo completely.
+        for (const key of ['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight']) {
+            await page.locator('#wm-logo-handle').focus();
+            await page.keyboard.press(key);
+            await page.waitForTimeout(200);
+
+            const boxes = await page.evaluate(() => {
+                const handle = document.getElementById('wm-logo-handle').getBoundingClientRect();
+                const clear = document.getElementById('wm-clear').getBoundingClientRect();
+                return {
+                    corner: document.getElementById('wm-logo-handle')
+                        .getAttribute('aria-label').match(/currently ([a-z ]+)\./)[1],
+                    overlapX: Math.max(0, Math.min(handle.right, clear.right) - Math.max(handle.left, clear.left)),
+                    overlapY: Math.max(0, Math.min(handle.bottom, clear.bottom) - Math.max(handle.top, clear.top))
+                };
+            });
+
+            expect(Math.min(boxes.overlapX, boxes.overlapY),
+                `clear button overlaps the ${boxes.corner} logo`).toBe(0);
+        }
+
+        await context.close();
+    });
+
     test('on a phone only the handle swallows the touch, so the page still scrolls', async ({ browser }) => {
         const { context, page } = await newWatermarkPage(browser, {
             viewport: { width: 390, height: 844 },
@@ -264,9 +299,12 @@ test.describe('watermark corner drag', () => {
         expect(touchActions.layerHitTest).toBe('none');
 
         // And a scroll gesture starting over the photo really does move the view.
+        await page.locator('#wm-canvas').scrollIntoViewIfNeeded();
         const canvas = await page.locator('#wm-canvas').boundingBox();
+        const viewport = page.viewportSize();
+        const pointerY = Math.min(canvas.y + canvas.height / 2, viewport.height - 60);
         const before = await page.evaluate(() => document.getElementById('home-view').scrollTop);
-        await page.mouse.move(canvas.x + canvas.width / 2, canvas.y + canvas.height / 2);
+        await page.mouse.move(canvas.x + canvas.width / 2, pointerY);
         await page.mouse.wheel(0, 400);
         await page.waitForTimeout(200);
         const after = await page.evaluate(() => document.getElementById('home-view').scrollTop);

@@ -1,5 +1,22 @@
 /* ===== Watermark tool: photo stage, logo layer, drag handle ===== */
 
+/* The clear button used to float over the top-right of the photo, which was fine
+   when the logo only ever sat bottom-right. Now that all four corners are in play
+   it sits above the image: the button is a fixed 44px, and on a phone the canvas
+   is only ~230px wide with a 16px frame, so it covered a corner logo completely. */
+.wm-stage-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+.wm-stage-toolbar .close-btn {
+    position: relative;      /* .close-btn is absolute by default; its phantom
+                                hit area still anchors to the button itself */
+    top: auto;
+    right: auto;
+}
+
 /* The stage is exactly the canvas box. The logo layer and the handle position
    against it, so both stay glued to the photo through any responsive resize. */
 .wm-stage {

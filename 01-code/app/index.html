@@ -19,7 +19,7 @@
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
     <link rel="stylesheet" href="styles/trophyCase.css?v=5">
     <link rel="stylesheet" href="styles/feedbackModal.css?v=2">
-    <link rel="stylesheet" href="styles/watermarkTool.css?v=1">
+    <link rel="stylesheet" href="styles/watermarkTool.css?v=2">
 
     <!-- PWA Manifest & App Icons -->
     <link rel="manifest" href="manifest.json">
@@ -242,9 +242,9 @@
                 <label for="wm-upload" class="glass-btn primary-btn">Select Photo</label>
                 <div class="canvas-preview-container" id="wm-preview-container"
                     style="display:none; position:relative; max-width: 100%;">
-                    <button id="wm-clear" class="close-btn"
-                        style="position:absolute; top: 15px; right: 15px; z-index: 10;"
-                        aria-label="Clear Photo">&times;</button>
+                    <div class="wm-stage-toolbar">
+                        <button id="wm-clear" class="close-btn" aria-label="Clear Photo">&times;</button>
+                    </div>
                     <div class="wm-stage" id="wm-stage">
                         <canvas id="wm-canvas" class="wm-canvas"></canvas>
                         <canvas id="wm-logo-layer" class="wm-logo-layer" aria-hidden="true"></canvas>

@@ -6,6 +6,8 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { google } = require('googleapis');
 const { createHash, createHmac, randomUUID, timingSafeEqual } = require("crypto");
 const nodemailer = require("nodemailer");
+const opsDiscord = require("./opsDiscord.js");
+const opsMetrics = require("./opsMetrics.js");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -393,7 +395,52 @@ async function handleSubmitFeedback(requestOrData, context, options = {}) {
     };
 
     await db.collection("feedback").add(addPayload);
+
+    // Best-effort ops notification. Firestore is the durable record; a Discord
+    // failure must never turn a saved submission into a client-visible error.
+    try {
+        await postFeedbackToDiscord(addPayload, options);
+    } catch (err) {
+        console.error("[feedback] Discord notify issue:", err && err.message);
+    }
+
     return { ok: true };
+}
+
+// Feedback lands in the channel that matches what it actually is, so triage
+// happens where the work happens rather than in one undifferentiated firehose.
+const FEEDBACK_DISCORD_CHANNELS = Object.freeze({
+    bug: "bugs",
+    idea: "featureRequests",
+    support: "supportInbox",
+    general: "customerFeedback",
+    missing_location: "customerFeedback",
+    other: "customerFeedback"
+});
+
+function postFeedbackToDiscord(record, options = {}) {
+    const channel = FEEDBACK_DISCORD_CHANNELS[record.type] || "customerFeedback";
+    const browser = record.browser && typeof record.browser === "object" ? record.browser : {};
+
+    // #support-inbox is Admin-only, so a support request can carry the address
+    // needed to reply. Every other channel is visible to the whole team and gets
+    // a masked address; the full record is always in Firestore.
+    const contact = opsDiscord.isAdminOnlyChannel(channel)
+        ? (record.email || null)
+        : opsDiscord.maskEmail(record.email);
+
+    return opsDiscord.postDiscord({
+        channel,
+        tier: "important",
+        title: `New ${record.type.replace(/_/g, " ")} from ${record.displayName || "a user"}`,
+        description: record.message,
+        fields: [
+            { name: "Contact", value: contact },
+            { name: "Path", value: browser.path },
+            { name: "Platform", value: browser.platform }
+        ],
+        footer: "Firestore: feedback"
+    }, options);
 }
 
 const PREMIUM_ENTITLEMENT_STATUSES = new Set(["active", "manual_active", "past_due", "paused", "cancelled_active"]);
@@ -2805,7 +2852,46 @@ async function handleLemonSqueezyWebhook(req, res, options = {}) {
         return safeResponse(res, 200, { ok: true, ignored: true, reason: result.reason || "ignored" });
     }
 
+    // Post the money event to the ops server. Wrapped and swallowed: Lemon
+    // Squeezy retries on any non-2xx, so a Discord hiccup must not make it
+    // replay an entitlement change that already succeeded.
+    try {
+        await postBillingEventToDiscord({ uid, eventName, entitlement: result.entitlement }, options);
+    } catch (err) {
+        console.error("[payments] Discord notify issue:", err && err.message);
+    }
+
     return safeResponse(res, 200, { ok: true });
+}
+
+// Billing events that mean money moved the wrong way. These are worth a ping,
+// because a silent payment failure turns into an involuntary churn.
+const LEMONSQUEEZY_ALARMING_EVENTS = new Set([
+    "subscription_payment_failed",
+    "subscription_payment_refunded",
+    "order_refunded"
+]);
+
+function postBillingEventToDiscord({ uid, eventName, entitlement }, options = {}) {
+    const isAlarming = LEMONSQUEEZY_ALARMING_EVENTS.has(eventName);
+    const status = entitlement && entitlement.status ? entitlement.status : "unknown";
+    const premium = entitlement && entitlement.premium === true;
+
+    return opsDiscord.postDiscord({
+        // #sales-and-billing is Admin-only, so the raw uid is fine here.
+        channel: "salesAndBilling",
+        tier: isAlarming ? "critical" : "important",
+        title: `Lemon Squeezy: ${eventName.replace(/_/g, " ")}`,
+        description: isAlarming
+            ? "Money moved the wrong way. Check the customer before this becomes involuntary churn."
+            : null,
+        fields: [
+            { name: "Entitlement", value: premium ? "premium" : "not premium" },
+            { name: "Status", value: status },
+            { name: "User UID", value: uid }
+        ],
+        footer: "Firestore: users/{uid}.entitlement"
+    }, options);
 }
 
 async function handlePremiumRoute(requestOrData, context, options = {}) {
@@ -2998,18 +3084,61 @@ function alertEmailAllowed(payload, now = Date.now()) {
     return true;
 }
 
+// Picks the ops channel and alert tier for an alert payload. A payment-critical
+// failure is the only thing that pings; client reports go to #bugs rather than
+// #system-status so a broken screen doesn't read as an outage.
+function routeAlertToDiscord(payload, options = {}) {
+    const isClientReport = payload.source === "client";
+    // A client report must never claim payment risk, even if `critical` is set.
+    const isCritical = payload.critical === true && !isClientReport;
+
+    const channel = isCritical ? "incidentResponse" : (isClientReport ? "bugs" : "systemStatus");
+    const title = isCritical
+        ? `CRITICAL: ${payload.fn} failed`
+        : (isClientReport ? `Client report: ${payload.fn}` : `${payload.fn} failed`);
+
+    return opsDiscord.postDiscord({
+        channel,
+        tier: isCritical ? "critical" : "important",
+        title,
+        description: isCritical
+            ? `A customer may be charged but not upgraded.\n\`${payload.errorMessage || "unknown error"}\``
+            : `\`${payload.errorMessage || "unknown error"}\``,
+        fields: [
+            { name: "Error code", value: payload.errorCode || "n/a" },
+            { name: "User", value: opsDiscord.maskEmail(payload.email) || payload.uid || null },
+            { name: "App version", value: payload.appVersion },
+            { name: "Path", value: payload.clientPath },
+            { name: "Freeze (ms)", value: Number.isFinite(payload.durationMs) ? String(payload.durationMs) : null },
+            { name: "Event", value: payload.eventName }
+        ],
+        footer: payload.project || null,
+        url: `https://console.firebase.google.com/project/${payload.project || "barkrangermap-auth"}/functions/logs`
+    }, options);
+}
+
 async function deliverPaymentAlert(payload, options = {}) {
     console.error("[PAYMENT_ALERT]", JSON.stringify(payload));
     const sender = options.emailSender || paymentAlertEmailSender;
-    if (typeof sender !== "function") return { emailed: false, reason: "no_sender" };
-    if (!alertEmailAllowed(payload)) return { emailed: false, reason: "throttled" };
+    const hasEmailSender = typeof sender === "function";
+    const hasDiscord = opsDiscord.discordConfigured(options);
+    if (!hasEmailSender && !hasDiscord) return { emailed: false, discord: false, reason: "no_sender" };
+
+    // One throttle decision covers both transports, so an error loop can flood
+    // neither the inbox nor the ops server.
+    if (!alertEmailAllowed(payload)) return { emailed: false, discord: false, reason: "throttled" };
+
+    // Best-effort and never throws, so Discord can't affect the email path.
+    const discord = hasDiscord ? await routeAlertToDiscord(payload, options) : { posted: false, reason: "not_configured" };
+
+    if (!hasEmailSender) return { emailed: false, discord, reason: "no_sender" };
     try {
         await sender(payload);
-        return { emailed: true };
+        return { emailed: true, discord };
     } catch (sendErr) {
         // Never let alert delivery failure mask or replace the original error.
         console.error("[PAYMENT_ALERT] email delivery failed:", sendErr && sendErr.message);
-        return { emailed: false, reason: "send_failed" };
+        return { emailed: false, discord, reason: "send_failed" };
     }
 }
 
@@ -3302,62 +3431,96 @@ async function runDailyErrorDigest(options = {}) {
             console.error("[digest] failed to send digest email:", err && err.message);
         }
     }
+
+    // Routine tier: a scheduled rollup, never a ping. Swallowed like the email.
+    try {
+        await postDigestToDiscord(summary, options);
+    } catch (err) {
+        console.error("[digest] Discord notify issue:", err && err.message);
+    }
+
     return summary;
+}
+
+function postDigestToDiscord(summary, options = {}) {
+    const byType = Object.entries(summary.byType || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([type, count]) => `${type} ${count}`)
+        .join(" · ");
+    const topIssues = (summary.topMessages || [])
+        .map((m) => `\`${m.count}x\` ${m.message}`)
+        .join("\n");
+
+    return opsDiscord.postDiscord({
+        channel: "dailyBriefing",
+        tier: "routine",
+        title: summary.total === 0
+            ? `All clear: 0 client errors in ${summary.windowHours}h`
+            : `${summary.total} client error(s) in ${summary.windowHours}h`,
+        description: summary.total === 0
+            ? "The error pipeline is alive; users simply hit no reported issues."
+            : topIssues,
+        fields: [
+            { name: "Distinct users", value: String(summary.distinctUsers) },
+            { name: "By type", value: byType }
+        ],
+        footer: "Firestore: clientErrors"
+    }, options);
 }
 
 // Attempt to wire alert email from secrets on cold start (log-only if absent).
 initPaymentAlertEmailSender();
 
 exports.getPremiumRoute = functions
-    .runWith({ secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"], timeoutSeconds: 120 })
+    .runWith({ secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], timeoutSeconds: 120 })
     .https.onCall(wrapCallableWithPaymentAlert("getPremiumRoute", handlePremiumRoute));
 
 exports.getPremiumGeocode = functions
-    .runWith({ secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .runWith({ secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
     .https.onCall(wrapCallableWithPaymentAlert("getPremiumGeocode", handlePremiumGeocode));
 
 exports.createCheckoutSession = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
     .https.onCall(wrapCallableWithPaymentAlert("createCheckoutSession", handleCreateCheckoutSession));
 
 exports.redeemAccessOrPromoCode = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
     .https.onCall(wrapCallableWithPaymentAlert("redeemAccessOrPromoCode", handleRedeemAccessOrPromoCode));
 
 exports.getCustomerPortalUrl = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
     .https.onCall(wrapCallableWithPaymentAlert("getCustomerPortalUrl", handleGetCustomerPortalUrl));
 
 exports.restorePremiumPurchase = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
     .https.onCall(wrapCallableWithPaymentAlert("restorePremiumPurchase", handleRestorePremiumPurchase));
 
 exports.cancelPremiumSubscription = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
     .https.onCall(wrapCallableWithPaymentAlert("cancelPremiumSubscription", handleCancelPremiumSubscription));
 
 exports.lemonSqueezyWebhook = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
     .https.onRequest(async (req, res) => {
         return handleLemonSqueezyWebhook(req, res);
     });
 
 exports.syncLeaderboardScore = functions
-    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
     .https.onCall(wrapCallableWithPaymentAlert("syncLeaderboardScore", handleSyncLeaderboardScore));
 
 exports.submitFeedback = functions
-    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
     .https.onCall(wrapCallableWithPaymentAlert("submitFeedback", handleSubmitFeedback));
 
 exports.deleteAccount = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
     .https.onCall(wrapCallableWithPaymentAlert("deleteAccount", handleDeleteAccount));
 
 // Client-side error/freeze reports from the browser app. Handler swallows its
 // own failures and always returns ok, so it is intentionally not alert-wrapped.
 exports.reportClientError = functions
-    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
     .https.onCall(async (requestOrData, context) => {
         return handleReportClientError(requestOrData, context);
     });
@@ -3427,16 +3590,71 @@ if (process.env.NODE_ENV === "test") {
         handleReportClientError,
         summarizeClientErrors,
         formatDigestEmailBody,
-        runDailyErrorDigest
+        runDailyErrorDigest,
+        routeAlertToDiscord,
+        postFeedbackToDiscord,
+        postBillingEventToDiscord,
+        postDigestToDiscord,
+        runOpsMetricsRollup,
+        opsDiscord,
+        opsMetrics
     };
 }
 
 exports.dailyErrorDigest = functions
-    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD"] })
+    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
     .pubsub.schedule("0 12 * * *")
     .timeZone("America/New_York")
     .onRun(async () => {
         return runDailyErrorDigest();
+    });
+
+// Routine-tier rollup: traffic from GoatCounter plus counts from Firestore, in
+// one post. Counts use aggregation queries, so this stays cheap no matter how
+// much the collections grow.
+async function runOpsMetricsRollup({ windowHours, channel, title }, options = {}) {
+    const db = options.firestore || admin.firestore();
+    const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
+    const sinceMs = nowMs - (windowHours * 60 * 60 * 1000);
+
+    const summary = await opsMetrics.collectOpsMetrics({
+        db,
+        sinceDate: Timestamp.fromMillis(sinceMs),
+        sinceMs,
+        nowMs
+    }, options);
+
+    try {
+        await opsDiscord.postDiscord(opsMetrics.buildMetricsMessage(summary, { channel, title }), options);
+    } catch (err) {
+        console.error("[metrics] Discord notify issue:", err && err.message);
+    }
+
+    return summary;
+}
+
+exports.dailyOpsMetrics = functions
+    .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON", "GOATCOUNTER_API_TOKEN"] })
+    .pubsub.schedule("0 8 * * *")
+    .timeZone("America/New_York")
+    .onRun(async () => {
+        return runOpsMetricsRollup({
+            windowHours: 24,
+            channel: "dailyMetrics",
+            title: "Daily metrics"
+        });
+    });
+
+exports.weeklyOpsReport = functions
+    .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON", "GOATCOUNTER_API_TOKEN"] })
+    .pubsub.schedule("5 8 * * 1")
+    .timeZone("America/New_York")
+    .onRun(async () => {
+        return runOpsMetricsRollup({
+            windowHours: 24 * 7,
+            channel: "weeklyReport",
+            title: "Weekly report"
+        });
     });
 
 // REMOVED 2026-08-07: generateHourlyLeaderboard.

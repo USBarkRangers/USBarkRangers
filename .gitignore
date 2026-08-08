@@ -19,6 +19,10 @@ BarkRangerMap Auth.json
 *private-key*.json
 *private_key*.json
 
+# Discord webhook URLs are bearer credentials - DO NOT COMMIT
+discord-webhooks.local.json
+*.local.json
+
 # Playwright login/session files - DO NOT COMMIT
 03-tests/.auth/
 *.storageState.json

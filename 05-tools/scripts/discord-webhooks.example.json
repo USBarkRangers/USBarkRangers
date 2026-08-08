@@ -1,0 +1,17 @@
+{
+  "_readme": "Copy this file to discord-webhooks.local.json (gitignored), paste each webhook URL from Discord, then run 05-tools/scripts/set-discord-secret.sh. Delete any line you are not using yet: a missing channel just means those posts are skipped. Remove this _readme key before saving.",
+
+  "adminRoleId": "PASTE_ADMIN_ROLE_ID",
+
+  "systemStatus": "",
+  "incidentResponse": "",
+  "salesAndBilling": "",
+  "supportInbox": "",
+  "bugs": "",
+  "featureRequests": "",
+  "customerFeedback": "",
+  "dailyBriefing": "",
+  "dailyMetrics": "",
+  "weeklyReport": "",
+  "developmentUpdates": ""
+}

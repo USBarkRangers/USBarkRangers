@@ -17,12 +17,10 @@ window.BARK = window.BARK || {};
     const MAX_SCREENSHOTS = 3;   // matches MAX_FILES in functions/feedbackAttachments.js
 
     const state = {
-        phase: 'form',        // 'form' | 'sending' | 'success'
         source: 'manual',
         typeId: null,
         screenshots: [],
-        lastFocused: null,
-        emailUrl: null
+        lastFocused: null
     };
 
     let picker = null;
@@ -30,15 +28,6 @@ window.BARK = window.BARK || {};
 
     const byId = (id) => document.getElementById(id);
     const transport = () => window.BARK.feedbackTransport;
-
-    // Same check authService makes. Duplicated rather than imported: it is two
-    // lines of platform sniffing, and coupling the dialog to the auth module for
-    // it would be the worse trade.
-    function isStandaloneDisplayMode() {
-        if (window.navigator && window.navigator.standalone === true) return true;
-        return typeof window.matchMedia === 'function'
-            && window.matchMedia('(display-mode: standalone)').matches;
-    }
 
     function isSubjectListOpen() {
         const list = byId('feedback-subject-list');
@@ -203,27 +192,6 @@ window.BARK = window.BARK || {};
         }
     }
 
-    function setPhase(phase) {
-        state.phase = phase;
-        const done = phase === 'success';
-        const form = byId('feedback-form');
-        const success = byId('feedback-success');
-        const submit = byId('feedback-submit-btn');
-        const intro = byId('feedback-intro');
-        const note = byId('feedback-signed-out-note');
-
-        if (form) form.hidden = done;
-        if (success) success.hidden = !done;
-        // The instructions stop being instructions once it is sent. On the way
-        // back to the form, applyAuthState decides the note again.
-        if (intro) intro.hidden = done;
-        if (note && done) note.hidden = true;
-        if (submit) {
-            submit.disabled = phase === 'sending';
-            submit.textContent = phase === 'sending' ? 'Sending…' : 'Send feedback';
-        }
-    }
-
     function applyAuthState() {
         const user = transport().getSignedInUser();
         const nameInput = byId('feedback-name');
@@ -249,7 +217,6 @@ window.BARK = window.BARK || {};
         renderScreenshots();
         updateMessageCount();
         showStatus('');
-        setPhase('form');
     }
 
     function open(options = {}) {
@@ -315,24 +282,16 @@ window.BARK = window.BARK || {};
         }
     }
 
-    function showSuccess({ delivered, note }) {
-        const copy = byId('feedback-success-copy');
-        const emailButton = byId('feedback-open-email-btn');
-
-        if (copy) {
-            copy.textContent = delivered
-                ? 'Sent to the team. Your email is ready too, in case you want to add photos or say more.'
-                : (note || 'Your email is ready to send.');
-        }
-        if (emailButton) emailButton.disabled = !state.emailUrl;
-
-        setPhase('success');
-        if (emailButton) emailButton.focus({ preventScroll: true });
-    }
-
-    async function handleSubmit(event) {
+    // One press, one outcome: the email opens with everything typed in it. There
+    // is deliberately no confirmation step — it would ask the reporter to decide
+    // something they already decided by pressing Send.
+    //
+    // Nothing here awaits. The report is handed to the callable and left to
+    // finish on its own, so the mailto navigation happens in the same task as
+    // the press and keeps its user gesture. That is what makes it survive the
+    // iOS standalone webview, which swallows navigations issued after an await.
+    function handleSubmit(event) {
         if (event) event.preventDefault();
-        if (state.phase === 'sending') return;
 
         const values = readForm();
         if (!values.message.trim()) {
@@ -342,33 +301,22 @@ window.BARK = window.BARK || {};
             return;
         }
 
-        setPhase('sending');
-        showStatus('');
-
         const email = transport().buildEmail(values);
-        state.emailUrl = email.url;
-
-        let delivered = false;
-        let note = '';
 
         if (transport().getSignedInUser()) {
             try {
-                await transport().submitToBackend(values);
-                delivered = true;
+                Promise.resolve(transport().submitToBackend(values)).catch((error) => {
+                    // The reporter's own email is already on its way, so a failure
+                    // here costs the screenshots and the Discord post, not the report.
+                    console.warn('[feedback] submitFeedback failed; the email still carries it.', error);
+                });
             } catch (error) {
-                console.warn('[feedback] submitFeedback failed; falling back to email only.', error);
-                note = transport().describeError(error);
+                console.warn('[feedback] submitFeedback could not start; the email still carries it.', error);
             }
-        } else {
-            note = 'Your email is ready to send. Sign in next time and we get it instantly, screenshots and all.';
         }
 
-        showSuccess({ delivered, note });
-
-        // A programmatic mailto after an await is unreliable in the iOS standalone
-        // app — it can navigate the webview away from the map. There, the button
-        // in the success state is the only trigger.
-        if (!isStandaloneDisplayMode()) openEmail(email.url);
+        close();
+        openEmail(email.url);
     }
 
     // ====== INIT ======
@@ -422,9 +370,6 @@ window.BARK = window.BARK || {};
         bindOnce(byId('feedback-shots-input'), 'change', (event) => {
             addScreenshots(event.target.files);
             event.target.value = '';   // so the same file can be re-picked after a removal
-        });
-        bindOnce(byId('feedback-open-email-btn'), 'click', () => {
-            if (state.emailUrl) openEmail(state.emailUrl);
         });
 
         const bindDismissableOverlay = window.BARK.DOM && window.BARK.DOM.bindDismissableOverlay;

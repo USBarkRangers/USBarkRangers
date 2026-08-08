@@ -374,35 +374,6 @@
     cursor: default;
 }
 
-/* ===== Success state ===== */
-
-.feedback-success {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    text-align: center;
-    padding: 8px 0 0;
-}
-
-.feedback-success-mark {
-    font-size: 40px;
-    line-height: 1;
-}
-
-.feedback-success h3 {
-    margin: 0;
-    font-size: 19px;
-    font-weight: 900;
-    color: #0f172a;
-}
-
-.feedback-success-copy {
-    margin: 0;
-    font-size: 13.5px;
-    line-height: 1.5;
-    color: #475569;
-}
-
 @media (max-width: 420px) {
     .feedback-modal {
         padding: 20px 16px;

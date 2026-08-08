@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="styles.css?v=64">
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
     <link rel="stylesheet" href="styles/trophyCase.css?v=5">
-    <link rel="stylesheet" href="styles/feedbackModal.css?v=1">
+    <link rel="stylesheet" href="styles/feedbackModal.css?v=2">
 
     <!-- PWA Manifest & App Icons -->
     <link rel="manifest" href="manifest.json">
@@ -1546,13 +1546,6 @@
 
                 <button type="submit" id="feedback-submit-btn" class="feedback-primary-btn">Send feedback</button>
             </form>
-
-            <div id="feedback-success" class="feedback-success" hidden>
-                <div class="feedback-success-mark" aria-hidden="true">✅</div>
-                <h3>Thank you</h3>
-                <p id="feedback-success-copy" class="feedback-success-copy"></p>
-                <button type="button" id="feedback-open-email-btn" class="feedback-primary-btn">Open the email</button>
-            </div>
         </div>
     </div>
 
@@ -1619,7 +1612,7 @@
          searchEngine must already be parsed — the combobox scores parks with it. -->
     <script src="modules/feedbackTransport.js?v=2" defer></script>
     <script src="modules/feedbackSubjectPicker.js?v=1" defer></script>
-    <script src="modules/feedbackModal.js?v=2" defer></script>
+    <script src="modules/feedbackModal.js?v=3" defer></script>
 
     <!-- ENTRY POINT: Bootstrap Orchestrator (must load LAST) -->
     <script src="core/app.js?v=30" defer></script>

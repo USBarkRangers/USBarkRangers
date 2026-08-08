@@ -1562,7 +1562,7 @@
     <!-- Core Dependencies (load before modules) -->
     <script src="utils/geoUtils.js?v=1" defer></script>
     <script src="utils/scoringUtils.js?v=2" defer></script>
-    <script src="utils/imageDownscale.js?v=1" defer></script>
+    <script src="utils/imageDownscale.js?v=2" defer></script>
     <script src="gamificationLogic.js?v=10" defer></script>
     <script src="MapMarkerConfig.js?v=4" defer></script>
 
@@ -1585,14 +1585,17 @@
     <script src="services/authPremiumUi.js?v=4" defer></script>
     <script src="services/premiumService.js?v=2" defer></script>
     <script src="services/authAccountUi.js?v=19" defer></script>
+    <!-- feedbackTransport owns the feedback addresses and mailto builder, so it must
+         parse before authService and panelRenderer, which build fallback links from it. -->
+    <script src="modules/feedbackTransport.js?v=4" defer></script>
     <script src="modules/paywallController.js?v=15" defer></script>
-    <script src="services/authService.js?v=64" defer></script>
+    <script src="services/authService.js?v=65" defer></script>
     <script src="modules/markerLayerPolicy.js?v=2" defer></script>
     <script src="modules/MarkerLayerManager.js?v=13" defer></script>
     <script src="modules/TripLayerManager.js?v=6" defer></script>
     <script src="modules/mapEngine.js?v=2" defer></script>
     <script src="modules/renderEngine.js?v=9" defer></script>
-    <script src="renderers/panelRenderer.js?v=17" defer></script>
+    <script src="renderers/panelRenderer.js?v=18" defer></script>
     <script src="modules/searchEngine.js?v=6" defer></script>
     <script src="modules/dataService.js?v=10" defer></script>
     <script src="renderers/leaderboardRenderer.js?v=1" defer></script>
@@ -1608,11 +1611,10 @@
     <script src="modules/settingsController.js?v=10" defer></script>
     <script src="modules/uiController.js?v=16" defer></script>
     <script src="modules/firstOpenDisclaimer.js?v=2" defer></script>
-    <!-- Feedback dialog: transport and combobox load before the controller that uses them.
-         searchEngine must already be parsed — the combobox scores parks with it. -->
-    <script src="modules/feedbackTransport.js?v=3" defer></script>
-    <script src="modules/feedbackSubjectPicker.js?v=1" defer></script>
-    <script src="modules/feedbackModal.js?v=4" defer></script>
+    <!-- The combobox scores parks with searchEngine, so both load after it;
+         feedbackTransport is loaded earlier, above. -->
+    <script src="modules/feedbackSubjectPicker.js?v=2" defer></script>
+    <script src="modules/feedbackModal.js?v=5" defer></script>
 
     <!-- ENTRY POINT: Bootstrap Orchestrator (must load LAST) -->
     <script src="core/app.js?v=30" defer></script>

@@ -227,9 +227,15 @@ window.BARK = window.BARK || {};
             }
         });
 
-        return { select, getSelection, clear, close, PINNED };
+        function isOpen() {
+            return !list.hidden;
+        }
+
+        return { select, getSelection, clear, close, isOpen };
     }
 
     window.BARK.createFeedbackSubjectPicker = createFeedbackSubjectPicker;
-    window.BARK.FEEDBACK_SUBJECT_PINNED = PINNED;
+
+    // Exposed for tests: the option list is the picker's contract with the modal.
+    window.BARK.buildFeedbackSubjectOptions = buildOptions;
 })();

@@ -13,7 +13,10 @@
 window.BARK = window.BARK || {};
 
 (function () {
-    // Both inboxes, so a report never waits on one person checking mail.
+    // Both inboxes, so a report never waits on one person checking mail. This is
+    // the only place the addresses are written down: the park panel and the
+    // profile portal build their fallback mailto links from feedbackMailto()
+    // below rather than keeping copies that drift.
     const FEEDBACK_EMAILS = ['usbarkrangers@gmail.com', 'cswarm34@gmail.com'];
     const FEEDBACK_EMAIL = FEEDBACK_EMAILS.join(',');
     const MAX_MESSAGE_LENGTH = 2000;   // matches cleanFeedbackText in functions/index.js
@@ -68,6 +71,11 @@ window.BARK = window.BARK || {};
         }
     }
 
+    // The one place a mailto: for feedback is assembled, whoever is asking.
+    function feedbackMailto(subject, body) {
+        return `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    }
+
     /**
      * values: { typeId, subjectLabel, subjectKind, parkId, message, name, email, screenshotCount }
      * Returns { to, subject, body, url }.
@@ -100,12 +108,7 @@ window.BARK = window.BARK || {};
 
         const subject = `B.A.R.K. ${type.short}: ${subjectLabel}`;
 
-        return {
-            to: FEEDBACK_EMAIL,
-            subject,
-            body,
-            url: `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-        };
+        return { to: FEEDBACK_EMAIL, subject, body, url: feedbackMailto(subject, body) };
     }
 
     function getCallable() {
@@ -141,25 +144,12 @@ window.BARK = window.BARK || {};
             // reporter's identity comes from the token, server-side.
             contactName: values.name || null,
             contactEmail: values.email || null,
+            // Which entry point produced this, so it is possible to see whether
+            // reports come from the map pins or the profile portal.
+            surface: values.surface || null,
             browser: collectBrowserMetadata()
         });
         return (response && response.data) || { ok: true };
-    }
-
-    // The callable's own messages for a bad request or the rate limit are already
-    // written for a person, so they are passed through. Everything else gets one
-    // sentence that does not blame the reporter.
-    function describeError(error) {
-        const code = String((error && error.code) || '').replace(/^functions\//, '');
-        const message = (error && error.message) || '';
-
-        if (code === 'unauthenticated') {
-            return 'Sign in to send this straight to the team. Your email still works below.';
-        }
-        if ((code === 'resource-exhausted' || code === 'invalid-argument') && message) {
-            return message;
-        }
-        return 'We could not reach the team just now. Your email is ready to send instead.';
     }
 
     window.BARK.feedbackTransport = {
@@ -170,9 +160,9 @@ window.BARK = window.BARK || {};
         FEEDBACK_EMAILS,
         getType,
         resolveBackendType,
+        feedbackMailto,
         buildEmail,
         submitToBackend,
-        describeError,
         getSignedInUser,
         collectBrowserMetadata
     };

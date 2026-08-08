@@ -152,8 +152,8 @@ window.BARK = window.BARK || {};
 
     window.BARK.images = {
         downscaleImageFile,
-        isImageFile,
-        TARGET_LONG_EDGE,
-        MAX_OUTPUT_BYTES
+        // Exposed for tests: the sizing arithmetic is the part worth pinning.
+        scaledSize,
+        jpegName
     };
 })();

@@ -497,6 +497,8 @@ async function handleSubmitFeedback(requestOrData, context, options = {}) {
         type,
         subject: cleanFeedbackString(payload.subject, 120),
         parkId: cleanFeedbackString(payload.parkId, 64),
+        // Which entry point in the app produced this.
+        surface: cleanFeedbackString(payload.surface, 40),
         message,
         browser,
         // Images are relayed to Discord and dropped. Only the count is durable.
@@ -562,6 +564,7 @@ function postFeedbackToDiscord(record, options = {}) {
             { name: "Contact", value: contact },
             { name: "Reporter", value: verified ? null : "Signed out — unverified" },
             { name: "Park ID", value: record.parkId },
+            { name: "Opened from", value: record.surface },
             { name: "Path", value: browser.path },
             { name: "Platform", value: browser.platform },
             { name: "Screenshots", value: files.length ? String(files.length) : null }

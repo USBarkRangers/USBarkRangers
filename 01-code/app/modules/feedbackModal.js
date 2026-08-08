@@ -17,7 +17,7 @@ window.BARK = window.BARK || {};
     const MAX_SCREENSHOTS = 3;   // matches MAX_FILES in functions/feedbackAttachments.js
 
     const state = {
-        source: 'manual',
+        surface: 'manual',   // which entry point opened it; travels with the report
         typeId: null,
         screenshots: [],
         lastFocused: null
@@ -28,11 +28,6 @@ window.BARK = window.BARK || {};
 
     const byId = (id) => document.getElementById(id);
     const transport = () => window.BARK.feedbackTransport;
-
-    function isSubjectListOpen() {
-        const list = byId('feedback-subject-list');
-        return Boolean(list && !list.hidden);
-    }
 
     function feedbackDisabledMessage() {
         if (typeof window.BARK.isLaunchFlagEnabled !== 'function') return null;
@@ -70,6 +65,7 @@ window.BARK = window.BARK || {};
 
         return {
             typeId: state.typeId,
+            surface: state.surface,
             subjectLabel: subject ? subject.label : 'General feedback',
             subjectKind: subject ? subject.kind : 'general',
             parkId: subject && subject.kind === 'park' ? subject.id : null,
@@ -202,8 +198,9 @@ window.BARK = window.BARK || {};
         if (nameInput) nameInput.value = (user && user.displayName) || '';
         if (emailInput) emailInput.value = (user && user.email) || '';
 
-        // Screenshots ride on the callable, which requires auth. Signed out, the
-        // report is an email only, and photos are attached in the mail app.
+        // A signed-out report still reaches the team; the backend just refuses
+        // screenshots from an unauthenticated caller, so the control is hidden
+        // rather than left to fail on submit.
         if (shotsRow) shotsRow.hidden = !user;
         if (note) note.hidden = Boolean(user);
     }
@@ -231,7 +228,7 @@ window.BARK = window.BARK || {};
         const overlay = byId('feedback-overlay');
         if (!overlay || !transport()) return;
 
-        state.source = typeof options.source === 'string' && options.source.trim() ? options.source.trim() : 'manual';
+        state.surface = typeof options.source === 'string' && options.source.trim() ? options.source.trim() : 'manual';
         state.lastFocused = document.activeElement;
 
         resetForm();
@@ -382,7 +379,7 @@ window.BARK = window.BARK || {};
                 // phase, so the combobox cannot stop it from below. While the
                 // suggestion list is open the dialog reports itself unavailable
                 // for dismissal, and Escape closes just the list.
-                isActive: (node) => node.classList.contains('active') && !isSubjectListOpen(),
+                isActive: (node) => node.classList.contains('active') && !(picker && picker.isOpen()),
                 onDismiss: close
             });
         }
@@ -391,7 +388,7 @@ window.BARK = window.BARK || {};
         updateMessageCount();
     }
 
-    window.BARK.feedback = { open, close, initFeedbackModal };
+    window.BARK.feedback = { open, close };
     window.BARK.initFeedbackModal = initFeedbackModal;
 
     if (document.readyState === 'loading') {

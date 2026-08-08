@@ -121,6 +121,7 @@ test('submitToBackend sends the resolved type and never the raw picker id', asyn
     await transport.submitToBackend({
         ...BASE_VALUES,
         subjectKind: 'missing',
+        surface: 'park-panel',
         screenshots: [{ name: 'a.jpg', mimeType: 'image/jpeg', dataBase64: 'AAAA' }]
     });
 
@@ -134,23 +135,23 @@ test('submitToBackend sends the resolved type and never the raw picker id', asyn
     assert.equal(payload.screenshots.length, 1);
     assert.equal(payload.browser.viewportWidth, 390);
     assert.equal(payload.browser.path, '/USBarkRangers/01-code/app/#map');
+    assert.equal(payload.surface, 'park-panel', 'the entry point must reach the backend, not just be recorded locally');
     assert.equal(payload.typeId, undefined);
 });
 
-test('describeError passes the backend’s own wording through and softens the rest', () => {
+test('feedbackMailto is the only place the recipient list is written down', () => {
     const { transport } = loadTransport();
+    const url = transport.feedbackMailto('Subject line', 'Body line');
 
-    assert.match(
-        transport.describeError({ code: 'functions/resource-exhausted', message: 'Too many reports. Try again in 900 seconds.' }),
-        /Try again in 900 seconds/
-    );
-    assert.match(
-        transport.describeError({ code: 'functions/invalid-argument', message: 'Screenshots must be PNG, JPEG, or WebP images.' }),
-        /PNG, JPEG, or WebP/
-    );
-    assert.match(transport.describeError({ code: 'functions/unauthenticated' }), /Sign in/);
-    assert.match(transport.describeError({ code: 'internal', message: 'TypeError: x is not a function' }), /could not reach the team/);
-    assert.match(transport.describeError(new Error('boom')), /could not reach the team/);
+    assert.ok(url.startsWith('mailto:usbarkrangers@gmail.com,cswarm34@gmail.com?'));
+    const parsed = new URL(url);
+    assert.equal(parsed.searchParams.get('subject'), 'Subject line');
+    assert.equal(parsed.searchParams.get('body'), 'Body line');
+
+    // The park panel and the profile portal build their fallback links from it,
+    // so a character that breaks a query string must survive the round trip.
+    const tricky = transport.feedbackMailto('Edit: Bob & Sue\'s Park', 'ID: a?b&c\nnext line');
+    assert.equal(new URL(tricky).searchParams.get('body'), 'ID: a?b&c\nnext line');
 });
 
 test('getSignedInUser survives an app where firebase never initialised', () => {

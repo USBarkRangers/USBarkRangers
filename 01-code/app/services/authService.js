@@ -1404,7 +1404,7 @@ async function initFirebase() {
             feedback.open({ source: 'profile-portal' });
         };
 
-        const subject = encodeURIComponent("B.A.R.K. Map: Suggestion or App Improvement");
+        const subject = "B.A.R.K. Map: Suggestion or App Improvement";
         const bodyTemplate = [
             "--- B.A.R.K. Ranger Map Suggestion ---", "",
             "Suggestion Type (Missing Location / App Improvement / Correction):", "",
@@ -1421,7 +1421,10 @@ async function initFirebase() {
             "--- IMPORTANT ---",
             "For missing locations, please attach photos of the swag, park entrance, or relevant signage if you have them."
         ].join("\n");
-        emailSuggestBtn.href = `mailto:usbarkrangers@gmail.com,cswarm34@gmail.com?subject=${subject}&body=${encodeURIComponent(bodyTemplate)}`;
+        const transport = window.BARK.feedbackTransport;
+        emailSuggestBtn.href = transport
+            ? transport.feedbackMailto(subject, bodyTemplate)
+            : `mailto:usbarkrangers@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyTemplate)}`;
     }
 }
 

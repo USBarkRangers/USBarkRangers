@@ -402,6 +402,7 @@ describe("feedback screenshots", () => {
                 type: "bug",
                 subject: "Acadia National Park",
                 parkId: "park-123",
+                surface: "park-panel",
                 screenshots: [screenshot("map.png"), screenshot("closeup.png")]
             },
             authedContext("alice", { email: "alice@example.test", name: "Alice Ranger" }),
@@ -414,6 +415,7 @@ describe("feedback screenshots", () => {
         assert.equal(feedback.screenshotCount, 2);
         assert.equal(feedback.subject, "Acadia National Park");
         assert.equal(feedback.parkId, "park-123");
+        assert.equal(feedback.surface, "park-panel");
         assert.equal(feedback.files, undefined, "image buffers must never be written to Firestore");
 
         assert.equal(discord.sent.length, 1);

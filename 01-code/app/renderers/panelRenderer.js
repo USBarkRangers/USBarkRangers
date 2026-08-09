@@ -245,7 +245,7 @@ function renderMarkerClickPanel(context) {
         const transport = window.BARK.feedbackTransport;
         suggestEditBtn.href = transport
             ? transport.feedbackMailto(subject, body)
-            : `mailto:usbarkrangers@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+            : `mailto:support@usbarkrangersmap.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
         suggestEditBtn.onclick = (event) => {
             const feedback = window.BARK.feedback;
             if (!feedback || typeof feedback.open !== 'function') return;

@@ -13,7 +13,13 @@ window.BARK.bootOrder.barkStateParsedAt = Date.now();
 // (parseInt("0.1") === 0 collapsed them before). Beta (GitHub Pages, *.github.io)
 // appends a "-beta" suffix to the DISPLAY label only; the account and backend are
 // identical to production.
-let APP_VERSION = String(localStorage.getItem('bark_seen_version') || '0.1');
+// The fallback is deliberately NOT a version number. It only applies before
+// version.json has ever resolved on this device, and a stale literal here used to
+// drift a whole release line behind (it sat at "0.1" while beta reached 0.29),
+// which put a wrong version on feedback reports — worst on the flaky connections
+// where version.json fails and people are most likely to be reporting a bug.
+// "unknown" cannot drift and cannot lie.
+let APP_VERSION = String(localStorage.getItem('bark_seen_version') || 'unknown');
 window.BARK.isBetaHost = function () {
     return typeof location !== 'undefined' && /(^|\.)github\.io$/i.test(location.hostname || '');
 };
@@ -47,7 +53,7 @@ const LAUNCH_FLAG_MESSAGES = Object.freeze({
     routeGenerationEnabled: 'Route generation is paused for beta safety. You can still plan stops manually.',
     premiumGeocodeEnabled: 'Global town search is paused for beta safety. Local B.A.R.K. stop search still works.',
     leaderboardDeepBrowsingEnabled: 'Leaderboard browsing is limited for beta safety. The top results and your rank are still available.',
-    feedbackEnabled: 'In-app feedback is paused right now. Email usbarkrangers@gmail.com and we will still get it.',
+    feedbackEnabled: 'In-app feedback is paused right now. Email support@usbarkrangersmap.com and we will still get it.',
     premiumRiskyToolsEnabled: 'Premium map tools are paused for beta safety. Your account and saved progress are unchanged.'
 });
 

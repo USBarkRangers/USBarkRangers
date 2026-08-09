@@ -11,7 +11,7 @@
     const MIN_PASSWORD_LENGTH = 8;
     const MIN_USERNAME_LENGTH = 2;
     const MAX_USERNAME_LENGTH = 30;
-    const SUPPORT_EMAIL = 'usbarkrangers@gmail.com';
+    const SUPPORT_EMAIL = 'support@usbarkrangersmap.com';
     const VERIFICATION_RESEND_COOLDOWN_MS = 60 * 1000;
     const BILLING_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
     const BILLING_RETURN_SYNC_MIN_INTERVAL_MS = 5 * 1000;

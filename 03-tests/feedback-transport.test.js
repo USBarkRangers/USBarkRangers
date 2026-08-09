@@ -89,10 +89,10 @@ test('buildEmail carries the context the report needs and stays a valid mailto',
     assert.match(email.body, /The tag pin sits in the ocean\./);
     assert.match(email.body, /2 screenshots went with the in-app report/);
 
-    // Both inboxes get it.
-    assert.equal(transport.FEEDBACK_EMAILS.join(','), 'usbarkrangers@gmail.com,cswarm34@gmail.com');
-    assert.ok(email.url.startsWith('mailto:usbarkrangers@gmail.com,cswarm34@gmail.com?'));
-    assert.equal(email.to, 'usbarkrangers@gmail.com,cswarm34@gmail.com');
+    // Our own domain, so who reads it is a mail-routing rule, not a release.
+    assert.equal(transport.FEEDBACK_EMAILS.join(','), 'support@usbarkrangersmap.com');
+    assert.ok(email.url.startsWith('mailto:support@usbarkrangersmap.com?'));
+    assert.equal(email.to, 'support@usbarkrangersmap.com');
 
     const parsed = new URL(email.url);
     assert.equal(parsed.searchParams.get('subject'), email.subject);
@@ -143,7 +143,7 @@ test('feedbackMailto is the only place the recipient list is written down', () =
     const { transport } = loadTransport();
     const url = transport.feedbackMailto('Subject line', 'Body line');
 
-    assert.ok(url.startsWith('mailto:usbarkrangers@gmail.com,cswarm34@gmail.com?'));
+    assert.ok(url.startsWith('mailto:support@usbarkrangersmap.com?'));
     const parsed = new URL(url);
     assert.equal(parsed.searchParams.get('subject'), 'Subject line');
     assert.equal(parsed.searchParams.get('body'), 'Body line');

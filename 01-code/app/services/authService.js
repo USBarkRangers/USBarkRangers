@@ -1424,7 +1424,7 @@ async function initFirebase() {
         const transport = window.BARK.feedbackTransport;
         emailSuggestBtn.href = transport
             ? transport.feedbackMailto(subject, bodyTemplate)
-            : `mailto:usbarkrangers@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyTemplate)}`;
+            : `mailto:support@usbarkrangersmap.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyTemplate)}`;
     }
 }
 

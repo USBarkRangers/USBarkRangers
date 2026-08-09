@@ -13,11 +13,12 @@
 window.BARK = window.BARK || {};
 
 (function () {
-    // Both inboxes, so a report never waits on one person checking mail. This is
-    // the only place the addresses are written down: the park panel and the
+    // One address on our own domain; who actually reads it is a Cloudflare Email
+    // Routing rule, so adding or changing readers never needs an app release. This
+    // is the only place the address is written down: the park panel and the
     // profile portal build their fallback mailto links from feedbackMailto()
     // below rather than keeping copies that drift.
-    const FEEDBACK_EMAILS = ['usbarkrangers@gmail.com', 'cswarm34@gmail.com'];
+    const FEEDBACK_EMAILS = ['support@usbarkrangersmap.com'];
     const FEEDBACK_EMAIL = FEEDBACK_EMAILS.join(',');
     const MAX_MESSAGE_LENGTH = 2000;   // matches cleanFeedbackText in functions/index.js
 

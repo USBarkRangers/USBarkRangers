@@ -58,7 +58,14 @@ window.BARK = window.BARK || {};
     const MIN_LOGGABLE_MILES = 0.05;
 
     const GAP_PROMPT_MINUTES = 2;        // gap worth asking the user to fill in
-    const MAX_FALLBACK_MILES = 30;       // sanity ceiling on the typed-in number
+
+    // EXPERIMENTAL BETA MATH: these broad walk/run bands are product policy, not
+    // a medical or performance claim. Keep the calculation pure and tested so
+    // beta feedback can tune the numbers without touching tracker lifecycle code.
+    const MAX_WALKING_MPH = 5;
+    const MAX_RUNNING_MPH = 12;
+    const FALLBACK_DISTANCE_GRACE_MILES = 0.1;
+    const MAX_FALLBACK_MILES = 30;
     const STALE_FIX_MS = 30000;          // no fix this long means the signal is gone
     const SIGNAL_TICK_MS = 5000;
 
@@ -98,6 +105,59 @@ window.BARK = window.BARK || {};
 
     function requiredStepMeters(accuracyMeters) {
         return Math.max(MIN_STEP_METERS, accuracyMeters * ACCURACY_STEP_RATIO);
+    }
+
+    function roundMilesUpToTenth(miles) {
+        return Math.ceil((miles - Number.EPSILON) * 10) / 10;
+    }
+
+    /**
+     * Experimental beta allowance for distance entered after GPS was unavailable.
+     * The grace absorbs display/timestamp rounding; the absolute cap prevents a
+     * stale session from accepting an unbounded amount even after a long outage.
+     */
+    function maximumFallbackMiles(gapMinutes, maxMph) {
+        const minutes = Math.max(0, Number(gapMinutes) || 0);
+        const mph = Math.max(0, Number(maxMph) || 0);
+        const distance = (minutes / 60) * mph + FALLBACK_DISTANCE_GRACE_MILES;
+        return Math.min(MAX_FALLBACK_MILES, roundMilesUpToTenth(distance));
+    }
+
+    function fallbackLimits(gapMinutes) {
+        return {
+            walkingMiles: maximumFallbackMiles(gapMinutes, MAX_WALKING_MPH),
+            runningMiles: maximumFallbackMiles(gapMinutes, MAX_RUNNING_MPH)
+        };
+    }
+
+    /**
+     * Return a decision instead of changing tracker state. Running-speed entries
+     * are plausible but need an explicit confirmation; only physically unreasonable
+     * entries are rejected outright.
+     */
+    function validateFallbackMiles(rawValue, gapMinutes) {
+        if (rawValue === null || rawValue === undefined || String(rawValue).trim() === '') {
+            return { status: 'skip', miles: 0 };
+        }
+
+        const miles = Number(rawValue);
+        const minutes = Number(gapMinutes);
+        const limits = fallbackLimits(minutes);
+        if (!Number.isFinite(miles) || miles < 0 || !Number.isFinite(minutes) || minutes <= 0) {
+            return { status: 'invalid', miles: 0, limits };
+        }
+        if (miles === 0) return { status: 'skip', miles: 0, limits };
+        if (miles > limits.runningMiles) {
+            return { status: 'too-far', miles, limits };
+        }
+
+        const claimedMph = miles / (minutes / 60);
+        return {
+            status: claimedMph > MAX_WALKING_MPH ? 'confirm-run' : 'accept',
+            miles,
+            claimedMph,
+            limits
+        };
     }
 
     // ===================== session persistence =====================
@@ -290,6 +350,7 @@ window.BARK = window.BARK || {};
         manualFallbackMiles: 0,  // typed in to cover a gap; earns no points
         lastValidLocation: null,
         lastFixAt: 0,
+        gapHandledThroughAt: 0,
         startedAt: 0,
         pendingReanchor: false,
         lastPersistAt: 0,
@@ -328,9 +389,15 @@ window.BARK = window.BARK || {};
             this.totalMiles = record.totalMiles;
             this.manualFallbackMiles = Number(record.manualFallbackMiles) || 0;
             this.startedAt = Number(record.startedAt) || Date.now();
-            this.lastFixAt = Number(record.updatedAt) || Date.now();
+            this.lastFixAt = Number(record.lastFixAt) || Number(record.updatedAt) || this.startedAt;
+            this.gapHandledThroughAt = Number(record.gapHandledThroughAt) || 0;
             this.pendingReanchor = true;   // we have no idea where they went in between
             LiveRoute.restore(this.segments);
+
+            const recoveredAt = Date.now();
+            const gapMinutes = this.missingGapMinutes(recoveredAt);
+            if (gapMinutes >= GAP_PROMPT_MINUTES) this.askForMissedMiles(gapMinutes, recoveredAt);
+
             await this.beginWatching();
             this.persist(true);
             renderWalkCard();
@@ -385,7 +452,12 @@ window.BARK = window.BARK || {};
             }
 
             const meters = distanceMeters(previous.lat, previous.lng, lat, lng);
-            if (meters < requiredStepMeters(accuracy)) return;
+            if (meters < requiredStepMeters(accuracy)) {
+                // Persist accurate heartbeat fixes even when the dog has not moved
+                // far enough to count a step. Recovery math needs a fresh clock.
+                this.persist();
+                return;
+            }
 
             if (!isPlausibleStep(meters, fix.ts - previous.ts)) {
                 // A jump this fast is the receiver relocating us, not us moving.
@@ -451,28 +523,62 @@ window.BARK = window.BARK || {};
             // Measured from the last fix we actually received, not from when the page
             // was hidden — a platform that kept feeding us positions in the background
             // has nothing missing to ask about.
-            const gapMinutes = this.lastFixAt ? (Date.now() - this.lastFixAt) / 60000 : 0;
+            const recoveredAt = Date.now();
+            const gapMinutes = this.missingGapMinutes(recoveredAt);
             if (gapMinutes >= GAP_PROMPT_MINUTES) {
-                this.pendingReanchor = true;
-                this.askForMissedMiles(gapMinutes);
+                this.askForMissedMiles(gapMinutes, recoveredAt);
             }
             renderWalkCard();
         },
 
-        askForMissedMiles(gapMinutes) {
-            const typed = prompt(
-                `Your phone paused GPS for about ${Math.round(gapMinutes)} minutes, so those miles were not recorded.\n\n` +
-                `We tracked ${this.totalMiles.toFixed(2)} mi before the pause. How many miles did you cover while it was paused? (0 if none)`
-            );
-            const miles = parseFloat(typed);
-            if (!Number.isFinite(miles) || miles <= 0) return;
-            if (miles > MAX_FALLBACK_MILES) {
-                alert(`That is more than we can add to one walk. Nothing was added.`);
-                return;
-            }
-            this.totalMiles += miles;
-            this.manualFallbackMiles += miles;
+        missingGapMinutes(recoveredAt) {
+            const gapStartAt = Math.max(this.lastFixAt, this.gapHandledThroughAt, this.startedAt);
+            return gapStartAt ? Math.max(0, recoveredAt - gapStartAt) / 60000 : 0;
+        },
+
+        finishGapRecovery(recoveredAt) {
+            this.pendingReanchor = true;
+            this.gapHandledThroughAt = recoveredAt;
             this.persist(true);
+        },
+
+        askForMissedMiles(gapMinutes, recoveredAt) {
+            const limits = fallbackLimits(gapMinutes);
+            const roundedMinutes = Math.max(1, Math.round(gapMinutes));
+            const promptText =
+                `Your phone paused GPS for about ${roundedMinutes} minutes, so those miles were not recorded.\n\n` +
+                `Walking pace is about ${limits.walkingMiles.toFixed(1)} mi for that time. ` +
+                `Running entries can be up to ${limits.runningMiles.toFixed(1)} mi with confirmation.\n\n` +
+                `How many miles did you cover while GPS was paused? (0 if none)`;
+
+            while (true) {
+                const decision = validateFallbackMiles(prompt(promptText), gapMinutes);
+                if (decision.status === 'skip') break;
+                if (decision.status === 'invalid') {
+                    alert('Enter a valid positive number of miles, or 0 for none.');
+                    continue;
+                }
+                if (decision.status === 'too-far') {
+                    alert(
+                        `${decision.miles.toFixed(2)} mi in ${roundedMinutes} minutes is beyond the experimental ` +
+                        `walk/run limit of ${decision.limits.runningMiles.toFixed(1)} mi. Nothing was added.`
+                    );
+                    continue;
+                }
+                if (decision.status === 'confirm-run') {
+                    const confirmed = confirm(
+                        `${decision.miles.toFixed(2)} mi in ${roundedMinutes} minutes is about ` +
+                        `${decision.claimedMph.toFixed(1)} mph, which is running pace. Confirm you ran this distance?`
+                    );
+                    if (!confirmed) continue;
+                }
+
+                this.totalMiles += decision.miles;
+                this.manualFallbackMiles += decision.miles;
+                break;
+            }
+
+            this.finishGapRecovery(recoveredAt);
         },
 
         // ---------- saving ----------
@@ -554,6 +660,7 @@ window.BARK = window.BARK || {};
             this.manualFallbackMiles = 0;
             this.lastValidLocation = null;
             this.lastFixAt = 0;
+            this.gapHandledThroughAt = 0;
             this.startedAt = 0;
             this.pendingReanchor = false;
             this.lastPersistAt = 0;
@@ -585,6 +692,7 @@ window.BARK = window.BARK || {};
                 startedAt: this.startedAt,
                 updatedAt: now,
                 lastFixAt: this.lastFixAt,
+                gapHandledThroughAt: this.gapHandledThroughAt,
                 totalMiles: this.totalMiles,
                 manualFallbackMiles: this.manualFallbackMiles,
                 segments: packSegments(this.segments)
@@ -813,8 +921,10 @@ window.BARK = window.BARK || {};
     // tick, which a headless test has no clock for.
     window.BARK.__walkTrackerInternals = {
         distanceMeters, metersToMiles, isPlausibleStep, requiredStepMeters,
+        maximumFallbackMiles, fallbackLimits, validateFallbackMiles,
         normalizeSegments, countPoints, readStoredSession, clearStoredSession, renderWalkCard,
         STORAGE_KEY, SCREEN_NOTICE_KEY, MAX_ACCURACY_METERS, MIN_STEP_METERS,
-        GAP_PROMPT_MINUTES, MIN_LOGGABLE_MILES
+        GAP_PROMPT_MINUTES, MIN_LOGGABLE_MILES, MAX_WALKING_MPH, MAX_RUNNING_MPH,
+        MAX_FALLBACK_MILES
     };
 })();

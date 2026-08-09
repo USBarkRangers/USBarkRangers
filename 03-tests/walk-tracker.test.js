@@ -555,6 +555,17 @@ test('the screen-lock limitation is stated before the first walk and on the idle
         'the warning is shown once, not before every walk');
 });
 
+test('an active walk makes the stop-and-save action explicit', async () => {
+    const harness = createHarness({ storage: seenNotice() });
+    harness.bark.initWalkTracker();
+
+    assert.equal(harness.element('training-action-btn').textContent, 'Start Walk');
+    await harness.tracker.start();
+
+    assert.equal(harness.element('training-action-btn').textContent, 'Stop & Save');
+    assert.equal(harness.element('cancel-training-btn').style.display, 'block');
+});
+
 test('the live card reports a signal that has gone quiet', async () => {
     const harness = createHarness({ storage: seenNotice() });
     await startWalk(harness);

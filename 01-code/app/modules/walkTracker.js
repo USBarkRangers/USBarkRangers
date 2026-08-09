@@ -816,7 +816,7 @@ window.BARK = window.BARK || {};
         const tracking = WalkTracker.isTracking();
 
         if (btn) {
-            btn.textContent = tracking ? 'Tracking Active 🟢' : 'Start Walk';
+            btn.textContent = tracking ? 'Stop & Save' : 'Start Walk';
             btn.className = tracking ? 'glass-btn training-btn active' : 'glass-btn training-btn';
         }
         if (cancelBtn) cancelBtn.style.display = tracking ? 'block' : 'none';

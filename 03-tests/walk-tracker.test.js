@@ -229,6 +229,78 @@ test('positions that arrive while the page is hidden still count', async () => {
         'a platform that keeps feeding us positions in the background should be believed');
 });
 
+test('experimental fallback math distinguishes walking, running, and impossible entries', () => {
+    const harness = createHarness();
+    const math = harness.bark.__walkTrackerInternals;
+    const limits = math.fallbackLimits(10);
+
+    assert.equal(limits.walkingMiles, 1, 'ten minutes gets a small walking grace');
+    assert.equal(limits.runningMiles, 2.1, 'ten minutes supports a fast but plausible run');
+    assert.equal(math.validateFallbackMiles('0.5', 10).status, 'accept');
+
+    const oneMileRun = math.validateFallbackMiles('1', 10);
+    assert.equal(oneMileRun.status, 'confirm-run');
+    assert.equal(oneMileRun.claimedMph, 6);
+
+    assert.equal(math.validateFallbackMiles('2', 10).status, 'confirm-run');
+    assert.equal(math.validateFallbackMiles('2.2', 10).status, 'too-far');
+    assert.equal(math.validateFallbackMiles('2 miles', 10).status, 'invalid');
+    assert.equal(math.validateFallbackMiles('-1', 10).status, 'invalid');
+    assert.equal(math.validateFallbackMiles('0', 10).status, 'skip');
+    assert.equal(math.validateFallbackMiles(null, 10).status, 'skip');
+});
+
+test('experimental fallback math retains an absolute ceiling for long outages', () => {
+    const math = createHarness().bark.__walkTrackerInternals;
+
+    assert.equal(math.maximumFallbackMiles(12 * 60, math.MAX_RUNNING_MPH), 30);
+    assert.equal(math.validateFallbackMiles('30', 12 * 60).status, 'accept');
+    assert.equal(math.validateFallbackMiles('30.1', 12 * 60).status, 'too-far');
+});
+
+test('a slow walker can confirm that they ran during a ten-minute GPS gap', async () => {
+    const harness = createHarness({ storage: seenNotice(), prompts: ['1'], confirms: [true] });
+    await startWalk(harness);
+
+    harness.fix(START_LAT, START_LNG);
+    harness.fix(north(START_LAT, 100), START_LNG);
+    const beforePause = harness.tracker.totalMiles;
+
+    harness.setHidden(true);
+    harness.advance(10 * 60000);
+    harness.setHidden(false);
+
+    assert.ok(Math.abs(harness.tracker.totalMiles - (beforePause + 1)) < 1e-9);
+    assert.equal(harness.tracker.manualFallbackMiles, 1);
+});
+
+test('declining running pace allows a corrected walking entry', async () => {
+    const harness = createHarness({ storage: seenNotice(), prompts: ['1', '0.5'], confirms: [false] });
+    await startWalk(harness);
+
+    harness.fix(START_LAT, START_LNG);
+    harness.setHidden(true);
+    harness.advance(10 * 60000);
+    harness.setHidden(false);
+
+    assert.equal(harness.tracker.manualFallbackMiles, 0.5);
+    assert.equal(harness.tracker.totalMiles, 0.5);
+});
+
+test('an impossible fallback entry is rejected without changing the walk', async () => {
+    const harness = createHarness({ storage: seenNotice(), prompts: ['2.2', '0'] });
+    await startWalk(harness);
+
+    harness.fix(START_LAT, START_LNG);
+    harness.setHidden(true);
+    harness.advance(10 * 60000);
+    harness.setHidden(false);
+
+    assert.equal(harness.tracker.totalMiles, 0);
+    assert.equal(harness.tracker.manualFallbackMiles, 0);
+    assert.ok(harness.alerts.some(message => /experimental walk\/run limit/.test(message)));
+});
+
 test('a long pause is bridged only by what the user reports, not counted twice', async () => {
     const harness = createHarness({ storage: seenNotice(), prompts: ['1.50'] });
     await startWalk(harness);
@@ -281,6 +353,17 @@ test('walk progress is persisted as it goes', async () => {
     assert.equal(record.segments.length, 1);
 });
 
+test('accurate stationary fixes persist a fresh recovery clock', async () => {
+    const harness = createHarness({ storage: seenNotice() });
+    await startWalk(harness);
+
+    harness.fix(START_LAT, START_LNG);
+    harness.fix(north(START_LAT, 1), START_LNG, 5, 6000);
+
+    assert.equal(harness.storedSession().lastFixAt, harness.now());
+    assert.equal(harness.tracker.totalMiles, 0, 'the heartbeat is persisted without inventing movement');
+});
+
 test('a reloaded app offers the interrupted walk back and resumes it', async () => {
     const first = createHarness({ storage: seenNotice() });
     await startWalk(first);
@@ -301,6 +384,32 @@ test('a reloaded app offers the interrupted walk back and resumes it', async () 
     // The first fix after the reload re-anchors; we cannot know where they went.
     reloaded.fix(north(START_LAT, 5000), START_LNG);
     assert.ok(Math.abs(reloaded.tracker.totalMiles - tracked) < 1e-9);
+});
+
+test('a reloaded app validates and restores miles covered while it was closed', async () => {
+    const first = createHarness({ storage: seenNotice() });
+    await startWalk(first);
+    first.step(0);
+    first.step(400);
+    first.step(400);
+    const tracked = first.tracker.totalMiles;
+
+    const reloaded = createHarness({
+        storage: first.storage,
+        startClock: first.now() + (10 * 60000),
+        prompts: ['1'],
+        confirms: [true, true]
+    });
+    reloaded.bark.initWalkTracker();
+    await reloaded.settle();
+
+    assert.ok(Math.abs(reloaded.tracker.totalMiles - (tracked + 1)) < 1e-9);
+    assert.equal(reloaded.tracker.manualFallbackMiles, 1, 'closed-app recovery miles remain non-scoring');
+    assert.ok(reloaded.storedSession().gapHandledThroughAt > reloaded.storedSession().lastFixAt);
+
+    reloaded.fix(north(START_LAT, 5000), START_LNG);
+    assert.ok(Math.abs(reloaded.tracker.totalMiles - (tracked + 1)) < 1e-9,
+        'the first GPS fix after reopening re-anchors instead of bridging the gap again');
 });
 
 test('declining to resume offers to save the miles already tracked', async () => {

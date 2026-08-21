@@ -802,7 +802,7 @@ window.shiftDayLeft = function () {
     tripDays[activeDayIdx - 1] = tripDays[activeDayIdx];
     tripDays[activeDayIdx] = temp;
     window.BARK.activeDayIdx--;
-    updateTripUI(); updateTripMapVisuals();
+    updateTripUI();
 };
 
 window.shiftDayRight = function () {
@@ -813,7 +813,7 @@ window.shiftDayRight = function () {
     tripDays[activeDayIdx + 1] = tripDays[activeDayIdx];
     tripDays[activeDayIdx] = temp;
     window.BARK.activeDayIdx++;
-    updateTripUI(); updateTripMapVisuals();
+    updateTripUI();
 };
 
 window.insertDayAfter = function () {
@@ -1414,7 +1414,9 @@ function initTripPlanner() {
                 return false;
             }
             await firebase.firestore().collection('users').doc(user.uid).collection('savedRoutes').add(routeData);
-            window.BARK.loadSavedRoutes(user.uid);
+            if (typeof window.BARK.invalidateSavedRoutesCache === 'function') {
+                window.BARK.invalidateSavedRoutesCache(user.uid);
+            }
             return true;
         } catch (err) { console.error('Save failed:', err); alert('Could not save route: ' + err.message); return false; }
     }

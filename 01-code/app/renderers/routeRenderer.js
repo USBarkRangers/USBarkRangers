@@ -8,6 +8,28 @@ let savedRoutesCursor = null;
 let savedRoutesCount = 0;
 let savedRoutesLoaded = false;
 let savedRoutesPromptUid = null;
+let savedRoutesById = new Map();
+
+function escapeHtml(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function safeRouteColor(value) {
+    return /^#[0-9a-f]{3,8}$/i.test(String(value || '')) ? value : '#999';
+}
+
+function resetSavedRoutesCache() {
+    savedRoutesCursor = null;
+    savedRoutesCount = 0;
+    savedRoutesLoaded = false;
+    savedRoutesPromptUid = null;
+    savedRoutesById = new Map();
+}
 
 function isSavedRoutesPremiumUnlocked() {
     const premiumService = window.BARK.services && window.BARK.services.premium;
@@ -47,9 +69,10 @@ function renderRoutesList(routes, containerElement, callbacks = {}) {
         const dayCount = route.tripDays ? route.tripDays.length : 0;
         const stopCount = route.tripDays ? route.tripDays.reduce((s, d) => s + (d.stops ? d.stops.length : 0), 0) : 0;
         const colorDots = (route.tripDays || []).map(d =>
-            `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${d.color || '#999'}; margin-right:2px;"></span>`
+            `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${safeRouteColor(d.color)}; margin-right:2px;"></span>`
         ).join('');
-        const tripName = route.tripName || "Untitled Route";
+        const tripName = escapeHtml(route.tripName || "Untitled Route");
+        const routeId = escapeHtml(route.id || '');
 
         const card = document.createElement('div');
         card.style.cssText = 'background:#f9f9f9; border-radius:10px; padding:10px 12px; margin-bottom:8px; border:1px solid rgba(0,0,0,0.06);';
@@ -61,8 +84,8 @@ function renderRoutesList(routes, containerElement, callbacks = {}) {
                             <div style="font-size:11px; color:#888;">${date}</div>
                         </div>
                         <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
-                            <button class="load-route-btn" data-id="${route.id}" style="background:#22c55e; color:white; border:none; border-radius:8px; padding:5px 10px; font-size:12px; cursor:pointer; font-weight:600;">Load</button>
-                            <button class="delete-route-btn" data-id="${route.id}" style="background:none; border:none; color:#dc2626; font-size:14px; cursor:pointer; font-weight:bold;" title="Delete">×</button>
+                            <button class="load-route-btn" data-id="${routeId}" style="background:#22c55e; color:white; border:none; border-radius:8px; padding:5px 10px; font-size:12px; cursor:pointer; font-weight:600;">Load</button>
+                            <button class="delete-route-btn" data-id="${routeId}" style="background:none; border:none; color:#dc2626; font-size:14px; cursor:pointer; font-weight:bold;" title="Delete">×</button>
                         </div>
                     </div>
                 `;
@@ -111,9 +134,7 @@ function bindDeferredSavedRoutesLoadButtons(uid) {
 }
 
 function renderSavedRoutesLoadPrompt(uid) {
-    savedRoutesCursor = null;
-    savedRoutesCount = 0;
-    savedRoutesLoaded = false;
+    resetSavedRoutesCache();
     savedRoutesPromptUid = uid || null;
 
     const savedList = document.getElementById('saved-routes-list');
@@ -138,20 +159,14 @@ function refreshSavedRoutesEntitlementState(uid = null) {
     const savedCount = document.getElementById('saved-routes-count');
 
     if (!activeUid) {
-        savedRoutesCursor = null;
-        savedRoutesCount = 0;
-        savedRoutesLoaded = false;
-        savedRoutesPromptUid = null;
+        resetSavedRoutesCache();
         if (savedCount) savedCount.textContent = '0';
         renderRoutesMessage('Sign in to view saved routes.');
         return;
     }
 
     if (!isSavedRoutesPremiumUnlocked()) {
-        savedRoutesCursor = null;
-        savedRoutesCount = 0;
-        savedRoutesLoaded = false;
-        savedRoutesPromptUid = null;
+        resetSavedRoutesCache();
         if (savedCount) savedCount.textContent = 'Premium';
         renderRoutesMessage('Saved routes are a Premium feature. Upgrade to save and reload trip plans.');
         return;
@@ -172,7 +187,9 @@ async function loadRouteIntoPlanner(uid, routeId) {
     if (!firebaseService || typeof firebaseService.loadSavedRoute !== 'function') return;
 
     try {
-        const data = await firebaseService.loadSavedRoute(uid, routeId);
+        const data = savedRoutesPromptUid === uid && savedRoutesById.has(routeId)
+            ? savedRoutesById.get(routeId)
+            : await firebaseService.loadSavedRoute(uid, routeId);
         if (!data) return;
 
         const rawTripDays = (data.tripDays || []).map(d => ({ color: d.color, stops: d.stops, notes: d.notes || "" }));
@@ -228,10 +245,7 @@ async function loadSavedRoutes(uid, isLoadMore = false) {
     if (!savedList && !plannerList) return;
 
     if (!isSavedRoutesPremiumUnlocked()) {
-        savedRoutesCursor = null;
-        savedRoutesCount = 0;
-        savedRoutesLoaded = false;
-        savedRoutesPromptUid = null;
+        resetSavedRoutesCache();
         if (savedCount) savedCount.textContent = 'Premium';
         renderRoutesMessage('Saved routes are a Premium feature. Upgrade to save and reload trip plans.');
         return;
@@ -240,6 +254,7 @@ async function loadSavedRoutes(uid, isLoadMore = false) {
     if (!isLoadMore) {
         savedRoutesCursor = null;
         savedRoutesCount = 0;
+        savedRoutesById = new Map();
         renderRoutesMessage('Loading...');
     } else {
         document.querySelectorAll('.load-more-routes-btn').forEach(btn => btn.remove());
@@ -253,6 +268,7 @@ async function loadSavedRoutes(uid, isLoadMore = false) {
         savedRoutesCount = isLoadMore ? savedRoutesCount + routes.length : routes.length;
         savedRoutesLoaded = true;
         savedRoutesPromptUid = uid || null;
+        routes.forEach(route => savedRoutesById.set(route.id, route));
 
         if (savedCount) {
             savedCount.textContent = payload.hasMore ? `${savedRoutesCount}+` : savedRoutesCount;
@@ -288,7 +304,7 @@ function togglePlannerRoutes() {
                 const list = document.getElementById('planner-saved-routes-list');
                 if (list) list.innerHTML = '<p style="color:#aaa; text-align:center; padding:10px 0;">Saved routes are a Premium feature. Upgrade to save and reload trip plans.</p>';
                 openSavedRoutesPaywall('load-route');
-            } else {
+            } else if (!savedRoutesLoaded || savedRoutesPromptUid !== user.uid) {
                 loadSavedRoutes(user.uid);
             }
         } else {
@@ -301,8 +317,14 @@ function togglePlannerRoutes() {
     }
 }
 
+function invalidateSavedRoutesCache(uid = null) {
+    resetSavedRoutesCache();
+    if (uid && isSavedRoutesPremiumUnlocked()) renderSavedRoutesLoadPrompt(uid);
+}
+
 window.BARK.renderers.routes = { renderRoutesList };
 window.BARK.renderRoutesList = renderRoutesList;
 window.BARK.loadSavedRoutes = loadSavedRoutes;
 window.BARK.refreshSavedRoutesEntitlementState = refreshSavedRoutesEntitlementState;
+window.BARK.invalidateSavedRoutesCache = invalidateSavedRoutesCache;
 window.togglePlannerRoutes = togglePlannerRoutes;

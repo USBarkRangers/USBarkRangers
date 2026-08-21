@@ -640,12 +640,10 @@ describe("ORS premium callable handlers", () => {
         assert.equal(getCalls, 0);
     });
 
-    it("allows premium route requests through to the ORS transport path", async () => {
+    it("uses one ORS provider call for the normal premium route path", async () => {
         const capturedRequests = [];
         const picturedRocksPin = [-86.3447388, 46.5482534];
         const munisingPin = [-86.647936, 46.411512];
-        const snappedPicturedRocks = [-86.3601, 46.5488];
-        const snappedMunising = [-86.6495, 46.412];
 
         const result = await handlePremiumRoute(
             {
@@ -660,37 +658,23 @@ describe("ORS premium callable handlers", () => {
                 getOrsApiKey: () => "test-key",
                 axiosPost: async (url, body, config) => {
                     capturedRequests.push({ url, body, config });
-                    if (/\/snap\//.test(url)) {
-                        return {
-                            data: {
-                                locations: [
-                                    { location: snappedPicturedRocks, snapped_distance: 1240 },
-                                    { location: snappedMunising, snapped_distance: 18 }
-                                ]
-                            }
-                        };
-                    }
                     return { data: { type: "FeatureCollection" } };
                 }
             }
         );
 
         assert.deepEqual(result, { type: "FeatureCollection" });
-        assert.equal(capturedRequests.length, 2);
-        assert.match(capturedRequests[0].url, /openrouteservice\.org\/v2\/snap\/driving-car/);
-        assert.deepEqual(capturedRequests[0].body.locations, [picturedRocksPin, munisingPin]);
-        assert.equal(capturedRequests[0].body.radius, 2000);
-        assert.match(capturedRequests[1].url, /openrouteservice\.org\/v2\/directions/);
-        assert.deepEqual(capturedRequests[1].body.coordinates, [snappedPicturedRocks, snappedMunising]);
-        assert.deepEqual(capturedRequests[1].body.radiuses, [-1, -1]);
-        assert.equal(capturedRequests[1].body.geometry, true);
-        assert.equal(capturedRequests[1].body.instructions, true);
-        assert.equal(capturedRequests[1].config.headers.Authorization, "test-key");
+        assert.equal(capturedRequests.length, 1);
+        assert.match(capturedRequests[0].url, /openrouteservice\.org\/v2\/directions/);
+        assert.deepEqual(capturedRequests[0].body.coordinates, [picturedRocksPin, munisingPin]);
+        assert.deepEqual(capturedRequests[0].body.radiuses, [-1, -1]);
+        assert.equal(capturedRequests[0].body.geometry, true);
+        assert.equal(capturedRequests[0].body.instructions, true);
+        assert.equal(capturedRequests[0].config.headers.Authorization, "test-key");
     });
 
     it("retries rate-limited ORS route requests before returning a route", async () => {
         const rawCoordinates = [[-83.4161, 36.2124], [-82.5508, 35.5953]];
-        const snappedCoordinates = [[-83.4164, 36.2127], [-82.5506, 35.5954]];
         let directionAttempts = 0;
 
         const result = await handlePremiumRoute(
@@ -707,15 +691,7 @@ describe("ORS premium callable handlers", () => {
                 orsRetryMaxAttempts: 3,
                 orsRetryBaseDelayMs: 0,
                 disableOrsRetryJitter: true,
-                axiosPost: async (url) => {
-                    if (/\/snap\//.test(url)) {
-                        return {
-                            data: {
-                                locations: snappedCoordinates.map(location => ({ location }))
-                            }
-                        };
-                    }
-
+                axiosPost: async () => {
                     directionAttempts += 1;
                     if (directionAttempts < 3) {
                         const error = new Error("Request failed with status code 429");
@@ -808,8 +784,14 @@ describe("ORS premium callable handlers", () => {
                         }
                     };
                 },
+                orsRetryMaxAttempts: 1,
                 axiosPost: async (url, body, config) => {
                     capturedPosts.push({ url, body, config });
+                    if (/\/directions\//.test(url) && capturedPosts.filter(entry => /\/directions\//.test(entry.url)).length === 1) {
+                        const error = new Error("Cannot find route between points");
+                        error.response = { status: 400 };
+                        throw error;
+                    }
                     if (/\/snap\//.test(url) && body.locations.length === 2) {
                         return {
                             data: {
@@ -839,12 +821,12 @@ describe("ORS premium callable handlers", () => {
         assert.match(capturedGets[0], /geocode\/search/);
         assert.match(capturedGets[0], /Pictured\+Rocks\+National\+Lakeshore/);
         assert.match(capturedGets[0], /boundary\.circle\.radius=50/);
-        assert.equal(capturedPosts.length, 3);
-        assert.deepEqual(capturedPosts[2].body.coordinates, [snappedPicturedRocksCandidate, snappedMunising]);
-        assert.deepEqual(capturedPosts[2].body.radiuses, [-1, -1]);
+        assert.equal(capturedPosts.length, 4);
+        assert.deepEqual(capturedPosts[3].body.coordinates, [snappedPicturedRocksCandidate, snappedMunising]);
+        assert.deepEqual(capturedPosts[3].body.radiuses, [-1, -1]);
     });
 
-    it("falls back to original route coordinates when ORS snap is unavailable", async () => {
+    it("does not call ORS snap when the original route coordinates work", async () => {
         const rawCoordinates = [[-122.4, 37.8], [-122.5, 37.9]];
         const capturedRequests = [];
 
@@ -871,10 +853,9 @@ describe("ORS premium callable handlers", () => {
         );
 
         assert.deepEqual(result, { type: "FeatureCollection" });
-        assert.equal(capturedRequests.length, 2);
-        assert.match(capturedRequests[0].url, /openrouteservice\.org\/v2\/snap\/driving-car/);
-        assert.match(capturedRequests[1].url, /openrouteservice\.org\/v2\/directions/);
-        assert.deepEqual(capturedRequests[1].body.coordinates, rawCoordinates);
+        assert.equal(capturedRequests.length, 1);
+        assert.match(capturedRequests[0].url, /openrouteservice\.org\/v2\/directions/);
+        assert.deepEqual(capturedRequests[0].body.coordinates, rawCoordinates);
     });
 
     it("allows premium geocode requests through to the ORS transport path", async () => {

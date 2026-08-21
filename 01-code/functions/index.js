@@ -9,6 +9,7 @@ const nodemailer = require("nodemailer");
 const opsDiscord = require("./opsDiscord.js");
 const opsMetrics = require("./opsMetrics.js");
 const feedbackAttachments = require("./feedbackAttachments.js");
+const routeRequestStrategy = require("./routeRequestStrategy.js");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -3053,28 +3054,40 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
         throw new functions.https.HttpsError("failed-precondition", "Routing service is not configured.");
     }
 
-    const snappedCoordinates = await snapRouteCoordinates(coordinates, apiKey, {
-        ...options,
-        waypoints: normalizeRouteWaypoints(payload.waypoints, coordinates)
-    });
-    const body = {
-        coordinates: snappedCoordinates,
-        geometry: true,
-        instructions: true
+    const post = options.axiosPost || axios.post;
+    const requestConfig = {
+        headers: {
+            "Authorization": apiKey,
+            "Content-Type": "application/json",
+            "Accept": "application/json, application/geo+json; charset=utf-8"
+        }
     };
-    if (Array.isArray(radiuses) && radiuses.length === coordinates.length) {
-        body.radiuses = radiuses;
-    }
+    const requestDirections = routeCoordinates => {
+        const body = {
+            coordinates: routeCoordinates,
+            geometry: true,
+            instructions: true
+        };
+        if (Array.isArray(radiuses) && radiuses.length === coordinates.length) body.radiuses = radiuses;
+        return postOrsWithRetry(post, ORS_DIRECTIONS_URL, body, requestConfig, options);
+    };
 
     try {
-        const post = options.axiosPost || axios.post;
-        const response = await postOrsWithRetry(post, ORS_DIRECTIONS_URL, body, {
-            headers: {
-                "Authorization": apiKey,
-                "Content-Type": "application/json",
-                "Accept": "application/json, application/geo+json; charset=utf-8"
-            }
-        }, options);
+        let response;
+        try {
+            response = await requestDirections(coordinates);
+        } catch (initialError) {
+            if (!routeRequestStrategy.shouldAttemptSnapRecovery(initialError)) throw initialError;
+
+            const snappedCoordinates = await snapRouteCoordinates(coordinates, apiKey, {
+                ...options,
+                waypoints: normalizeRouteWaypoints(payload.waypoints, coordinates)
+            });
+            if (!routeRequestStrategy.routeCoordinatesChanged(coordinates, snappedCoordinates)) throw initialError;
+
+            console.info("[routing] Retrying an off-road route with recovered coordinates.");
+            response = await requestDirections(snappedCoordinates);
+        }
         return response.data;
     } catch (error) {
         const status = getOrsErrorStatus(error);

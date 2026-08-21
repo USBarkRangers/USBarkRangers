@@ -121,6 +121,18 @@ test('planner load button loads saved routes for premium users', async () => {
     assert.equal(harness.paywallCalls.length, 0);
 });
 
+test('reopening an already loaded saved-route panel does not read it again', async () => {
+    const harness = loadRouteRenderer({ user: { uid: 'premium-user' }, premium: true });
+
+    harness.window.togglePlannerRoutes();
+    await new Promise(resolve => setImmediate(resolve));
+    harness.window.togglePlannerRoutes();
+    harness.window.togglePlannerRoutes();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(harness.loadCalls.length, 1);
+});
+
 test('premium route refresh replaces stale premium prompt without saved-route reads', () => {
     const harness = loadRouteRenderer({ user: { uid: 'premium-user' }, premium: false });
 

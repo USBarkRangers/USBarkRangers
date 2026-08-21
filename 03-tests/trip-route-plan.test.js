@@ -86,6 +86,26 @@ test('consecutive route days share one bounded ORS batch', () => {
     assert.deepEqual(batches[0].days.map(routeDay => routeDay.dayIndex), [0, 2]);
 });
 
+test('five ordinary driving days still produce one ORS request batch', () => {
+    const tripDays = Array.from({ length: 5 }, (_, index) => (
+        day(`#00000${index}`, [stop(`Stop ${index + 1}`, 40 + index * 0.5, -100 + index * 0.5)])
+    ));
+    const plan = buildTripRoutePlan({
+        tripDays,
+        startNode: stop('Start', 39.5, -100.5),
+        endNode: stop('End', 42.5, -97.5)
+    });
+
+    const batches = buildRouteBatches(plan.routableDays);
+
+    assert.equal(batches.length, 1);
+    assert.equal(batches[0].days.length, 5);
+    assert.deepEqual(
+        batches[0].points.map(point => point.node.name),
+        ['Start', 'Stop 1', 'Stop 2', 'Stop 3', 'Stop 4', 'Stop 5', 'End']
+    );
+});
+
 test('batched geometry is split back into local day colors', () => {
     const plan = buildTripRoutePlan({
         tripDays: [day('#111111', [stop('A', 1, 1)]), day('#222222', [stop('B', 2, 2)])],

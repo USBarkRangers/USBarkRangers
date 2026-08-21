@@ -10,6 +10,10 @@
 (function () {
     window.BARK = window.BARK || {};
     window.BARK.services = window.BARK.services || {};
+    const routeCacheApi = window.BARK.orsRouteCache;
+    const routeCache = routeCacheApi && typeof routeCacheApi.createRouteCache === 'function'
+        ? routeCacheApi.createRouteCache()
+        : null;
 
     function getCallable(name) {
         if (typeof firebase === 'undefined' || typeof firebase.functions !== 'function') {
@@ -96,17 +100,28 @@
         }
         assertVerifiedEmailForPremiumCallable();
 
-        try {
+        const payload = { coordinates };
+        if (Array.isArray(options.radiuses) && options.radiuses.length === coordinates.length) {
+            payload.radiuses = options.radiuses;
+        }
+        if (Array.isArray(options.waypoints) && options.waypoints.length === coordinates.length) {
+            payload.waypoints = options.waypoints;
+        }
+        const user = getCurrentUser();
+        const cacheKey = routeCache && typeof routeCacheApi.buildRouteCacheKey === 'function'
+            ? routeCacheApi.buildRouteCacheKey({ uid: user && user.uid, ...payload })
+            : null;
+
+        const loadRoute = async () => {
             const callable = getCallable('getPremiumRoute');
-            const payload = { coordinates };
-            if (Array.isArray(options.radiuses) && options.radiuses.length === coordinates.length) {
-                payload.radiuses = options.radiuses;
-            }
-            if (Array.isArray(options.waypoints) && options.waypoints.length === coordinates.length) {
-                payload.waypoints = options.waypoints;
-            }
             const result = await callable(payload);
             return result.data;
+        };
+
+        try {
+            return routeCache && cacheKey
+                ? await routeCache.getOrLoad(cacheKey, loadRoute)
+                : await loadRoute();
         } catch (error) {
             console.error('ORS directions request failed.', error);
             throw error;
@@ -115,6 +130,7 @@
 
     window.BARK.services.ors = {
         geocode,
-        directions
+        directions,
+        clearRouteCache: () => routeCache && routeCache.clear()
     };
 })();

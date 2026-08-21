@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { HEIGIT_API_ORIGIN } = require("../orsEndpoints.js");
 
 const shouldActivate = process.env.BARK_ORS_EMULATOR_STUB === "1" && (
     process.env.FUNCTIONS_EMULATOR === "true" ||
@@ -32,8 +33,6 @@ function isLocalHost(host) {
 
 if (shouldActivate) {
     const nock = require("nock");
-    const ORS_ORIGIN = "https://api.openrouteservice.org";
-
     fs.writeFileSync(MARKER_PATH, JSON.stringify({
         activatedAt: new Date().toISOString(),
         cwd: process.cwd(),
@@ -57,9 +56,9 @@ if (shouldActivate) {
         }
     });
 
-    nock(ORS_ORIGIN)
+    nock(HEIGIT_API_ORIGIN)
         .persist()
-        .post("/v2/snap/driving-car/json")
+        .post("/openrouteservice/v2/snap/driving-car/json")
         .reply(function snapReply(uri, requestBody) {
             appendLog({
                 service: "snap",
@@ -75,9 +74,9 @@ if (shouldActivate) {
             return [200, { locations }];
         });
 
-    nock(ORS_ORIGIN)
+    nock(HEIGIT_API_ORIGIN)
         .persist()
-        .post("/v2/directions/driving-car/geojson")
+        .post("/openrouteservice/v2/directions/driving-car/geojson")
         .reply(function routeReply(uri, requestBody) {
             appendLog({
                 service: "route",
@@ -105,9 +104,9 @@ if (shouldActivate) {
             }];
         });
 
-    nock(ORS_ORIGIN)
+    nock(HEIGIT_API_ORIGIN)
         .persist()
-        .get("/geocode/search")
+        .get("/pelias/v1/search")
         .query(true)
         .reply(function geocodeReply(uri) {
             appendLog({

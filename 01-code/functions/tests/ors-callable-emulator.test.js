@@ -281,7 +281,7 @@ describe("ORS callable emulator entitlement enforcement", { concurrency: false }
         assert.deepEqual(readOrsCalls(), []);
     });
 
-    it("allows premium manual route requests to reach the stubbed ORS path", async () => {
+    it("uses one provider call for a normal premium route", async () => {
         const user = await createSignedInUser("premium-route");
         await seedEntitlement(user.uid, premiumEntitlement);
 
@@ -293,10 +293,9 @@ describe("ORS callable emulator entitlement enforcement", { concurrency: false }
 
         assert.equal(result.data.type, "FeatureCollection");
         assert.equal(result.data.features[0].properties.stubbed, true);
-        assert.equal(calls.length, 2);
-        assert.equal(calls[0].service, "snap");
-        assert.equal(calls[1].service, "route");
-        assert.deepEqual(calls[1].body.coordinates, routePayload.coordinates);
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].service, "route");
+        assert.deepEqual(calls[0].body.coordinates, routePayload.coordinates);
     });
 
     it("ignores client-provided premium, entitlement, status, and uid claims", async () => {

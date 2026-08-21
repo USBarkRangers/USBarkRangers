@@ -10,6 +10,7 @@ const opsDiscord = require("./opsDiscord.js");
 const opsMetrics = require("./opsMetrics.js");
 const feedbackAttachments = require("./feedbackAttachments.js");
 const routeRequestStrategy = require("./routeRequestStrategy.js");
+const { ORS_ENDPOINTS } = require("./orsEndpoints.js");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -825,9 +826,9 @@ function getManualCoordinates(data) {
 // 1. LEGACY MAP FUNCTIONS (ROUTING & LEADERBOARD)
 // ============================================================================
 
-const ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/driving-car/geojson";
-const ORS_SNAP_URL = "https://api.openrouteservice.org/v2/snap/driving-car/json";
-const ORS_GEOCODE_URL = "https://api.openrouteservice.org/geocode/search";
+const ORS_DIRECTIONS_URL = ORS_ENDPOINTS.directions;
+const ORS_SNAP_URL = ORS_ENDPOINTS.snap;
+const ORS_GEOCODE_URL = ORS_ENDPOINTS.geocode;
 const ROUTE_SNAP_RADIUS_METERS = 2000;
 const ROUTE_MAX_COORDINATES = 40;
 const ROUTE_FALLBACK_GEOCODE_RADIUS_KM = 50;

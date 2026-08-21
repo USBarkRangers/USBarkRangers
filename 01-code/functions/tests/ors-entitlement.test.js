@@ -665,7 +665,7 @@ describe("ORS premium callable handlers", () => {
 
         assert.deepEqual(result, { type: "FeatureCollection" });
         assert.equal(capturedRequests.length, 1);
-        assert.match(capturedRequests[0].url, /openrouteservice\.org\/v2\/directions/);
+        assert.match(capturedRequests[0].url, /^https:\/\/api\.heigit\.org\/openrouteservice\/v2\/directions\//);
         assert.deepEqual(capturedRequests[0].body.coordinates, [picturedRocksPin, munisingPin]);
         assert.deepEqual(capturedRequests[0].body.radiuses, [-1, -1]);
         assert.equal(capturedRequests[0].body.geometry, true);
@@ -818,7 +818,7 @@ describe("ORS premium callable handlers", () => {
 
         assert.deepEqual(result, { type: "FeatureCollection" });
         assert.equal(capturedGets.length, 1);
-        assert.match(capturedGets[0], /geocode\/search/);
+        assert.match(capturedGets[0], /^https:\/\/api\.heigit\.org\/pelias\/v1\/search\?/);
         assert.match(capturedGets[0], /Pictured\+Rocks\+National\+Lakeshore/);
         assert.match(capturedGets[0], /boundary\.circle\.radius=50/);
         assert.equal(capturedPosts.length, 4);
@@ -854,7 +854,7 @@ describe("ORS premium callable handlers", () => {
 
         assert.deepEqual(result, { type: "FeatureCollection" });
         assert.equal(capturedRequests.length, 1);
-        assert.match(capturedRequests[0].url, /openrouteservice\.org\/v2\/directions/);
+        assert.match(capturedRequests[0].url, /^https:\/\/api\.heigit\.org\/openrouteservice\/v2\/directions\//);
         assert.deepEqual(capturedRequests[0].body.coordinates, rawCoordinates);
     });
 
@@ -875,7 +875,7 @@ describe("ORS premium callable handlers", () => {
         );
 
         assert.equal(result.features[0].properties.label, "Seattle");
-        assert.match(capturedUrl, /openrouteservice\.org\/geocode\/search/);
+        assert.match(capturedUrl, /^https:\/\/api\.heigit\.org\/pelias\/v1\/search\?/);
         assert.match(capturedUrl, /text=Seattle/);
         assert.match(capturedUrl, /size=3/);
         assert.match(capturedUrl, /boundary\.country=US/);

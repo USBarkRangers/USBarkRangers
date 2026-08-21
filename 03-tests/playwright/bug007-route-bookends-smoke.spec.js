@@ -127,6 +127,7 @@ async function seedSparseBookendTrip(page) {
         };
         window.BARK.services.ors.directions = async (coordinates, options = {}) => {
             window.__barkBug007DirectionsCalls.push({ coordinates, options });
+            const segmentCount = Math.max(1, coordinates.length - 1);
             return {
                 type: 'FeatureCollection',
                 features: [{
@@ -139,7 +140,12 @@ async function seedSparseBookendTrip(page) {
                         summary: {
                             distance: 1609.34,
                             duration: 600
-                        }
+                        },
+                        segments: Array.from({ length: coordinates.length - 1 }, (_, index) => ({
+                            distance: 1609.34 / segmentCount,
+                            duration: 600 / segmentCount,
+                            steps: [{ way_points: [index, index + 1] }]
+                        }))
                     }
                 }]
             };
@@ -160,7 +166,7 @@ async function seedSparseBookendTrip(page) {
 }
 
 test.describe('BUG-007 sparse trip bookend routing', () => {
-    test('start/end bookends are applied before filtering routable days', async ({ browser }) => {
+    test('bookends and continuity are preserved in one batch across an empty day', async ({ browser }) => {
         const errors = [];
         const context = await newBarkContext(browser, { storageState: premiumStorageStatePath });
         const page = await context.newPage();
@@ -180,7 +186,7 @@ test.describe('BUG-007 sparse trip bookend routing', () => {
 
             await page.waitForFunction(() => (
                 Array.isArray(window.__barkBug007DirectionsCalls) &&
-                window.__barkBug007DirectionsCalls.length === 2
+                window.__barkBug007DirectionsCalls.length === 1
             ), { timeout: 15000 });
 
             const result = await page.evaluate(() => ({
@@ -191,12 +197,10 @@ test.describe('BUG-007 sparse trip bookend routing', () => {
             }));
 
             expect(result.alerts).toEqual([]);
-            expect(result.calls).toHaveLength(2);
+            expect(result.calls).toHaveLength(1);
             expect(result.calls[0].coordinates).toEqual([
                 [seed.startNode.lng, seed.startNode.lat],
-                [seed.firstStop.lng, seed.firstStop.lat]
-            ]);
-            expect(result.calls[1].coordinates).toEqual([
+                [seed.firstStop.lng, seed.firstStop.lat],
                 [seed.lastStop.lng, seed.lastStop.lat],
                 [seed.endNode.lng, seed.endNode.lat]
             ]);

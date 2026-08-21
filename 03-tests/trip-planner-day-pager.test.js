@@ -160,6 +160,7 @@ function loadTripPlanner(options = {}) {
     const mapNav = createElement('button');
     const timers = [];
     const timerMode = options.timerMode || 'immediate';
+    const openedUrls = [];
 
     let directionsResolver = null;
     const directionsCalls = [];
@@ -210,7 +211,8 @@ function loadTripPlanner(options = {}) {
             },
             tripStartNode: null,
             tripEndNode: null,
-            isTripEditMode: false
+            isTripEditMode: false,
+            open: (url, target) => openedUrls.push({ url, target })
         },
         document: {
             body: createElement('body'),
@@ -266,8 +268,10 @@ function loadTripPlanner(options = {}) {
     };
     context.window.window = context.window;
 
-    const source = fs.readFileSync(path.join(__dirname, '..', '01-code', 'app', 'engines', 'tripPlannerCore.js'), 'utf8');
-    vm.runInNewContext(source, context, { filename: 'engines/tripPlannerCore.js' });
+    ['tripRoutePlan.js', 'tripRouteBatch.js', 'tripPlannerCore.js'].forEach(fileName => {
+        const source = fs.readFileSync(path.join(__dirname, '..', '01-code', 'app', 'engines', fileName), 'utf8');
+        vm.runInNewContext(source, context, { filename: `engines/${fileName}` });
+    });
 
     return {
         window: context.window,
@@ -280,15 +284,26 @@ function loadTripPlanner(options = {}) {
             timers.splice(0).forEach(callback => callback());
         },
         directionsCalls,
-        resolveDirections: () => {
+        openedUrls,
+        resolveDirections: (response) => {
             if (!directionsResolver) throw new Error('Directions call has not started.');
-            directionsResolver({
+            const coordinates = directionsCalls[directionsCalls.length - 1].coordinates;
+            const legCount = Math.max(1, coordinates.length - 1);
+            directionsResolver(response || {
+                type: 'FeatureCollection',
                 features: [{
+                    type: 'Feature',
+                    geometry: { type: 'LineString', coordinates },
                     properties: {
                         summary: {
                             distance: 1609.344,
                             duration: 3600
-                        }
+                        },
+                        segments: Array.from({ length: coordinates.length - 1 }, (_, index) => ({
+                            distance: 1609.344 / legCount,
+                            duration: 3600 / legCount,
+                            steps: [{ way_points: [index, index + 1] }]
+                        }))
                     }
                 }]
             });
@@ -509,4 +524,65 @@ test('route generation can continue after long day warning', async () => {
     assert.equal(harness.directionsCalls.length, 1);
     harness.resolveDirections();
     await flushPromises();
+});
+
+test('removing a duplicate stop targets its exact day occurrence', () => {
+    const harness = loadTripPlanner();
+    const shared = { id: 'same-park', name: 'Same Park', lat: 1, lng: 1 };
+    harness.window.BARK.tripDays = [
+        { color: '#1976D2', stops: [{ ...shared }], notes: '' },
+        { color: '#2E7D32', stops: [{ ...shared }], notes: '' }
+    ];
+
+    const removed = harness.window.BARK.removeTripStopAt(1, 0, { showToast: false });
+
+    assert.equal(removed, true);
+    assert.equal(harness.window.BARK.tripDays[0].stops.length, 1);
+    assert.equal(harness.window.BARK.tripDays[1].stops.length, 0);
+});
+
+test('Google Maps exports the exact points from the shared route plan', () => {
+    const harness = loadTripPlanner();
+    harness.window.BARK.tripDays = [
+        { color: '#1976D2', stops: [{ name: 'First', lat: 1, lng: 1 }], notes: '' },
+        { color: '#2E7D32', stops: [], notes: '' },
+        { color: '#E65100', stops: [{ name: 'Later', lat: 2, lng: 2 }], notes: '' }
+    ];
+    harness.window.tripStartNode = { name: 'Start', lat: 0, lng: 0 };
+    harness.window.tripEndNode = { name: 'End', lat: 3, lng: 3 };
+    const expected = harness.window.BARK.buildTripRoutePlan({
+        tripDays: harness.window.BARK.tripDays,
+        startNode: harness.window.tripStartNode,
+        endNode: harness.window.tripEndNode
+    }).getDay(2).points.map(point => `${point.lat},${point.lng}`);
+
+    harness.window.exportDayToMaps(2);
+
+    assert.equal(harness.openedUrls.length, 1);
+    assert.equal(harness.openedUrls[0].url, `https://www.google.com/maps/dir/${expected.join('/')}`);
+    assert.equal(harness.openedUrls[0].target, '_blank');
+});
+
+test('multi-day route generation makes one batched call across an empty day', async () => {
+    const harness = loadTripPlanner({ timerMode: 'manual' });
+    harness.window.BARK.tripDays = [
+        { color: '#1976D2', stops: [{ name: 'First', lat: 1, lng: 1 }], notes: '' },
+        { color: '#2E7D32', stops: [], notes: '' },
+        { color: '#E65100', stops: [{ name: 'Later', lat: 2, lng: 2 }], notes: '' }
+    ];
+    harness.window.tripStartNode = { name: 'Start', lat: 0, lng: 0 };
+    harness.window.tripEndNode = { name: 'End', lat: 3, lng: 3 };
+    harness.window.BARK.initTripPlanner();
+    harness.window.BARK.updateTripUI();
+
+    await openRouteChoiceAndSkip(harness);
+
+    assert.equal(harness.directionsCalls.length, 1);
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(harness.directionsCalls[0].coordinates)),
+        [[0, 0], [1, 1], [2, 2], [3, 3]]
+    );
+    harness.resolveDirections();
+    await flushPromises(16);
+    assert.equal(harness.element('start-route-btn').dataset.routeStatus, 'complete');
 });

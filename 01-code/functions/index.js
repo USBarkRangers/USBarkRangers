@@ -828,6 +828,7 @@ const ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/drivi
 const ORS_SNAP_URL = "https://api.openrouteservice.org/v2/snap/driving-car/json";
 const ORS_GEOCODE_URL = "https://api.openrouteservice.org/geocode/search";
 const ROUTE_SNAP_RADIUS_METERS = 2000;
+const ROUTE_MAX_COORDINATES = 40;
 const ROUTE_FALLBACK_GEOCODE_RADIUS_KM = 50;
 const ROUTE_FALLBACK_GEOCODE_SIZE = 10;
 const ROUTE_FALLBACK_CANDIDATE_LIMIT = 6;
@@ -942,7 +943,10 @@ function isValidRouteCoordinatePair(pair) {
 
 function normalizeRouteCoordinatePair(pair) {
     if (!isValidRouteCoordinatePair(pair)) return null;
-    return [Number(pair[0]), Number(pair[1])];
+    const longitude = Number(pair[0]);
+    const latitude = Number(pair[1]);
+    if (longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90) return null;
+    return [longitude, latitude];
 }
 
 function normalizeRouteCoordinates(coordinates) {
@@ -976,9 +980,9 @@ function normalizeRouteWaypoints(waypoints, coordinates) {
     return normalizedCoordinates.map((coordinate, index) => {
         const waypoint = Array.isArray(waypoints) ? waypoints[index] : null;
         return {
-            name: cleanOptionalString(waypoint && waypoint.name),
-            state: cleanOptionalString(waypoint && waypoint.state),
-            country: cleanOptionalString(waypoint && waypoint.country) || "US",
+            name: (cleanOptionalString(waypoint && waypoint.name) || "").slice(0, 200),
+            state: (cleanOptionalString(waypoint && waypoint.state) || "").slice(0, 100),
+            country: (cleanOptionalString(waypoint && waypoint.country) || "US").slice(0, 10),
             coordinate
         };
     });
@@ -3037,8 +3041,11 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
     const coordinates = normalizeRouteCoordinates(payload.coordinates);
     const radiuses = payload.radiuses;
 
-    if (!Array.isArray(coordinates) || coordinates.length < 2) {
-        throw new functions.https.HttpsError("invalid-argument", "Payload mismatch!");
+    if (!Array.isArray(coordinates) || coordinates.length < 2 || coordinates.length > ROUTE_MAX_COORDINATES) {
+        throw new functions.https.HttpsError(
+            "invalid-argument",
+            `Routes must contain between 2 and ${ROUTE_MAX_COORDINATES} valid coordinates.`
+        );
     }
 
     const apiKey = getOrsApiKey(options);
@@ -3050,7 +3057,11 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
         ...options,
         waypoints: normalizeRouteWaypoints(payload.waypoints, coordinates)
     });
-    const body = { coordinates: snappedCoordinates };
+    const body = {
+        coordinates: snappedCoordinates,
+        geometry: true,
+        instructions: true
+    };
     if (Array.isArray(radiuses) && radiuses.length === coordinates.length) {
         body.radiuses = radiuses;
     }

@@ -525,6 +525,31 @@ describe("ORS premium callable handlers", () => {
         );
         assert.equal(normalizeRouteCoordinates([[-86.3447388], [-86.65, 46.41]]), null);
         assert.equal(normalizeRouteCoordinates([["nope", 46.5482534], [-86.65, 46.41]]), null);
+        assert.equal(normalizeRouteCoordinates([[181, 46.5482534], [-86.65, 46.41]]), null);
+        assert.equal(normalizeRouteCoordinates([[-86.3447388, 91], [-86.65, 46.41]]), null);
+    });
+
+    it("rejects route payloads above the bounded batch size before calling ORS", async () => {
+        let postCalls = 0;
+        const coordinates = Array.from({ length: 41 }, (_, index) => [-120 + index * 0.01, 40]);
+
+        await assertRejectsCode(
+            handlePremiumRoute(
+                { data: { coordinates } },
+                authedContext("premium-user"),
+                {
+                    firestore: makeFirestore({ entitlement: premiumEntitlement }),
+                    getOrsApiKey: () => "test-key",
+                    axiosPost: async () => {
+                        postCalls += 1;
+                        return { data: { ok: true } };
+                    }
+                }
+            ),
+            "invalid-argument"
+        );
+
+        assert.equal(postCalls, 0);
     });
 
     it("uses snapped route-network coordinates when ORS snap resolves off-road pins", () => {
@@ -658,6 +683,8 @@ describe("ORS premium callable handlers", () => {
         assert.match(capturedRequests[1].url, /openrouteservice\.org\/v2\/directions/);
         assert.deepEqual(capturedRequests[1].body.coordinates, [snappedPicturedRocks, snappedMunising]);
         assert.deepEqual(capturedRequests[1].body.radiuses, [-1, -1]);
+        assert.equal(capturedRequests[1].body.geometry, true);
+        assert.equal(capturedRequests[1].body.instructions, true);
         assert.equal(capturedRequests[1].config.headers.Authorization, "test-key");
     });
 

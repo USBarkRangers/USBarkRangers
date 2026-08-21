@@ -71,9 +71,9 @@ function hasTripVisitedPlace(placeOrId) {
 
 (function () {
     let tripLayerGroup = null;
-    // Stable identity: stop.id when available, otherwise "lat,lng". Reusing
-    // markers across reorder/recolor is the reuse-in-place guarantee.
-    const badgeMarkers = new Map();   // key: stableStopKey -> marker
+    // Occurrence identity is positional so duplicate parks/coordinates remain
+    // independently removable without a saved-trip schema migration.
+    const badgeMarkers = new Map();   // key: dayIndex:stopIndex -> marker
     const dayLines = new Map();       // key: dayIdx -> polyline
     const bookendMarkers = new Map(); // key: 'start' | 'end' -> marker
     let tripStopParkIds = new Set();
@@ -105,8 +105,8 @@ function hasTripVisitedPlace(placeOrId) {
         ensureLayerGroup();
     }
 
-    function stableStopKey(stop) {
-        return stop.id || `${stop.lat},${stop.lng}`;
+    function stopOccurrenceKey(dayIndex, stopIndex) {
+        return `${dayIndex}:${stopIndex}`;
     }
 
     function getOfficialParkData(stop) {
@@ -211,7 +211,8 @@ function hasTripVisitedPlace(placeOrId) {
     function buildTripPopupHtml(title, subtitle, options = {}) {
         const safeTitle = escapeHtml(title || 'Trip stop');
         const safeSubtitle = escapeHtml(subtitle || 'Trip stop');
-        const safeStopKey = escapeHtml(options.stopKey || '');
+        const safeDayIndex = Number.isInteger(options.dayIndex) ? options.dayIndex : '';
+        const safeStopIndex = Number.isInteger(options.stopIndex) ? options.stopIndex : '';
         const detailsButton = options.hasParkDetails
             ? '<button type="button" class="trip-overlay-popup-btn trip-overlay-popup-details">Park details</button>'
             : '';
@@ -222,7 +223,7 @@ function hasTripVisitedPlace(placeOrId) {
                 <span>${safeSubtitle}</span>
                 <div class="trip-overlay-popup-actions">
                     ${detailsButton}
-                    <button type="button" class="trip-overlay-popup-btn trip-overlay-popup-remove" data-trip-stop-key="${safeStopKey}">Remove stop</button>
+                    <button type="button" class="trip-overlay-popup-btn trip-overlay-popup-remove" data-trip-day-index="${safeDayIndex}" data-trip-stop-index="${safeStopIndex}">Remove stop</button>
                 </div>
             </div>`;
     }
@@ -248,9 +249,11 @@ function hasTripVisitedPlace(placeOrId) {
             removeBtn.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                const removeStop = window.BARK && window.BARK.removeTripStopByKey;
+                const removeStop = window.BARK && window.BARK.removeTripStopAt;
                 if (typeof removeStop === 'function') {
-                    removeStop(marker._tripStopKey || removeBtn.getAttribute('data-trip-stop-key'));
+                    const dayIndex = Number(marker._tripDayIndex ?? removeBtn.getAttribute('data-trip-day-index'));
+                    const stopIndex = Number(marker._tripStopIndex ?? removeBtn.getAttribute('data-trip-stop-index'));
+                    removeStop(dayIndex, stopIndex, { confirmRemoval: true });
                 }
             }, { once: true });
         }
@@ -294,7 +297,8 @@ function hasTripVisitedPlace(placeOrId) {
 
     function handleBadgeClick(marker) {
         showTripPopup(marker, marker._tripStopName, 'Trip stop', {
-            stopKey: marker._tripStopKey,
+            dayIndex: marker._tripDayIndex,
+            stopIndex: marker._tripStopIndex,
             hasParkDetails: Boolean(marker._tripParkId)
         });
     }
@@ -305,7 +309,7 @@ function hasTripVisitedPlace(placeOrId) {
         showTripPopup(marker, marker._tripBookendName, label);
     }
 
-    function createBadgeMarker(stop, number, parkId, stopKey) {
+    function createBadgeMarker(stop, number, parkId, occurrenceKey, dayIndex, stopIndex) {
         const iconSpec = getBadgeIconSpec(stop, number);
         const marker = L.marker([stop.lat, stop.lng], {
             icon: iconSpec.icon,
@@ -316,21 +320,24 @@ function hasTripVisitedPlace(placeOrId) {
             zIndexOffset: 800
         });
         marker._tripParkId = parkId || null;
-        marker._tripStopKey = stopKey;
+        marker._tripStopKey = occurrenceKey;
+        marker._tripDayIndex = dayIndex;
+        marker._tripStopIndex = stopIndex;
         marker._tripStopName = stop.name || 'Trip stop';
         marker._tripNumber = number;
         marker._tripIsOfficialBarkStop = Boolean(parkId);
         marker._tripBadgeStyleKey = iconSpec.styleKey;
         marker._tripStopData = { ...stop };
         syncTripPopup(marker, marker._tripStopName, 'Trip stop', true, {
-            stopKey,
+            dayIndex,
+            stopIndex,
             hasParkDetails: Boolean(parkId)
         });
         marker.on('click', () => handleBadgeClick(marker));
         return marker;
     }
 
-    function updateBadgeMarker(marker, stop, number, parkId, stopKey) {
+    function updateBadgeMarker(marker, stop, number, parkId, occurrenceKey, dayIndex, stopIndex) {
         const latlng = marker.getLatLng();
         if (latlng.lat !== stop.lat || latlng.lng !== stop.lng) {
             marker.setLatLng([stop.lat, stop.lng]);
@@ -348,11 +355,14 @@ function hasTripVisitedPlace(placeOrId) {
             marker._tripBadgeStyleKey = iconSpec.styleKey;
         }
         marker._tripParkId = parkId || null;
-        marker._tripStopKey = stopKey;
+        marker._tripStopKey = occurrenceKey;
+        marker._tripDayIndex = dayIndex;
+        marker._tripStopIndex = stopIndex;
         marker._tripStopName = stop.name || 'Trip stop';
         marker._tripStopData = { ...stop };
         syncTripPopup(marker, marker._tripStopName, 'Trip stop', true, {
-            stopKey,
+            dayIndex,
+            stopIndex,
             hasParkDetails: Boolean(parkId)
         });
     }
@@ -361,23 +371,21 @@ function hasTripVisitedPlace(placeOrId) {
         const seen = new Set();
         const nextStopParkIds = new Set();
 
-        tripDays.forEach(day => {
+        tripDays.forEach((day, dayIndex) => {
             (day.stops || []).forEach((stop, stopIdx) => {
                 if (!stop || typeof stop.lat !== 'number' || typeof stop.lng !== 'number') return;
-                const key = stableStopKey(stop);
-                // First occurrence wins if a stop somehow appears twice.
-                if (seen.has(key)) return;
+                const key = stopOccurrenceKey(dayIndex, stopIdx);
                 seen.add(key);
                 if (stop.id) nextStopParkIds.add(stop.id);
 
                 const number = stopIdx + 1;
                 const existing = badgeMarkers.get(key);
                 if (existing) {
-                    updateBadgeMarker(existing, stop, number, stop.id, key);
+                    updateBadgeMarker(existing, stop, number, stop.id, key, dayIndex, stopIdx);
                     return;
                 }
 
-                const marker = createBadgeMarker(stop, number, stop.id, key);
+                const marker = createBadgeMarker(stop, number, stop.id, key, dayIndex, stopIdx);
                 if (tripLayerGroup) tripLayerGroup.addLayer(marker);
                 badgeMarkers.set(key, marker);
             });
@@ -392,34 +400,14 @@ function hasTripVisitedPlace(placeOrId) {
         return nextStopParkIds;
     }
 
-    function buildDayLatLngs(tripDays, dayIdx, startLatLng, endLatLng) {
-        const latlngs = [];
-        const day = tripDays[dayIdx];
-        if (!day) return latlngs;
-        if (dayIdx === 0 && startLatLng) latlngs.push(startLatLng);
-        if (dayIdx > 0) {
-            const prevDay = tripDays[dayIdx - 1];
-            if (prevDay && prevDay.stops && prevDay.stops.length) {
-                const prevLast = prevDay.stops[prevDay.stops.length - 1];
-                latlngs.push([prevLast.lat, prevLast.lng]);
-            }
-        }
-        (day.stops || []).forEach(stop => {
-            if (typeof stop.lat === 'number' && typeof stop.lng === 'number') {
-                latlngs.push([stop.lat, stop.lng]);
-            }
-        });
-        if (dayIdx === tripDays.length - 1 && endLatLng) latlngs.push(endLatLng);
-        return latlngs;
-    }
-
-    function syncLines(tripDays, startLatLng, endLatLng) {
+    function syncLines(routeDays) {
         const seen = new Set();
-        tripDays.forEach((day, dayIdx) => {
-            const latlngs = buildDayLatLngs(tripDays, dayIdx, startLatLng, endLatLng);
+        routeDays.forEach(routeDay => {
+            const dayIdx = routeDay.dayIndex;
+            const latlngs = routeDay.latLngs;
             if (latlngs.length < 2) return;
             seen.add(dayIdx);
-            const color = day.color || '#475569';
+            const color = routeDay.color || '#475569';
             const existing = dayLines.get(dayIdx);
             if (existing) {
                 existing.setLatLngs(latlngs);
@@ -525,11 +513,17 @@ function hasTripVisitedPlace(placeOrId) {
             return { added: new Set(), removed: new Set() };
         }
         const days = Array.isArray(tripDays) ? tripDays : [];
-        const startLatLng = bookends && bookends.start ? [bookends.start.lat, bookends.start.lng] : null;
-        const endLatLng = bookends && bookends.end ? [bookends.end.lat, bookends.end.lng] : null;
         try {
             const nextStopParkIds = syncBadges(days);
-            syncLines(days, startLatLng, endLatLng);
+            const routePlanBuilder = window.BARK && window.BARK.buildTripRoutePlan;
+            const routePlan = typeof routePlanBuilder === 'function'
+                ? routePlanBuilder({
+                    tripDays: days,
+                    startNode: bookends && bookends.start,
+                    endNode: bookends && bookends.end
+                })
+                : { days: [] };
+            syncLines(routePlan.days || []);
             syncBookends(bookends);
             tripStopParkIds = nextStopParkIds;
             return diffParkIdSets(prevStopParkIds, nextStopParkIds);

@@ -6,8 +6,8 @@ window.BARK = window.BARK || {};
 
 const TRIP_DAY_LIMIT = 50;
 const TRIP_DAY_PAGE_SIZE = 9;
-const ROUTE_DAY_THROTTLE_THRESHOLD = 8;
-const ROUTE_DAY_THROTTLE_MS = 3000;
+const ROUTE_BATCH_THROTTLE_THRESHOLD = 8;
+const ROUTE_BATCH_THROTTLE_MS = 3000;
 const LONG_ROUTE_DAY_LIMIT_MILES = 1000;
 const ROUTE_DISTANCE_ESTIMATE_FACTOR = 1.25;
 
@@ -110,11 +110,9 @@ function updateTripMapVisuals() {
 //     - Trip planning data can be copied/shared without copying private media.
 //     - A user can have a general park memory and a separate per-trip note.
 //
-//   Refactor target:
-//     Replace lat/lng-derived fallback keys with generated tripStopId values,
-//     then route all stop actions through a trip planner service/controller.
-//     The map overlay should keep calling small APIs like removeTripStopByKey,
-//     never mutate tripDays directly.
+//   Stop actions use day + position, which identifies the exact occurrence
+//   without changing the saved-trip format. A future persistence migration may
+//   add tripStopId values when personal stop content needs stable identities.
 function getTotalStops() {
     return window.BARK.tripDays.reduce((sum, d) => sum + d.stops.length, 0);
 }
@@ -236,12 +234,12 @@ function setRouteTelemetrySummary(miles, hrs, mins) {
     telemetryEl.appendChild(document.createTextNode(` ${miles} Miles | ${hrs}h ${mins}m`));
 }
 
-function waitForRouteDayThrottle(routeDayIndex, routableDayCount) {
-    if (routableDayCount <= ROUTE_DAY_THROTTLE_THRESHOLD || routeDayIndex >= routableDayCount - 1) {
+function waitForRouteBatchThrottle(batchIndex, batchCount) {
+    if (batchCount <= ROUTE_BATCH_THROTTLE_THRESHOLD || batchIndex >= batchCount - 1) {
         return Promise.resolve();
     }
 
-    return new Promise(resolve => setTimeout(resolve, ROUTE_DAY_THROTTLE_MS));
+    return new Promise(resolve => setTimeout(resolve, ROUTE_BATCH_THROTTLE_MS));
 }
 
 function focusMapSearchForTripStop(dayNumber, dayColor) {
@@ -342,11 +340,6 @@ function showRouteButtonNotice(button, label, detail = '', status = 'complete', 
     }, durationMs);
 }
 
-function getTripStopKey(stop) {
-    if (!stop) return '';
-    return stop.id || `${stop.lat},${stop.lng}`;
-}
-
 function getFiniteCoordinate(value) {
     const numberValue = Number(value);
     return Number.isFinite(numberValue) ? numberValue : null;
@@ -383,10 +376,16 @@ function getLongRouteDayWarnings(routableDays) {
 
     return routableDays
         .map(routeDay => {
-            const estimatedMiles = estimateTripRouteDayMiles(routeDay.dayStops);
+            const dayStops = Array.isArray(routeDay.dayStops)
+                ? routeDay.dayStops
+                : (Array.isArray(routeDay.points) ? routeDay.points.map(point => point.node || point) : []);
+            const dayIndex = Number.isFinite(routeDay.originalIndex)
+                ? routeDay.originalIndex
+                : routeDay.dayIndex;
+            const estimatedMiles = estimateTripRouteDayMiles(dayStops);
             return {
-                originalIndex: routeDay.originalIndex,
-                dayNumber: Number.isFinite(routeDay.originalIndex) ? routeDay.originalIndex + 1 : null,
+                originalIndex: dayIndex,
+                dayNumber: Number.isFinite(dayIndex) ? dayIndex + 1 : null,
                 estimatedMiles
             };
         })
@@ -480,6 +479,18 @@ function getTripDayColor(dayIndex, fallbackColor = null) {
     return fallbackColor || colors[dayIndex % colors.length];
 }
 
+function buildCurrentTripRoutePlan() {
+    const builder = window.BARK && window.BARK.buildTripRoutePlan;
+    if (typeof builder !== 'function') {
+        throw new Error('Trip route planning is unavailable. Please refresh and try again.');
+    }
+    return builder({
+        tripDays: window.BARK.tripDays,
+        startNode: window.tripStartNode,
+        endNode: window.tripEndNode
+    });
+}
+
 function createTripDay(dayIndex, stops = []) {
     return {
         color: getTripDayColor(dayIndex),
@@ -550,13 +561,7 @@ function appendTripDayFromPrevious() {
     const tripDays = window.BARK.tripDays;
     if (!canAddTripDay({ notify: true })) return false;
 
-    const prevDay = tripDays[tripDays.length - 1];
-    const initialStops = [];
-    if (prevDay && Array.isArray(prevDay.stops) && prevDay.stops.length > 0) {
-        initialStops.push({ ...prevDay.stops[prevDay.stops.length - 1] });
-    }
-
-    tripDays.push(createTripDay(tripDays.length, initialStops));
+    tripDays.push(createTripDay(tripDays.length));
     window.BARK.activeDayIdx = tripDays.length - 1;
     updateTripUI();
     return true;
@@ -638,26 +643,26 @@ function removeTripDay(dayIdx) {
     updateTripUI();
 }
 
-window.BARK.removeTripStopByKey = function removeTripStopByKey(stopKey) {
-    if (!stopKey) return false;
-
+window.BARK.removeTripStopAt = function removeTripStopAt(dayIndex, stopIndex, options = {}) {
     const tripDays = window.BARK.tripDays;
-    for (let dayIdx = 0; dayIdx < tripDays.length; dayIdx++) {
-        const day = tripDays[dayIdx];
-        const stopIdx = (day.stops || []).findIndex(stop => getTripStopKey(stop) === stopKey);
-        if (stopIdx === -1) continue;
+    const normalizedDayIndex = Number(dayIndex);
+    const normalizedStopIndex = Number(stopIndex);
+    if (!Number.isInteger(normalizedDayIndex) || !Number.isInteger(normalizedStopIndex)) return false;
 
-        const stop = day.stops[stopIdx];
-        const name = stop && stop.name ? stop.name : 'this stop';
-        if (!confirm(`Remove "${name}" from Day ${dayIdx + 1}?`)) return false;
+    const day = Array.isArray(tripDays) ? tripDays[normalizedDayIndex] : null;
+    const stops = day && Array.isArray(day.stops) ? day.stops : null;
+    const stop = stops && stops[normalizedStopIndex];
+    if (!stop) return false;
 
-        day.stops.splice(stopIdx, 1);
-        updateTripUI();
-        showTripToast('Stop removed.');
-        return true;
+    if (options.confirmRemoval) {
+        const name = stop.name || 'this stop';
+        if (!confirm(`Remove "${name}" from Day ${normalizedDayIndex + 1}?`)) return false;
     }
 
-    return false;
+    stops.splice(normalizedStopIndex, 1);
+    updateTripUI();
+    if (options.showToast !== false) showTripToast('Stop removed.');
+    return true;
 };
 
 window.addStopToTrip = function (stopData) {
@@ -672,12 +677,11 @@ window.addStopToTrip = function (stopData) {
     }
 
     if (tripDays[activeDayIdx].stops.length >= 10) {
-        const lastStopOfCurrentDay = tripDays[activeDayIdx].stops[tripDays[activeDayIdx].stops.length - 1];
         if (activeDayIdx + 1 < tripDays.length) {
             window.BARK.activeDayIdx = ++activeDayIdx;
         } else {
             if (!canAddTripDay({ notify: true })) return false;
-            tripDays.push(createTripDay(tripDays.length, [{ ...lastStopOfCurrentDay }]));
+            tripDays.push(createTripDay(tripDays.length));
             window.BARK.activeDayIdx = tripDays.length - 1;
             activeDayIdx = window.BARK.activeDayIdx;
         }
@@ -766,7 +770,7 @@ window.executeSmartOptimization = function () {
             }
             newTripDays.push({ color: window.BARK.DAY_COLORS[dayColorIndex % window.BARK.DAY_COLORS.length], stops: [...currentDayStops], notes: tripDays[dayColorIndex] ? tripDays[dayColorIndex].notes : "" });
             dayColorIndex++;
-            if (!isLastStop) { currentDayStops = [{ ...stop }]; currentDayHours = 0; }
+            if (!isLastStop) { currentDayStops = []; currentDayHours = 0; }
         }
     }
 
@@ -780,17 +784,12 @@ window.executeSmartOptimization = function () {
 };
 
 window.exportDayToMaps = function (dayIdx) {
-    const tripDays = window.BARK.tripDays;
-    const day = tripDays[dayIdx];
-    const waypoints = [];
-    if (dayIdx === 0 && window.tripStartNode) waypoints.push(`${window.tripStartNode.lat},${window.tripStartNode.lng}`);
-    if (dayIdx > 0 && tripDays[dayIdx - 1].stops.length > 0) {
-        const prevLast = tripDays[dayIdx - 1].stops[tripDays[dayIdx - 1].stops.length - 1];
-        waypoints.push(`${prevLast.lat},${prevLast.lng}`);
+    const routeDay = buildCurrentTripRoutePlan().getDay(Number(dayIdx));
+    if (!routeDay || !routeDay.routable) {
+        alert('Not enough stops to generate a driving route for this day!');
+        return;
     }
-    day.stops.forEach(stop => waypoints.push(`${stop.lat},${stop.lng}`));
-    if (dayIdx === tripDays.length - 1 && window.tripEndNode) waypoints.push(`${window.tripEndNode.lat},${window.tripEndNode.lng}`);
-    if (waypoints.length < 2) { alert('Not enough stops to generate a driving route for this day!'); return; }
+    const waypoints = routeDay.points.map(point => `${point.lat},${point.lng}`);
     window.open(`https://www.google.com/maps/dir/${waypoints.join('/')}`, '_blank');
 };
 
@@ -1208,7 +1207,12 @@ function updateTripUI() {
     }
 
     // Wire up buttons
-    document.querySelectorAll('.remove-stop-btn').forEach(btn => { btn.onclick = (e) => { tripDays[activeDayIdx].stops.splice(parseInt(e.currentTarget.getAttribute('data-index')), 1); updateTripUI(); }; });
+    document.querySelectorAll('.remove-stop-btn').forEach(btn => {
+        btn.onclick = (event) => {
+            const stopIndex = parseInt(event.currentTarget.getAttribute('data-index'), 10);
+            window.BARK.removeTripStopAt(activeDayIdx, stopIndex, { showToast: false });
+        };
+    });
     document.querySelectorAll('.move-up-btn').forEach(btn => { btn.onclick = (e) => { const idx = parseInt(e.currentTarget.getAttribute('data-index')); if (idx > 0) { const stops = tripDays[activeDayIdx].stops; [stops[idx], stops[idx - 1]] = [stops[idx - 1], stops[idx]]; updateTripUI(); } }; });
     document.querySelectorAll('.move-down-btn').forEach(btn => { btn.onclick = (e) => { const idx = parseInt(e.currentTarget.getAttribute('data-index')); const stops = tripDays[activeDayIdx].stops; if (idx < stops.length - 1) { [stops[idx], stops[idx + 1]] = [stops[idx + 1], stops[idx]]; updateTripUI(); } }; });
     document.querySelectorAll('.move-to-day-select').forEach(sel => { sel.onchange = (e) => { const fromIdx = parseInt(e.currentTarget.getAttribute('data-index')); const toDayIdx = parseInt(e.target.value); if (isNaN(toDayIdx)) return; const stop = tripDays[activeDayIdx].stops.splice(fromIdx, 1)[0]; tripDays[toDayIdx].stops.push(stop); updateTripUI(); }; });
@@ -1428,16 +1432,23 @@ function initTripPlanner() {
             updateRouteGenerationButtonState();
             return;
         }
-        const tripDays = window.BARK.tripDays;
-        const routableDays = tripDays
-            .map((day, originalIndex) => {
-                const dayStops = Array.isArray(day.stops) ? [...day.stops] : [];
-                if (originalIndex === 0 && window.tripStartNode) dayStops.unshift(window.tripStartNode);
-                if (originalIndex === tripDays.length - 1 && window.tripEndNode) dayStops.push(window.tripEndNode);
-                return { day, dayStops, originalIndex };
-            })
-            .filter(routeDay => routeDay.dayStops.length >= 2);
+        const routePlan = buildCurrentTripRoutePlan();
+        const routableDays = routePlan.routableDays;
         if (routableDays.length === 0) { alert("Each day needs at least 2 stops, including trip start/end."); return; }
+
+        const routeBatchApi = window.BARK && window.BARK.tripRouteBatch;
+        if (!routeBatchApi || typeof routeBatchApi.buildRouteBatches !== 'function' || typeof routeBatchApi.splitRouteBatchResponse !== 'function') {
+            alert('Route generation is unavailable. Please refresh and try again.');
+            return;
+        }
+        let routeBatches;
+        try {
+            routeBatches = routeBatchApi.buildRouteBatches(routableDays);
+        } catch (error) {
+            alert(error && error.message ? error.message : 'Could not prepare this trip for routing.');
+            return;
+        }
+        if (routeBatches.length === 0) { alert('Not enough valid stops to generate a route.'); return; }
 
         clearRouteTelemetryStatus();
         const longRouteWarnings = getLongRouteDayWarnings(routableDays);
@@ -1458,6 +1469,8 @@ function initTripPlanner() {
         }
 
         const routeRunId = ++routeRenderGeneration;
+        const routePlanSignature = routePlan.signature;
+        const routeUserId = user.uid;
         window.BARK.incrementRequestCount();
 
         currentRouteLayers.forEach(removeTripMapLayer); currentRouteLayers = [];
@@ -1468,38 +1481,46 @@ function initTripPlanner() {
         }
 
         if (startRouteBtn) {
-            setRouteGenerationButtonProgress(startRouteBtn, 1, routableDays.length);
+            setRouteGenerationButtonProgress(startRouteBtn, 1, routeBatches.length);
             startRouteBtn.disabled = true;
         }
 
-        let routeButtonDayNumber = 1;
+        let routeButtonBatchNumber = 1;
         let routeButtonIsSlow = false;
         let finalRouteButtonNotice = null;
+        let routeBecameStale = false;
         const slowRouteTimer = setTimeout(() => {
             if (routeRunId !== routeRenderGeneration) return;
             routeButtonIsSlow = true;
-            setRouteGenerationButtonProgress(startRouteBtn, routeButtonDayNumber, routableDays.length, { status: 'slow' });
+            setRouteGenerationButtonProgress(startRouteBtn, routeButtonBatchNumber, routeBatches.length, { status: 'slow' });
         }, 1800);
 
         const allBounds = [];
+        const failedDayNumbers = new Set();
         let anySucceeded = false, totalDistMeters = 0, totalDurSeconds = 0;
 
+        function routeRequestIsCurrent() {
+            const activeUser = typeof firebase !== 'undefined' ? firebase.auth().currentUser : null;
+            if (routeRunId !== routeRenderGeneration || !activeUser || activeUser.uid !== routeUserId) return false;
+            return buildCurrentTripRoutePlan().signature === routePlanSignature;
+        }
+
         try {
-            for (let routeDayIndex = 0; routeDayIndex < routableDays.length; routeDayIndex += 1) {
-                const routeDay = routableDays[routeDayIndex];
-                const { day, dayStops } = routeDay;
-                routeButtonDayNumber = routeDayIndex + 1;
+            for (let batchIndex = 0; batchIndex < routeBatches.length; batchIndex += 1) {
+                const routeBatch = routeBatches[batchIndex];
+                routeButtonBatchNumber = batchIndex + 1;
                 setRouteGenerationButtonProgress(
                     startRouteBtn,
-                    routeButtonDayNumber,
-                    routableDays.length,
+                    routeButtonBatchNumber,
+                    routeBatches.length,
                     { status: routeButtonIsSlow ? 'slow' : 'working' }
                 );
 
                 try {
-                    const orsCoordinates = dayStops.map(s => [Number(s.lng), Number(s.lat)]);
+                    const orsCoordinates = routeBatch.points.map(point => [point.lng, point.lat]);
                     const parkRepo = window.BARK.repos && window.BARK.repos.ParkRepo;
-                    const orsWaypoints = dayStops.map((stop, index) => {
+                    const orsWaypoints = routeBatch.points.map((point, index) => {
+                        const stop = point.node;
                         const canonical = stop && stop.id && parkRepo && typeof parkRepo.getById === 'function'
                             ? parkRepo.getById(stop.id)
                             : null;
@@ -1514,18 +1535,53 @@ function initTripPlanner() {
                     });
                     const geoJSONData = await window.BARK.services.ors.directions(orsCoordinates, {
                         radiuses: new Array(orsCoordinates.length).fill(-1),
-                        waypoints: orsWaypoints
+                            waypoints: orsWaypoints
                     });
-                    const stillSignedIn = typeof firebase !== 'undefined' && firebase.auth().currentUser;
-                    if (routeRunId !== routeRenderGeneration || !stillSignedIn) break;
-                    const layer = L.geoJSON(geoJSONData, { style: () => ({ color: day.color, weight: 5, opacity: 0.85, dashArray: '10, 8' }) }).addTo(map);
-                    currentRouteLayers.push(layer); allBounds.push(layer.getBounds()); anySucceeded = true;
-                    const summary = geoJSONData.features[0].properties.summary;
-                    if (summary) { totalDistMeters += summary.distance; totalDurSeconds += summary.duration; }
-                } catch (err) { console.error(`Route failed for day (${day.color}):`, err); alert(`A day's route failed: ${err.message}`); }
+                    if (!routeRequestIsCurrent()) {
+                        routeBecameStale = true;
+                        break;
+                    }
 
-                if (routeRunId !== routeRenderGeneration) break;
-                await waitForRouteDayThrottle(routeDayIndex, routableDays.length);
+                    const dayRoutes = routeBatchApi.splitRouteBatchResponse(routeBatch, geoJSONData);
+                    dayRoutes.forEach(dayRoute => {
+                        const layer = L.geoJSON(dayRoute.geoJSON, {
+                            style: () => ({ color: dayRoute.color, weight: 5, opacity: 0.85, dashArray: '10, 8' })
+                        }).addTo(map);
+                        currentRouteLayers.push(layer);
+                        allBounds.push(layer.getBounds());
+                    });
+                    anySucceeded = dayRoutes.length > 0 || anySucceeded;
+
+                    const feature = geoJSONData && Array.isArray(geoJSONData.features) ? geoJSONData.features[0] : null;
+                    const batchSummary = feature && feature.properties && feature.properties.summary;
+                    if (batchSummary) {
+                        totalDistMeters += Number(batchSummary.distance) || 0;
+                        totalDurSeconds += Number(batchSummary.duration) || 0;
+                    } else {
+                        dayRoutes.forEach(dayRoute => {
+                            totalDistMeters += Number(dayRoute.summary && dayRoute.summary.distance) || 0;
+                            totalDurSeconds += Number(dayRoute.summary && dayRoute.summary.duration) || 0;
+                        });
+                    }
+                } catch (err) {
+                    routeBatch.days.forEach(day => failedDayNumbers.add(day.dayIndex + 1));
+                    console.error(`Route batch failed for days ${routeBatch.days.map(day => day.dayIndex + 1).join(', ')}:`, err);
+                }
+
+                if (!routeRequestIsCurrent()) {
+                    routeBecameStale = true;
+                    break;
+                }
+                await waitForRouteBatchThrottle(batchIndex, routeBatches.length);
+            }
+
+            if (routeBecameStale) {
+                currentRouteLayers.forEach(removeTripMapLayer);
+                currentRouteLayers = [];
+                if (window.BARK.tripLayer && typeof window.BARK.tripLayer.setDayLinesVisible === 'function') {
+                    window.BARK.tripLayer.setDayLinesVisible(true);
+                }
+                return;
             }
 
             if (allBounds.length > 0) {
@@ -1539,11 +1595,23 @@ function initTripPlanner() {
                     const hrs = Math.floor(totalDurSeconds / 3600);
                     const mins = Math.floor((totalDurSeconds % 3600) / 60);
                     clearRouteTelemetryStatus();
-                    finalRouteButtonNotice = {
-                        label: 'Route Ready',
-                        detail: `${miles} mi | ${hrs}h ${mins}m`,
-                        status: 'complete'
-                    };
+                    if (failedDayNumbers.size > 0) {
+                        finalRouteButtonNotice = {
+                            label: 'Route Partially Ready',
+                            detail: `${miles} mi | ${failedDayNumbers.size} day${failedDayNumbers.size === 1 ? '' : 's'} failed`,
+                            status: 'warning'
+                        };
+                        if (window.BARK.tripLayer && typeof window.BARK.tripLayer.setDayLinesVisible === 'function') {
+                            window.BARK.tripLayer.setDayLinesVisible(true);
+                        }
+                        alert(`Could not generate Day ${Array.from(failedDayNumbers).sort((a, b) => a - b).join(', Day ')}. The other route days are ready.`);
+                    } else {
+                        finalRouteButtonNotice = {
+                            label: 'Route Ready',
+                            detail: `${miles} mi | ${hrs}h ${mins}m`,
+                            status: 'complete'
+                        };
+                    }
                 } else {
                     clearRouteTelemetryStatus();
                     finalRouteButtonNotice = {
@@ -1551,6 +1619,12 @@ function initTripPlanner() {
                         detail: 'Try fewer stops/day',
                         status: 'error'
                     };
+                    if (window.BARK.tripLayer && typeof window.BARK.tripLayer.setDayLinesVisible === 'function') {
+                        window.BARK.tripLayer.setDayLinesVisible(true);
+                    }
+                    if (failedDayNumbers.size > 0) {
+                        alert(`Could not generate Day ${Array.from(failedDayNumbers).sort((a, b) => a - b).join(', Day ')}. Please try again.`);
+                    }
                 }
             }
 

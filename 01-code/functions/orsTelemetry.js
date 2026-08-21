@@ -69,6 +69,7 @@ async function recordOrsRequestAttempt(event, options = {}) {
         };
         const latest = {
             observedAt: FieldValue.serverTimestamp(),
+            provider: "heigit",
             status: normalized.status
         };
         if (normalized.quota) {

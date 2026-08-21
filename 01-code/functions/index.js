@@ -11,6 +11,7 @@ const opsMetrics = require("./opsMetrics.js");
 const feedbackAttachments = require("./feedbackAttachments.js");
 const routeRequestStrategy = require("./routeRequestStrategy.js");
 const { ORS_ENDPOINTS } = require("./orsEndpoints.js");
+const orsTelemetry = require("./orsTelemetry.js");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -901,15 +902,28 @@ function getOrsRetryDelayMs(error, attemptIndex, options = {}) {
     return Math.max(0, cappedDelay + jitter);
 }
 
-async function requestOrsWithRetry(requestFn, options = {}) {
+async function requestOrsWithRetry(requestFn, options = {}, endpoint = "other") {
     const maxAttempts = Number.isFinite(Number(options.orsRetryMaxAttempts))
         ? Math.max(1, Math.floor(Number(options.orsRetryMaxAttempts)))
         : ORS_RETRY_MAX_ATTEMPTS;
 
     for (let attemptIndex = 0; attemptIndex < maxAttempts; attemptIndex += 1) {
         try {
-            return await requestFn();
+            const response = await requestFn();
+            await orsTelemetry.recordOrsRequestAttempt({
+                endpoint,
+                quota: orsTelemetry.getOrsQuotaObservation(response && response.headers),
+                status: response && response.status,
+                success: true
+            }, options);
+            return response;
         } catch (error) {
+            await orsTelemetry.recordOrsRequestAttempt({
+                endpoint,
+                quota: orsTelemetry.getOrsQuotaObservation(error && error.response && error.response.headers),
+                status: getOrsErrorStatus(error),
+                success: false
+            }, options);
             const isLastAttempt = attemptIndex >= maxAttempts - 1;
             if (isLastAttempt || !isRetryableOrsError(error)) throw error;
 
@@ -929,11 +943,11 @@ async function requestOrsWithRetry(requestFn, options = {}) {
 }
 
 function getOrsWithRetry(get, url, options = {}) {
-    return requestOrsWithRetry(() => get(url), options);
+    return requestOrsWithRetry(() => get(url), options, orsTelemetry.getOrsEndpointName(url));
 }
 
 function postOrsWithRetry(post, url, body, config, options = {}) {
-    return requestOrsWithRetry(() => post(url, body, config), options);
+    return requestOrsWithRetry(() => post(url, body, config), options, orsTelemetry.getOrsEndpointName(url));
 }
 
 function isValidRouteCoordinatePair(pair) {
@@ -3707,6 +3721,9 @@ if (process.env.NODE_ENV === "test") {
         normalizeRouteCoordinates,
         normalizeRouteWaypoints,
         extractSnappedRouteCoordinates,
+        getOrsEndpointName: orsTelemetry.getOrsEndpointName,
+        getOrsQuotaObservation: orsTelemetry.getOrsQuotaObservation,
+        requestOrsWithRetry,
         getLemonSqueezyConfig,
         getLemonSqueezyProviderConfig,
         getLemonSqueezyModeConfig,

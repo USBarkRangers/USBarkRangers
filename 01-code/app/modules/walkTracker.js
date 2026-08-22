@@ -590,7 +590,6 @@ window.BARK = window.BARK || {};
             if (!this.isTracking() && !this.hasUnsavedWalk()) return;
 
             const finalMiles = this.totalMiles;
-            const pointMiles = Math.max(0, finalMiles - this.manualFallbackMiles);
             this.saving = true;
             this.stopWatching();
 
@@ -602,10 +601,10 @@ window.BARK = window.BARK || {};
                 }
 
                 this.persist(true, 'pending-save');
-                const saved = await this.saveWithRetry(finalMiles, pointMiles);
+                const saved = await this.saveWithRetry(finalMiles);
                 if (saved) {
                     this.discard();
-                    alert(`Expedition Complete! You logged ${finalMiles.toFixed(2)} miles.`);
+                    alert(`Walk saved! You logged ${finalMiles.toFixed(2)} miles toward your trail.`);
                 } else {
                     // The record stays on disk; boot will offer it again.
                     this.clearWalkState();
@@ -617,16 +616,16 @@ window.BARK = window.BARK || {};
             }
         },
 
-        async saveWithRetry(miles, pointMiles) {
+        async saveWithRetry(miles) {
             const logMiles = window.BARK.processMileageAddition;
             if (typeof logMiles !== 'function') return false;
-            if (await logMiles(miles, 'GPS Active Track', { pointMiles })) return true;
+            if (await logMiles(miles, 'GPS Active Track')) return true;
             if (!confirm('Saving your walk failed. Try again?')) return false;
-            return Boolean(await logMiles(miles, 'GPS Active Track', { pointMiles }));
+            return Boolean(await logMiles(miles, 'GPS Active Track'));
         },
 
         cancel() {
-            if (!confirm("Are you sure you want to cancel your walk? You won't earn any points.")) return;
+            if (!confirm("Are you sure you want to cancel your walk? Its miles won't be added to your trail.")) return;
             this.stopWatching();
             this.discard();
             renderWalkCard();
@@ -776,10 +775,9 @@ window.BARK = window.BARK || {};
 
     async function saveRecoveredWalk(record) {
         const miles = Number(record.totalMiles) || 0;
-        const fallback = Number(record.manualFallbackMiles) || 0;
         const logMiles = window.BARK.processMileageAddition;
         if (typeof logMiles !== 'function') return;
-        const saved = await logMiles(miles, 'GPS Active Track', { pointMiles: Math.max(0, miles - fallback) });
+        const saved = await logMiles(miles, 'GPS Active Track');
         if (saved) clearStoredSession();
     }
 
@@ -787,7 +785,7 @@ window.BARK = window.BARK || {};
 
     const IDLE_DESC =
         'Tracks your real route while the app is open. iOS pauses GPS when the screen locks, ' +
-        'so keep this screen on while you walk. Tracked miles count toward your score.';
+        'so keep this screen on while you walk. Tracked miles advance your trail; completing the full trail earns 1 point.';
 
     const SCREEN_NOTICE =
         'Before you start:\n\n' +

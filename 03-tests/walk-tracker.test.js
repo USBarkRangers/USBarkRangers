@@ -468,13 +468,13 @@ test('a successful save logs the miles and clears the device copy', async () => 
 
     assert.equal(logged.length, 1);
     assert.ok(Math.abs(logged[0].miles - tracked) < 1e-9);
-    assert.ok(Math.abs(logged[0].opts.pointMiles - tracked) < 1e-9, 'GPS miles earn score points');
+    assert.equal(logged[0].opts, undefined, 'walking sends mileage only, never score-point inputs');
     assert.equal(harness.storedSession(), null);
     assert.equal(harness.isWatching(), false);
     assert.equal(harness.tracker.totalMiles, 0);
 });
 
-test('miles the user typed in for a pause earn no score points', async () => {
+test('gps and pause-recovery miles are sent only as trail progress', async () => {
     const logged = [];
     const harness = createHarness({ storage: seenNotice(), prompts: ['2'] });
     harness.bark.processMileageAddition = async (miles, type, opts) => {
@@ -494,7 +494,7 @@ test('miles the user typed in for a pause earn no score points', async () => {
     await harness.tracker.stopAndSave();
 
     assert.ok(Math.abs(logged[0].miles - (gpsMiles + 2)) < 1e-9, 'all of it counts as mileage');
-    assert.ok(Math.abs(logged[0].opts.pointMiles - gpsMiles) < 1e-9, 'only the GPS part scores');
+    assert.equal(logged[0].opts, undefined, 'neither GPS nor recovery mileage carries scoring metadata');
 });
 
 test('the account gate is asked before the OS is', async () => {

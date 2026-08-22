@@ -30,6 +30,7 @@ let completedTrailsLayerGroup = null;
 const EMPTY_WALK_HISTORY_TEXT = 'No miles logged yet.';
 const EMPTY_MANAGE_WALKS_TEXT = 'No walks logged yet.';
 const EMPTY_COMPLETED_EXPEDITIONS_TEXT = 'No expeditions completed yet. Spin the wheel to start!';
+const EXPEDITION_COMPLETION_POINTS = 1;
 
 function getMapRef() {
     return (typeof window.map !== 'undefined') ? window.map : null;
@@ -531,22 +532,9 @@ function buildWalkPointUpdate(payload, pointDiff) {
     };
 }
 
-function calculateEligibleTrailPointMiles(expedition, trailName) {
-    const history = Array.isArray(expedition && expedition.history) ? expedition.history : [];
-    return history.reduce((sum, log) => {
-        if (!log || log.trailName !== trailName) return sum;
-        return sum + getWalkPointMiles(log);
-    }, 0);
-}
-
-function calculateExpeditionRewardPoints(expedition, trailName, trailMiles) {
-    const maxReward = Math.max(1, Math.round(trailMiles / 2));
-    const eligiblePointMiles = Math.min(trailMiles, calculateEligibleTrailPointMiles(expedition, trailName));
-    if (eligiblePointMiles <= 0) return 0;
-    return Math.min(maxReward, Math.max(1, Math.round(eligiblePointMiles / 2)));
-}
-
-async function processMileageAddition(milesToAdd, typeLabel, options = {}) {
+// Keep the third argument for callers on older cached builds, but never use it to
+// derive score. Client-supplied mileage metadata must not mint points.
+async function processMileageAddition(milesToAdd, typeLabel, _options = {}) {
     if (typeof firebase === 'undefined' || !firebase.auth || !firebase.firestore) {
         alert("Mileage logging is unavailable right now. Please refresh and try again.");
         return false;
@@ -569,14 +557,12 @@ async function processMileageAddition(milesToAdd, typeLabel, options = {}) {
         let newTotal = context.currentMiles + milesLogged;
         if (context.totalMiles > 0 && newTotal > context.totalMiles) newTotal = context.totalMiles;
 
-        const requestedPointMiles = Number(options.pointMiles);
-        const pointMiles = Number.isFinite(requestedPointMiles)
-            ? Math.max(0, parseFloat(requestedPointMiles.toFixed(2)))
-            : isHonorWalkType(typeLabel) ? 0 : milesLogged;
         const logEntry = {
             ts: Date.now(),
             miles: milesLogged,
-            pointMiles,
+            // Walking advances expedition and lifetime mileage only. The single
+            // score point is awarded atomically when the full trail is claimed.
+            pointMiles: 0,
             type: typeLabel,
             trailName: context.trailName
         };
@@ -584,17 +570,12 @@ async function processMileageAddition(milesToAdd, typeLabel, options = {}) {
         const virtualExpedition = { ...context.expedition, history };
         if (context.hasActiveExpedition) virtualExpedition.miles_logged = newTotal;
 
-        const writePayload = buildWalkPointUpdate({
+        const writePayload = {
             virtual_expedition: virtualExpedition,
             lifetime_miles: firebase.firestore.FieldValue.increment(milesLogged)
-        }, pointMiles);
+        };
 
         await userRef.set(writePayload, { merge: true });
-
-        if (pointMiles > 0) window.currentWalkPoints = (window.currentWalkPoints || 0) + pointMiles;
-        if (pointMiles > 0 && window.BARK && typeof window.BARK.syncScoreToLeaderboard === 'function') {
-            await window.BARK.syncScoreToLeaderboard();
-        }
 
         const nextLifetimeMiles = context.lifetimeMiles + milesLogged;
         if (context.hasActiveExpedition) {
@@ -925,42 +906,75 @@ window.deleteWalkLog = async function (timestamp) {
 };
 
 // ====== CLAIM REWARD ======
+let claimRewardInFlight = false;
+
 window.claimRewardAndReset = async function () {
+    if (claimRewardInFlight) return false;
     const user = getCurrentFirebaseUser();
-    if (!user) { openFreeAccountPrompt('expedition'); return; }
-    const userRef = firebase.firestore().collection('users').doc(user.uid);
+    if (!user) { openFreeAccountPrompt('expedition'); return false; }
+    const db = firebase.firestore();
+    const userRef = db.collection('users').doc(user.uid);
+    claimRewardInFlight = true;
     try {
-        const docSnap = await userRef.get();
-        const userData = docSnap.data();
-        if (!userData || !userData.virtual_expedition) return;
-        const expedition = userData.virtual_expedition;
-        const currentTrailName = expedition.trail_name || "Expedition";
-        const trailMiles = Number(expedition.trail_total_miles) || 0;
-        const pointsEarned = calculateExpeditionRewardPoints(expedition, currentTrailName, trailMiles);
+        const claim = await db.runTransaction(async transaction => {
+            const docSnap = await transaction.get(userRef);
+            const userData = docSnap.data();
+            const expedition = userData && userData.virtual_expedition;
+            if (!expedition || !expedition.active_trail) return null;
 
-        const completedTrail = { id: expedition.active_trail, name: currentTrailName, miles: trailMiles, points_earned: pointsEarned, date_completed: Date.now() };
-        const completedArray = userData.completed_expeditions || [];
-        const existingIndex = completedArray.findIndex(exp => exp.id === completedTrail.id);
-        if (existingIndex > -1) completedArray[existingIndex] = { ...completedArray[existingIndex], ...completedTrail };
-        else completedArray.push(completedTrail);
+            const trailMiles = Number(expedition.trail_total_miles) || 0;
+            const milesLogged = Number(expedition.miles_logged) || 0;
+            if (trailMiles <= 0 || milesLogged < trailMiles) return null;
 
-        const updatePayload = buildWalkPointUpdate({
-            "completed_expeditions": completedArray,
-            "virtual_expedition.active_trail": null, "virtual_expedition.trail_name": null, "virtual_expedition.miles_logged": 0, "virtual_expedition.trail_total_miles": 0,
-        }, pointsEarned);
+            const currentTrailName = expedition.trail_name || "Expedition";
+            const completedTrail = {
+                id: expedition.active_trail,
+                name: currentTrailName,
+                miles: trailMiles,
+                points_earned: EXPEDITION_COMPLETION_POINTS,
+                date_completed: Date.now()
+            };
+            const completedArray = Array.isArray(userData.completed_expeditions)
+                ? [...userData.completed_expeditions]
+                : [];
+            const existingIndex = completedArray.findIndex(exp => exp.id === completedTrail.id);
+            if (existingIndex > -1) completedArray[existingIndex] = { ...completedArray[existingIndex], ...completedTrail };
+            else completedArray.push(completedTrail);
 
-        await userRef.update(updatePayload);
-        if (pointsEarned > 0) {
-            window.currentWalkPoints = (window.currentWalkPoints || 0) + pointsEarned;
-            await window.BARK.syncScoreToLeaderboard();
+            transaction.update(userRef, buildWalkPointUpdate({
+                "completed_expeditions": completedArray,
+                "virtual_expedition.active_trail": null,
+                "virtual_expedition.trail_name": null,
+                "virtual_expedition.miles_logged": 0,
+                "virtual_expedition.trail_total_miles": 0,
+            }, EXPEDITION_COMPLETION_POINTS));
+
+            return { currentTrailName, pointsEarned: EXPEDITION_COMPLETION_POINTS };
+        });
+
+        if (!claim) return false;
+
+        window.currentWalkPoints = (window.currentWalkPoints || 0) + claim.pointsEarned;
+        if (window.BARK && typeof window.BARK.syncScoreToLeaderboard === 'function') {
+            try {
+                await window.BARK.syncScoreToLeaderboard();
+            } catch (syncError) {
+                // The completion transaction already committed. A later profile
+                // refresh can retry leaderboard sync without re-awarding the point.
+                console.warn('[expeditionEngine] completion saved; leaderboard sync will retry later.', syncError);
+            }
         }
         if (typeof window.BARK.showTripToast === 'function') {
-            const message = pointsEarned > 0
-                ? `🏆 +${pointsEarned} PTS! Reward Claimed: ${currentTrailName}`
-                : `🏆 Reward Claimed: ${currentTrailName}`;
-            window.BARK.showTripToast(message);
+            window.BARK.showTripToast(`🏆 +1 PT! Trail Complete: ${claim.currentTrailName}`);
         }
-    } catch (e) { console.error(e); alert("Failed to claim reward."); }
+        return true;
+    } catch (e) {
+        console.error(e);
+        alert("Failed to claim reward.");
+        return false;
+    } finally {
+        claimRewardInFlight = false;
+    }
 };
 
 // ====== COMPLETED EXPEDITIONS GRID ======

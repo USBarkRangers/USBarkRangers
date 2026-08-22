@@ -164,6 +164,48 @@ function loadExpeditionEngine(options = {}) {
     };
 }
 
+function createTransactionalFirestore(initialUserData, updates) {
+    let userData = initialUserData;
+    const userRef = {
+        async get() {
+            return { data: () => userData };
+        }
+    };
+
+    function firestore() {
+        return {
+            collection() {
+                return { doc: () => userRef };
+            },
+            async runTransaction(work) {
+                return work({
+                    get: () => userRef.get(),
+                    update(_ref, payload) {
+                        updates.push(payload);
+                        userData = {
+                            ...userData,
+                            completed_expeditions: payload.completed_expeditions,
+                            virtual_expedition: {
+                                ...userData.virtual_expedition,
+                                active_trail: payload['virtual_expedition.active_trail'],
+                                trail_name: payload['virtual_expedition.trail_name'],
+                                miles_logged: payload['virtual_expedition.miles_logged'],
+                                trail_total_miles: payload['virtual_expedition.trail_total_miles']
+                            }
+                        };
+                    }
+                });
+            }
+        };
+    }
+    firestore.FieldValue = {
+        increment(value) {
+            return { __increment: value };
+        }
+    };
+    return firestore;
+}
+
 test('expedition runtime reset clears stale account trail and walk UI', () => {
     const { bark, element, window, walkTrackerResets } = loadExpeditionEngine();
 
@@ -283,8 +325,8 @@ test('manual walk honor entries log miles without adding walk points', async () 
     assert.equal(element('miles-input').value, '');
 });
 
-test('manual-only expedition completion does not award walk points', async () => {
-    const updates = [];
+test('gps walking advances an 11-mile trail without awarding points', async () => {
+    const writes = [];
     const fieldValue = {
         increment(value) {
             return { __increment: value };
@@ -301,21 +343,19 @@ test('manual-only expedition completion does not award walk points', async () =>
                                     data() {
                                         return {
                                             virtual_expedition: {
-                                                active_trail: 'honor-trail',
-                                                trail_name: 'Honor Trail',
-                                                miles_logged: 3.2,
-                                                trail_total_miles: 3.2,
-                                                history: [
-                                                    { ts: 1, miles: 3.2, pointMiles: 0, type: 'Manual Entry', trailName: 'Honor Trail' }
-                                                ]
+                                                active_trail: 'eleven-mile-trail',
+                                                trail_name: 'Eleven Mile Trail',
+                                                miles_logged: 0,
+                                                trail_total_miles: 11,
+                                                history: []
                                             },
-                                            completed_expeditions: []
+                                            lifetime_miles: 0
                                         };
                                     }
                                 };
                             },
-                            async update(payload) {
-                                updates.push(payload);
+                            async set(payload, options) {
+                                writes.push({ payload, options });
                             }
                         };
                     }
@@ -326,7 +366,7 @@ test('manual-only expedition completion does not award walk points', async () =>
     firestore.FieldValue = fieldValue;
 
     let syncCalls = 0;
-    const { window } = loadExpeditionEngine({
+    const { bark, window } = loadExpeditionEngine({
         firebase: {
             auth() {
                 return { currentUser: { uid: 'walk-user' } };
@@ -338,16 +378,88 @@ test('manual-only expedition completion does not award walk points', async () =>
         }
     });
 
-    await window.claimRewardAndReset();
+    const logged = await bark.processMileageAddition(10.9, 'GPS Active Track', { pointMiles: 10.9 });
 
-    assert.equal(updates.length, 1);
-    assert.equal(updates[0].walkPoints, undefined);
-    assert.equal(updates[0].completed_expeditions[0].points_earned, 0);
+    assert.equal(logged, true);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].payload.virtual_expedition.miles_logged, 10.9);
+    assert.equal(writes[0].payload.virtual_expedition.history[0].pointMiles, 0);
+    assert.equal(writes[0].payload.walkPoints, undefined);
     assert.equal(window.currentWalkPoints || 0, 0);
     assert.equal(syncCalls, 0);
 });
 
-test('gps expedition completion still awards eligible walk points', async () => {
+test('an incomplete trail cannot claim its completion point', async () => {
+    const updates = [];
+    const firestore = createTransactionalFirestore({
+        virtual_expedition: {
+            active_trail: 'eleven-mile-trail',
+            trail_name: 'Eleven Mile Trail',
+            miles_logged: 10.9,
+            trail_total_miles: 11,
+            history: []
+        },
+        completed_expeditions: []
+    }, updates);
+    let syncCalls = 0;
+    const { window } = loadExpeditionEngine({
+        firebase: {
+            auth() {
+                return { currentUser: { uid: 'walk-user' } };
+            },
+            firestore
+        },
+        syncScoreToLeaderboard: async () => {
+            syncCalls += 1;
+        }
+    });
+
+    const claimed = await window.claimRewardAndReset();
+
+    assert.equal(claimed, false);
+    assert.equal(updates.length, 0);
+    assert.equal(window.currentWalkPoints || 0, 0);
+    assert.equal(syncCalls, 0);
+});
+
+test('a completed trail can award its one point only once', async () => {
+    const updates = [];
+    const firestore = createTransactionalFirestore({
+        virtual_expedition: {
+            active_trail: 'eleven-mile-trail',
+            trail_name: 'Eleven Mile Trail',
+            miles_logged: 11,
+            trail_total_miles: 11,
+            history: []
+        },
+        completed_expeditions: []
+    }, updates);
+    let syncCalls = 0;
+    const { window } = loadExpeditionEngine({
+        firebase: {
+            auth() {
+                return { currentUser: { uid: 'walk-user' } };
+            },
+            firestore
+        },
+        syncScoreToLeaderboard: async () => {
+            syncCalls += 1;
+        }
+    });
+
+    const firstClaim = await window.claimRewardAndReset();
+    const secondClaim = await window.claimRewardAndReset();
+
+    assert.equal(firstClaim, true);
+    assert.equal(secondClaim, false);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].walkPoints.__increment, 1);
+    assert.equal(updates[0].completed_expeditions[0].points_earned, 1);
+    assert.equal(window.currentWalkPoints, 1);
+    assert.equal(syncCalls, 1);
+});
+
+test('a completed manual expedition awards exactly one point', async () => {
     const updates = [];
     const fieldValue = {
         increment(value) {
@@ -355,35 +467,41 @@ test('gps expedition completion still awards eligible walk points', async () => 
         }
     };
     function firestore() {
+        const userRef = {
+            async get() {
+                return {
+                    data() {
+                        return {
+                            virtual_expedition: {
+                                active_trail: 'honor-trail',
+                                trail_name: 'Honor Trail',
+                                miles_logged: 3.2,
+                                trail_total_miles: 3.2,
+                                history: [
+                                    { ts: 1, miles: 3.2, pointMiles: 0, type: 'Manual Entry', trailName: 'Honor Trail' }
+                                ]
+                            },
+                            completed_expeditions: []
+                        };
+                    }
+                };
+            }
+        };
         return {
             collection() {
                 return {
                     doc() {
-                        return {
-                            async get() {
-                                return {
-                                    data() {
-                                        return {
-                                            virtual_expedition: {
-                                                active_trail: 'gps-trail',
-                                                trail_name: 'GPS Trail',
-                                                miles_logged: 10,
-                                                trail_total_miles: 10,
-                                                history: [
-                                                    { ts: 1, miles: 10, pointMiles: 10, type: 'GPS Active Track', trailName: 'GPS Trail' }
-                                                ]
-                                            },
-                                            completed_expeditions: []
-                                        };
-                                    }
-                                };
-                            },
-                            async update(payload) {
-                                updates.push(payload);
-                            }
-                        };
+                        return userRef;
                     }
                 };
+            },
+            async runTransaction(work) {
+                return work({
+                    get: () => userRef.get(),
+                    update(_ref, payload) {
+                        updates.push(payload);
+                    }
+                });
             }
         };
     }
@@ -405,9 +523,79 @@ test('gps expedition completion still awards eligible walk points', async () => 
     await window.claimRewardAndReset();
 
     assert.equal(updates.length, 1);
-    assert.equal(updates[0].walkPoints.__increment, 5);
-    assert.equal(updates[0].completed_expeditions[0].points_earned, 5);
-    assert.equal(window.currentWalkPoints, 5);
+    assert.equal(updates[0].walkPoints.__increment, 1);
+    assert.equal(updates[0].completed_expeditions[0].points_earned, 1);
+    assert.equal(window.currentWalkPoints, 1);
+    assert.equal(syncCalls, 1);
+});
+
+test('a completed gps expedition awards exactly one point', async () => {
+    const updates = [];
+    const fieldValue = {
+        increment(value) {
+            return { __increment: value };
+        }
+    };
+    function firestore() {
+        const userRef = {
+            async get() {
+                return {
+                    data() {
+                        return {
+                            virtual_expedition: {
+                                active_trail: 'gps-trail',
+                                trail_name: 'GPS Trail',
+                                miles_logged: 10,
+                                trail_total_miles: 10,
+                                history: [
+                                    { ts: 1, miles: 10, pointMiles: 0, type: 'GPS Active Track', trailName: 'GPS Trail' }
+                                ]
+                            },
+                            completed_expeditions: []
+                        };
+                    }
+                };
+            }
+        };
+        return {
+            collection() {
+                return {
+                    doc() {
+                        return userRef;
+                    }
+                };
+            },
+            async runTransaction(work) {
+                return work({
+                    get: () => userRef.get(),
+                    update(_ref, payload) {
+                        updates.push(payload);
+                    }
+                });
+            }
+        };
+    }
+    firestore.FieldValue = fieldValue;
+
+    let syncCalls = 0;
+    const { window } = loadExpeditionEngine({
+        firebase: {
+            auth() {
+                return { currentUser: { uid: 'walk-user' } };
+            },
+            firestore
+        },
+        syncScoreToLeaderboard: async () => {
+            syncCalls += 1;
+        }
+    });
+
+    await window.claimRewardAndReset();
+
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].walkPoints.__increment, 1);
+    assert.equal(updates[0].completed_expeditions[0].points_earned, 1);
+    assert.equal(window.currentWalkPoints, 1);
     assert.equal(syncCalls, 1);
 });
 

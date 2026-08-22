@@ -621,8 +621,7 @@ function handleExpeditionSync(data = {}) {
                 const celebName = document.getElementById('celebration-trail-name');
                 if (celebName) celebName.textContent = activeTrailName;
                 const claimBtn = document.getElementById('claim-reward-btn');
-                const trailPts = Math.max(1, Math.round(total / 2));
-                if (claimBtn) claimBtn.textContent = `🎁 Claim +${trailPts} PTS & Reset`;
+                if (claimBtn) claimBtn.textContent = '🎁 Claim +1 PT & Reset';
             }
 
             if (typeof window.BARK.renderExpeditionProgress === 'function')

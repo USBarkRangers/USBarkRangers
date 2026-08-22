@@ -176,6 +176,7 @@ function loadTripPlanner(options = {}) {
     const timerMode = options.timerMode || 'immediate';
     const openedUrls = [];
     const routedDayCoverage = [];
+    const routedSegmentCoverage = [];
 
     const pendingDirections = [];
     const directionsCalls = [];
@@ -232,8 +233,14 @@ function loadTripPlanner(options = {}) {
                     clear() {
                         return { added: new Set(), removed: new Set() };
                     },
-                    setRoutedDayIndexes(dayIndexes) {
-                        routedDayCoverage.push(Array.from(dayIndexes).sort((a, b) => a - b));
+                    setRoutedSegmentKeys(segmentKeys) {
+                        const keys = Array.from(segmentKeys).sort();
+                        const dayIndexes = keys
+                            .map(key => /^day:(\d+)\|/.exec(key))
+                            .filter(Boolean)
+                            .map(match => Number(match[1]));
+                        routedSegmentCoverage.push(keys);
+                        routedDayCoverage.push(Array.from(new Set(dayIndexes)).sort((a, b) => a - b));
                     }
                 },
                 haversineDistance: options.haversineDistance || (() => 1),
@@ -318,6 +325,7 @@ function loadTripPlanner(options = {}) {
         },
         directionsCalls,
         routedDayCoverage,
+        routedSegmentCoverage,
         openedUrls,
         resolveDirections: (response) => {
             const pending = pendingDirections.shift();
@@ -487,7 +495,7 @@ test('route generation shows progress on the route button before completion', as
     assert.match(harness.getTextContent(harness.element('start-route-btn')), /1.0 mi/);
 });
 
-test('generated route coverage survives UI refresh and clears after geometry changes', async () => {
+test('generated route coverage survives UI refresh and preserves unchanged connections', async () => {
     const harness = loadTripPlanner();
     harness.window.BARK.tripDays = [{
         color: '#1976D2',
@@ -504,6 +512,8 @@ test('generated route coverage survives UI refresh and clears after geometry cha
     harness.resolveDirections();
     await flushPromises(12);
     assert.deepEqual(harness.routedDayCoverage.at(-1), [0]);
+    const originalSegmentKeys = harness.routedSegmentCoverage.at(-1);
+    assert.equal(originalSegmentKeys.length, 1);
 
     harness.window.toggleTripEditMode();
     assert.deepEqual(harness.routedDayCoverage.at(-1), [0], 'UI-only refresh must preserve route coverage');
@@ -514,7 +524,52 @@ test('generated route coverage survives UI refresh and clears after geometry cha
 
     harness.window.BARK.tripDays[0].stops.push({ name: 'Stop C', lat: 3, lng: 3 });
     harness.window.BARK.updateTripUI();
-    assert.deepEqual(harness.routedDayCoverage.at(-1), [], 'changed stops must invalidate stale driving geometry');
+    assert.deepEqual(
+        harness.routedSegmentCoverage.at(-1),
+        originalSegmentKeys,
+        'the existing A-to-B road segment must remain while the new B-to-C connection uses a fallback'
+    );
+});
+
+test('changing one day preserves every unaffected generated day route', async () => {
+    const harness = loadTripPlanner();
+    harness.window.BARK.tripDays = [
+        {
+            color: '#1976D2',
+            stops: [
+                { name: 'Day 1 Start', lat: 0, lng: 0 },
+                { name: 'Day 1 Middle', lat: 0, lng: 1 },
+                { name: 'Day 1 Handoff', lat: 0, lng: 2 }
+            ],
+            notes: ''
+        },
+        {
+            color: '#2E7D32',
+            stops: [
+                { name: 'Day 2 Middle', lat: 0, lng: 3 },
+                { name: 'Day 2 End', lat: 0, lng: 4 }
+            ],
+            notes: ''
+        }
+    ];
+    harness.window.BARK.initTripPlanner();
+    harness.window.BARK.updateTripUI();
+
+    await openRouteChoiceAndSkip(harness);
+    harness.resolveDirections();
+    await flushPromises(12);
+    assert.deepEqual(harness.routedDayCoverage.at(-1), [0, 1]);
+    const originalSegmentKeys = harness.routedSegmentCoverage.at(-1);
+
+    harness.window.BARK.tripDays[0].stops[1] = {
+        name: 'Moved Day 1 Middle',
+        lat: 1,
+        lng: 1
+    };
+    harness.window.BARK.updateTripUI();
+
+    const remainingSegmentKeys = harness.routedSegmentCoverage.at(-1);
+    assert.deepEqual(remainingSegmentKeys, originalSegmentKeys.filter(key => key.startsWith('day:1|')));
 });
 
 test('partial route generation leaves a straight fallback only for failed days', async () => {

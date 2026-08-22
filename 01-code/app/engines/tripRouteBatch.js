@@ -61,6 +61,7 @@
             day: routeDay.day,
             dayIndex: routeDay.dayIndex,
             color: routeDay.color,
+            routeSegments: routeDay.segments,
             waypointStartIndex,
             waypointEndIndex
         });
@@ -144,15 +145,6 @@
             throw new Error('Routing service returned invalid geometry.');
         }
 
-        if (batch.days.length === 1) {
-            return [{
-                dayIndex: batch.days[0].dayIndex,
-                color: batch.days[0].color,
-                geoJSON: geoJSONData,
-                summary: feature.properties && feature.properties.summary || null
-            }];
-        }
-
         const segments = feature.properties && Array.isArray(feature.properties.segments)
             ? feature.properties.segments
             : [];
@@ -177,10 +169,36 @@
                 throw new Error(`Routing service returned too little geometry for Day ${daySpec.dayIndex + 1}.`);
             }
 
+            const routeSegments = Array.isArray(daySpec.routeSegments) ? daySpec.routeSegments : [];
+            if (routeSegments.length !== daySegments.length) {
+                throw new Error(`Routing service could not match Day ${daySpec.dayIndex + 1} route segments.`);
+            }
+
+            const segmentRoutes = daySegments.map((segment, segmentIndex) => {
+                const range = getSegmentGeometryRange(segment);
+                if (!range || range.end >= coordinates.length) {
+                    throw new Error(`Routing service could not map a Day ${daySpec.dayIndex + 1} segment.`);
+                }
+                const segmentCoordinates = coordinates.slice(range.start, range.end + 1);
+                if (segmentCoordinates.length < 2) {
+                    throw new Error(`Routing service returned too little segment geometry for Day ${daySpec.dayIndex + 1}.`);
+                }
+                const segmentSummary = {
+                    distance: Number(segment.distance) || 0,
+                    duration: Number(segment.duration) || 0
+                };
+                return {
+                    key: routeSegments[segmentIndex].key,
+                    geoJSON: makeFeatureCollection(feature, segmentCoordinates, [segment], segmentSummary),
+                    summary: segmentSummary
+                };
+            });
+
             return {
                 dayIndex: daySpec.dayIndex,
                 color: daySpec.color,
                 geoJSON: makeFeatureCollection(feature, dayCoordinates, daySegments, summary),
+                segmentRoutes,
                 summary
             };
         });

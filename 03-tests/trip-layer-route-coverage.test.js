@@ -22,8 +22,19 @@ function loadTripLayerManager() {
         }
     };
     const routeDays = [
-        { dayIndex: 0, color: '#111111', latLngs: [[1, 1], [2, 2]] },
-        { dayIndex: 1, color: '#222222', latLngs: [[2, 2], [3, 3]] }
+        {
+            dayIndex: 0,
+            color: '#111111',
+            segments: [
+                { key: 'day:0|one', latLngs: [[1, 1], [2, 2]] },
+                { key: 'day:0|two', latLngs: [[2, 2], [3, 3]] }
+            ]
+        },
+        {
+            dayIndex: 1,
+            color: '#222222',
+            segments: [{ key: 'day:1|three', latLngs: [[3, 3], [4, 4]] }]
+        }
     ];
 
     const context = {
@@ -68,25 +79,27 @@ function loadTripLayerManager() {
     };
 }
 
-test('straight fallbacks remain visible only for days without generated routes', () => {
+test('straight fallbacks remain visible only for connections without generated routes', () => {
     const harness = loadTripLayerManager();
     harness.api.init({ map: {} });
     harness.api.sync([{ stops: [] }, { stops: [] }], {});
 
-    assert.equal(harness.visibleLayers.size, 2, 'both unrouted days start with fallbacks');
+    assert.equal(harness.visibleLayers.size, 3, 'every unrouted connection starts with a fallback');
 
-    harness.api.setRoutedDayIndexes(new Set([0]));
+    harness.api.setRoutedSegmentKeys(new Set(['day:0|one']));
     assert.equal(harness.visibleLayers.has(harness.createdLines[0]), false);
     assert.equal(harness.visibleLayers.has(harness.createdLines[1]), true);
+    assert.equal(harness.visibleLayers.has(harness.createdLines[2]), true);
 
     harness.api.sync([{ stops: [] }, { stops: [] }], {});
     assert.equal(harness.visibleLayers.has(harness.createdLines[0]), false, 'UI refresh must preserve routed coverage');
     assert.equal(harness.visibleLayers.has(harness.createdLines[1]), true);
+    assert.equal(harness.visibleLayers.has(harness.createdLines[2]), true);
 
-    harness.api.setRoutedDayIndexes(new Set([0, 1]));
+    harness.api.setRoutedSegmentKeys(new Set(['day:0|one', 'day:0|two', 'day:1|three']));
     assert.equal(harness.visibleLayers.size, 0, 'fully routed trips need no straight fallback');
 
     harness.api.clear();
     harness.api.sync([{ stops: [] }, { stops: [] }], {});
-    assert.equal(harness.visibleLayers.size, 2, 'clearing route coverage restores fallbacks');
+    assert.equal(harness.visibleLayers.size, 3, 'clearing route coverage restores fallbacks');
 });

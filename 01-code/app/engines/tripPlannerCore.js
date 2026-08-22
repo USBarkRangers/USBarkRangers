@@ -47,57 +47,55 @@ function getDomRef(name, ...args) {
     return typeof getter === 'function' ? getter(...args) : null;
 }
 
-// Road geometry is tracked by route day so TripLayerManager can keep straight
-// fallbacks only for days that do not have a valid generated route.
+// Road geometry is tracked per connection so edits invalidate only the route
+// segments that touch the changed stop. Unaffected road segments stay visible.
 const generatedRouteVisuals = {
-    geometrySignature: null,
-    layersByDay: new Map()
+    layersBySegment: new Map()
 };
 
-function getGeneratedRouteDayIndexes() {
-    return new Set(generatedRouteVisuals.layersByDay.keys());
+function getGeneratedRouteSegmentKeys() {
+    return new Set(generatedRouteVisuals.layersBySegment.keys());
 }
 
 function syncGeneratedRouteCoverage() {
     const tripLayer = window.BARK.tripLayer;
-    if (!tripLayer || typeof tripLayer.setRoutedDayIndexes !== 'function') return;
-    tripLayer.setRoutedDayIndexes(getGeneratedRouteDayIndexes());
+    if (!tripLayer || typeof tripLayer.setRoutedSegmentKeys !== 'function') return;
+    tripLayer.setRoutedSegmentKeys(getGeneratedRouteSegmentKeys());
 }
 
 function clearGeneratedRouteVisuals() {
-    generatedRouteVisuals.layersByDay.forEach(layer => removeTripMapLayer(layer));
-    generatedRouteVisuals.layersByDay.clear();
-    generatedRouteVisuals.geometrySignature = null;
+    generatedRouteVisuals.layersBySegment.forEach(layer => removeTripMapLayer(layer));
+    generatedRouteVisuals.layersBySegment.clear();
     syncGeneratedRouteCoverage();
 }
 
 function beginGeneratedRouteVisuals(routePlan) {
-    clearGeneratedRouteVisuals();
-    generatedRouteVisuals.geometrySignature = routePlan.geometrySignature;
+    reconcileGeneratedRouteVisuals(routePlan);
 }
 
-function recordGeneratedRouteLayer(dayIndex, layer) {
-    const existing = generatedRouteVisuals.layersByDay.get(dayIndex);
+function recordGeneratedRouteSegment(segmentKey, layer) {
+    const existing = generatedRouteVisuals.layersBySegment.get(segmentKey);
     if (existing && existing !== layer) removeTripMapLayer(existing);
-    generatedRouteVisuals.layersByDay.set(dayIndex, layer);
-    syncGeneratedRouteCoverage();
+    generatedRouteVisuals.layersBySegment.set(segmentKey, layer);
 }
 
 function reconcileGeneratedRouteVisuals(routePlan) {
-    if (!generatedRouteVisuals.geometrySignature) {
-        syncGeneratedRouteCoverage();
-        return;
-    }
+    const currentSegments = new Map();
+    routePlan.days.forEach(routeDay => {
+        routeDay.segments.forEach(segment => currentSegments.set(segment.key, routeDay.color));
+    });
 
-    if (generatedRouteVisuals.geometrySignature !== routePlan.geometrySignature) {
-        clearGeneratedRouteVisuals();
-        return;
-    }
+    generatedRouteVisuals.layersBySegment.forEach((layer, segmentKey) => {
+        const color = currentSegments.get(segmentKey);
+        if (!color) {
+            removeTripMapLayer(layer);
+            generatedRouteVisuals.layersBySegment.delete(segmentKey);
+            return;
+        }
 
-    const colorsByDay = new Map(routePlan.days.map(routeDay => [routeDay.dayIndex, routeDay.color]));
-    generatedRouteVisuals.layersByDay.forEach((layer, dayIndex) => {
-        const color = colorsByDay.get(dayIndex);
-        if (color && layer && typeof layer.setStyle === 'function') layer.setStyle({ color });
+        if (layer && typeof layer.setStyle === 'function') {
+            layer.setStyle({ color });
+        }
     });
     syncGeneratedRouteCoverage();
 }
@@ -1527,7 +1525,7 @@ function initTripPlanner() {
         }
 
         const routeRunId = ++routeRenderGeneration;
-        const routePlanSignature = routePlan.signature;
+        const routePlanGeometrySignature = routePlan.geometrySignature;
         const routeUserId = user.uid;
         window.BARK.incrementRequestCount();
 
@@ -1555,7 +1553,7 @@ function initTripPlanner() {
         function routeRequestIsCurrent() {
             const activeUser = typeof firebase !== 'undefined' ? firebase.auth().currentUser : null;
             if (routeRunId !== routeRenderGeneration || !activeUser || activeUser.uid !== routeUserId) return false;
-            return buildCurrentTripRoutePlan().signature === routePlanSignature;
+            return buildCurrentTripRoutePlan().geometrySignature === routePlanGeometrySignature;
         }
 
         try {
@@ -1597,13 +1595,18 @@ function initTripPlanner() {
 
                     const dayRoutes = routeBatchApi.splitRouteBatchResponse(routeBatch, geoJSONData);
                     dayRoutes.forEach(dayRoute => {
-                        const layer = L.geoJSON(dayRoute.geoJSON, {
-                            style: () => ({ color: dayRoute.color, weight: 5, opacity: 0.85, dashArray: '10, 8' })
-                        }).addTo(map);
-                        recordGeneratedRouteLayer(dayRoute.dayIndex, layer);
-                        allBounds.push(layer.getBounds());
+                        const currentRouteDay = buildCurrentTripRoutePlan().getDay(dayRoute.dayIndex);
+                        const routeColor = currentRouteDay ? currentRouteDay.color : dayRoute.color;
+                        dayRoute.segmentRoutes.forEach(segmentRoute => {
+                            const layer = L.geoJSON(segmentRoute.geoJSON, {
+                                style: () => ({ color: routeColor, weight: 5, opacity: 0.85, dashArray: '10, 8' })
+                            }).addTo(map);
+                            recordGeneratedRouteSegment(segmentRoute.key, layer);
+                            allBounds.push(layer.getBounds());
+                        });
                     });
-                    anySucceeded = dayRoutes.length > 0 || anySucceeded;
+                    syncGeneratedRouteCoverage();
+                    anySucceeded = dayRoutes.some(dayRoute => dayRoute.segmentRoutes.length > 0) || anySucceeded;
 
                     const feature = geoJSONData && Array.isArray(geoJSONData.features) ? geoJSONData.features[0] : null;
                     const batchSummary = feature && feature.properties && feature.properties.summary;
@@ -1629,7 +1632,7 @@ function initTripPlanner() {
             }
 
             if (routeBecameStale) {
-                clearGeneratedRouteVisuals();
+                reconcileGeneratedRouteVisuals(buildCurrentTripRoutePlan());
                 return;
             }
 

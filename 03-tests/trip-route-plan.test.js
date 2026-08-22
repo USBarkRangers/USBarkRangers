@@ -84,6 +84,32 @@ test('geometry signature changes only when route geometry changes', () => {
     assert.notEqual(original.geometrySignature, movedStop.geometrySignature);
 });
 
+test('per-day geometry signatures localize interior and handoff changes', () => {
+    const original = buildTripRoutePlan({
+        tripDays: [
+            day('#111111', [stop('A', 0, 0), stop('B', 0, 1), stop('Handoff', 0, 2)]),
+            day('#222222', [stop('C', 0, 3), stop('D', 0, 4)])
+        ]
+    });
+    const interiorChange = buildTripRoutePlan({
+        tripDays: [
+            day('#111111', [stop('A', 0, 0), stop('Moved B', 1, 1), stop('Handoff', 0, 2)]),
+            day('#222222', [stop('C', 0, 3), stop('D', 0, 4)])
+        ]
+    });
+    const handoffChange = buildTripRoutePlan({
+        tripDays: [
+            day('#111111', [stop('A', 0, 0), stop('B', 0, 1), stop('Moved Handoff', 1, 2)]),
+            day('#222222', [stop('C', 0, 3), stop('D', 0, 4)])
+        ]
+    });
+
+    assert.notEqual(original.days[0].geometrySignature, interiorChange.days[0].geometrySignature);
+    assert.equal(original.days[1].geometrySignature, interiorChange.days[1].geometrySignature);
+    assert.notEqual(original.days[0].geometrySignature, handoffChange.days[0].geometrySignature);
+    assert.notEqual(original.days[1].geometrySignature, handoffChange.days[1].geometrySignature);
+});
+
 test('consecutive route days share one bounded ORS batch', () => {
     const plan = buildTripRoutePlan({
         tripDays: [
@@ -150,6 +176,10 @@ test('batched geometry is split back into local day colors', () => {
     assert.deepEqual(results.map(result => result.color), ['#111111', '#222222']);
     assert.deepEqual(results[0].geoJSON.features[0].geometry.coordinates, geometry.slice(0, 3));
     assert.deepEqual(results[1].geoJSON.features[0].geometry.coordinates, geometry.slice(2));
+    assert.deepEqual(
+        results.flatMap(result => result.segmentRoutes.map(segment => segment.geoJSON.features[0].geometry.coordinates)),
+        [geometry.slice(0, 3), geometry.slice(2, 5), geometry.slice(4)]
+    );
     assert.deepEqual(results.map(result => result.summary.distance), [10, 20]);
 });
 

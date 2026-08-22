@@ -41,17 +41,46 @@
         }, []);
     }
 
+    function buildRouteSegments(dayIndex, points) {
+        const occurrences = new Map();
+        const segments = [];
+
+        for (let pointIndex = 1; pointIndex < points.length; pointIndex += 1) {
+            const from = points[pointIndex - 1];
+            const to = points[pointIndex];
+            const geometrySignature = JSON.stringify([
+                [from.lat, from.lng],
+                [to.lat, to.lng]
+            ]);
+            const occurrence = occurrences.get(geometrySignature) || 0;
+            occurrences.set(geometrySignature, occurrence + 1);
+            segments.push({
+                key: `day:${dayIndex}|${geometrySignature}|${occurrence}`,
+                dayIndex,
+                from,
+                to,
+                geometrySignature,
+                latLngs: [[from.lat, from.lng], [to.lat, to.lng]]
+            });
+        }
+
+        return segments;
+    }
+
     function makeRouteDay(day, dayIndex, points) {
         const compactPoints = compactAdjacentPoints(points);
-        return {
+        const routeDay = {
             day,
             dayIndex,
             color: day && typeof day.color === 'string' && day.color.trim() ? day.color : '#475569',
             points: compactPoints,
             coordinates: compactPoints.map(point => [point.lng, point.lat]),
             latLngs: compactPoints.map(point => [point.lat, point.lng]),
+            segments: buildRouteSegments(dayIndex, compactPoints),
             routable: compactPoints.length >= 2
         };
+        routeDay.geometrySignature = buildRouteDayGeometrySignature(routeDay);
+        return routeDay;
     }
 
     function buildSignature(days) {
@@ -69,14 +98,18 @@
         })));
     }
 
-    function buildGeometrySignature(days) {
-        return JSON.stringify((Array.isArray(days) ? days : []).map(routeDay => ({
+    function buildRouteDayGeometrySignature(routeDay) {
+        return JSON.stringify({
             dayIndex: routeDay.dayIndex,
             points: routeDay.points.map(point => ({
                 lat: point.lat,
                 lng: point.lng
             }))
-        })));
+        });
+    }
+
+    function buildGeometrySignature(days) {
+        return JSON.stringify((Array.isArray(days) ? days : []).map(routeDay => routeDay.geometrySignature));
     }
 
     function buildTripRoutePlan(options = {}) {

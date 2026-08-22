@@ -18,8 +18,8 @@
  *   clear()                  — remove every overlay element; returns the diff
  *   getStopParkIds()         — Set<string> of park IDs currently in the active
  *                              trip. Treat as read-only; do not mutate.
- *   setRoutedDayIndexes(set) — hide each dashed fallback line only when that
- *                              day has valid generated driving geometry.
+ *   setRoutedSegmentKeys(set) — hide each dashed fallback connection only when
+ *                               that exact connection has driving geometry.
  *
  * Performance settings (lowGfxEnabled / ultraLowEnabled / removeShadows /
  * reducePinMotion / simplifyPinsWhileMoving / stopResizing) are honored via
@@ -74,10 +74,10 @@ function hasTripVisitedPlace(placeOrId) {
     // Occurrence identity is positional so duplicate parks/coordinates remain
     // independently removable without a saved-trip schema migration.
     const badgeMarkers = new Map();   // key: dayIndex:stopIndex -> marker
-    const dayLines = new Map();       // key: dayIdx -> polyline
+    const fallbackLines = new Map();  // key: route segment key -> polyline
     const bookendMarkers = new Map(); // key: 'start' | 'end' -> marker
     let tripStopParkIds = new Set();
-    let routedDayIndexes = new Set();
+    let routedSegmentKeys = new Set();
 
     function getMapRef() {
         return window.map || null;
@@ -400,37 +400,36 @@ function hasTripVisitedPlace(placeOrId) {
         return nextStopParkIds;
     }
 
-    function syncLines(routeDays) {
+    function syncFallbackLines(routeDays) {
         const seen = new Set();
         routeDays.forEach(routeDay => {
-            const dayIdx = routeDay.dayIndex;
-            const latlngs = routeDay.latLngs;
-            if (latlngs.length < 2) return;
-            seen.add(dayIdx);
             const color = routeDay.color || '#475569';
-            const existing = dayLines.get(dayIdx);
-            if (existing) {
-                existing.setLatLngs(latlngs);
-                if (existing.options.color !== color) existing.setStyle({ color });
-                syncDayLineVisibility(dayIdx, existing);
-                return;
-            }
-            const line = L.polyline(latlngs, {
-                color,
-                weight: 3,
-                dashArray: '5, 10',
-                opacity: 0.6,
-                interactive: false,
-                className: 'trip-overlay-line'
+            routeDay.segments.forEach(segment => {
+                seen.add(segment.key);
+                const existing = fallbackLines.get(segment.key);
+                if (existing) {
+                    existing.setLatLngs(segment.latLngs);
+                    if (existing.options.color !== color) existing.setStyle({ color });
+                    syncFallbackVisibility(segment.key, existing);
+                    return;
+                }
+                const line = L.polyline(segment.latLngs, {
+                    color,
+                    weight: 3,
+                    dashArray: '5, 10',
+                    opacity: 0.6,
+                    interactive: false,
+                    className: 'trip-overlay-line'
+                });
+                if (tripLayerGroup && !routedSegmentKeys.has(segment.key)) tripLayerGroup.addLayer(line);
+                fallbackLines.set(segment.key, line);
             });
-            if (tripLayerGroup && !routedDayIndexes.has(dayIdx)) tripLayerGroup.addLayer(line);
-            dayLines.set(dayIdx, line);
         });
 
-        dayLines.forEach((line, dayIdx) => {
-            if (seen.has(dayIdx)) return;
+        fallbackLines.forEach((line, segmentKey) => {
+            if (seen.has(segmentKey)) return;
             if (tripLayerGroup) tripLayerGroup.removeLayer(line);
-            dayLines.delete(dayIdx);
+            fallbackLines.delete(segmentKey);
         });
     }
 
@@ -524,7 +523,7 @@ function hasTripVisitedPlace(placeOrId) {
                     endNode: bookends && bookends.end
                 })
                 : { days: [] };
-            syncLines(routePlan.days || []);
+            syncFallbackLines(routePlan.days || []);
             syncBookends(bookends);
             tripStopParkIds = nextStopParkIds;
             return diffParkIdSets(prevStopParkIds, nextStopParkIds);
@@ -538,13 +537,13 @@ function hasTripVisitedPlace(placeOrId) {
         const prevStopParkIds = tripStopParkIds;
         if (tripLayerGroup) {
             badgeMarkers.forEach(marker => tripLayerGroup.removeLayer(marker));
-            dayLines.forEach(line => tripLayerGroup.removeLayer(line));
+            fallbackLines.forEach(line => tripLayerGroup.removeLayer(line));
             bookendMarkers.forEach(marker => tripLayerGroup.removeLayer(marker));
         }
         badgeMarkers.clear();
-        dayLines.clear();
+        fallbackLines.clear();
         bookendMarkers.clear();
-        routedDayIndexes = new Set();
+        routedSegmentKeys = new Set();
         tripStopParkIds = new Set();
         return diffParkIdSets(prevStopParkIds, tripStopParkIds);
     }
@@ -553,24 +552,23 @@ function hasTripVisitedPlace(placeOrId) {
         return tripStopParkIds;
     }
 
-    function syncDayLineVisibility(dayIdx, line) {
+    function syncFallbackVisibility(segmentKey, line) {
         if (!tripLayerGroup || !line) return;
-        const shouldShowFallback = !routedDayIndexes.has(dayIdx);
+        const shouldShowFallback = !routedSegmentKeys.has(segmentKey);
         const isVisible = tripLayerGroup.hasLayer(line);
         if (shouldShowFallback && !isVisible) tripLayerGroup.addLayer(line);
         if (!shouldShowFallback && isVisible) tripLayerGroup.removeLayer(line);
     }
 
-    function setRoutedDayIndexes(dayIndexes) {
+    function setRoutedSegmentKeys(segmentKeys) {
         const next = new Set();
-        const values = dayIndexes && typeof dayIndexes.forEach === 'function' ? dayIndexes : [];
-        values.forEach(dayIdx => {
-            const normalized = Number(dayIdx);
-            if (Number.isInteger(normalized) && normalized >= 0) next.add(normalized);
+        const values = segmentKeys && typeof segmentKeys.forEach === 'function' ? segmentKeys : [];
+        values.forEach(segmentKey => {
+            if (typeof segmentKey === 'string' && segmentKey) next.add(segmentKey);
         });
 
-        routedDayIndexes = next;
-        dayLines.forEach((line, dayIdx) => syncDayLineVisibility(dayIdx, line));
+        routedSegmentKeys = next;
+        fallbackLines.forEach((line, segmentKey) => syncFallbackVisibility(segmentKey, line));
     }
 
     function refreshBadgeStyles() {
@@ -583,7 +581,7 @@ function hasTripVisitedPlace(placeOrId) {
         });
     }
 
-    window.BARK.tripLayer = { init, sync, clear, getStopParkIds, setRoutedDayIndexes, refreshBadgeStyles };
+    window.BARK.tripLayer = { init, sync, clear, getStopParkIds, setRoutedSegmentKeys, refreshBadgeStyles };
     window.BARK.initTripLayer = function initTripLayer() {
         ensureLayerGroup();
     };

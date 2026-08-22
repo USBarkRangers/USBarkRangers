@@ -175,8 +175,9 @@ function loadTripPlanner(options = {}) {
     const timers = [];
     const timerMode = options.timerMode || 'immediate';
     const openedUrls = [];
+    const routedDayCoverage = [];
 
-    let directionsResolver = null;
+    const pendingDirections = [];
     const directionsCalls = [];
 
     const context = {
@@ -193,7 +194,9 @@ function loadTripPlanner(options = {}) {
                     ors: {
                         directions: (coordinates, requestOptions) => {
                             directionsCalls.push({ coordinates, requestOptions });
-                            return new Promise(resolve => { directionsResolver = resolve; });
+                            return new Promise((resolve, reject) => {
+                                pendingDirections.push({ coordinates, resolve, reject });
+                            });
                         }
                     }
                 },
@@ -221,6 +224,17 @@ function loadTripPlanner(options = {}) {
                     optimizerModal: () => byId('optimizer-modal'),
                     optMaxStops: () => ({ value: '5' }),
                     optMaxHours: () => ({ value: '4' })
+                },
+                tripLayer: {
+                    sync() {
+                        return { added: new Set(), removed: new Set() };
+                    },
+                    clear() {
+                        return { added: new Set(), removed: new Set() };
+                    },
+                    setRoutedDayIndexes(dayIndexes) {
+                        routedDayCoverage.push(Array.from(dayIndexes).sort((a, b) => a - b));
+                    }
                 },
                 haversineDistance: options.haversineDistance || (() => 1),
                 incrementRequestCount() {}
@@ -258,6 +272,9 @@ function loadTripPlanner(options = {}) {
                                 return this;
                             }
                         };
+                    },
+                    setStyle(style) {
+                        this.style = { ...(this.style || {}), ...style };
                     }
                 };
             }
@@ -300,12 +317,14 @@ function loadTripPlanner(options = {}) {
             timers.splice(0).forEach(callback => callback());
         },
         directionsCalls,
+        routedDayCoverage,
         openedUrls,
         resolveDirections: (response) => {
-            if (!directionsResolver) throw new Error('Directions call has not started.');
-            const coordinates = directionsCalls[directionsCalls.length - 1].coordinates;
+            const pending = pendingDirections.shift();
+            if (!pending) throw new Error('Directions call has not started.');
+            const coordinates = pending.coordinates;
             const legCount = Math.max(1, coordinates.length - 1);
-            directionsResolver(response || {
+            pending.resolve(response || {
                 type: 'FeatureCollection',
                 features: [{
                     type: 'Feature',
@@ -323,6 +342,11 @@ function loadTripPlanner(options = {}) {
                     }
                 }]
             });
+        },
+        rejectDirections: (error = new Error('Route failed')) => {
+            const pending = pendingDirections.shift();
+            if (!pending) throw new Error('Directions call has not started.');
+            pending.reject(error);
         }
     };
 }
@@ -461,6 +485,71 @@ test('route generation shows progress on the route button before completion', as
     assert.equal(harness.element('start-route-btn').dataset.routeStatus, 'complete');
     assert.match(harness.getTextContent(harness.element('start-route-btn')), /Route Ready/);
     assert.match(harness.getTextContent(harness.element('start-route-btn')), /1.0 mi/);
+});
+
+test('generated route coverage survives UI refresh and clears after geometry changes', async () => {
+    const harness = loadTripPlanner();
+    harness.window.BARK.tripDays = [{
+        color: '#1976D2',
+        stops: [
+            { name: 'Stop A', lat: 1, lng: 1 },
+            { name: 'Stop B', lat: 2, lng: 2 }
+        ],
+        notes: ''
+    }];
+    harness.window.BARK.initTripPlanner();
+    harness.window.BARK.updateTripUI();
+
+    await openRouteChoiceAndSkip(harness);
+    harness.resolveDirections();
+    await flushPromises(12);
+    assert.deepEqual(harness.routedDayCoverage.at(-1), [0]);
+
+    harness.window.toggleTripEditMode();
+    assert.deepEqual(harness.routedDayCoverage.at(-1), [0], 'UI-only refresh must preserve route coverage');
+
+    harness.window.BARK.tripDays[0].notes = 'Lunch stop';
+    harness.window.BARK.updateTripUI();
+    assert.deepEqual(harness.routedDayCoverage.at(-1), [0], 'notes must not invalidate driving geometry');
+
+    harness.window.BARK.tripDays[0].stops.push({ name: 'Stop C', lat: 3, lng: 3 });
+    harness.window.BARK.updateTripUI();
+    assert.deepEqual(harness.routedDayCoverage.at(-1), [], 'changed stops must invalidate stale driving geometry');
+});
+
+test('partial route generation leaves a straight fallback only for failed days', async () => {
+    const harness = loadTripPlanner();
+    harness.window.BARK.tripDays = [
+        {
+            color: '#1976D2',
+            stops: [
+                { name: 'Day 1 Start', lat: 0, lng: 0 },
+                { name: 'Day 1 End', lat: 0, lng: 1 }
+            ],
+            notes: ''
+        },
+        {
+            color: '#2E7D32',
+            stops: [
+                { name: 'Day 2 Start', lat: 50, lng: 100 },
+                { name: 'Day 2 End', lat: 50, lng: 101 }
+            ],
+            notes: ''
+        }
+    ];
+    harness.window.BARK.initTripPlanner();
+    harness.window.BARK.updateTripUI();
+
+    await openRouteChoiceAndSkip(harness);
+    assert.equal(harness.directionsCalls.length, 1);
+    harness.resolveDirections();
+    await flushPromises(12);
+    assert.equal(harness.directionsCalls.length, 2, 'distant days should use separate route batches');
+
+    harness.rejectDirections(new Error('Second route batch failed'));
+    await flushPromises(12);
+
+    assert.deepEqual(harness.routedDayCoverage.at(-1), [0]);
 });
 
 test('route generation choice can optimize before generating', async () => {

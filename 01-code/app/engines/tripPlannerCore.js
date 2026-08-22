@@ -47,6 +47,61 @@ function getDomRef(name, ...args) {
     return typeof getter === 'function' ? getter(...args) : null;
 }
 
+// Road geometry is tracked by route day so TripLayerManager can keep straight
+// fallbacks only for days that do not have a valid generated route.
+const generatedRouteVisuals = {
+    geometrySignature: null,
+    layersByDay: new Map()
+};
+
+function getGeneratedRouteDayIndexes() {
+    return new Set(generatedRouteVisuals.layersByDay.keys());
+}
+
+function syncGeneratedRouteCoverage() {
+    const tripLayer = window.BARK.tripLayer;
+    if (!tripLayer || typeof tripLayer.setRoutedDayIndexes !== 'function') return;
+    tripLayer.setRoutedDayIndexes(getGeneratedRouteDayIndexes());
+}
+
+function clearGeneratedRouteVisuals() {
+    generatedRouteVisuals.layersByDay.forEach(layer => removeTripMapLayer(layer));
+    generatedRouteVisuals.layersByDay.clear();
+    generatedRouteVisuals.geometrySignature = null;
+    syncGeneratedRouteCoverage();
+}
+
+function beginGeneratedRouteVisuals(routePlan) {
+    clearGeneratedRouteVisuals();
+    generatedRouteVisuals.geometrySignature = routePlan.geometrySignature;
+}
+
+function recordGeneratedRouteLayer(dayIndex, layer) {
+    const existing = generatedRouteVisuals.layersByDay.get(dayIndex);
+    if (existing && existing !== layer) removeTripMapLayer(existing);
+    generatedRouteVisuals.layersByDay.set(dayIndex, layer);
+    syncGeneratedRouteCoverage();
+}
+
+function reconcileGeneratedRouteVisuals(routePlan) {
+    if (!generatedRouteVisuals.geometrySignature) {
+        syncGeneratedRouteCoverage();
+        return;
+    }
+
+    if (generatedRouteVisuals.geometrySignature !== routePlan.geometrySignature) {
+        clearGeneratedRouteVisuals();
+        return;
+    }
+
+    const colorsByDay = new Map(routePlan.days.map(routeDay => [routeDay.dayIndex, routeDay.color]));
+    generatedRouteVisuals.layersByDay.forEach((layer, dayIndex) => {
+        const color = colorsByDay.get(dayIndex);
+        if (color && layer && typeof layer.setStyle === 'function') layer.setStyle({ color });
+    });
+    syncGeneratedRouteCoverage();
+}
+
 // Trip overlay (badges, dashed day lines, A/B/🔄 bookends) is owned by
 // modules/TripLayerManager.js. tripPlannerCore is the orchestrator: it mutates
 // trip state and asks the overlay to sync. It never touches map DOM directly,
@@ -62,11 +117,8 @@ function updateTripMapVisuals() {
         end: window.tripEndNode || null
     };
 
-    // Restore the dashed day lines on every edit; generateAndRenderTripRoute()
-    // explicitly hides them when it draws the real driving route.
-    if (typeof tripLayer.setDayLinesVisible === 'function') {
-        tripLayer.setDayLinesVisible(true);
-    }
+    const routePlan = buildCurrentTripRoutePlan();
+    reconcileGeneratedRouteVisuals(routePlan);
 
     const diff = tripLayer.sync(tripDays, bookends) || { added: new Set(), removed: new Set() };
 
@@ -1244,7 +1296,6 @@ function initTripPlanner() {
     const startRouteBtn = getDomRef('startRouteBtn');
     const saveRouteBtn = getDomRef('saveRouteBtn');
     const optimizeTripBtn = getDomRef('optimizeTripBtn');
-    let currentRouteLayers = [];
     let routeRenderGeneration = 0;
     let routeChoiceBusy = false;
 
@@ -1307,8 +1358,7 @@ function initTripPlanner() {
         window.isTripEditMode = false;
         routeRenderGeneration++;
 
-        currentRouteLayers.forEach(removeTripMapLayer);
-        currentRouteLayers = [];
+        clearGeneratedRouteVisuals();
         if (window.BARK.tripLayer && typeof window.BARK.tripLayer.clear === 'function') {
             const diff = window.BARK.tripLayer.clear() || { added: new Set(), removed: new Set() };
             const markerManager = window.BARK.markerManager;
@@ -1481,12 +1531,7 @@ function initTripPlanner() {
         const routeUserId = user.uid;
         window.BARK.incrementRequestCount();
 
-        currentRouteLayers.forEach(removeTripMapLayer); currentRouteLayers = [];
-        // Hide the dashed day lines while the generated driving route is on the map.
-        // Badges and bookends stay visible so the user keeps stop ordering context.
-        if (window.BARK.tripLayer && typeof window.BARK.tripLayer.setDayLinesVisible === 'function') {
-            window.BARK.tripLayer.setDayLinesVisible(false);
-        }
+        beginGeneratedRouteVisuals(routePlan);
 
         if (startRouteBtn) {
             setRouteGenerationButtonProgress(startRouteBtn, 1, routeBatches.length);
@@ -1555,7 +1600,7 @@ function initTripPlanner() {
                         const layer = L.geoJSON(dayRoute.geoJSON, {
                             style: () => ({ color: dayRoute.color, weight: 5, opacity: 0.85, dashArray: '10, 8' })
                         }).addTo(map);
-                        currentRouteLayers.push(layer);
+                        recordGeneratedRouteLayer(dayRoute.dayIndex, layer);
                         allBounds.push(layer.getBounds());
                     });
                     anySucceeded = dayRoutes.length > 0 || anySucceeded;
@@ -1584,11 +1629,7 @@ function initTripPlanner() {
             }
 
             if (routeBecameStale) {
-                currentRouteLayers.forEach(removeTripMapLayer);
-                currentRouteLayers = [];
-                if (window.BARK.tripLayer && typeof window.BARK.tripLayer.setDayLinesVisible === 'function') {
-                    window.BARK.tripLayer.setDayLinesVisible(true);
-                }
+                clearGeneratedRouteVisuals();
                 return;
             }
 
@@ -1609,9 +1650,6 @@ function initTripPlanner() {
                             detail: `${miles} mi | ${failedDayNumbers.size} day${failedDayNumbers.size === 1 ? '' : 's'} failed`,
                             status: 'warning'
                         };
-                        if (window.BARK.tripLayer && typeof window.BARK.tripLayer.setDayLinesVisible === 'function') {
-                            window.BARK.tripLayer.setDayLinesVisible(true);
-                        }
                         alert(`Could not generate Day ${Array.from(failedDayNumbers).sort((a, b) => a - b).join(', Day ')}. The other route days are ready.`);
                     } else {
                         finalRouteButtonNotice = {
@@ -1627,9 +1665,6 @@ function initTripPlanner() {
                         detail: 'Try fewer stops/day',
                         status: 'error'
                     };
-                    if (window.BARK.tripLayer && typeof window.BARK.tripLayer.setDayLinesVisible === 'function') {
-                        window.BARK.tripLayer.setDayLinesVisible(true);
-                    }
                     if (failedDayNumbers.size > 0) {
                         alert(`Could not generate Day ${Array.from(failedDayNumbers).sort((a, b) => a - b).join(', Day ')}. Please try again.`);
                     }

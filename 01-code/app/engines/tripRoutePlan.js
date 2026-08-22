@@ -69,6 +69,16 @@
         })));
     }
 
+    function buildGeometrySignature(days) {
+        return JSON.stringify((Array.isArray(days) ? days : []).map(routeDay => ({
+            dayIndex: routeDay.dayIndex,
+            points: routeDay.points.map(point => ({
+                lat: point.lat,
+                lng: point.lng
+            }))
+        })));
+    }
+
     function buildTripRoutePlan(options = {}) {
         const tripDays = Array.isArray(options.tripDays) ? options.tripDays : [];
         const startPoint = normalizePoint(options.startNode, 'start');
@@ -109,6 +119,7 @@
             days: routeDays,
             routableDays,
             signature: buildSignature(routeDays),
+            geometrySignature: buildGeometrySignature(routeDays),
             getDay(dayIndex) {
                 return routeDays.find(routeDay => routeDay.dayIndex === dayIndex) || null;
             }

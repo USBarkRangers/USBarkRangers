@@ -18,8 +18,8 @@
  *   clear()                  — remove every overlay element; returns the diff
  *   getStopParkIds()         — Set<string> of park IDs currently in the active
  *                              trip. Treat as read-only; do not mutate.
- *   setDayLinesVisible(bool) — hide/show only the dashed day lines (used while
- *                              the generated driving route is on the map).
+ *   setRoutedDayIndexes(set) — hide each dashed fallback line only when that
+ *                              day has valid generated driving geometry.
  *
  * Performance settings (lowGfxEnabled / ultraLowEnabled / removeShadows /
  * reducePinMotion / simplifyPinsWhileMoving / stopResizing) are honored via
@@ -77,7 +77,7 @@ function hasTripVisitedPlace(placeOrId) {
     const dayLines = new Map();       // key: dayIdx -> polyline
     const bookendMarkers = new Map(); // key: 'start' | 'end' -> marker
     let tripStopParkIds = new Set();
-    let dayLinesVisible = true;
+    let routedDayIndexes = new Set();
 
     function getMapRef() {
         return window.map || null;
@@ -412,6 +412,7 @@ function hasTripVisitedPlace(placeOrId) {
             if (existing) {
                 existing.setLatLngs(latlngs);
                 if (existing.options.color !== color) existing.setStyle({ color });
+                syncDayLineVisibility(dayIdx, existing);
                 return;
             }
             const line = L.polyline(latlngs, {
@@ -422,7 +423,7 @@ function hasTripVisitedPlace(placeOrId) {
                 interactive: false,
                 className: 'trip-overlay-line'
             });
-            if (tripLayerGroup && dayLinesVisible) tripLayerGroup.addLayer(line);
+            if (tripLayerGroup && !routedDayIndexes.has(dayIdx)) tripLayerGroup.addLayer(line);
             dayLines.set(dayIdx, line);
         });
 
@@ -543,6 +544,7 @@ function hasTripVisitedPlace(placeOrId) {
         badgeMarkers.clear();
         dayLines.clear();
         bookendMarkers.clear();
+        routedDayIndexes = new Set();
         tripStopParkIds = new Set();
         return diffParkIdSets(prevStopParkIds, tripStopParkIds);
     }
@@ -551,20 +553,24 @@ function hasTripVisitedPlace(placeOrId) {
         return tripStopParkIds;
     }
 
-    function setDayLinesVisible(visible) {
-        const next = Boolean(visible);
-        if (next === dayLinesVisible) return;
-        dayLinesVisible = next;
-        if (!tripLayerGroup) return;
-        if (next) {
-            dayLines.forEach(line => {
-                if (!tripLayerGroup.hasLayer(line)) tripLayerGroup.addLayer(line);
-            });
-        } else {
-            dayLines.forEach(line => {
-                if (tripLayerGroup.hasLayer(line)) tripLayerGroup.removeLayer(line);
-            });
-        }
+    function syncDayLineVisibility(dayIdx, line) {
+        if (!tripLayerGroup || !line) return;
+        const shouldShowFallback = !routedDayIndexes.has(dayIdx);
+        const isVisible = tripLayerGroup.hasLayer(line);
+        if (shouldShowFallback && !isVisible) tripLayerGroup.addLayer(line);
+        if (!shouldShowFallback && isVisible) tripLayerGroup.removeLayer(line);
+    }
+
+    function setRoutedDayIndexes(dayIndexes) {
+        const next = new Set();
+        const values = dayIndexes && typeof dayIndexes.forEach === 'function' ? dayIndexes : [];
+        values.forEach(dayIdx => {
+            const normalized = Number(dayIdx);
+            if (Number.isInteger(normalized) && normalized >= 0) next.add(normalized);
+        });
+
+        routedDayIndexes = next;
+        dayLines.forEach((line, dayIdx) => syncDayLineVisibility(dayIdx, line));
     }
 
     function refreshBadgeStyles() {
@@ -577,7 +583,7 @@ function hasTripVisitedPlace(placeOrId) {
         });
     }
 
-    window.BARK.tripLayer = { init, sync, clear, getStopParkIds, setDayLinesVisible, refreshBadgeStyles };
+    window.BARK.tripLayer = { init, sync, clear, getStopParkIds, setRoutedDayIndexes, refreshBadgeStyles };
     window.BARK.initTripLayer = function initTripLayer() {
         ensureLayerGroup();
     };

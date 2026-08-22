@@ -69,6 +69,21 @@ test('adjacent saved boundary duplicates are compacted', () => {
     assert.deepEqual(names(plan.days[1]), ['Shared', 'Next']);
 });
 
+test('geometry signature changes only when route geometry changes', () => {
+    const original = buildTripRoutePlan({
+        tripDays: [day('#111111', [stop('A', 1, 1), stop('B', 2, 2)])]
+    });
+    const presentationOnly = buildTripRoutePlan({
+        tripDays: [{ color: '#999999', notes: 'new note', stops: [stop('Renamed A', 1, 1), stop('B', 2, 2)] }]
+    });
+    const movedStop = buildTripRoutePlan({
+        tripDays: [day('#111111', [stop('A', 1, 1), stop('B', 3, 3)])]
+    });
+
+    assert.equal(original.geometrySignature, presentationOnly.geometrySignature);
+    assert.notEqual(original.geometrySignature, movedStop.geometrySignature);
+});
+
 test('consecutive route days share one bounded ORS batch', () => {
     const plan = buildTripRoutePlan({
         tripDays: [

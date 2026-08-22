@@ -306,3 +306,17 @@ test('My Location renders an explicit first suggestion and waits for activation 
         { name: 'My Current Location', lat: 35.7796, lng: -78.6382 }
     );
 });
+
+test('manual town search keeps the typed query visible while geocoding', async () => {
+    const harness = loadSearchEngine({ premium: true, localParks: [] });
+    const input = harness.element('inline-start-input', 'input');
+    input.value = 'Trail Town';
+    input.focus();
+
+    harness.window.BARK.runInlinePlannerSearch('start', { executeGlobal: true });
+    assert.equal(input.value, 'Trail Town');
+
+    await flushPromises();
+    assert.equal(input.value, 'Trail Town');
+    assert.match(harness.text(harness.element('inline-suggest-start')), /Stubbed town for Trail Town/);
+});

@@ -491,9 +491,6 @@ function appendInlineGlobalSearchButton(type, query, suggestBox) {
             return;
         }
 
-        const input = window.BARK.DOM.inlineInput(type);
-        if (input) input.value = `Searching for "${query}"...`;
-        suggestBox.style.display = 'none';
         executeGeocode(query, type);
     });
 
@@ -582,8 +579,6 @@ function runInlinePlannerSearch(type, options = {}) {
         return;
     }
 
-    if (input) input.value = `Searching for "${query}"...`;
-    hideInlineSuggestions(type);
     executeGeocode(query, type);
 }
 

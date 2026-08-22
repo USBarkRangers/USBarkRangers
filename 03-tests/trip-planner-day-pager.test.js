@@ -45,6 +45,7 @@ function createStyle() {
 }
 
 function createElement(tagName = 'div') {
+    const listeners = {};
     const element = {
         tagName: String(tagName).toUpperCase(),
         id: '',
@@ -77,7 +78,20 @@ function createElement(tagName = 'div') {
         getAttribute(name) {
             return this.attributes[name];
         },
-        addEventListener() {},
+        addEventListener(type, handler) {
+            listeners[type] = listeners[type] || [];
+            listeners[type].push(handler);
+        },
+        dispatchEvent(event) {
+            const eventObject = {
+                target: this,
+                currentTarget: this,
+                preventDefault() {},
+                stopPropagation() {},
+                ...event
+            };
+            (listeners[eventObject.type] || []).forEach(handler => handler(eventObject));
+        },
         focus() {
             this.focused = true;
         },
@@ -202,6 +216,8 @@ function loadTripPlanner(options = {}) {
                     tripNameInput: () => byId('tripNameInput'),
                     routeTelemetry: () => byId('route-telemetry'),
                     parkSearch: () => byId('park-search'),
+                    inlineInput: type => byId(`inline-${type}-input`),
+                    inlineSuggest: type => byId(`inline-suggest-${type}`),
                     optimizerModal: () => byId('optimizer-modal'),
                     optMaxStops: () => ({ value: '5' }),
                     optMaxHours: () => ({ value: '4' })
@@ -390,6 +406,26 @@ test('add stop action opens map tab and focuses the search input for the active 
     assert.equal(searchInput.selected, true);
     assert.equal(searchInput.scrolled, true);
     assert.match(searchInput.placeholder, /Day 10/);
+});
+
+test('bookend suggestions survive touch blur so their click can land', () => {
+    const harness = loadTripPlanner();
+    harness.window.editBookend('start');
+
+    const input = harness.element('inline-start-input');
+    const suggestions = harness.element('inline-suggest-start');
+    const option = createElement('div');
+    suggestions.appendChild(option);
+    suggestions.style.display = 'block';
+
+    input.dispatchEvent({ type: 'blur', relatedTarget: null });
+    assert.equal(suggestions.style.display, 'block', 'touch blur must not remove options before click');
+
+    input.dispatchEvent({ type: 'blur', relatedTarget: option });
+    assert.equal(suggestions.style.display, 'block', 'focusing an option must keep its dropdown open');
+
+    input.dispatchEvent({ type: 'blur', relatedTarget: createElement('button') });
+    assert.equal(suggestions.style.display, 'none', 'keyboard focus leaving the search should close options');
 });
 
 test('route generation shows progress on the route button before completion', async () => {

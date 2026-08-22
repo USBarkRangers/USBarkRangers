@@ -874,10 +874,16 @@ window.editBookend = function (type) {
             }
         });
 
-        inlineInput.addEventListener('blur', () => {
+        inlineInput.addEventListener('blur', (event) => {
             clearTimeout(inlineSearchTimer);
             const suggestBox = getDomRef('inlineSuggest', type);
-            if (suggestBox && suggestBox.contains(document.activeElement)) return;
+
+            // relatedTarget is the element receiving keyboard/mouse focus. A
+            // null target is common during touch gestures, where the document
+            // pointer handler already owns outside-click dismissal. Hiding on
+            // that null blur removes the option before its click can land.
+            if (!event.relatedTarget) return;
+            if (suggestBox && suggestBox.contains(event.relatedTarget)) return;
 
             if (window.BARK.hideInlinePlannerSuggestions) {
                 window.BARK.hideInlinePlannerSuggestions(type);

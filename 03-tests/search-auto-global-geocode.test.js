@@ -80,7 +80,7 @@ function createElement(tagName = 'div', documentRef = null) {
     return element;
 }
 
-function loadSearchEngine({ premium = true, localParks = [] } = {}) {
+function loadSearchEngine({ premium = true, localParks = [], gpsPosition = null } = {}) {
     const elements = new Map();
     const documentRef = {
         activeElement: null,
@@ -111,6 +111,7 @@ function loadSearchEngine({ premium = true, localParks = [] } = {}) {
     byId('inline-suggest-end');
 
     const geocodeCalls = [];
+    const geolocationCalls = [];
     const context = {
         window: {
             BARK: {
@@ -158,7 +159,10 @@ function loadSearchEngine({ premium = true, localParks = [] } = {}) {
         },
         navigator: {
             geolocation: {
-                getCurrentPosition() {}
+                getCurrentPosition(onSuccess, onError, options) {
+                    geolocationCalls.push({ onSuccess, onError, options });
+                    if (gpsPosition) onSuccess({ coords: gpsPosition });
+                }
             }
         },
         console,
@@ -183,6 +187,7 @@ function loadSearchEngine({ premium = true, localParks = [] } = {}) {
         element: byId,
         document: documentRef,
         geocodeCalls,
+        geolocationCalls,
         text: element => getTextContent(element)
     };
 }
@@ -243,4 +248,61 @@ test('premium inline trip start search auto-runs global lookup when no parks mat
     assert.equal(suggestions.style.display, 'block');
     assert.match(harness.text(suggestions), /SELECT FOR TRIP START/);
     assert.match(harness.text(suggestions), /Stubbed town for Trail Town/);
+
+    const townResult = suggestions.children[0];
+    townResult.dispatchEvent({ type: 'pointerdown' });
+    assert.equal(harness.window.tripStartNode, undefined, 'touch start must not select a result');
+
+    townResult.dispatchEvent({ type: 'click' });
+    assert.equal(harness.window.tripStartNode.name, 'Stubbed town for Trail Town');
+});
+
+test('Enter and Space keyboard activation still select a town result', async () => {
+    for (const key of ['Enter', ' ']) {
+        const harness = loadSearchEngine({ premium: true, localParks: [] });
+        const input = harness.element('inline-end-input', 'input');
+        input.value = 'Trail Town';
+        input.focus();
+
+        harness.window.BARK.runInlinePlannerSearch('end');
+        await flushPromises();
+
+        const suggestions = harness.element('inline-suggest-end');
+        suggestions.children[0].dispatchEvent({ type: 'keydown', key });
+        assert.equal(harness.window.tripEndNode.name, 'Stubbed town for Trail Town');
+    }
+});
+
+test('My Location renders an explicit first suggestion and waits for activation before GPS', () => {
+    const harness = loadSearchEngine({
+        premium: true,
+        localParks: [],
+        gpsPosition: { latitude: 35.7796, longitude: -78.6382 }
+    });
+    const input = harness.element('inline-start-input', 'input');
+    input.value = 'My Location';
+    input.focus();
+
+    harness.window.BARK.runInlinePlannerSearch('start');
+
+    const suggestions = harness.element('inline-suggest-start');
+    assert.equal(suggestions.style.display, 'block');
+    assert.equal(suggestions.children[0].textContent, '📍 Use My Current Location');
+    assert.equal(harness.geolocationCalls.length, 0, 'typing must not request GPS');
+    assert.equal(harness.window.tripStartNode, undefined, 'typing must not set trip start');
+
+    suggestions.children[0].dispatchEvent({ type: 'pointerdown' });
+    assert.equal(harness.geolocationCalls.length, 0, 'beginning a touch scroll must not request GPS');
+    assert.equal(harness.window.tripStartNode, undefined, 'beginning a touch scroll must not set trip start');
+
+    suggestions.children[0].dispatchEvent({ type: 'click' });
+    assert.equal(harness.geolocationCalls.length, 1);
+    assert.deepEqual(
+        {
+            name: harness.window.tripStartNode.name,
+            lat: harness.window.tripStartNode.lat,
+            lng: harness.window.tripStartNode.lng
+        },
+        { name: 'My Current Location', lat: 35.7796, lng: -78.6382 }
+    );
 });

@@ -181,6 +181,11 @@ function normalizeGlobalGeocodeQuery(query) {
     return String(query || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+function isCurrentLocationQuery(query) {
+    const normalized = normalizeGlobalGeocodeQuery(query);
+    return normalized === 'my location' || normalized === 'current location';
+}
+
 function getGlobalGeocodeCacheKey(query, options = {}) {
     const normalized = normalizeGlobalGeocodeQuery(query);
     const country = options.country || 'US';
@@ -371,7 +376,7 @@ function bindSuggestionSelection(element, onSelect) {
     element.setAttribute('role', 'button');
     element.tabIndex = 0;
 
-    element.addEventListener('pointerdown', (e) => {
+    element.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
         onSelect(e);
@@ -383,6 +388,68 @@ function bindSuggestionSelection(element, onSelect) {
         e.stopPropagation();
         onSelect(e);
     });
+}
+
+function renderCurrentLocationSuggestion(targetType) {
+    const DOM = window.BARK.DOM;
+    const suggestBox = DOM && getGeocodeSuggestionContainer(DOM, targetType);
+    if (!suggestBox) return;
+
+    suggestBox.innerHTML = '';
+
+    const locationBtn = document.createElement('div');
+    locationBtn.className = 'suggestion-item';
+    locationBtn.textContent = '📍 Use My Current Location';
+    bindSuggestionSelection(locationBtn, () => requestCurrentLocation(targetType));
+
+    suggestBox.appendChild(locationBtn);
+    suggestBox.style.display = 'block';
+}
+
+function requestCurrentLocation(targetType) {
+    const DOM = window.BARK.DOM;
+    const mainSearch = DOM && DOM.parkSearch ? DOM.parkSearch() : null;
+    const inlineInput = targetType !== 'stop' && DOM && DOM.inlineInput
+        ? DOM.inlineInput(targetType)
+        : null;
+    const input = targetType === 'stop' ? mainSearch : inlineInput;
+    const originalQuery = input ? input.value : 'My Location';
+    const geolocation = typeof navigator !== 'undefined' ? navigator.geolocation : null;
+
+    bumpAutoGlobalSearchRun(targetType);
+    const suggestBox = DOM && getGeocodeSuggestionContainer(DOM, targetType);
+    if (suggestBox) suggestBox.style.display = 'none';
+    if (input) input.value = 'Locating GPS...';
+
+    if (!geolocation || typeof geolocation.getCurrentPosition !== 'function') {
+        alert('GPS location is not available in this browser.');
+        if (input) input.value = originalQuery;
+        renderCurrentLocationSuggestion(targetType);
+        return;
+    }
+
+    geolocation.getCurrentPosition((pos) => {
+        const node = {
+            name: 'My Current Location',
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude
+        };
+
+        if (!applyTripNodeSelection(targetType, node, { alertOnFailure: true })) {
+            if (input) input.value = originalQuery;
+            renderCurrentLocationSuggestion(targetType);
+            return;
+        }
+
+        if (targetType === 'stop') {
+            clearGeocodeSearchStatus(DOM, targetType);
+        }
+        if (typeof window.syncState === 'function') window.syncState();
+    }, () => {
+        alert('Could not get GPS location. Please check browser permissions.');
+        if (input) input.value = originalQuery;
+        renderCurrentLocationSuggestion(targetType);
+    }, { enableHighAccuracy: true });
 }
 
 function appendInlineGlobalSearchButton(type, query, suggestBox) {
@@ -499,9 +566,9 @@ function runInlinePlannerSearch(type, options = {}) {
         return;
     }
 
-    const lowerQuery = query.toLowerCase();
-    if (lowerQuery === 'my location' || lowerQuery === 'current location') {
-        executeGeocode(query, type);
+    if (isCurrentLocationQuery(query)) {
+        bumpAutoGlobalSearchRun(type);
+        renderCurrentLocationSuggestion(type);
         return;
     }
 
@@ -922,6 +989,13 @@ function initSearchEngine() {
         const parkRepo = getParkRepo();
         const allPoints = parkRepo ? parkRepo.getAll() : [];
 
+        if (isCurrentLocationQuery(window.BARK.activeSearchQuery)) {
+            resetSearchCache();
+            renderCurrentLocationSuggestion('stop');
+            window.syncState();
+            return;
+        }
+
         if (!queryNorm) {
             resetSearchCache();
             if (searchSuggestions) searchSuggestions.style.display = 'none';
@@ -1039,36 +1113,7 @@ window.BARK.initSearchEngine = initSearchEngine;
 async function executeGeocode(query, targetType) {
     if (!query) return;
     const DOM = window.BARK.DOM;
-    const lowerQ = query.trim().toLowerCase();
     bumpAutoGlobalSearchRun(targetType);
-
-    // 🔥 SMART INTERCEPT: GPS Routing
-    if (lowerQ === 'my location' || lowerQ === 'current location') {
-        const mainSearch = DOM.parkSearch();
-        if (targetType === 'stop' && mainSearch) mainSearch.value = 'Locating GPS...';
-        else {
-            const inlineInput = DOM.inlineInput(targetType);
-            if (inlineInput) inlineInput.value = 'Locating GPS...';
-        }
-
-        navigator.geolocation.getCurrentPosition((pos) => {
-            const node = { name: "My Current Location", lat: pos.coords.latitude, lng: pos.coords.longitude };
-            const applied = applyTripNodeSelection(targetType, node, { alertOnFailure: true });
-            if (!applied) {
-                clearGeocodeSearchStatus(DOM, targetType);
-                return;
-            }
-
-            if (targetType === 'stop' && mainSearch) {
-                mainSearch.value = '';
-                window.BARK.activeSearchQuery = '';
-            }
-        }, () => {
-            alert("Could not get GPS location. Please check browser permissions.");
-            if (targetType === 'stop' && mainSearch) mainSearch.value = '';
-        }, { enableHighAccuracy: true });
-        return;
-    }
 
     // Standard API Search
     if (!isPremiumGlobalSearchUnlocked()) {
@@ -1089,6 +1134,7 @@ async function executeGeocode(query, targetType) {
 }
 
 window.BARK.executeGeocode = executeGeocode;
+window.BARK.requestCurrentLocation = requestCurrentLocation;
 // Also expose on window for inline HTML handlers
 window.processInlineSearch = function (type) {
     runInlinePlannerSearch(type, { executeGlobal: true });

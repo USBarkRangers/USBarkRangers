@@ -62,16 +62,6 @@ if (window.map && window.BARK.markerLayer && window.BARK.markerClusterGroup) ret
 // Apply initial styles
 applyGlobalStyles();
 
-// iOS WebKit can lock its compositor for tens of seconds after repeatedly
-// moving hundreds of translate3d-positioned HTML pins. Keep the exact pin DOM
-// and appearance, but let Leaflet position them without per-pin 3-D surfaces.
-const useFlatIosLeafletRendering = typeof window.BARK.applyIosLeafletCompositorPolicy === 'function'
-    ? window.BARK.applyIosLeafletCompositorPolicy(window.L)
-    : false;
-if (useFlatIosLeafletRendering && typeof window.BARK.perfBreadcrumb === 'function') {
-    window.BARK.perfBreadcrumb('leaflet-rendering:ios-flat');
-}
-
 let mapSaveTimeout;
 const LOWER_48_MIN_ZOOM = 4;
 
@@ -103,9 +93,7 @@ const mapOptions = window.ultraLowEnabled ? {
     doubleClickZoom: false,
     touchZoom: !window.disablePinchZoom,
     dragging: !window.lockMapPanning,
-    markerZoomAnimation: !useFlatIosLeafletRendering,
-    zoomAnimation: !useFlatIosLeafletRendering,
-    fadeAnimation: !useFlatIosLeafletRendering
+    markerZoomAnimation: true
 };
 
 window.map = L.map('map', mapOptions);

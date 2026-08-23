@@ -218,6 +218,22 @@ describe("routeAlertToDiscord", () => {
         assert.ok(!sent[0].payload.embeds[0].title.startsWith("CRITICAL"));
     });
 
+    it("sends a client checkout report to sales-and-billing without a critical ping", async () => {
+        const { sent, sender } = recorder();
+        await routeAlertToDiscord(
+            {
+                fn: "client/other",
+                source: "client",
+                likelyArea: "payment/upgrade",
+                errorMessage: "checkout could not start"
+            },
+            { discordConfig: fullConfig("7"), discordSender: sender }
+        );
+        assert.equal(sent[0].url, `${HOOK}-salesAndBilling`);
+        assert.equal(sent[0].payload.content, undefined);
+        assert.match(sent[0].payload.embeds[0].title, /Client payment report/);
+    });
+
     it("sends an ordinary server fault to system-status", async () => {
         const { sent, sender } = recorder();
         await routeAlertToDiscord(

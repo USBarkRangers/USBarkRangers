@@ -3328,16 +3328,21 @@ function alertEmailAllowed(payload, now = Date.now()) {
 // #system-status so a broken screen doesn't read as an outage.
 function routeAlertToDiscord(payload, options = {}) {
     const isClientReport = payload.source === "client";
+    const isClientPaymentReport = isClientReport && payload.likelyArea === "payment/upgrade";
     const domain = getAlertDomain(payload.fn, payload);
     // A client report must never claim payment risk, even if `critical` is set.
     const isCritical = payload.critical === true && !isClientReport;
 
-    const channel = isCritical
-        ? "incidentResponse"
-        : (isClientReport ? "bugs" : (domain === "payments" ? "salesAndBilling" : "systemStatus"));
-    const title = isCritical
-        ? `CRITICAL: ${payload.fn} failed`
-        : (isClientReport ? `Client report: ${payload.fn}` : `${payload.fn} failed`);
+    let channel = domain === "payments" ? "salesAndBilling" : "systemStatus";
+    let title = `${payload.fn} failed`;
+    if (isClientReport) {
+        channel = isClientPaymentReport ? "salesAndBilling" : "bugs";
+        title = isClientPaymentReport ? `Client payment report: ${payload.fn}` : `Client report: ${payload.fn}`;
+    }
+    if (isCritical) {
+        channel = "incidentResponse";
+        title = `CRITICAL: ${payload.fn} failed`;
+    }
 
     return opsDiscord.postDiscord({
         channel,
@@ -3525,6 +3530,7 @@ function shouldImmediatelyAlertClientError(record) {
     if (record.type === "freeze") return Number(record.durationSeconds) >= 15;
     if (record.type === "boot") return true;
     if (record.likelyArea === "storage/database") return true;
+    if (record.likelyArea === "payment/upgrade" && record.type === "other") return true;
     return record.type === "error" || record.type === "unhandledrejection";
 }
 

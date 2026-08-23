@@ -150,6 +150,27 @@ describe("handleReportClientError", () => {
         assert.equal(sent.length, 0);
     });
 
+    it("immediately alerts on a checkout failure reported by the browser", async () => {
+        const firestore = makeFirestore();
+        const sent = [];
+        await handleReportClientError(
+            {
+                type: "other",
+                message: "The browser could not start Premium checkout.",
+                likelyArea: "payment/upgrade",
+                severity: "important",
+                fingerprint: "payment:checkout-start:unavailable"
+            },
+            authedContext(),
+            { firestore, emailSender: async (payload) => sent.push(payload) }
+        );
+
+        assert.equal(firestore.state.adds.length, 1);
+        assert.equal(sent.length, 1);
+        assert.equal(sent[0].fn, "client/other");
+        assert.equal(sent[0].likelyArea, "payment/upgrade");
+    });
+
     it("still persists but does NOT email once the per-user cap is hit", async () => {
         const firestore = makeFirestore({ rateLimitCount: 6 });
         const sent = [];

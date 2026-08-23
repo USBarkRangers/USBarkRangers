@@ -59,6 +59,19 @@
         } catch (_error) { /* analytics must never affect checkout */ }
     }
 
+    function reportPaymentIssue(message, error, fingerprint) {
+        try {
+            if (typeof window.BARK.reportClientError !== 'function') return;
+            window.BARK.reportClientError('other', message, error && error.stack, {
+                likelyArea: 'payment/upgrade',
+                severity: 'important',
+                fingerprint,
+                errorName: error && error.name,
+                errorCode: error && error.code
+            });
+        } catch (_error) { /* reporting must never affect checkout */ }
+    }
+
     function getElement(id) {
         return document.getElementById(id);
     }
@@ -545,6 +558,11 @@
             verificationFallbackTimer = null;
             if (returnState === 'success' && !isPremiumActive()) {
                 trackFunnelEvent('premium-confirmation-timeout', 'Premium confirmation delayed', 'confirmation-timeout');
+                reportPaymentIssue(
+                    `Premium confirmation was still pending after ${Math.round(getVerifyingFallbackMs() / 1000)} seconds.`,
+                    null,
+                    'payment:confirmation-timeout'
+                );
             }
             renderCurrentState();
         }, remainingMs + 25);
@@ -1022,6 +1040,11 @@
             console.error('[paywallController] createCheckoutSession failed:', error);
             if (typeof window.BARK.perfOperationEnd === 'function') window.BARK.perfOperationEnd(checkoutOperation, 'failed');
             trackFunnelEvent('checkout-start-failed', 'Checkout could not start');
+            reportPaymentIssue(
+                'The browser could not start Premium checkout.',
+                error,
+                `payment:checkout-start:${error && error.code ? error.code : 'unknown'}`
+            );
             const message = error && error.message && /paused|disabled|unavailable/i.test(error.message)
                 ? error.message
                 : 'Checkout could not start. Please try again in a moment or contact support.';

@@ -114,6 +114,9 @@ function clearActivePin() {
     if (activePinMarker && activePinMarker._icon) {
         activePinMarker._icon.classList.remove('active-pin');
     }
+    if (window.BARK.markerManager && typeof window.BARK.markerManager.clearSelectedMarker === 'function') {
+        window.BARK.markerManager.clearSelectedMarker();
+    }
     activePinMarker = null;
 }
 

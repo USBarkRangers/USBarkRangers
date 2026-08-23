@@ -415,6 +415,7 @@ setTimeout(() => {
 
 // ====== MARKER LAYERS ======
 const markerLayer = L.layerGroup().addTo(map);
+const canvasMarkerLayer = new window.BARK.CanvasMarkerLayer().addTo(map);
 
 const markerClusterGroup = L.markerClusterGroup({
     chunkedLoading: true,
@@ -468,11 +469,13 @@ const markerClusterGroup = L.markerClusterGroup({
 });
 
 window.BARK.markerLayer = markerLayer;
+window.BARK.canvasMarkerLayer = canvasMarkerLayer;
 window.BARK.markerClusterGroup = markerClusterGroup;
 window.BARK.markerManager = new window.BARK.MarkerLayerManager({
     map,
     plainLayer: markerLayer,
-    clusterLayer: markerClusterGroup
+    clusterLayer: markerClusterGroup,
+    canvasLayer: canvasMarkerLayer
 });
 
 // ====== 🐛 BUBBLE MODE SAFE TEARDOWN/REBUILD ======

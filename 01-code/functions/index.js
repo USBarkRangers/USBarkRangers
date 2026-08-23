@@ -3773,6 +3773,9 @@ async function runDailyErrorDigest(options = {}) {
     const db = options.firestore || admin.firestore();
     const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
     const sinceMs = nowMs - 24 * 60 * 60 * 1000;
+    const parkDataPromise = options.includeParkDataCheck === false
+        ? Promise.resolve(null)
+        : dataIntegrity.fetchParkDataIntegrity(options);
 
     let docs = [];
     try {
@@ -3784,7 +3787,8 @@ async function runDailyErrorDigest(options = {}) {
         console.error("[digest] failed to read clientErrors:", err && err.message);
     }
 
-    const summary = summarizeClientErrors(docs, sinceMs, nowMs);
+    const parkData = await parkDataPromise;
+    const summary = { ...summarizeClientErrors(docs, sinceMs, nowMs), parkData };
     const send = options.rawEmailSender || rawAlertEmailSender;
     if (typeof send === "function") {
         try {
@@ -3799,6 +3803,23 @@ async function runDailyErrorDigest(options = {}) {
         await postDigestToDiscord(summary, options);
     } catch (err) {
         console.error("[digest] Discord notify issue:", err && err.message);
+    }
+
+    if (parkData && !parkData.ok) {
+        console.error("[data-integrity] park data check failed", {
+            available: parkData.available,
+            error: parkData.error || null,
+            spreadsheetRows: parkData.spreadsheetRows,
+            validMapRows: parkData.validMapRows,
+            uniqueParkIds: parkData.uniqueParkIds,
+            uniqueAwardSites: parkData.uniqueAwardSites,
+            issueCodes: parkData.issueCodes
+        });
+        try {
+            await opsDiscord.postDiscord(dataIntegrity.buildParkDataAlertMessage(parkData), options);
+        } catch (err) {
+            console.error("[data-integrity] Discord notify issue:", err && err.message);
+        }
     }
 
     return summary;
@@ -3997,37 +4018,12 @@ async function runOpsMetricsRollup({ windowHours, channel, title }, options = {}
     const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
     const sinceMs = nowMs - (windowHours * 60 * 60 * 1000);
 
-    const [metricsSummary, parkData] = await Promise.all([
-        opsMetrics.collectOpsMetrics({
-            db,
-            sinceDate: Timestamp.fromMillis(sinceMs),
-            sinceMs,
-            nowMs
-        }, options),
-        options.includeParkDataCheck === false
-            ? Promise.resolve(null)
-            : dataIntegrity.fetchParkDataIntegrity(options)
-    ]);
-    const summary = { ...metricsSummary, parkData };
-
-    // Passing checks add no Firestore traffic. A mismatch is recorded in Cloud
-    // Logging and posted to ops without creating a daily database document.
-    if (parkData && !parkData.ok) {
-        console.error("[data-integrity] park data check failed", {
-            available: parkData.available,
-            error: parkData.error || null,
-            spreadsheetRows: parkData.spreadsheetRows,
-            validMapRows: parkData.validMapRows,
-            uniqueParkIds: parkData.uniqueParkIds,
-            uniqueAwardSites: parkData.uniqueAwardSites,
-            issueCodes: parkData.issueCodes
-        });
-        try {
-            await opsDiscord.postDiscord(dataIntegrity.buildParkDataAlertMessage(parkData), options);
-        } catch (err) {
-            console.error("[data-integrity] Discord notify issue:", err && err.message);
-        }
-    }
+    const summary = await opsMetrics.collectOpsMetrics({
+        db,
+        sinceDate: Timestamp.fromMillis(sinceMs),
+        sinceMs,
+        nowMs
+    }, options);
 
     const paymentFunnelAlert = opsMetrics.buildPaymentFunnelAlertMessage(summary.traffic);
     if (paymentFunnelAlert) {
@@ -4068,7 +4064,7 @@ exports.weeklyOpsReport = functions
             windowHours: 24 * 7,
             channel: "weeklyReport",
             title: "Weekly report"
-        }, { includeParkDataCheck: false });
+        });
     });
 
 // REMOVED 2026-08-07: generateHourlyLeaderboard.

@@ -79,6 +79,7 @@ describe("runDailyErrorDigest", () => {
                 { type: "error", message: "boom", uid: "a" },
                 { type: "freeze", message: "stall", uid: "b" }
             ]),
+            includeParkDataCheck: false,
             rawEmailSender: async (subject, text) => { sent.push({ subject, text }); }
         });
         assert.equal(summary.total, 2);
@@ -90,6 +91,7 @@ describe("runDailyErrorDigest", () => {
         const sent = [];
         const summary = await runDailyErrorDigest({
             firestore: makeFirestore([]),
+            includeParkDataCheck: false,
             rawEmailSender: async (subject, text) => { sent.push({ subject, text }); }
         });
         assert.equal(summary.total, 0);

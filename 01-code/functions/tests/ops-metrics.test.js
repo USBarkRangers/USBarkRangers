@@ -169,7 +169,6 @@ describe("runOpsMetricsRollup", () => {
             { windowHours: 24, channel: "dailyMetrics", title: "Daily metrics" },
             {
                 firestore: fakeFirestore({ feedback: 2, clientErrors: 5, _lemonSqueezyWebhookEvents: 1 }),
-                includeParkDataCheck: false,
                 env: { GOATCOUNTER_API_TOKEN: "t" },
                 httpGet: async (url) => (url.endsWith("/stats/total")
                     ? { data: { total: 99, total_unique: 40 } }
@@ -196,7 +195,6 @@ describe("runOpsMetricsRollup", () => {
             { windowHours: 168, channel: "weeklyReport", title: "Weekly report" },
             {
                 firestore: fakeFirestore({}, new Set(["feedback", "clientErrors", "_lemonSqueezyWebhookEvents"])),
-                includeParkDataCheck: false,
                 env: {},
                 discordConfig: fullConfig(),
                 discordSender: async (url, payload) => { sent.push({ url, payload }); }

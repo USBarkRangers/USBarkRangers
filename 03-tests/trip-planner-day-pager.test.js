@@ -180,6 +180,7 @@ function loadTripPlanner(options = {}) {
 
     const pendingDirections = [];
     const directionsCalls = [];
+    const generatedRouteLayers = [];
 
     const context = {
         window: {
@@ -269,7 +270,8 @@ function loadTripPlanner(options = {}) {
         },
         L: {
             geoJSON() {
-                return {
+                const layer = {
+                    setStyleCalls: 0,
                     addTo() {
                         return this;
                     },
@@ -281,9 +283,12 @@ function loadTripPlanner(options = {}) {
                         };
                     },
                     setStyle(style) {
+                        this.setStyleCalls += 1;
                         this.style = { ...(this.style || {}), ...style };
                     }
                 };
+                generatedRouteLayers.push(layer);
+                return layer;
             }
         },
         map: {
@@ -324,6 +329,7 @@ function loadTripPlanner(options = {}) {
             timers.splice(0).forEach(callback => callback());
         },
         directionsCalls,
+        generatedRouteLayers,
         routedDayCoverage,
         routedSegmentCoverage,
         openedUrls,
@@ -514,13 +520,21 @@ test('generated route coverage survives UI refresh and preserves unchanged conne
     assert.deepEqual(harness.routedDayCoverage.at(-1), [0]);
     const originalSegmentKeys = harness.routedSegmentCoverage.at(-1);
     assert.equal(originalSegmentKeys.length, 1);
+    assert.equal(harness.generatedRouteLayers[0].setStyleCalls, 0);
 
     harness.window.toggleTripEditMode();
     assert.deepEqual(harness.routedDayCoverage.at(-1), [0], 'UI-only refresh must preserve route coverage');
+    assert.equal(harness.generatedRouteLayers[0].setStyleCalls, 0, 'UI-only refresh must not redraw an unchanged road line');
 
     harness.window.BARK.tripDays[0].notes = 'Lunch stop';
     harness.window.BARK.updateTripUI();
     assert.deepEqual(harness.routedDayCoverage.at(-1), [0], 'notes must not invalidate driving geometry');
+    assert.equal(harness.generatedRouteLayers[0].setStyleCalls, 0, 'notes must not restyle an unchanged road line');
+
+    harness.window.BARK.tripDays[0].color = '#2E7D32';
+    harness.window.BARK.updateTripUI();
+    assert.equal(harness.generatedRouteLayers[0].setStyleCalls, 1, 'a real day color change must restyle the road line');
+    assert.equal(harness.generatedRouteLayers[0].style.color, '#2E7D32');
 
     harness.window.BARK.tripDays[0].stops.push({ name: 'Stop C', lat: 3, lng: 3 });
     harness.window.BARK.updateTripUI();

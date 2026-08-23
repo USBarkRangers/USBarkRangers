@@ -406,10 +406,22 @@ function hasTripVisitedPlace(placeOrId) {
             const color = routeDay.color || '#475569';
             routeDay.segments.forEach(segment => {
                 seen.add(segment.key);
+                const geometryKey = segment.geometrySignature || JSON.stringify(segment.latLngs || []);
                 const existing = fallbackLines.get(segment.key);
                 if (existing) {
-                    existing.setLatLngs(segment.latLngs);
-                    if (existing.options.color !== color) existing.setStyle({ color });
+                    // A route edit usually leaves nearly every connection alone.
+                    // Leaflet redraws the SVG/canvas path synchronously whenever
+                    // setLatLngs or setStyle is called, even with identical data.
+                    // Keep the exact same lines while touching only connections
+                    // whose geometry or day color actually changed.
+                    if (existing._barkTripGeometryKey !== geometryKey) {
+                        existing.setLatLngs(segment.latLngs);
+                        existing._barkTripGeometryKey = geometryKey;
+                    }
+                    if (existing._barkTripRouteColor !== color) {
+                        existing.setStyle({ color });
+                        existing._barkTripRouteColor = color;
+                    }
                     syncFallbackVisibility(segment.key, existing);
                     return;
                 }
@@ -421,6 +433,8 @@ function hasTripVisitedPlace(placeOrId) {
                     interactive: false,
                     className: 'trip-overlay-line'
                 });
+                line._barkTripGeometryKey = geometryKey;
+                line._barkTripRouteColor = color;
                 if (tripLayerGroup && !routedSegmentKeys.has(segment.key)) tripLayerGroup.addLayer(line);
                 fallbackLines.set(segment.key, line);
             });

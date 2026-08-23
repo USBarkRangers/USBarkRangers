@@ -73,9 +73,10 @@ function beginGeneratedRouteVisuals(routePlan) {
     reconcileGeneratedRouteVisuals(routePlan);
 }
 
-function recordGeneratedRouteSegment(segmentKey, layer) {
+function recordGeneratedRouteSegment(segmentKey, layer, color = null) {
     const existing = generatedRouteVisuals.layersBySegment.get(segmentKey);
     if (existing && existing !== layer) removeTripMapLayer(existing);
+    if (layer) layer._barkTripRouteColor = color;
     generatedRouteVisuals.layersBySegment.set(segmentKey, layer);
 }
 
@@ -93,8 +94,13 @@ function reconcileGeneratedRouteVisuals(routePlan) {
             return;
         }
 
-        if (layer && typeof layer.setStyle === 'function') {
+        if (
+            layer &&
+            typeof layer.setStyle === 'function' &&
+            layer._barkTripRouteColor !== color
+        ) {
             layer.setStyle({ color });
+            layer._barkTripRouteColor = color;
         }
     });
     syncGeneratedRouteCoverage();
@@ -1601,7 +1607,7 @@ function initTripPlanner() {
                             const layer = L.geoJSON(segmentRoute.geoJSON, {
                                 style: () => ({ color: routeColor, weight: 5, opacity: 0.85, dashArray: '10, 8' })
                             }).addTo(map);
-                            recordGeneratedRouteSegment(segmentRoute.key, layer);
+                            recordGeneratedRouteSegment(segmentRoute.key, layer, routeColor);
                             allBounds.push(layer.getBounds());
                         });
                     });

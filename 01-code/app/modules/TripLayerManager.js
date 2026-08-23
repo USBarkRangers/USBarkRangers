@@ -585,9 +585,13 @@ function hasTripVisitedPlace(placeOrId) {
         fallbackLines.forEach((line, segmentKey) => syncFallbackVisibility(segmentKey, line));
     }
 
-    function refreshBadgeStyles() {
+    function refreshBadgeStyles(parkIds = null) {
+        const ids = parkIds
+            ? (parkIds instanceof Set ? parkIds : new Set(parkIds))
+            : null;
         badgeMarkers.forEach(marker => {
             if (!marker || !marker._tripStopData) return;
+            if (ids && (!marker._tripParkId || !ids.has(marker._tripParkId))) return;
             const iconSpec = getBadgeIconSpec(marker._tripStopData, marker._tripNumber);
             if (marker._tripBadgeStyleKey === iconSpec.styleKey) return;
             marker.setIcon(iconSpec.icon);

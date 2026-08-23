@@ -38,6 +38,10 @@ window.BARK = window.BARK || {};
 window.BARK.services = window.BARK.services || {};
 
 let visitedPlacesWriteInFlightCount = 0;
+let legacyVisitCoordinateIndex = new Map();
+let legacyVisitCoordinateIndexRevision = null;
+let legacyVisitCoordinateIndexRepo = null;
+const VISIT_COORDINATE_BUCKET_SIZE = 0.0001;
 
 function getParkRepo() {
     return window.BARK.repos && window.BARK.repos.ParkRepo;
@@ -98,14 +102,14 @@ function refreshVisitedCache(reason) {
     return false;
 }
 
-function refreshVisitedVisuals(reason) {
+function refreshVisitedVisuals(reason, scope = null) {
     const coordinator = window.BARK && window.BARK.refreshCoordinator;
     if (coordinator && typeof coordinator.refreshVisitedVisuals === 'function') {
-        coordinator.refreshVisitedVisuals(reason);
+        coordinator.refreshVisitedVisuals(reason, scope);
         return true;
     }
 
-    refreshVisitedVisualState();
+    refreshVisitedVisualState(scope);
     return true;
 }
 
@@ -179,6 +183,67 @@ function coordsMatch(leftLat, leftLng, rightLat, rightLng) {
     return Math.abs(aLat - bLat) < 0.0001 && Math.abs(aLng - bLng) < 0.0001;
 }
 
+function getCoordinateBucketPart(value) {
+    return Math.floor(Number(value) / VISIT_COORDINATE_BUCKET_SIZE);
+}
+
+function getCoordinateBucketKey(latPart, lngPart) {
+    return `${latPart}:${lngPart}`;
+}
+
+function rebuildLegacyVisitCoordinateIndex(vaultRepo) {
+    const nextIndex = new Map();
+    const visitedEntries = vaultRepo && typeof vaultRepo.entries === 'function'
+        ? vaultRepo.entries()
+        : [];
+
+    visitedEntries.forEach(([visitedId, visitedRecord]) => {
+        const storedId = cleanValue((visitedRecord && visitedRecord.id) || visitedId);
+        if (isCanonicalParkId(storedId) || isCanonicalParkId(visitedId)) return;
+
+        const lat = Number(visitedRecord && visitedRecord.lat);
+        const lng = Number(visitedRecord && visitedRecord.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+        const key = getCoordinateBucketKey(getCoordinateBucketPart(lat), getCoordinateBucketPart(lng));
+        const bucket = nextIndex.get(key) || [];
+        bucket.push(Object.freeze({ id: visitedId, lat, lng }));
+        nextIndex.set(key, bucket);
+    });
+
+    legacyVisitCoordinateIndex = nextIndex;
+    legacyVisitCoordinateIndexRepo = vaultRepo;
+    legacyVisitCoordinateIndexRevision = vaultRepo && typeof vaultRepo.getRevision === 'function'
+        ? vaultRepo.getRevision()
+        : null;
+}
+
+function getLegacyVisitCoordinateCandidates(lat, lng) {
+    const vaultRepo = getVaultRepo();
+    if (!vaultRepo) return [];
+
+    const revision = typeof vaultRepo.getRevision === 'function' ? vaultRepo.getRevision() : null;
+    if (
+        legacyVisitCoordinateIndexRepo !== vaultRepo ||
+        revision === null ||
+        legacyVisitCoordinateIndexRevision !== revision
+    ) {
+        rebuildLegacyVisitCoordinateIndex(vaultRepo);
+    }
+
+    const latPart = getCoordinateBucketPart(lat);
+    const lngPart = getCoordinateBucketPart(lng);
+    const candidates = [];
+    for (let latOffset = -1; latOffset <= 1; latOffset++) {
+        for (let lngOffset = -1; lngOffset <= 1; lngOffset++) {
+            const key = getCoordinateBucketKey(latPart + latOffset, lngPart + lngOffset);
+            const bucket = legacyVisitCoordinateIndex.get(key);
+            if (bucket) candidates.push(...bucket);
+        }
+    }
+    return candidates;
+}
+
 function getVisitedPlaceEntries(placeOrId) {
     const place = placeOrId && typeof placeOrId === 'object' ? placeOrId : { id: placeOrId };
     const entries = [];
@@ -200,13 +265,9 @@ function getVisitedPlaceEntries(placeOrId) {
     }
 
     if (place && Number.isFinite(Number(place.lat)) && Number.isFinite(Number(place.lng))) {
-        for (const [visitedId, visitedRecord] of getVisitedPlaceEntryPairs()) {
-            const storedId = cleanValue((visitedRecord && visitedRecord.id) || visitedId);
-            const requestedId = cleanValue(place.id);
-            const storedIsCanonical = isCanonicalParkId(storedId) || isCanonicalParkId(visitedId);
-            if (storedIsCanonical && storedId !== requestedId && cleanValue(visitedId) !== requestedId) continue;
-            if (coordsMatch(place.lat, place.lng, visitedRecord && visitedRecord.lat, visitedRecord && visitedRecord.lng)) {
-                addEntry(visitedId);
+        for (const candidate of getLegacyVisitCoordinateCandidates(place.lat, place.lng)) {
+            if (coordsMatch(place.lat, place.lng, candidate.lat, candidate.lng)) {
+                addEntry(candidate.id);
             }
         }
     }
@@ -220,7 +281,19 @@ function getVisitedPlaceEntry(placeOrId) {
 }
 
 function isParkVisited(placeOrId) {
-    return getVisitedPlaceEntries(placeOrId).length > 0;
+    const place = placeOrId && typeof placeOrId === 'object' ? placeOrId : { id: placeOrId };
+    const vaultRepo = getVaultRepo();
+    const candidateIds = [place.id, getLegacyParkIdFromCoords(place.lat, place.lng)]
+        .filter(id => id !== undefined && id !== null && id !== '');
+
+    for (const candidateId of candidateIds) {
+        if (vaultRepo && typeof vaultRepo.hasVisit === 'function' && vaultRepo.hasVisit(candidateId)) return true;
+        if ((!vaultRepo || typeof vaultRepo.hasVisit !== 'function') && getVisitedRecordById(candidateId)) return true;
+    }
+
+    if (!Number.isFinite(Number(place.lat)) || !Number.isFinite(Number(place.lng))) return false;
+    return getLegacyVisitCoordinateCandidates(place.lat, place.lng)
+        .some(candidate => coordsMatch(place.lat, place.lng, candidate.lat, candidate.lng));
 }
 
 function getCanonicalParkCandidates(visit) {
@@ -503,21 +576,45 @@ function reconcileVisitedPlacesSnapshot(placeList, metadata = {}) {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.reconcileSnapshot === 'function') {
         const result = vaultRepo.reconcileSnapshot(placeList, metadata);
-        refreshVisitedCache('firebase-reconcile-snapshot');
-        refreshVisitedVisuals('firebase-reconcile-snapshot');
+        const change = result && result.change;
+        if (change && change.recordsChanged) {
+            refreshVisitedCache('firebase-reconcile-snapshot');
+        }
+        if (change && change.didChange) {
+            refreshVisitedVisuals('firebase-reconcile-snapshot', change);
+        }
         return result;
     }
     return makeVisitedPlaceMap(placeList);
 }
 
-function refreshVisitedVisualState() {
+function getAffectedParkIdsForVisitedChange(change) {
+    if (!change || !(change.added instanceof Set)) return change || null;
+
+    const affectedIds = new Set();
+    [change.added, change.removed, change.changed, change.pendingChanged].forEach(ids => {
+        if (!ids || typeof ids.forEach !== 'function') return;
+        ids.forEach(id => affectedIds.add(id));
+    });
+
+    // Legacy coordinate-keyed visits can affect a canonical park with a different
+    // ID. They are rare migration records, so use a full visual refresh for those
+    // changes instead of risking a stale pin.
+    for (const id of affectedIds) {
+        if (!isCanonicalParkId(id)) return null;
+    }
+    return affectedIds;
+}
+
+function refreshVisitedVisualState(scope = null) {
+    const parkIds = getAffectedParkIdsForVisitedChange(scope);
     const markerManager = window.BARK.markerManager;
     if (markerManager && typeof markerManager.refreshMarkerStyles === 'function') {
-        markerManager.refreshMarkerStyles();
+        markerManager.refreshMarkerStyles(parkIds);
     }
     const tripLayer = window.BARK.tripLayer;
     if (tripLayer && typeof tripLayer.refreshBadgeStyles === 'function') {
-        tripLayer.refreshBadgeStyles();
+        tripLayer.refreshBadgeStyles(parkIds);
     }
 }
 

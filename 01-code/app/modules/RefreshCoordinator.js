@@ -50,10 +50,10 @@
         }
     }
 
-    function getFirebaseRefresh() {
+    function getFirebaseRefresh(scope = null) {
         const firebaseService = window.BARK.services && window.BARK.services.firebase;
         return firebaseService && typeof firebaseService.refreshVisitedVisualState === 'function'
-            ? () => firebaseService.refreshVisitedVisualState()
+            ? () => firebaseService.refreshVisitedVisualState(scope)
             : null;
     }
 
@@ -69,25 +69,26 @@
         });
     }
 
-    function refreshVisitedVisuals(reason) {
+    function refreshVisitedVisuals(reason, scope = null) {
         const lastReason = remember(reason);
         stats.visitedVisualRefreshCount++;
         debugLog('refreshVisitedVisuals', { reason: lastReason });
 
-        const existingFirebaseRefresh = getFirebaseRefresh();
+        const existingFirebaseRefresh = getFirebaseRefresh(scope);
         if (callExisting('refreshVisitedVisualState', existingFirebaseRefresh)) return;
 
+        const directParkIds = scope instanceof Set || Array.isArray(scope) ? scope : null;
         callExisting('markerManager.refreshMarkerStyles', () => {
             const markerManager = window.BARK.markerManager;
             if (markerManager && typeof markerManager.refreshMarkerStyles === 'function') {
-                markerManager.refreshMarkerStyles();
+                markerManager.refreshMarkerStyles(directParkIds);
             }
         });
 
         callExisting('tripLayer.refreshBadgeStyles', () => {
             const tripLayer = window.BARK.tripLayer;
             if (tripLayer && typeof tripLayer.refreshBadgeStyles === 'function') {
-                tripLayer.refreshBadgeStyles();
+                tripLayer.refreshBadgeStyles(directParkIds);
             }
         });
     }

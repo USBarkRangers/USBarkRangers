@@ -47,11 +47,11 @@ test.describe('BUG-AUDIT-004 static data fallback', () => {
         expect(await parkCount.jsonValue()).toBeGreaterThan(300);
         expect(fallbackRequested).toBe(true);
 
-        const markerCount = await page.evaluate(() => {
+        const markerCount = await page.waitForFunction(() => {
             const markerManager = window.BARK && window.BARK.markerManager;
             return markerManager && markerManager.markers instanceof Map ? markerManager.markers.size : 0;
-        });
-        expect(markerCount).toBeGreaterThan(300);
+        }, null, { timeout: 15000 });
+        expect(await markerCount.jsonValue()).toBeGreaterThan(300);
         expect(unexpectedErrors).toEqual([]);
 
         await context.close();

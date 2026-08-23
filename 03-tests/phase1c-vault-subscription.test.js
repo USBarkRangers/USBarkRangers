@@ -276,6 +276,70 @@ function testOnChangeSeesReconciledState() {
     assert.deepEqual(callbackOrder, ['invalidate', 'refresh', 'normalize', 'onChange']);
 }
 
+function testUnchangedSnapshotSkipsDerivedRefreshWork() {
+    const vaultRepo = loadVaultRepo();
+    const fake = createFakeFirebase();
+    let currentUid = 'A';
+    const calls = { invalidate: 0, refresh: 0, normalize: 0, onChange: 0 };
+    const visit = { id: 'steady', name: 'Steady Visit', ts: 5 };
+
+    vaultRepo.startSubscription('A', subscriptionOptions(fake, () => currentUid, {
+        invalidateVisitedIdsCache() { calls.invalidate++; },
+        refreshVisitedVisualState() { calls.refresh++; },
+        normalizeLocalVisitedPlacesToCanonical() { calls.normalize++; },
+        onChange() { calls.onChange++; }
+    }));
+
+    fake.listeners[0].onNext(makeDoc(true, { visitedPlaces: [visit] }));
+    const revisionAfterHydration = vaultRepo.getRevision();
+    fake.listeners[0].onNext(makeDoc(true, { visitedPlaces: [{ ...visit }] }));
+
+    assert.equal(vaultRepo.getRevision(), revisionAfterHydration, 'no-op snapshots must not advance the vault revision');
+    assert.deepEqual(calls, {
+        invalidate: 1,
+        refresh: 1,
+        normalize: 1,
+        onChange: 2
+    });
+}
+
+function testConfirmationRefreshesOnlyPendingState() {
+    const vaultRepo = loadVaultRepo();
+    const fake = createFakeFirebase();
+    let currentUid = 'A';
+    const visit = { id: 'pending-confirmation', name: 'Pending Confirmation', ts: 6 };
+    let invalidateCount = 0;
+    let normalizeCount = 0;
+    const visualChanges = [];
+
+    vaultRepo.addVisit(visit);
+    vaultRepo.stageUpsert(visit);
+    vaultRepo.startSubscription('A', subscriptionOptions(fake, () => currentUid, {
+        invalidateVisitedIdsCache() { invalidateCount++; },
+        refreshVisitedVisualState(change) { visualChanges.push(change); },
+        normalizeLocalVisitedPlacesToCanonical() { normalizeCount++; }
+    }));
+
+    fake.listeners[0].onNext(makeDoc(true, { visitedPlaces: [] }, {
+        fromCache: true,
+        hasPendingWrites: false
+    }));
+    assertPending(vaultRepo, visit.id, true);
+    assert.equal(visualChanges.length, 0, 'cached snapshots must not confirm or repaint the pending visit');
+
+    fake.listeners[0].onNext(makeDoc(true, { visitedPlaces: [visit] }, {
+        fromCache: false,
+        hasPendingWrites: false
+    }));
+
+    assertPending(vaultRepo, visit.id, false);
+    assert.equal(invalidateCount, 0, 'confirmation does not change visited membership');
+    assert.equal(normalizeCount, 0, 'confirmation alone should not rerun canonical migration');
+    assert.equal(visualChanges.length, 1);
+    assert.equal(visualChanges[0].recordsChanged, false);
+    assert.equal(visualChanges[0].pendingChanged.has(visit.id), true);
+}
+
 function run() {
     testSameUidIdempotency();
     testDifferentUidReplacementAndStaleSnapshot();
@@ -285,6 +349,8 @@ function run() {
     testStopWithoutClear();
     testCachedSnapshotThenAuthoritativeConfirmation();
     testOnChangeSeesReconciledState();
+    testUnchangedSnapshotSkipsDerivedRefreshWork();
+    testConfirmationRefreshesOnlyPendingState();
     console.log('Phase 1C VaultRepo subscription tests passed.');
 }
 

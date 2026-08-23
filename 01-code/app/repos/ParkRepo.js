@@ -60,6 +60,26 @@
         return markerDataRevision;
     }
 
+    function getDataFingerprint(point) {
+        if (!point) return '';
+        return [
+            point.id,
+            point.name,
+            point.state,
+            point.cost,
+            point.swagType,
+            point.info,
+            point.website,
+            point.pics,
+            point.video,
+            point.lat,
+            point.lng,
+            point.parkCategory,
+            point.category,
+            point._cachedNormalizedName
+        ].join('\u001f');
+    }
+
     function setMarkerBackedPark(point) {
         if (!point || !point.id) return;
         lookup.set(point.id, point);
@@ -88,8 +108,15 @@
 
     function replaceAll(nextPoints, options = {}) {
         const previousPoints = allPoints;
-        const incomingPoints = Array.isArray(nextPoints) ? nextPoints : [];
+        const rawIncomingPoints = Array.isArray(nextPoints) ? nextPoints : [];
         const previousById = new Map(previousPoints.filter(point => point && point.id).map(point => [point.id, point]));
+        const incomingPoints = rawIncomingPoints.map(point => {
+            if (!point || !point.id) return point;
+            const previous = previousById.get(point.id);
+            return previous && getDataFingerprint(previous) === getDataFingerprint(point)
+                ? previous
+                : point;
+        });
         const nextById = new Map(incomingPoints.filter(point => point && point.id).map(point => [point.id, point]));
         const nextIds = new Set(incomingPoints.map(point => point && point.id));
         const droppedCanonicalIds = previousPoints
@@ -103,7 +130,7 @@
         nextById.forEach((point, id) => {
             if (!previousById.has(id)) {
                 added.add(id);
-            } else if (previousById.get(id) !== point) {
+            } else if (getDataFingerprint(previousById.get(id)) !== getDataFingerprint(point)) {
                 changed.add(id);
             }
         });
@@ -133,6 +160,20 @@
                 changedCount: droppedCanonicalIds.length,
                 sampleChangedIds: droppedCanonicalIds.slice(0, 10)
             });
+        }
+
+        if (added.size === 0 && removed.size === 0 && changed.size === 0) {
+            return {
+                accepted: true,
+                unchanged: true,
+                previousPoints,
+                points: previousPoints,
+                droppedCanonicalIds,
+                added,
+                removed,
+                changed,
+                revision: markerDataRevision
+            };
         }
 
         allPoints = incomingPoints;
@@ -182,6 +223,7 @@
         getById,
         getLookup,
         getRevision,
+        getDataFingerprint,
         setMarkerBackedPark,
         removePark,
         pruneToIds,

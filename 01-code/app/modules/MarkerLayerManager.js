@@ -20,6 +20,10 @@ class MarkerLayerManager {
     }
 
     getDataFingerprint(parkData) {
+        const parkRepo = getParkRepo();
+        if (parkRepo && typeof parkRepo.getDataFingerprint === 'function') {
+            return parkRepo.getDataFingerprint(parkData);
+        }
         return [
             parkData.id,
             parkData.name,
@@ -116,10 +120,12 @@ class MarkerLayerManager {
         return Boolean(ids && ids.has(parkData.id));
     }
 
-    applyMarkerStyle(marker) {
+    applyMarkerStyle(marker, options = {}) {
         if (!marker || !marker._parkData || !marker._icon) return;
 
-        const isVisited = this.getVisitedState(marker._parkData);
+        const isVisited = Object.prototype.hasOwnProperty.call(options, 'visitedState')
+            ? Boolean(options.visitedState)
+            : this.getVisitedState(marker._parkData);
         const isPendingSync = isVisited && this.isPendingServerSync(marker._parkData);
         const style = MapMarkerConfig.getPinStyle(marker._parkData, isVisited);
         const isInTripStop = this.isInTripStop(marker._parkData);
@@ -186,7 +192,9 @@ class MarkerLayerManager {
             if (ids && !ids.has(parkId)) return;
             if (!marker || !marker._parkData) return;
             marker._barkVisitedState = this.getVisitedState(marker._parkData);
-            if (marker._icon) this.applyMarkerStyle(marker);
+            if (marker._icon) {
+                this.applyMarkerStyle(marker, { visitedState: marker._barkVisitedState });
+            }
         });
     }
 
@@ -213,7 +221,7 @@ class MarkerLayerManager {
         marker._parkData = parkData;
         marker._barkDataFingerprint = nextFingerprint;
         marker._barkVisitedState = nextVisitedState;
-        this.applyMarkerStyle(marker);
+        this.applyMarkerStyle(marker, { visitedState: nextVisitedState });
 
         if (dataChanged && window.BARK.activePinMarker === marker) {
             this.renderMarkerPanel(marker, { refreshOnly: true });

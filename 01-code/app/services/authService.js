@@ -362,16 +362,16 @@ function refreshVisitedCache(reason) {
     return false;
 }
 
-function refreshVisitedVisuals(reason, firebaseService = null) {
+function refreshVisitedVisuals(reason, firebaseService = null, scope = null) {
     const coordinator = window.BARK && window.BARK.refreshCoordinator;
     if (coordinator && typeof coordinator.refreshVisitedVisuals === 'function') {
-        coordinator.refreshVisitedVisuals(reason);
+        coordinator.refreshVisitedVisuals(reason, scope);
         return true;
     }
 
     const fallbackFirebaseService = firebaseService || (window.BARK.services && window.BARK.services.firebase);
     if (fallbackFirebaseService && typeof fallbackFirebaseService.refreshVisitedVisualState === 'function') {
-        fallbackFirebaseService.refreshVisitedVisualState();
+        fallbackFirebaseService.refreshVisitedVisualState(scope);
         return true;
     }
 
@@ -777,7 +777,7 @@ function buildVaultRepoSubscriptionOptions() {
         invalidateVisitedIdsCache() {
             refreshVisitedCache('vault-snapshot-reconcile');
         },
-        refreshVisitedVisualState: () => refreshVisitedVisuals('vault-snapshot-reconcile', firebaseService),
+        refreshVisitedVisualState: change => refreshVisitedVisuals('vault-snapshot-reconcile', firebaseService, change),
         normalizeLocalVisitedPlacesToCanonical: firebaseService && typeof firebaseService.normalizeLocalVisitedPlacesToCanonical === 'function'
             ? options => firebaseService.normalizeLocalVisitedPlacesToCanonical(options)
             : null,
@@ -816,11 +816,16 @@ function reconcileVaultRepoFromUserSnapshot(user, data, metadata = {}) {
 
     try {
         const result = vaultRepo.reconcileSnapshot(placeList, normalizedMetadata);
+        const change = result && result.change;
 
-        if (typeof options.invalidateVisitedIdsCache === 'function') options.invalidateVisitedIdsCache();
-        if (typeof options.refreshVisitedVisualState === 'function') options.refreshVisitedVisualState();
+        if (change && change.recordsChanged && typeof options.invalidateVisitedIdsCache === 'function') {
+            options.invalidateVisitedIdsCache(change);
+        }
+        if (change && change.didChange && typeof options.refreshVisitedVisualState === 'function') {
+            options.refreshVisitedVisualState(change);
+        }
 
-        if (typeof options.normalizeLocalVisitedPlacesToCanonical === 'function') {
+        if (change && change.recordsChanged && typeof options.normalizeLocalVisitedPlacesToCanonical === 'function') {
             const canonicalResult = options.normalizeLocalVisitedPlacesToCanonical({
                 writeBack: false,
                 source: 'user-snapshot'

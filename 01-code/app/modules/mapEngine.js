@@ -498,13 +498,21 @@ if ('ontouchstart' in window) {
     let initialZoom = 0;
     let holdTimer = null;
     let pendingDoubleTap = false;
-    let zoomRAF = null;
+    let zoomFrameId = null;
+    let zoomTimeoutId = null;
 
     function resetZoomState() {
         clearTimeout(holdTimer);
         holdTimer = null;
         pendingDoubleTap = false;
-        if (zoomRAF) { cancelAnimationFrame(zoomRAF); zoomRAF = null; }
+        if (zoomFrameId !== null) {
+            cancelAnimationFrame(zoomFrameId);
+            zoomFrameId = null;
+        }
+        if (zoomTimeoutId !== null) {
+            clearTimeout(zoomTimeoutId);
+            zoomTimeoutId = null;
+        }
 
         if (isOneFingerZooming) {
             isOneFingerZooming = false;
@@ -559,18 +567,18 @@ if ('ontouchstart' in window) {
         const deltaY = currentY - zoomStartY;
         const targetZoom = Math.min(19, Math.max(getActiveMinZoom(), initialZoom + deltaY / 150));
 
-        if (!zoomRAF) {
-            if (window.stopResizing) {
-                zoomRAF = setTimeout(() => {
+        if (window.stopResizing) {
+            if (zoomTimeoutId === null) {
+                zoomTimeoutId = setTimeout(() => {
                     map.setZoom(targetZoom, { animate: false });
-                    zoomRAF = null;
+                    zoomTimeoutId = null;
                 }, 250);
-            } else {
-                zoomRAF = requestAnimationFrame(() => {
-                    map.setZoom(targetZoom, { animate: false });
-                    zoomRAF = null;
-                });
             }
+        } else if (zoomFrameId === null) {
+            zoomFrameId = requestAnimationFrame(() => {
+                map.setZoom(targetZoom, { animate: false });
+                zoomFrameId = null;
+            });
         }
     }, { passive: false });
 
@@ -590,6 +598,10 @@ if ('ontouchstart' in window) {
         }
         resetZoomState();
     });
+
+    // iOS can cancel a touch sequence when the browser takes over a gesture or
+    // the app changes visibility. Always restore Leaflet dragging in that case.
+    mapContainer.addEventListener('touchcancel', resetZoomState);
 }
 
 return window.map;

@@ -125,10 +125,13 @@
         return metadata.fromCache !== true && metadata.hasPendingWrites !== true;
     }
 
-    function buildChange(type, previousVisits, nextVisits) {
+    function buildChange(type, previousVisits, nextVisits, options = {}) {
         const added = new Set();
         const removed = new Set();
         const changed = new Set();
+        const pendingChanged = options.pendingChanged instanceof Set
+            ? new Set(options.pendingChanged)
+            : new Set();
 
         nextVisits.forEach((visit, id) => {
             if (!previousVisits.has(id)) {
@@ -142,12 +145,16 @@
             if (!nextVisits.has(id)) removed.add(id);
         });
 
+        const recordsChanged = added.size > 0 || removed.size > 0 || changed.size > 0;
         return Object.freeze({
             type,
             added,
             removed,
             changed,
-            revision
+            pendingChanged,
+            recordsChanged,
+            didChange: recordsChanged || pendingChanged.size > 0,
+            revision: options.revision === undefined ? revision : options.revision
         });
     }
 
@@ -161,18 +168,34 @@
         });
     }
 
-    function commit(type, nextVisits) {
+    function commit(type, nextVisits, options = {}) {
         const previousVisits = visits;
+        const preliminaryChange = buildChange(type, previousVisits, nextVisits, {
+            pendingChanged: options.pendingChanged,
+            revision
+        });
+
+        if (options.skipNoop === true && !preliminaryChange.didChange) {
+            return preliminaryChange;
+        }
+
         visits = nextVisits;
         pruneCanonicalReplacementIds(visits);
         revision++;
-        const change = buildChange(type, previousVisits, visits);
+        const change = buildChange(type, previousVisits, visits, {
+            pendingChanged: options.pendingChanged,
+            revision
+        });
         notify(change);
         return change;
     }
 
     function getVisits() {
         return Object.freeze(Array.from(visits.values()).map(freezeVisit));
+    }
+
+    function getRevision() {
+        return revision;
     }
 
     function getVisit(parkId) {
@@ -437,11 +460,13 @@
     function reconcileSnapshot(visitsArray, metadata = {}) {
         const nextVisits = cloneMap(visitsArray);
         const snapshotCanConfirm = isAuthoritativeSnapshot(metadata);
+        const pendingChanged = new Set();
 
         pending.forEach((mutation, placeId) => {
             if (mutation.type === 'delete') {
                 if (snapshotCanConfirm && !nextVisits.has(placeId)) {
                     pending.delete(placeId);
+                    pendingChanged.add(placeId);
                     return;
                 }
                 nextVisits.delete(placeId);
@@ -451,13 +476,17 @@
             const snapshotPlace = nextVisits.get(placeId);
             if (snapshotCanConfirm && recordsMatch(snapshotPlace, mutation.place)) {
                 pending.delete(placeId);
+                pendingChanged.add(placeId);
                 return;
             }
 
             nextVisits.set(placeId, cloneVisit(mutation.place));
         });
 
-        const change = commit('reconcileSnapshot', nextVisits);
+        const change = commit('reconcileSnapshot', nextVisits, {
+            pendingChanged,
+            skipNoop: true
+        });
         return Object.freeze({
             change,
             visits: getVisits(),
@@ -557,15 +586,22 @@
         const metadata = normalizeSnapshotMetadata(doc);
         const placeList = getVisitedPlacesFromDoc(doc);
         const result = reconcileSnapshot(placeList, metadata);
+        const change = result.change;
 
-        callOptionalCallback('invalidateVisitedIdsCache', options.invalidateVisitedIdsCache);
-        callOptionalCallback('refreshVisitedVisualState', options.refreshVisitedVisualState);
+        if (change.recordsChanged) {
+            callOptionalCallback('invalidateVisitedIdsCache', options.invalidateVisitedIdsCache, change);
+        }
+        if (change.didChange) {
+            callOptionalCallback('refreshVisitedVisualState', options.refreshVisitedVisualState, change);
+        }
 
-        const canonicalResult = callOptionalCallback(
-            'normalizeLocalVisitedPlacesToCanonical',
-            options.normalizeLocalVisitedPlacesToCanonical,
-            { writeBack: false, source: 'snapshot' }
-        );
+        const canonicalResult = change.recordsChanged
+            ? callOptionalCallback(
+                'normalizeLocalVisitedPlacesToCanonical',
+                options.normalizeLocalVisitedPlacesToCanonical,
+                { writeBack: false, source: 'snapshot' }
+            )
+            : null;
         if (canonicalResult && typeof canonicalResult.catch === 'function') {
             canonicalResult.catch(error => {
                 console.error('[VaultRepo] visited-place canonicalization failed.', error);
@@ -651,6 +687,7 @@
 
     window.BARK.repos.VaultRepo = {
         getVisits,
+        getRevision,
         getVisit,
         hasVisit,
         size,

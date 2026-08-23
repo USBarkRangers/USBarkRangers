@@ -81,7 +81,9 @@ class MarkerLayerManager {
             this.applyMarkerStyle(marker);
             if (marker._icon) {
                 if (window.BARK.activePinMarker === marker) marker._icon.classList.add('active-pin');
-                marker._icon.classList.toggle('marker-filter-hidden', marker._barkIsVisible === false);
+                const isVisible = marker._barkIsVisible !== false;
+                marker._icon.classList.toggle('marker-filter-hidden', !isVisible);
+                marker._barkRenderedVisibilityState = isVisible;
             }
         });
 
@@ -134,10 +136,14 @@ class MarkerLayerManager {
         // is the only visible marker at trip-stop locations. Re-applied on every
         // cluster `add` event (via bindMarkerEvents), so cluster rebuilds cannot
         // strip the class.
-        marker._icon.classList.toggle('park-pin--in-trip', this.isInTripStop(marker._parkData));
+        const isInTripStop = this.isInTripStop(marker._parkData);
+        marker._icon.classList.toggle('park-pin--in-trip', isInTripStop);
         marker._icon.style.setProperty('--pin-color', style.pinColor);
         marker._icon.style.setProperty('--ring-color', style.ringColor);
         marker._icon.style.setProperty('--pin-shadow-color', style.pinShadowColor);
+        marker._barkRenderedVisitedState = Boolean(isVisited);
+        marker._barkRenderedPendingSyncState = Boolean(isPendingSync);
+        marker._barkRenderedTripStopState = isInTripStop;
     }
 
     refreshTripStopClasses(parkIds) {
@@ -200,6 +206,10 @@ class MarkerLayerManager {
         marker._barkIsVisible = false;
         marker._barkDataFingerprint = this.getDataFingerprint(parkData);
         marker._barkVisitedState = isVisited;
+        marker._barkRenderedVisibilityState = null;
+        marker._barkRenderedVisitedState = null;
+        marker._barkRenderedPendingSyncState = null;
+        marker._barkRenderedTripStopState = null;
         this.bindMarkerEvents(marker);
         return marker;
     }

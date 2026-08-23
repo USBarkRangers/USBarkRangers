@@ -2215,6 +2215,19 @@ body.app-tab-active #slide-panel {
     border-radius: 50%;
 }
 
+/* Keep the exact enamel-pin DOM and selected-pin treatment while avoiding a
+   full alpha-mask filter on every normal pin. A circular box shadow matches
+   the existing drop shadow without creating thousands of filter surfaces. */
+.cat-national:not(.visited-pin):not(.active-pin),
+.cat-state:not(.visited-pin):not(.active-pin) {
+    filter: none;
+}
+
+.cat-national:not(.visited-pin):not(.active-pin) .enamel-pin-wrapper,
+.cat-state:not(.visited-pin):not(.active-pin) .enamel-pin-wrapper {
+    box-shadow: 0 0 13px var(--pin-shadow-color);
+}
+
 #mark-visited-btn {
     background-color: #2196F3 !important;
     color: white !important;
@@ -4034,6 +4047,10 @@ body.remove-shadows .cat-national:not(.visited-pin),
 body.remove-shadows .cat-state:not(.visited-pin) {
     filter: none !important;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+}
+body.remove-shadows .cat-national:not(.visited-pin) .enamel-pin-wrapper,
+body.remove-shadows .cat-state:not(.visited-pin) .enamel-pin-wrapper {
+    box-shadow: none !important;
 }
 
 /* 3. STOP RESIZING: Snaps pins to final size instantly during zoom */

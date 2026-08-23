@@ -476,16 +476,27 @@ function updateMarkers() {
             visibleBounds.extend(item.marker.getLatLng());
 
             if (item.marker._icon) {
-                item.marker._icon.classList.remove('marker-filter-hidden');
-                markerClassUpdates.push({
-                    icon: item.marker._icon,
-                    isVisited,
-                    isPendingSync: isVisited && isRenderVisitPendingServerSync(item)
-                });
+                if (item.marker._barkRenderedVisibilityState !== true) {
+                    item.marker._icon.classList.remove('marker-filter-hidden');
+                    item.marker._barkRenderedVisibilityState = true;
+                }
+                const isPendingSync = isVisited && isRenderVisitPendingServerSync(item);
+                if (
+                    item.marker._barkRenderedVisitedState !== Boolean(isVisited) ||
+                    item.marker._barkRenderedPendingSyncState !== Boolean(isPendingSync)
+                ) {
+                    markerClassUpdates.push({
+                        marker: item.marker,
+                        icon: item.marker._icon,
+                        isVisited,
+                        isPendingSync
+                    });
+                }
             }
         } else {
-            if (item.marker._icon) {
+            if (item.marker._icon && item.marker._barkRenderedVisibilityState !== false) {
                 item.marker._icon.classList.add('marker-filter-hidden');
+                item.marker._barkRenderedVisibilityState = false;
             }
         }
     });
@@ -500,11 +511,13 @@ function updateMarkers() {
     }
 
     // 🏭 BATCH: Apply visited-pin class (avoids interleaved read/write layout thrash)
-    markerClassUpdates.forEach(({ icon, isVisited, isPendingSync }) => {
+    markerClassUpdates.forEach(({ marker, icon, isVisited, isPendingSync }) => {
         icon.classList.toggle('visited-pin', isVisited);
         icon.classList.toggle('visited-marker', isVisited);
         icon.classList.toggle('unvisited-marker', !isVisited);
         icon.classList.toggle('visited-pin--pending-sync', Boolean(isPendingSync));
+        marker._barkRenderedVisitedState = Boolean(isVisited);
+        marker._barkRenderedPendingSyncState = Boolean(isPendingSync);
     });
 
     if (window.BARK.tripLayer && typeof window.BARK.tripLayer.refreshBadgeStyles === 'function') {

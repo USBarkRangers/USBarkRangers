@@ -39,5 +39,36 @@ function getMarkerLayerPolicy(zoom) {
     };
 }
 
+function isAppleTouchWebKit() {
+    const navigatorRef = BARK_GLOBAL.navigator || {};
+    const userAgent = String(navigatorRef.userAgent || '');
+    const platform = String(navigatorRef.platform || '');
+    const maxTouchPoints = Number(navigatorRef.maxTouchPoints || 0);
+    const isClassicIos = /iPad|iPhone|iPod/i.test(userAgent);
+    const isDesktopModeIpad = platform === 'MacIntel' && maxTouchPoints > 1;
+
+    return /AppleWebKit/i.test(userAgent) && (isClassicIos || isDesktopModeIpad);
+}
+
+/**
+ * Leaflet normally positions each HTML marker with translate3d(). On iOS that
+ * can promote hundreds of image-and-shadow pins into separate compositor
+ * surfaces. The visible DOM and CSS stay identical, but WebKit can eventually
+ * spend tens of seconds reclaiming/rebuilding those surfaces while the JS
+ * watchdog continues to run.
+ *
+ * Disabling Leaflet's 3-D capability flag before L.map() is created makes it
+ * use left/top positioning for markers instead. The marker pane still moves as
+ * one unit, so pin artwork, hit targets, panels, and route behavior are intact.
+ */
+function applyIosLeafletCompositorPolicy(leaflet = BARK_GLOBAL.L) {
+    if (!isAppleTouchWebKit() || !leaflet || !leaflet.Browser) return false;
+
+    leaflet.Browser.any3d = false;
+    return true;
+}
+
 BARK_GLOBAL.BARK.getRenderContext = getRenderContext;
 BARK_GLOBAL.BARK.getMarkerLayerPolicy = getMarkerLayerPolicy;
+BARK_GLOBAL.BARK.isAppleTouchWebKit = isAppleTouchWebKit;
+BARK_GLOBAL.BARK.applyIosLeafletCompositorPolicy = applyIosLeafletCompositorPolicy;

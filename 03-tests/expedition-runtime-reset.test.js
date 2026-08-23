@@ -133,8 +133,13 @@ function loadExpeditionEngine(options = {}) {
                 walkTracker: {
                     reset() { walkTrackerResets.push(Date.now()); }
                 }
-            }
+            },
+            map: options.map,
+            simplifyTrails: options.simplifyTrails === true
         },
+        L: options.L,
+        turf: options.turf,
+        fetch: options.fetch,
         firebase: options.firebase,
         alert() {},
         confirm() { return true; },
@@ -162,6 +167,68 @@ function loadExpeditionEngine(options = {}) {
         window: context.window,
         walkTrackerResets
     };
+}
+
+function createTrailRenderHarness() {
+    const calls = {
+        activeLength: 0,
+        completedPoints: 0,
+        geoJson: 0,
+        groups: []
+    };
+    const trail = {
+        type: 'Feature',
+        properties: { name: 'Test Trail', total_miles: 10 },
+        geometry: { type: 'LineString', coordinates: [[-80, 35], [-79, 36]] }
+    };
+
+    function addableLayer() {
+        return {
+            addTo(group) {
+                group.layers.push(this);
+                return this;
+            },
+            bindPopup() { return this; }
+        };
+    }
+
+    const L = {
+        featureGroup() {
+            const group = {
+                layers: [],
+                clearCount: 0,
+                addTo() { return this; },
+                removeFrom() { return this; },
+                clearLayers() { this.clearCount++; this.layers = []; },
+                getLayers() { return this.layers; },
+                getBounds() { return {}; }
+            };
+            calls.groups.push(group);
+            return group;
+        },
+        geoJSON() {
+            calls.geoJson++;
+            return addableLayer();
+        },
+        divIcon(options) { return options; },
+        marker() { return addableLayer(); }
+    };
+    const turf = {
+        length() { calls.activeLength++; return 10; },
+        lineSliceAlong() { return trail; },
+        along() { return { geometry: { coordinates: [-79.5, 35.5] } }; },
+        pointOnFeature() {
+            calls.completedPoints++;
+            return { geometry: { coordinates: [-79.5, 35.5] } };
+        }
+    };
+    const fetch = async () => ({
+        async json() {
+            return { trail_a: trail, trail_b: trail };
+        }
+    });
+
+    return { calls, L, turf, fetch, map: {} };
 }
 
 function createTransactionalFirestore(initialUserData, updates) {
@@ -263,6 +330,39 @@ test('empty completed expeditions render clears stale completed trail cards', ()
 
     assert.equal(element('expedition-trophy-case').style.display, 'none');
     assert.equal(element('completed-expeditions-grid').textContent, 'No expeditions completed yet. Spin the wheel to start!');
+});
+
+test('identical active trail snapshots reuse the existing overlay geometry', async () => {
+    const harness = createTrailRenderHarness();
+    const { bark } = loadExpeditionEngine(harness);
+    bark.initTrailOverlays();
+
+    await bark.renderVirtualTrailOverlay('trail_a', 2.5);
+    await bark.renderVirtualTrailOverlay('trail_a', 2.5);
+
+    assert.equal(harness.calls.activeLength, 1, 'Turf should run once for identical snapshot data');
+    assert.equal(harness.calls.groups[0].clearCount, 1, 'the active Leaflet group should not be rebuilt');
+
+    await bark.renderVirtualTrailOverlay('trail_a', 3);
+    assert.equal(harness.calls.activeLength, 2, 'real mileage changes still rebuild progress geometry');
+});
+
+test('completed trail laps draw one visually identical overlay per trail id', async () => {
+    const harness = createTrailRenderHarness();
+    const { bark } = loadExpeditionEngine(harness);
+    bark.initTrailOverlays();
+
+    const completions = [
+        { id: 'trail_a', date_completed: 1 },
+        { id: 'trail_a', date_completed: 2 },
+        { id: 'trail_b', date_completed: 3 }
+    ];
+    await bark.renderCompletedTrailsOverlay(completions);
+    await bark.renderCompletedTrailsOverlay([...completions].reverse());
+
+    assert.equal(harness.calls.completedPoints, 2, 'duplicate laps must not duplicate Turf work');
+    assert.equal(harness.calls.geoJson, 2, 'each unique completed trail is drawn once');
+    assert.equal(harness.calls.groups[1].clearCount, 1, 'an equivalent snapshot must keep the existing group');
 });
 
 test('manual walk honor entries log miles without adding walk points', async () => {

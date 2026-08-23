@@ -26,6 +26,10 @@ window.BARK.getTrailsData = getTrailsData;
 // ====== VIRTUAL TRAIL OVERLAY SYSTEM ======
 let virtualTrailLayerGroup = null;
 let completedTrailsLayerGroup = null;
+let virtualTrailRenderKey = null;
+let completedTrailsRenderKey = null;
+let virtualTrailRenderGeneration = 0;
+let completedTrailsRenderGeneration = 0;
 
 const EMPTY_WALK_HISTORY_TEXT = 'No miles logged yet.';
 const EMPTY_MANAGE_WALKS_TEXT = 'No walks logged yet.';
@@ -162,6 +166,8 @@ function resetWalkTracker() {
 }
 
 function resetActiveExpeditionRuntimeState() {
+    virtualTrailRenderGeneration++;
+    virtualTrailRenderKey = null;
     removeTrailLayerGroup(virtualTrailLayerGroup);
     resetWalkTracker();
 
@@ -179,6 +185,8 @@ function resetActiveExpeditionRuntimeState() {
 }
 
 function resetExpeditionRuntimeState() {
+    completedTrailsRenderGeneration++;
+    completedTrailsRenderKey = null;
     resetActiveExpeditionRuntimeState();
     removeTrailLayerGroup(completedTrailsLayerGroup);
 
@@ -212,13 +220,30 @@ window.BARK.initTrailOverlays = ensureTrailLayerGroups;
 
 async function renderCompletedTrailsOverlay(completedExpeditions) {
     if (!ensureTrailLayerGroups()) return;
+
+    // A user can complete the same expedition on multiple laps. Those trail
+    // shapes and trophy pins overlap exactly, so drawing each lap again adds
+    // thousands of duplicate Leaflet/Turf objects without changing one pixel.
+    const uniqueTrailIds = Array.from(new Set((Array.isArray(completedExpeditions) ? completedExpeditions : [])
+        .map(exp => exp && (exp.id || exp.trail_id))
+        .filter(Boolean)));
+    const renderKey = `${window.simplifyTrails === true ? 'simple' : 'full'}|${uniqueTrailIds.slice().sort().join(',')}`;
+    if (renderKey === completedTrailsRenderKey) return;
+
+    const generation = ++completedTrailsRenderGeneration;
+    completedTrailsRenderKey = renderKey;
     completedTrailsLayerGroup.clearLayers();
-    if (!completedExpeditions || completedExpeditions.length === 0) return;
+    if (uniqueTrailIds.length === 0) return;
 
     try {
+        const startedAt = Date.now();
+        if (typeof window.BARK.perfBreadcrumb === 'function') {
+            window.BARK.perfBreadcrumb(`trails-completed:start:${uniqueTrailIds.length}`);
+        }
         const trailsData = await getTrailsData();
-        completedExpeditions.forEach(exp => {
-            const trailId = exp.id || exp.trail_id;
+        if (generation !== completedTrailsRenderGeneration) return;
+
+        uniqueTrailIds.forEach(trailId => {
             const trailGeoJson = trailsData[trailId];
             if (trailGeoJson) {
                 L.geoJSON(trailGeoJson, {
@@ -241,27 +266,45 @@ async function renderCompletedTrailsOverlay(completedExpeditions) {
             }
         });
 
+        if (typeof window.BARK.perfBreadcrumb === 'function') {
+            window.BARK.perfBreadcrumb(`trails-completed:done:${Date.now() - startedAt}ms`);
+        }
+
         const toggleBtn = document.getElementById('toggle-completed-trails');
         const mapRef = getMapRef();
         if (toggleBtn && toggleBtn.classList.contains('active') && mapRef) {
             completedTrailsLayerGroup.addTo(mapRef);
         }
     } catch (error) {
+        if (generation === completedTrailsRenderGeneration) completedTrailsRenderKey = null;
         console.error("Error rendering completed trails:", error);
     }
 }
 
 async function renderVirtualTrailOverlay(trailId, milesCompleted) {
     if (!ensureTrailLayerGroups()) return;
+    const safeMiles = Number.isFinite(Number(milesCompleted)) ? Number(milesCompleted) : 0;
+    const renderKey = `${window.simplifyTrails === true ? 'simple' : 'full'}|${trailId || ''}|${safeMiles}`;
+    window.lastActiveTrailId = trailId;
+    window.lastMilesCompleted = safeMiles;
+    if (renderKey === virtualTrailRenderKey) return;
+
+    const generation = ++virtualTrailRenderGeneration;
+    virtualTrailRenderKey = renderKey;
     virtualTrailLayerGroup.clearLayers();
     try {
+        const startedAt = Date.now();
+        if (typeof window.BARK.perfBreadcrumb === 'function') {
+            window.BARK.perfBreadcrumb(`trail-active:start:${trailId || 'none'}`);
+        }
         const trailsData = await getTrailsData();
+        if (generation !== virtualTrailRenderGeneration) return;
         const trailGeoJson = trailsData[trailId];
         if (!trailGeoJson) return;
 
         const totalMiles = trailGeoJson.properties.total_miles;
         const actualGeoLength = turf.length(trailGeoJson, { units: 'miles' });
-        const progressPct = totalMiles > 0 ? Math.min(1, milesCompleted / totalMiles) : 0;
+        const progressPct = totalMiles > 0 ? Math.min(1, safeMiles / totalMiles) : 0;
         const geoSafeMiles = actualGeoLength * progressPct;
 
         if (geoSafeMiles > 0) {
@@ -290,8 +333,9 @@ async function renderVirtualTrailOverlay(trailId, milesCompleted) {
         L.marker([currentAvatarPoint.geometry.coordinates[1], currentAvatarPoint.geometry.coordinates[0]], { icon: dogIcon })
             .addTo(virtualTrailLayerGroup);
 
-        window.lastActiveTrailId = trailId;
-        window.lastMilesCompleted = milesCompleted;
+        if (typeof window.BARK.perfBreadcrumb === 'function') {
+            window.BARK.perfBreadcrumb(`trail-active:done:${Date.now() - startedAt}ms`);
+        }
 
         const toggleBtn = document.getElementById('toggle-virtual-trail');
         const mapRef = getMapRef();
@@ -299,6 +343,7 @@ async function renderVirtualTrailOverlay(trailId, milesCompleted) {
             virtualTrailLayerGroup.addTo(mapRef);
         }
     } catch (error) {
+        if (generation === virtualTrailRenderGeneration) virtualTrailRenderKey = null;
         console.error("Error rendering virtual trail:", error);
     }
 }

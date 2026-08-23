@@ -1570,7 +1570,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
     <!-- Error/freeze reporter — load early so it catches errors during the rest of boot -->
-    <script src="modules/errorReporter.js?v=3" defer></script>
+    <script src="modules/errorReporter.js?v=4" defer></script>
     <!-- Core Dependencies (load before modules) -->
     <script src="utils/geoUtils.js?v=2" defer></script>
     <script src="utils/scoringUtils.js?v=2" defer></script>
@@ -1602,9 +1602,9 @@
          parse before authService and panelRenderer, which build fallback links from it. -->
     <script src="modules/feedbackTransport.js?v=5" defer></script>
     <script src="modules/paywallController.js?v=15" defer></script>
-    <script src="services/authService.js?v=67" defer></script>
+    <script src="services/authService.js?v=68" defer></script>
     <script src="modules/markerLayerPolicy.js?v=2" defer></script>
-    <script src="modules/MarkerLayerManager.js?v=14" defer></script>
+    <script src="modules/MarkerLayerManager.js?v=15" defer></script>
     <script src="engines/tripRoutePlan.js?v=3" defer></script>
     <script src="engines/tripRouteBatch.js?v=3" defer></script>
     <script src="modules/TripLayerManager.js?v=9" defer></script>
@@ -1620,7 +1620,7 @@
     <!-- leaderboardEngine loads after profileEngine so the shared visit helpers are
          registered on window.BARK first. Calls in the other direction are late-bound. -->
     <script src="modules/leaderboardEngine.js?v=2" defer></script>
-    <script src="modules/expeditionEngine.js?v=9" defer></script>
+    <script src="modules/expeditionEngine.js?v=10" defer></script>
     <script src="modules/walkTracker.js?v=4" defer></script>
     <script src="engines/tripPlannerCore.js?v=21" defer></script>
     <script src="modules/shareEngine.js?v=10" defer></script>

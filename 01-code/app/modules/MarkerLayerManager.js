@@ -122,6 +122,27 @@ class MarkerLayerManager {
         const isVisited = this.getVisitedState(marker._parkData);
         const isPendingSync = isVisited && this.isPendingServerSync(marker._parkData);
         const style = MapMarkerConfig.getPinStyle(marker._parkData, isVisited);
+        const isInTripStop = this.isInTripStop(marker._parkData);
+        const renderedStyleKey = [
+            style.categoryClass,
+            style.pinColor,
+            style.ringColor,
+            style.pinShadowColor,
+            isVisited ? 'visited' : 'unvisited',
+            isPendingSync ? 'pending' : 'confirmed',
+            isInTripStop ? 'trip' : 'not-trip'
+        ].join('|');
+
+        // Firestore metadata snapshots can request a visual refresh even when
+        // no park state changed. Avoid touching 389 DOM nodes—and forcing a
+        // WebKit style/paint pass—when this exact icon already has this style.
+        if (
+            marker._barkRenderedStyleIcon === marker._icon &&
+            marker._barkRenderedStyleKey === renderedStyleKey
+        ) {
+            return;
+        }
+
         marker._icon.classList.toggle('cat-national', style.categoryClass === 'cat-national');
         marker._icon.classList.toggle('cat-state', style.categoryClass === 'cat-state');
         marker._icon.classList.toggle('visited-pin', Boolean(isVisited));
@@ -136,7 +157,6 @@ class MarkerLayerManager {
         // is the only visible marker at trip-stop locations. Re-applied on every
         // cluster `add` event (via bindMarkerEvents), so cluster rebuilds cannot
         // strip the class.
-        const isInTripStop = this.isInTripStop(marker._parkData);
         marker._icon.classList.toggle('park-pin--in-trip', isInTripStop);
         marker._icon.style.setProperty('--pin-color', style.pinColor);
         marker._icon.style.setProperty('--ring-color', style.ringColor);
@@ -144,6 +164,8 @@ class MarkerLayerManager {
         marker._barkRenderedVisitedState = Boolean(isVisited);
         marker._barkRenderedPendingSyncState = Boolean(isPendingSync);
         marker._barkRenderedTripStopState = isInTripStop;
+        marker._barkRenderedStyleIcon = marker._icon;
+        marker._barkRenderedStyleKey = renderedStyleKey;
     }
 
     refreshTripStopClasses(parkIds) {
@@ -210,6 +232,8 @@ class MarkerLayerManager {
         marker._barkRenderedVisitedState = null;
         marker._barkRenderedPendingSyncState = null;
         marker._barkRenderedTripStopState = null;
+        marker._barkRenderedStyleIcon = null;
+        marker._barkRenderedStyleKey = null;
         this.bindMarkerEvents(marker);
         return marker;
     }
@@ -261,6 +285,7 @@ class MarkerLayerManager {
         if (window.BARK && typeof window.BARK.perfBreadcrumb === 'function') {
             window.BARK.perfBreadcrumb('marker-layers:' + points.length + (options.forceReset === true ? ':reset' : ''));
         }
+        let membershipChanged = options.forceReset === true;
         if (options.forceReset === true) {
             this.resetLayerMembership(points);
         }
@@ -286,8 +311,10 @@ class MarkerLayerManager {
                         clusterMarkersToRemove.push(marker);
                         marker._layerAdded = false;
                         marker._barkLayerType = null;
+                        membershipChanged = true;
                     } else {
                         this.removeMarker(marker);
+                        membershipChanged = true;
                     }
                 }
                 return;
@@ -296,6 +323,7 @@ class MarkerLayerManager {
             if (marker._layerAdded && marker._barkLayerType === targetLayerType) return;
 
             if (marker._layerAdded) {
+                membershipChanged = true;
                 if (marker._barkLayerType === 'cluster') {
                     clusterMarkersToRemove.push(marker);
                     marker._layerAdded = false;
@@ -308,7 +336,21 @@ class MarkerLayerManager {
             marker._layerAdded = true;
             marker._barkLayerType = targetLayerType;
             markersToAdd.push(marker);
+            membershipChanged = true;
         });
+
+        const targetLayer = targetLayerType === 'cluster' ? this.clusterLayer : this.plainLayer;
+        const staleLayer = targetLayerType === 'cluster' ? this.plainLayer : this.clusterLayer;
+        const targetAttached = this.map.hasLayer(targetLayer);
+        const staleAttached = this.map.hasLayer(staleLayer);
+
+        if (!membershipChanged && targetAttached && !staleAttached) {
+            window.BARK._lastLayerType = targetLayerType;
+            if (window.BARK && typeof window.BARK.perfBreadcrumb === 'function') {
+                window.BARK.perfBreadcrumb('marker-layers:noop:' + points.length);
+            }
+            return;
+        }
 
         if (clusterMarkersToRemove.length > 0 && targetLayerType !== 'plain') {
             this.clusterLayer.removeLayers(clusterMarkersToRemove);

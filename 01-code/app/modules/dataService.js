@@ -364,6 +364,9 @@ function pollForUpdates() {
 
     pollInFlight = true;
     lastDataPollStartedAt = Date.now();
+    if (typeof window.BARK.perfBreadcrumb === 'function') {
+        window.BARK.perfBreadcrumb('data-poll:start');
+    }
 
     const csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRMM2ZRU5lmT-ncrsil4W3qhrbo8NBxnQ-xC877TNkhLYOpTlnCocYA9gNg-dPRyaQr_8e0CWZ0WB2F/pub?output=csv';
 
@@ -400,6 +403,8 @@ function pollForUpdates() {
                     cacheTime: newHashTime,
                     onAccepted: () => { lastDataHash = newHash; }
                 });
+            } else if (typeof window.BARK.perfBreadcrumb === 'function') {
+                window.BARK.perfBreadcrumb('data-poll:unchanged');
             }
             return true;
         })

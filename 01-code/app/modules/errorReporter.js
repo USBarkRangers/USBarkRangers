@@ -30,7 +30,10 @@ window.BARK = window.BARK || {};
         minSendIntervalMs: 3000,    // let distinct errors close together through
         heartbeatMs: 2000,
         freezeThresholdMs: 5000,    // only a stall beyond this counts as a freeze
-        suspendCapMs: 30000,        // drift beyond this = tab suspension, not a freeze
+        // Real field reports now include visible 30-45s stalls. Visibility and
+        // page lifecycle guards distinguish normal suspension; keep only truly
+        // extreme timer gaps out of freeze telemetry.
+        suspendCapMs: 120000,
         watchdogStartDelayMs: 10000 // skip initial boot jank
     }, window.BARK_ERROR_REPORTER_CONFIG || {});
 

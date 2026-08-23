@@ -8,6 +8,7 @@ window.BARK.services = window.BARK.services || {};
 let userSnapshotUnsubscribe = null;
 let authenticatedSessionSeen = false;
 let lastAuthenticatedUid = null;
+let lastExpeditionSyncKey = null;
 
 function getAuthIntentState() {
     window.BARK = window.BARK || {};
@@ -584,7 +585,32 @@ function handleAdminCheck(data, user) {
     }
 }
 
+function getExpeditionSyncKey(data = {}) {
+    const expedition = data.virtual_expedition && typeof data.virtual_expedition === 'object'
+        ? data.virtual_expedition
+        : {};
+    const completed = Array.isArray(data.completed_expeditions)
+        ? data.completed_expeditions
+        : (Array.isArray(data.completedExpeditions) ? data.completedExpeditions : []);
+
+    // Firestore can emit cache/server/metadata snapshots with identical user
+    // data. Only fields consumed by the expedition UI belong in this key.
+    return JSON.stringify({
+        activeTrail: expedition.active_trail || null,
+        trailName: expedition.trail_name || null,
+        milesLogged: Number(expedition.miles_logged) || 0,
+        trailMiles: Number(expedition.trail_total_miles) || 0,
+        history: Array.isArray(expedition.history) ? expedition.history : [],
+        lifetimeMiles: Number(data.lifetime_miles) || 0,
+        completed
+    });
+}
+
 function handleExpeditionSync(data = {}) {
+    const syncKey = getExpeditionSyncKey(data);
+    if (syncKey === lastExpeditionSyncKey) return false;
+    lastExpeditionSyncKey = syncKey;
+
     try {
         const expedition = data.virtual_expedition && typeof data.virtual_expedition === 'object'
             ? data.virtual_expedition
@@ -663,8 +689,11 @@ function handleExpeditionSync(data = {}) {
             window.BARK.renderCompletedExpeditions(cExpeditions);
         if (typeof window.BARK.renderCompletedTrailsOverlay === 'function')
             window.BARK.renderCompletedTrailsOverlay(cExpeditions);
+        return true;
     } catch (error) {
+        lastExpeditionSyncKey = null;
         console.error("[authService] expedition sync failed:", error);
+        return false;
     }
 }
 
@@ -1216,6 +1245,7 @@ async function initFirebase() {
     try {
         firebase.auth().onAuthStateChanged((user) => {
             try {
+                lastExpeditionSyncKey = null;
                 window.isAdmin = false;
                 window._serverPayloadSettled = false;
                 window._firstServerPayloadReceived = false;

@@ -59,5 +59,7 @@ test('normal-state optimization preserves active yellow pins and uses no replace
     assert.match(mapStyles, /\.custom-bark-marker\.active-pin:not\(\.visited-pin\) \.enamel-pin-wrapper/);
     assert.match(mapStyles, /#FBBF24/);
     assert.match(manager, /marker\.on\('click', \(\) => \{\s*this\.renderMarkerPanel\(marker\);/);
+    assert.match(manager, /marker\._barkRenderedStyleIcon === marker\._icon/);
+    assert.match(manager, /if \(!membershipChanged && targetAttached && !staleAttached\)/);
     assert.doesNotMatch(index, /CanvasMarkerLayer/);
 });

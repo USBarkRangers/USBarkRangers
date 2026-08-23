@@ -12,18 +12,11 @@ function getVaultRepo() {
 }
 
 class MarkerLayerManager {
-    constructor({ map, plainLayer, clusterLayer, canvasLayer = null }) {
+    constructor({ map, plainLayer, clusterLayer }) {
         this.map = map;
         this.plainLayer = plainLayer;
         this.clusterLayer = clusterLayer;
-        this.canvasLayer = canvasLayer;
         this.markers = new Map();
-        this.renderMode = null;
-        this.selectedMarker = null;
-
-        if (this.canvasLayer && typeof this.canvasLayer.setMarkerManager === 'function') {
-            this.canvasLayer.setMarkerManager(this);
-        }
     }
 
     getDataFingerprint(parkData) {
@@ -100,8 +93,6 @@ class MarkerLayerManager {
     renderMarkerPanel(marker, options = {}) {
         if (typeof window.BARK.renderMarkerClickPanel !== 'function') return;
 
-        if (this.renderMode === 'canvas') this.activateDomMarker(marker);
-
         window.BARK.renderMarkerClickPanel({
             marker,
             syncUserProgress: window.BARK.services && window.BARK.services.firebase && window.BARK.services.firebase.syncUserProgress,
@@ -114,10 +105,6 @@ class MarkerLayerManager {
             videoEl: document.getElementById('panel-video'),
             refreshOnly: options.refreshOnly === true
         });
-
-        if (this.canvasLayer && typeof this.canvasLayer.requestRedraw === 'function') {
-            this.canvasLayer.requestRedraw();
-        }
     }
 
     isInTripStop(parkData) {
@@ -125,59 +112,6 @@ class MarkerLayerManager {
         if (!parkData || !parkData.id || !tripLayer || typeof tripLayer.getStopParkIds !== 'function') return false;
         const ids = tripLayer.getStopParkIds();
         return Boolean(ids && ids.has(parkData.id));
-    }
-
-    getCanvasMarkerVisualState(parkData) {
-        if (!parkData) return null;
-        const isVisited = this.getVisitedState(parkData);
-        const isPendingSync = isVisited && this.isPendingServerSync(parkData);
-        const style = MapMarkerConfig.getPinStyle(parkData, isVisited);
-        const removeShadow = window.removeShadows || window.lowGfxEnabled || window.ultraLowEnabled;
-
-        return {
-            iconUrl: style.iconUrl,
-            ringColor: isPendingSync ? '#f59e0b' : style.ringColor,
-            shadowColor: removeShadow
-                ? 'rgba(0, 0, 0, 0)'
-                : (isPendingSync ? 'rgba(245, 158, 11, 0.5)' : style.pinShadowColor),
-            visited: isVisited,
-            pending: isPendingSync,
-            hiddenByTrip: this.isInTripStop(parkData)
-        };
-    }
-
-    activateDomMarker(marker) {
-        if (this.renderMode !== 'canvas' || !marker || marker._barkIsVisible === false) return;
-
-        if (this.selectedMarker && this.selectedMarker !== marker) {
-            this.plainLayer.removeLayer(this.selectedMarker);
-            this.selectedMarker._layerAdded = false;
-            this.selectedMarker._barkLayerType = null;
-        }
-
-        this.selectedMarker = marker;
-        if (!this.plainLayer.hasLayer || !this.plainLayer.hasLayer(marker)) {
-            this.plainLayer.addLayer(marker);
-        }
-        marker._layerAdded = true;
-        marker._barkLayerType = 'plain';
-
-        if (this.canvasLayer && typeof this.canvasLayer.setActiveMarker === 'function') {
-            this.canvasLayer.setActiveMarker(marker);
-        }
-    }
-
-    clearSelectedMarker() {
-        if (this.renderMode !== 'canvas') return;
-        if (this.selectedMarker) {
-            this.plainLayer.removeLayer(this.selectedMarker);
-            this.selectedMarker._layerAdded = false;
-            this.selectedMarker._barkLayerType = null;
-            this.selectedMarker = null;
-        }
-        if (this.canvasLayer && typeof this.canvasLayer.setActiveMarker === 'function') {
-            this.canvasLayer.setActiveMarker(null);
-        }
     }
 
     applyMarkerStyle(marker) {
@@ -213,9 +147,6 @@ class MarkerLayerManager {
             const marker = this.markers.get(parkId);
             if (marker && marker._icon) this.applyMarkerStyle(marker);
         });
-        if (this.canvasLayer && typeof this.canvasLayer.requestRedraw === 'function') {
-            this.canvasLayer.requestRedraw();
-        }
     }
 
     refreshMarkerStyles(parkIds = null) {
@@ -229,9 +160,6 @@ class MarkerLayerManager {
             marker._barkVisitedState = this.getVisitedState(marker._parkData);
             if (marker._icon) this.applyMarkerStyle(marker);
         });
-        if (this.canvasLayer && typeof this.canvasLayer.requestRedraw === 'function') {
-            this.canvasLayer.requestRedraw();
-        }
     }
 
     updateMarker(marker, parkData) {
@@ -258,9 +186,6 @@ class MarkerLayerManager {
         marker._barkDataFingerprint = nextFingerprint;
         marker._barkVisitedState = nextVisitedState;
         this.applyMarkerStyle(marker);
-        if (this.canvasLayer && typeof this.canvasLayer.requestRedraw === 'function') {
-            this.canvasLayer.requestRedraw();
-        }
 
         if (dataChanged && window.BARK.activePinMarker === marker) {
             this.renderMarkerPanel(marker, { refreshOnly: true });
@@ -282,8 +207,6 @@ class MarkerLayerManager {
     removeMarker(marker) {
         if (!marker) return;
 
-        if (marker === this.selectedMarker) this.clearSelectedMarker();
-
         if (marker._barkLayerType === 'cluster') {
             this.clusterLayer.removeLayer(marker);
         } else if (marker._barkLayerType === 'plain') {
@@ -303,11 +226,6 @@ class MarkerLayerManager {
         }
         if (this.plainLayer && typeof this.plainLayer.clearLayers === 'function') {
             this.plainLayer.clearLayers();
-        }
-        this.selectedMarker = null;
-        if (this.canvasLayer) {
-            if (typeof this.canvasLayer.setActiveMarker === 'function') this.canvasLayer.setActiveMarker(null);
-            if (typeof this.canvasLayer.setPoints === 'function') this.canvasLayer.setPoints([]);
         }
 
         points.forEach(point => {
@@ -329,40 +247,6 @@ class MarkerLayerManager {
         }
     }
 
-    moveMarkersToCanvas(points) {
-        this.clearClusterLayerInternals();
-        this.renderMode = 'canvas';
-
-        const activeMarker = window.BARK.activePinMarker;
-        if (!this.selectedMarker && activeMarker && activeMarker._barkIsVisible !== false) {
-            this.selectedMarker = activeMarker;
-        }
-
-        points.forEach(point => {
-            const marker = point && point.marker;
-            if (!marker || marker === this.selectedMarker) return;
-            marker._layerAdded = false;
-            marker._barkLayerType = null;
-        });
-
-        if (this.selectedMarker && this.selectedMarker._barkIsVisible === false) {
-            this.clearSelectedMarker();
-            if (typeof window.BARK.clearActivePin === 'function') window.BARK.clearActivePin();
-        }
-
-        if (this.canvasLayer) {
-            if (typeof this.map.hasLayer !== 'function' || !this.map.hasLayer(this.canvasLayer)) {
-                this.map.addLayer(this.canvasLayer);
-            }
-            this.canvasLayer.setPoints(points);
-            this.canvasLayer.setActiveMarker(this.selectedMarker);
-        }
-        if (!this.map.hasLayer(this.plainLayer)) this.map.addLayer(this.plainLayer);
-        if (this.selectedMarker) this.activateDomMarker(this.selectedMarker);
-
-        window.BARK._lastLayerType = 'plain';
-    }
-
     moveMarkersToLayer(points, targetLayerType, options = {}) {
         if (window.BARK && typeof window.BARK.perfBreadcrumb === 'function') {
             window.BARK.perfBreadcrumb('marker-layers:' + points.length + (options.forceReset === true ? ':reset' : ''));
@@ -370,25 +254,6 @@ class MarkerLayerManager {
         if (options.forceReset === true) {
             this.resetLayerMembership(points);
         }
-
-        if (targetLayerType === 'plain' && this.canvasLayer) {
-            this.moveMarkersToCanvas(points);
-            return;
-        }
-
-        if (this.renderMode === 'canvas') {
-            this.clearSelectedMarker();
-            if (this.canvasLayer) {
-                this.canvasLayer.setPoints([]);
-                if (this.map.hasLayer(this.canvasLayer)) this.map.removeLayer(this.canvasLayer);
-            }
-            points.forEach(point => {
-                if (!point || !point.marker) return;
-                point.marker._layerAdded = false;
-                point.marker._barkLayerType = null;
-            });
-        }
-        this.renderMode = targetLayerType;
 
         const markersToAdd = [];
         const policy = window.BARK.getMarkerLayerPolicy

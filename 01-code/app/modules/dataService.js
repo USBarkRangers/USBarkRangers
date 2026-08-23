@@ -489,9 +489,6 @@ function clearLayerSafely(layer, label) {
 function clearMarkerLayersSafely() {
     const markerLayerCleared = clearLayerSafely(window.BARK.markerLayer, 'markerLayer');
     const clusterLayerCleared = clearLayerSafely(window.BARK.markerClusterGroup, 'markerClusterGroup');
-    if (window.BARK.canvasMarkerLayer && typeof window.BARK.canvasMarkerLayer.setPoints === 'function') {
-        window.BARK.canvasMarkerLayer.setPoints([]);
-    }
 
     if ((markerLayerCleared || clusterLayerCleared) && window.BARK.markerManager && window.BARK.markerManager.markers instanceof Map) {
         window.BARK.markerManager.markers.clear();

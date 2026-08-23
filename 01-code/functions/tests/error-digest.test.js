@@ -16,8 +16,8 @@ describe("summarizeClientErrors", () => {
         const now = 1000000000;
         const since = now - 24 * 60 * 60 * 1000;
         const docs = [
-            { type: "freeze", message: "UI stalled", uid: "a" },
-            { type: "freeze", message: "UI stalled", uid: "b" },
+            { type: "freeze", message: "UI stalled for 7.2 seconds", fingerprint: "freeze:map", likelyArea: "map interaction", durationSeconds: 7.2, uid: "a" },
+            { type: "freeze", message: "UI stalled for 48.0 seconds", fingerprint: "freeze:map", likelyArea: "map interaction", durationSeconds: 48, uid: "b" },
             { type: "error", message: "TypeError x", uid: "a" }
         ];
         const s = summarizeClientErrors(docs, since, now);
@@ -26,8 +26,11 @@ describe("summarizeClientErrors", () => {
         assert.equal(s.byType.freeze, 2);
         assert.equal(s.byType.error, 1);
         assert.equal(s.windowHours, 24);
-        assert.equal(s.topMessages[0].message, "UI stalled");
+        assert.equal(s.topMessages[0].message, "UI stalled for 7.2 seconds");
         assert.equal(s.topMessages[0].count, 2);
+        assert.equal(s.freeze.maxSeconds, 48);
+        assert.equal(s.freeze.extreme, 1);
+        assert.equal(s.byLikelyArea["map interaction"], 2);
     });
 });
 

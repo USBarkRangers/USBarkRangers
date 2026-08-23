@@ -66,13 +66,20 @@ describe("fetchGoatCounterStats", () => {
             httpGet: async (url, config) => {
                 calls.push({ url, config });
                 if (url.endsWith("/stats/total")) return { data: { total: 120, total_unique: 45 } };
-                return { data: { hits: [{ path: "/", count: 80 }, { path: "/map", count: 40 }] } };
+                return { data: { hits: [
+                    { path: "/", count: 80 },
+                    { path: "/map", count: 40 },
+                    { path: "event-checkout-clicked", count: 4 },
+                    { path: "event-premium-confirmation-timeout", count: 1 }
+                ] } };
             }
         });
 
         assert.equal(stats.pageviews, 120);
         assert.equal(stats.visitors, 45);
         assert.deepEqual(stats.topPages, [{ path: "/", count: 80 }, { path: "/map", count: 40 }]);
+        assert.equal(stats.paymentFunnel["checkout-clicked"], 4);
+        assert.equal(stats.paymentFunnel["premium-confirmation-timeout"], 1);
         assert.ok(calls[0].url.startsWith(opsMetrics.DEFAULT_GOATCOUNTER_SITE));
         assert.equal(calls[0].config.headers.Authorization, "Bearer t");
         assert.equal(calls[0].config.params.start, "2026-08-07");
@@ -138,6 +145,23 @@ describe("buildMetricsMessage", () => {
     });
 });
 
+describe("buildPaymentFunnelAlertMessage", () => {
+    it("alerts only when checkout starts fail or confirmation is delayed", () => {
+        assert.equal(opsMetrics.buildPaymentFunnelAlertMessage({ paymentFunnel: {} }), null);
+        const message = opsMetrics.buildPaymentFunnelAlertMessage({
+            paymentFunnel: {
+                "checkout-start-failed": 2,
+                "premium-confirmation-timeout": 1,
+                "checkout-return-success": 3,
+                "premium-confirmed": 2
+            }
+        });
+        assert.equal(message.channel, "salesAndBilling");
+        assert.equal(message.tier, "important");
+        assert.equal(message.fields[0].value, "2");
+    });
+});
+
 describe("runOpsMetricsRollup", () => {
     it("collects counts and posts one routine message", async () => {
         const sent = [];
@@ -145,6 +169,7 @@ describe("runOpsMetricsRollup", () => {
             { windowHours: 24, channel: "dailyMetrics", title: "Daily metrics" },
             {
                 firestore: fakeFirestore({ feedback: 2, clientErrors: 5, _lemonSqueezyWebhookEvents: 1 }),
+                includeParkDataCheck: false,
                 env: { GOATCOUNTER_API_TOKEN: "t" },
                 httpGet: async (url) => (url.endsWith("/stats/total")
                     ? { data: { total: 99, total_unique: 40 } }
@@ -171,6 +196,7 @@ describe("runOpsMetricsRollup", () => {
             { windowHours: 168, channel: "weeklyReport", title: "Weekly report" },
             {
                 firestore: fakeFirestore({}, new Set(["feedback", "clientErrors", "_lemonSqueezyWebhookEvents"])),
+                includeParkDataCheck: false,
                 env: {},
                 discordConfig: fullConfig(),
                 discordSender: async (url, payload) => { sent.push({ url, payload }); }

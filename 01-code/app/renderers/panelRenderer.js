@@ -212,12 +212,16 @@ function renderMarkerClickPanel(context) {
     const videoEl = context.videoEl;
     const firebaseService = window.BARK.services && window.BARK.services.firebase;
     const refreshOnly = context.refreshOnly === true;
+    const panelOperation = typeof window.BARK.perfOperationStart === 'function'
+        ? window.BARK.perfOperationStart('park-panel-render', refreshOnly ? 'refresh' : 'open')
+        : null;
 
     if (!hasUsableParkData(marker)) {
         if (slidePanel) slidePanel.classList.remove('open');
         if (window.BARK.activePinMarker === marker && typeof window.BARK.clearActivePin === 'function') {
             window.BARK.clearActivePin();
         }
+        if (typeof window.BARK.perfOperationEnd === 'function') window.BARK.perfOperationEnd(panelOperation, 'invalid-marker');
         return;
     }
 
@@ -235,6 +239,9 @@ function renderMarkerClickPanel(context) {
     if (!refreshOnly) document.getElementById('filter-panel').classList.add('collapsed');
 
     const d = marker._parkData;
+    if (!refreshOnly && typeof window.BARK.noteInteraction === 'function') {
+        window.BARK.noteInteraction('pin-click', d.id || d.name || 'unknown');
+    }
     if (titleEl) titleEl.textContent = d.name || 'Unknown Park';
 
     const metaContainer = document.getElementById('panel-meta-container');
@@ -637,16 +644,24 @@ function renderMarkerClickPanel(context) {
                     return;
                 }
 
+                if (typeof window.BARK.noteInteraction === 'function') {
+                    window.BARK.noteInteraction('park-visit-toggle', d.id || d.name || 'unknown');
+                }
+                const visitOperation = typeof window.BARK.perfOperationStart === 'function'
+                    ? window.BARK.perfOperationStart('park-visit-change', d.id || d.name || 'unknown')
+                    : null;
                 let visitResult = null;
                 try {
                     visitResult = await checkinService.markAsVisited(d);
                 } catch (error) {
+                    if (typeof window.BARK.perfOperationEnd === 'function') window.BARK.perfOperationEnd(visitOperation, 'error');
                     console.error("[panelRenderer] mark visited failed:", error);
                     alert("Check-in service is unavailable. Try again later.");
                     return;
                 }
 
                 if (!visitResult.success) {
+                    if (typeof window.BARK.perfOperationEnd === 'function') window.BARK.perfOperationEnd(visitOperation, visitResult.error || 'failed');
                     if (visitResult.error === 'UNCHECK_LOCKED') {
                         alert("🛡️ Data Safety Lock Active\n\nTo prevent you from accidentally losing your 'Date Visited' history, unchecking parks is disabled by default.\n\nYou can turn off this safety feature by opening Settings (⚙️) and enabling 'Allow Uncheck Visited'.");
                     } else if (visitResult.error === 'FREE_VISIT_LIMIT') {
@@ -658,6 +673,7 @@ function renderMarkerClickPanel(context) {
                 }
 
                 if (visitResult.action === 'removed') {
+                    if (typeof window.BARK.perfOperationEnd === 'function') window.BARK.perfOperationEnd(visitOperation, 'removed');
                     setMarkVisitedStateDefault();
                     window.syncState();
                     return;
@@ -669,6 +685,7 @@ function renderMarkerClickPanel(context) {
                 // identical: never lie about confirmation, never flip green
                 // until Google's servers actually have the visit.
                 setMarkVisitedStatePending();
+                if (typeof window.BARK.perfOperationEnd === 'function') window.BARK.perfOperationEnd(visitOperation, 'added-pending');
                 window.syncState();
 
                 const newVisit = visitResult.visitRecord;
@@ -729,6 +746,9 @@ function renderMarkerClickPanel(context) {
     if (slidePanel) {
         if (mapIsActive) slidePanel.classList.add('open');
         else slidePanel.classList.remove('open');
+    }
+    if (typeof window.BARK.perfOperationEnd === 'function') {
+        window.BARK.perfOperationEnd(panelOperation, refreshOnly ? 'refreshed' : 'opened');
     }
 }
 

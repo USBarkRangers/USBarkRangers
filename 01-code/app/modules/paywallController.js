@@ -47,6 +47,17 @@
     let selectedTier = PREMIUM_TIERS.standard;
     let unsubscribePremium = null;
     let verificationFallbackTimer = null;
+    const trackedFunnelStates = new Set();
+
+    function trackFunnelEvent(name, title, onceKey) {
+        try {
+            if (onceKey && trackedFunnelStates.has(onceKey)) return;
+            if (onceKey) trackedFunnelStates.add(onceKey);
+            if (typeof window.BARK.trackMonitoringEvent === 'function') {
+                window.BARK.trackMonitoringEvent(name, title);
+            }
+        } catch (_error) { /* analytics must never affect checkout */ }
+    }
 
     function getElement(id) {
         return document.getElementById(id);
@@ -532,6 +543,9 @@
         const remainingMs = Math.max(0, getVerifyingFallbackMs() - getReturnStateElapsedMs());
         verificationFallbackTimer = setTimeout(() => {
             verificationFallbackTimer = null;
+            if (returnState === 'success' && !isPremiumActive()) {
+                trackFunnelEvent('premium-confirmation-timeout', 'Premium confirmation delayed', 'confirmation-timeout');
+            }
             renderCurrentState();
         }, remainingMs + 25);
     }
@@ -632,6 +646,9 @@
         }
 
         if (isPremiumActive()) {
+            if (returnState === 'success') {
+                trackFunnelEvent('premium-confirmed', 'Premium confirmed after checkout', 'premium-confirmed');
+            }
             let activeCopy = 'Premium is active on this account.';
             let eyebrow = 'Unlocked';
             let title = 'Premium active';
@@ -869,6 +886,8 @@
             : 'manual';
         const overlay = getElement('paywall-overlay');
         if (!overlay) return;
+        trackFunnelEvent('paywall-open', `Paywall opened: ${lastSource}`);
+        if (typeof window.BARK.noteInteraction === 'function') window.BARK.noteInteraction('paywall-open', lastSource);
         renderCurrentState();
         overlay.classList.add('active');
         overlay.setAttribute('aria-hidden', 'false');
@@ -879,6 +898,7 @@
     function closePaywall() {
         const overlay = getElement('paywall-overlay');
         if (!overlay) return;
+        if (overlay.classList.contains('active')) trackFunnelEvent('paywall-close', 'Paywall closed');
         overlay.classList.remove('active');
         overlay.setAttribute('aria-hidden', 'true');
     }
@@ -966,6 +986,11 @@
             return;
         }
 
+        trackFunnelEvent('checkout-clicked', `Checkout clicked: ${selectedTier}`);
+        if (typeof window.BARK.noteInteraction === 'function') window.BARK.noteInteraction('checkout-clicked', selectedTier);
+        const checkoutOperation = typeof window.BARK.perfOperationStart === 'function'
+            ? window.BARK.perfOperationStart('payment-checkout', selectedTier)
+            : null;
         checkoutInFlight = true;
         restoreStatusMessage = null;
         selectedTier = isVisibleCheckoutTier(selectedTier)
@@ -982,8 +1007,11 @@
             const result = await createCheckoutSession({ tier: selectedTier });
             const checkoutUrl = validateCheckoutUrl(result && result.data && result.data.checkoutUrl);
             if (!checkoutUrl) throw new Error('Checkout URL was missing from the backend response.');
+            trackFunnelEvent('checkout-session-created', 'Checkout session created');
             closeMapSurfacesForCheckout();
             checkoutHandoffStarted = true;
+            if (typeof window.BARK.perfOperationEnd === 'function') window.BARK.perfOperationEnd(checkoutOperation, 'handoff');
+            trackFunnelEvent('checkout-handoff', 'Checkout handoff started');
             window.location.assign(checkoutUrl);
             setTimeout(() => {
                 if (document.hidden) return;
@@ -992,6 +1020,8 @@
             }, 8000);
         } catch (error) {
             console.error('[paywallController] createCheckoutSession failed:', error);
+            if (typeof window.BARK.perfOperationEnd === 'function') window.BARK.perfOperationEnd(checkoutOperation, 'failed');
+            trackFunnelEvent('checkout-start-failed', 'Checkout could not start');
             const message = error && error.message && /paused|disabled|unavailable/i.test(error.message)
                 ? error.message
                 : 'Checkout could not start. Please try again in a moment or contact support.';
@@ -1122,6 +1152,11 @@
         returnState = getReturnStateFromUrl();
         returnStateStartedAt = returnState ? Date.now() : null;
         const initialReturnState = returnState;
+        if (initialReturnState === 'success') {
+            trackFunnelEvent('checkout-return-success', 'Checkout returned success', 'return-success');
+        } else if (initialReturnState === 'canceled') {
+            trackFunnelEvent('checkout-return-canceled', 'Checkout returned canceled', 'return-canceled');
+        }
 
         bindClick('paywall-close-btn', closePaywall);
         bindClick('paywall-secondary-btn', closePaywall);

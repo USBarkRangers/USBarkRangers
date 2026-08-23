@@ -14,6 +14,7 @@ const {
         wrapCallableWithPaymentAlert,
         setPaymentAlertEmailSender,
         resetAlertThrottle,
+        alertEmailAllowed,
         formatPaymentAlertEmailBody
     }
 } = require("../index.js");
@@ -95,7 +96,7 @@ describe("formatPaymentAlertEmailBody", () => {
             errorMessage: "boom",
             timestamp: "t"
         });
-        assert.ok(body.includes("payment-critical function failed"));
+        assert.ok(body.includes("payment operation failed"));
         assert.ok(body.includes("charged but not upgraded"));
     });
 
@@ -104,16 +105,16 @@ describe("formatPaymentAlertEmailBody", () => {
             fn: "client/freeze",
             source: "client",
             critical: true, // even if set, client reports must never claim payment risk
-            errorMessage: "UI stalled for ~11226ms",
+            errorMessage: "UI stalled for 11.2 seconds",
             clientContext: "vis=visible;crumbs=marker-sync:1987+1s",
-            durationMs: 11226,
+            durationSeconds: 11.2,
             timestamp: "t"
         });
         assert.ok(body.includes("client-side issue"));
         assert.ok(!body.includes("charged but not upgraded"));
         assert.ok(!body.includes("payment-critical"));
         assert.ok(body.includes("Context:     vis=visible;crumbs=marker-sync:1987+1s"));
-        assert.ok(body.includes("Freeze (ms): 11226"));
+        assert.ok(body.includes("Freeze:      11.2 seconds"));
     });
 });
 
@@ -164,6 +165,21 @@ describe("deliverPaymentAlert", () => {
         await deliverPaymentAlert({ fn: "a", errorMessage: "one" }, { emailSender: sender });
         await deliverPaymentAlert({ fn: "b", errorMessage: "two" }, { emailSender: sender });
         assert.equal(sends, 2);
+    });
+
+    it("keeps payment-critical capacity separate from a client-error flood", () => {
+        for (let index = 0; index < 40; index += 1) {
+            assert.equal(alertEmailAllowed({
+                fn: `client/error-${index}`,
+                source: "client",
+                errorMessage: `client-${index}`
+            }), true);
+        }
+        assert.equal(alertEmailAllowed({
+            fn: "lemonSqueezyWebhook",
+            critical: true,
+            errorMessage: "charged but not upgraded"
+        }), true);
     });
 });
 

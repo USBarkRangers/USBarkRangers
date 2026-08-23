@@ -769,6 +769,40 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
         assert.equal(firestore.state.writes.length, 0);
     });
 
+    it("alerts when a valid payment event cannot be matched to a user", async () => {
+        const sent = [];
+        const payload = makePayload({
+            eventName: "subscription_payment_success",
+            uid: null,
+            eventId: "evt_paid_missing_uid"
+        });
+        const { res } = await invoke({
+            req: signedReq(payload),
+            options: { emailSender: async (alert) => sent.push(alert) }
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.reason, "missing_uid");
+        assert.equal(sent.length, 1);
+        assert.equal(sent[0].eventName, "subscription_payment_success");
+        assert.equal(sent[0].critical, false);
+        assert.equal(sent[0].providerMode, "test");
+    });
+
+    it("does not alert for a non-money update missing a user", async () => {
+        const sent = [];
+        const payload = makePayload({
+            eventName: "subscription_updated",
+            uid: null,
+            eventId: "evt_update_missing_uid"
+        });
+        await invoke({
+            req: signedReq(payload),
+            options: { emailSender: async (alert) => sent.push(alert) }
+        });
+        assert.equal(sent.length, 0);
+    });
+
     it("writes nothing when firebase_uid is empty", async () => {
         const payload = makePayload({
             uid: "",

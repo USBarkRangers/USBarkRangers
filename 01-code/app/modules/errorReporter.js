@@ -1,148 +1,194 @@
 /**
- * errorReporter.js (v2) - Client error + freeze reporting for the launch bug hunt.
- *
- * Catches uncaught JS errors, unhandled promise rejections, and UI freezes
- * (main-thread stalls) and forwards them to the reportClientError callable so
- * they surface as emails + a Firestore log. Built to be safe and quiet:
- *   - Only reports for signed-in users (the callable requires auth).
- *   - Per-session cap, min interval, and signature dedup so one broken screen
- *     can never flood.
- *   - Its own handlers never throw.
- *
- * v2 hardening (false-freeze fix): iOS suspends timers when the phone locks or
- * the user switches apps. On resume, the stale heartbeat tick can run BEFORE
- * the visibilitychange handler, making the entire pocket-time look like a
- * "freeze". Two defenses, robust to either ordering of that race:
- *   1. A hidden flag set on hide AND on show — the first tick after any
- *      visibility transition is always discarded.
- *   2. A hard cap: drift beyond suspendCapMs is suspension by definition
- *      (nobody waits minutes at a frozen page) and is never reported.
- * Reports now carry breadcrumbs (last heavy operations, via
- * window.BARK.perfBreadcrumb) and visibility context so real stalls can be
- * attributed to a specific operation.
+ * errorReporter.js (v3) — client errors and recoverable main-thread freezes.
+ * Reports are authenticated, capped, cooldown-deduplicated, and best-effort.
  */
 window.BARK = window.BARK || {};
 
 (function () {
-    // Overridable for tests via window.BARK_ERROR_REPORTER_CONFIG.
     const CFG = Object.assign({
-        maxReportsPerSession: 15,   // more sensitive for the launch bug hunt
-        minSendIntervalMs: 3000,    // let distinct errors close together through
+        maxReportsPerSession: 12,
+        minSendIntervalMs: 3000,
+        signatureCooldownMs: 10 * 60 * 1000,
         heartbeatMs: 2000,
-        freezeThresholdMs: 5000,    // only a stall beyond this counts as a freeze
-        // Real field reports now include visible 30-45s stalls. Visibility and
-        // page lifecycle guards distinguish normal suspension; keep only truly
-        // extreme timer gaps out of freeze telemetry.
+        freezeThresholdMs: 5000,
         suspendCapMs: 120000,
-        watchdogStartDelayMs: 10000 // skip initial boot jank
+        watchdogStartDelayMs: 10000,
+        pendingRetryDelayMs: 15000
     }, window.BARK_ERROR_REPORTER_CONFIG || {});
 
-    const DEDUP_MAX = 40;
-    const BREADCRUMB_MAX = 6;
-
+    const PENDING_FREEZE_KEY = 'barkPendingFreezeReportV1';
+    const SIGNATURE_LIMIT = 60;
     let reportCount = 0;
     let lastSendAt = 0;
     let installed = false;
-    const seenSignatures = new Set();
-
-    // ===== Breadcrumbs: heavy operations self-report here (name + timestamp) =====
-    const breadcrumbs = [];
-    function perfBreadcrumb(name) {
-        try {
-            breadcrumbs.push({ n: String(name).slice(0, 60), t: Date.now() });
-            if (breadcrumbs.length > BREADCRUMB_MAX) breadcrumbs.shift();
-        } catch (_e) { /* never throw */ }
-    }
-
-    // ===== Visibility tracking for freeze-vs-suspension classification =====
+    const signatureTimes = new Map();
     let lastVisibilityChangeAt = Date.now();
     let hiddenSinceLastBeat = false;
+    let pendingRetryAttempts = 0;
 
-    function buildContext() {
-        try {
-            const now = Date.now();
-            const crumbs = breadcrumbs
-                .map((b) => `${b.n}+${Math.round((now - b.t) / 1000)}s`)
-                .join(',');
-            const sinceVis = Math.round((now - lastVisibilityChangeAt) / 1000);
-            return `vis=${document.visibilityState};sinceVisChange=${sinceVis}s;crumbs=${crumbs || 'none'}`;
-        } catch (_e) {
-            return null;
-        }
-    }
+    function monitoring() { return window.BARK && window.BARK.monitoring; }
+    function clean(value, max) { return String(value === undefined || value === null ? '' : value).slice(0, max); }
 
     function currentUid() {
         try {
-            return (window.firebase && firebase.auth && firebase.auth().currentUser)
+            return window.firebase && firebase.auth && firebase.auth().currentUser
                 ? firebase.auth().currentUser.uid
                 : null;
-        } catch (_e) {
-            return null;
-        }
+        } catch (_error) { return null; }
     }
 
     function getCallable() {
         try {
-            if (window.firebase && firebase.functions) {
-                return firebase.functions().httpsCallable('reportClientError');
-            }
-        } catch (_e) { /* ignore */ }
-        return null;
+            return window.firebase && firebase.functions
+                ? firebase.functions().httpsCallable('reportClientError')
+                : null;
+        } catch (_error) { return null; }
     }
 
-    function buildSignature(type, message, stack) {
-        const firstFrame = (stack || '').split('\n').find((line) => /:\d+:\d+/.test(line)) || '';
-        return `${type}|${(message || '').slice(0, 120)}|${firstFrame.trim().slice(0, 120)}`;
+    function getSnapshot(durationMs) {
+        try {
+            const monitor = monitoring();
+            return monitor && typeof monitor.snapshot === 'function' ? monitor.snapshot(durationMs) : {};
+        } catch (_error) { return {}; }
+    }
+
+    function buildLegacyContext(snapshot) {
+        try {
+            const sinceVisibility = Math.max(0, Math.round((Date.now() - lastVisibilityChangeAt) / 1000));
+            const crumbs = Array.isArray(snapshot.breadcrumbs)
+                ? snapshot.breadcrumbs.map((item) => `${item.name}+${item.ageSeconds}s${item.count > 1 ? `x${item.count}` : ''}`).join(',')
+                : 'none';
+            return `vis=${document.visibilityState};sinceVisChange=${sinceVisibility}s;area=${snapshot.likelyArea || 'unknown'};crumbs=${crumbs || 'none'}`;
+        } catch (_error) { return null; }
+    }
+
+    function buildSignature(type, message, stack, extra) {
+        if (extra && extra.fingerprint) return `${type}|${clean(extra.fingerprint, 180)}`;
+        if (type === 'freeze') return `freeze|${clean(extra && extra.freezeCategory, 120) || 'unknown'}`;
+        const firstFrame = clean(stack, 4000).split('\n').find((line) => /:\d+:\d+/.test(line)) || '';
+        return `${type}|${clean(message, 120)}|${clean(firstFrame.trim(), 120)}`;
+    }
+
+    function signatureAllowed(signature, now) {
+        const last = signatureTimes.get(signature);
+        if (last && now - last < CFG.signatureCooldownMs) return false;
+        signatureTimes.set(signature, now);
+        if (signatureTimes.size > SIGNATURE_LIMIT) {
+            for (const [key, timestamp] of signatureTimes) {
+                if (now - timestamp >= CFG.signatureCooldownMs) signatureTimes.delete(key);
+            }
+            if (signatureTimes.size > SIGNATURE_LIMIT) signatureTimes.delete(signatureTimes.keys().next().value);
+        }
+        return true;
+    }
+
+    function savePendingFreeze(payload) {
+        try { localStorage.setItem(PENDING_FREEZE_KEY, JSON.stringify({ savedAt: Date.now(), payload })); }
+        catch (_error) { /* persistence is optional */ }
+    }
+
+    function clearPendingFreeze(reportId) {
+        try {
+            const stored = JSON.parse(localStorage.getItem(PENDING_FREEZE_KEY) || 'null');
+            if (!stored || !stored.payload || stored.payload.reportId === reportId) localStorage.removeItem(PENDING_FREEZE_KEY);
+        } catch (_error) { /* no-op */ }
+    }
+
+    function readPendingFreeze() {
+        try {
+            const stored = JSON.parse(localStorage.getItem(PENDING_FREEZE_KEY) || 'null');
+            if (!stored || !stored.payload || Date.now() - Number(stored.savedAt || 0) > 24 * 60 * 60 * 1000) {
+                localStorage.removeItem(PENDING_FREEZE_KEY);
+                return null;
+            }
+            return stored.payload;
+        } catch (_error) { return null; }
+    }
+
+    function sendPayload(payload, options = {}) {
+        try {
+            if (payload.type === 'freeze' && !options.retry) savePendingFreeze(payload);
+            if (reportCount >= CFG.maxReportsPerSession || !currentUid()) return false;
+            const callable = getCallable();
+            if (!callable) return false;
+            const now = Date.now();
+            if (!options.retry && now - lastSendAt < CFG.minSendIntervalMs) return false;
+            const signature = buildSignature(payload.type, payload.message, payload.stack, payload);
+            if (!options.retry && !signatureAllowed(signature, now)) return false;
+
+            reportCount += 1;
+            lastSendAt = now;
+            Promise.resolve(callable(payload))
+                .then(() => { if (payload.type === 'freeze') clearPendingFreeze(payload.reportId); })
+                .catch(() => { /* pending freeze remains for next load */ });
+            return true;
+        } catch (_error) { return false; }
     }
 
     function report(type, message, stack, extra) {
         try {
-            if (reportCount >= CFG.maxReportsPerSession) return;
-            if (!currentUid()) return; // callable requires auth; skip guests
-
-            const now = Date.now();
-            if (now - lastSendAt < CFG.minSendIntervalMs) return;
-
-            const signature = buildSignature(type, message, stack);
-            if (seenSignatures.has(signature)) return;
-
-            const callable = getCallable();
-            if (!callable) return;
-
-            seenSignatures.add(signature);
-            if (seenSignatures.size > DEDUP_MAX) seenSignatures.clear();
-            reportCount += 1;
-            lastSendAt = now;
-
-            const payload = Object.assign({
+            const durationMs = Number(extra && extra.durationMs);
+            const snapshot = getSnapshot(Number.isFinite(durationMs) ? durationMs : null);
+            const errorClassification = type === 'freeze'
+                ? null
+                : (monitoring() && typeof monitoring().classifyError === 'function'
+                    ? monitoring().classifyError(message)
+                    : { likelyArea: 'unknown', severity: 'important' });
+            const details = Object.assign({}, snapshot, errorClassification || {}, extra || {});
+            const payload = {
                 type,
-                message: String(message || '').slice(0, 500),
-                stack: String(stack || '').slice(0, 4000),
-                path: (location.pathname + location.hash).slice(0, 300),
-                userAgent: navigator.userAgent.slice(0, 300),
-                appVersion: (window.BARK && window.BARK.APP_VERSION) || null,
-                context: buildContext()
-            }, extra || {});
+                message: clean(message, 500),
+                stack: clean(stack, 4000),
+                path: clean(location.pathname + location.hash, 300),
+                hostname: clean(location.hostname, 120),
+                userAgent: clean(navigator.userAgent, 300),
+                appVersion: window.BARK.APP_VERSION || null,
+                context: buildLegacyContext(details),
+                reportId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+                durationMs: Number.isFinite(durationMs) ? durationMs : null,
+                durationSeconds: Number.isFinite(Number(details.durationSeconds)) ? Number(details.durationSeconds) : null,
+                severity: clean(details.severity || 'important', 30),
+                likelyArea: clean(details.likelyArea || 'unknown', 80),
+                freezeCategory: clean(details.freezeCategory, 120),
+                fingerprint: clean(details.fingerprint, 180),
+                releaseChannel: clean(details.releaseChannel, 30),
+                deviceFamily: clean(details.deviceFamily, 40),
+                browserFamily: clean(details.browserFamily, 40),
+                activeScreen: clean(details.activeScreen, 60),
+                lastAction: clean(details.lastAction, 80),
+                lastActionAgeSeconds: Number.isFinite(Number(details.lastActionAgeSeconds)) ? Number(details.lastActionAgeSeconds) : null,
+                likelyOperation: clean(details.likelyOperation, 80),
+                operationDurationMs: Number.isFinite(Number(details.operationDurationMs)) ? Number(details.operationDurationMs) : null,
+                pinCount: Number.isFinite(Number(details.pinCount)) ? Number(details.pinCount) : null,
+                mapZoom: Number.isFinite(Number(details.mapZoom)) ? Number(details.mapZoom) : null,
+                lowInformation: details.lowInformation === true
+            };
+            payload.errorName = clean(details.errorName, 80);
+            payload.errorCode = clean(details.errorCode, 80);
+            if (!payload.fingerprint) {
+                payload.fingerprint = type === 'freeze'
+                    ? `freeze:${payload.freezeCategory || payload.likelyArea}`
+                    : `${type}:${payload.likelyArea}:${clean(payload.message.toLowerCase(), 100)}`;
+            }
+            return sendPayload(payload);
+        } catch (_error) { return false; }
+    }
 
-            // Fire-and-forget — a reporting failure must never disrupt the app.
-            Promise.resolve(callable(payload)).catch(() => {});
-        } catch (_e) {
-            /* reporting must never throw */
-        }
+    function retryPendingFreeze() {
+        const payload = readPendingFreeze();
+        if (!payload || pendingRetryAttempts >= 4) return;
+        pendingRetryAttempts += 1;
+        sendPayload(payload, { retry: true });
+        setTimeout(retryPendingFreeze, CFG.pendingRetryDelayMs * 2);
     }
 
     function installFreezeWatchdog() {
         let last = Date.now();
-
         const noteTransition = () => {
-            // Any visibility transition poisons the next tick: whichever of the
-            // stale tick or this handler runs first, the interval since `last`
-            // includes non-frozen time and must not be reported.
             lastVisibilityChangeAt = Date.now();
             hiddenSinceLastBeat = true;
             last = Date.now();
         };
-
         document.addEventListener('visibilitychange', noteTransition);
         window.addEventListener('pagehide', noteTransition);
         window.addEventListener('pageshow', noteTransition);
@@ -154,44 +200,50 @@ window.BARK = window.BARK || {};
             const skipForVisibility = hiddenSinceLastBeat;
             hiddenSinceLastBeat = false;
             last = now;
+            if (skipForVisibility || document.visibilityState !== 'visible') return;
+            if (drift >= CFG.suspendCapMs || drift < CFG.freezeThresholdMs) return;
 
-            if (skipForVisibility) return;                       // transition since last beat
-            if (document.visibilityState !== 'visible') return;  // backgrounded: timers throttle
-            if (drift >= CFG.suspendCapMs) return;               // suspension artifact, not a freeze
-            if (drift >= CFG.freezeThresholdMs) {
-                const stalledMs = Math.round(drift + CFG.heartbeatMs);
-                report('freeze', `UI stalled for ~${stalledMs}ms`, null, { durationMs: stalledMs });
-            }
+            const stalledMs = Math.round(drift + CFG.heartbeatMs);
+            const snapshot = getSnapshot(stalledMs);
+            const classification = monitoring() && typeof monitoring().classifyFreeze === 'function'
+                ? monitoring().classifyFreeze(stalledMs, snapshot)
+                : {
+                    severity: stalledMs >= 45000 ? 'extreme' : (stalledMs >= 15000 ? 'severe' : 'noticeable'),
+                    likelyArea: 'unknown',
+                    freezeCategory: 'unknown',
+                    durationSeconds: Math.round(stalledMs / 100) / 10
+                };
+            report('freeze', `UI stalled for approximately ${classification.durationSeconds.toFixed(1)} seconds`, null, {
+                ...classification,
+                durationMs: stalledMs
+            });
         }, CFG.heartbeatMs);
     }
 
     function initErrorReporter() {
         if (installed) return;
         installed = true;
-
         window.addEventListener('error', (event) => {
             const err = event && event.error;
             const message = (event && event.message) || (err && err.message) || 'Uncaught error';
-            const stack = (err && err.stack)
-                || (event && event.filename ? `${event.filename}:${event.lineno}:${event.colno}` : null);
+            const stack = (err && err.stack) || (event && event.filename ? `${event.filename}:${event.lineno}:${event.colno}` : null);
             report('error', message, stack);
         });
-
         window.addEventListener('unhandledrejection', (event) => {
             const reason = event && event.reason;
             const message = (reason && reason.message) || String(reason || 'Unhandled promise rejection');
             const stack = (reason && reason.stack) || null;
-            report('unhandledrejection', message, stack);
+            report('unhandledrejection', message, stack, {
+                errorName: clean(reason && reason.name, 80),
+                errorCode: clean(reason && reason.code, 80)
+            });
         });
-
-        // Delay the freeze watchdog so slow initial boot isn't misreported.
+        setTimeout(retryPendingFreeze, CFG.pendingRetryDelayMs);
         setTimeout(installFreezeWatchdog, CFG.watchdogStartDelayMs);
     }
 
     window.BARK.initErrorReporter = initErrorReporter;
-    window.BARK.reportClientError = report;   // exposed for manual/boot reporting
-    window.BARK.perfBreadcrumb = perfBreadcrumb; // heavy operations call this
-
-    // Self-install as early as possible so errors during the rest of boot are caught.
+    window.BARK.reportClientError = report;
+    if (typeof window.BARK.perfBreadcrumb !== 'function') window.BARK.perfBreadcrumb = function () {};
     initErrorReporter();
 })();

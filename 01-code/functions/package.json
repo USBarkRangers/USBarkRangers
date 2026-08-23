@@ -7,7 +7,8 @@
     "firebase-admin": "^13.8.0",
     "firebase-functions": "^7.2.5",
     "googleapis": "^171.4.0",
-    "nodemailer": "^6.10.1"
+    "nodemailer": "^6.10.1",
+    "papaparse": "^5.5.3"
   },
   "engines": {
     "node": "20"
@@ -15,6 +16,6 @@
   "main": "index.js",
   "private": true,
   "scripts": {
-    "test": "NODE_ENV=test node --test tests/ors-entitlement.test.js tests/ors-telemetry.test.js tests/checkout-session.test.js tests/lemonsqueezy-webhook.test.js tests/leaderboard-sync.test.js tests/lemon-coupon.test.js tests/feedback.test.js tests/feedback-attachments.test.js tests/payment-alert.test.js tests/client-error-report.test.js tests/error-digest.test.js tests/ops-discord.test.js tests/ops-metrics.test.js"
+    "test": "NODE_ENV=test node --test tests/ors-entitlement.test.js tests/ors-telemetry.test.js tests/checkout-session.test.js tests/lemonsqueezy-webhook.test.js tests/leaderboard-sync.test.js tests/lemon-coupon.test.js tests/feedback.test.js tests/feedback-attachments.test.js tests/payment-alert.test.js tests/client-error-report.test.js tests/error-digest.test.js tests/ops-discord.test.js tests/ops-metrics.test.js tests/data-integrity.test.js"
   }
 }

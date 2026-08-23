@@ -236,6 +236,9 @@ function parseCSVString(csvString, options = {}) {
         return;
     }
     isRendering = true;
+    const parseOperation = typeof window.BARK.perfOperationStart === 'function'
+        ? window.BARK.perfOperationStart('spreadsheet-parse', `${Math.round(csvString.length / 1024)}kb`)
+        : null;
     if (window.BARK && typeof window.BARK.perfBreadcrumb === 'function') {
         window.BARK.perfBreadcrumb('csv-parse:' + Math.round(csvString.length / 1024) + 'kb');
     }
@@ -256,6 +259,9 @@ function parseCSVString(csvString, options = {}) {
             } else if (typeof options.onRejected === 'function') {
                 options.onRejected();
             }
+            if (typeof window.BARK.perfOperationEnd === 'function') {
+                window.BARK.perfOperationEnd(parseOperation, accepted ? 'accepted' : 'rejected');
+            }
             isRendering = false;
             if (pendingCSV) {
                 const next = pendingCSV;
@@ -267,6 +273,9 @@ function parseCSVString(csvString, options = {}) {
         },
         error: function (err) {
             console.error('Error parsing CSV data:', err);
+            if (typeof window.BARK.perfOperationEnd === 'function') {
+                window.BARK.perfOperationEnd(parseOperation, 'parse-error');
+            }
             isRendering = false;
         }
     });

@@ -8,6 +8,7 @@ const { createHash, createHmac, randomUUID, timingSafeEqual } = require("crypto"
 const nodemailer = require("nodemailer");
 const opsDiscord = require("./opsDiscord.js");
 const opsMetrics = require("./opsMetrics.js");
+const dataIntegrity = require("./dataIntegrity.js");
 const feedbackAttachments = require("./feedbackAttachments.js");
 const routeRequestStrategy = require("./routeRequestStrategy.js");
 const { ORS_ENDPOINTS } = require("./orsEndpoints.js");
@@ -1204,6 +1205,14 @@ const LEMONSQUEEZY_SUPPORTED_EVENTS = new Set([
     "subscription_payment_failed",
     "subscription_expired",
     "subscription_cancelled",
+    "subscription_payment_refunded",
+    "order_refunded"
+]);
+const LEMONSQUEEZY_MONEY_EVENTS = new Set([
+    "subscription_created",
+    "subscription_payment_success",
+    "subscription_payment_recovered",
+    "subscription_payment_failed",
     "subscription_payment_refunded",
     "order_refunded"
 ]);
@@ -2959,17 +2968,49 @@ async function handleLemonSqueezyWebhook(req, res, options = {}) {
     const eventId = deriveLemonSqueezyEventId(payload, rawBody);
     const customData = getLemonSqueezyCustomData(payload);
     const uid = cleanOptionalString(customData.firebase_uid);
+    const attributes = getLemonSqueezyAttributes(payload);
+    const acceptedMode = shouldAcceptLemonSqueezyWebhookMode(attributes, options);
+    const providerMode = getLemonSqueezyModeConfig(options).mode;
 
     if (!isValidFirebaseUid(uid)) {
         console.warn("[payments] Lemon Squeezy webhook ignored because firebase_uid is missing or invalid.", {
             eventName,
             eventId
         });
+        if (acceptedMode && LEMONSQUEEZY_MONEY_EVENTS.has(eventName)) {
+            await deliverPaymentAlert(buildPaymentAlertPayload(
+                "lemonSqueezyWebhook",
+                new Error("A payment webhook could not be matched to a Firebase user."),
+                {},
+                {
+                    eventName,
+                    eventId,
+                    providerMode,
+                    critical: providerMode === "live",
+                    alertDomain: "payments"
+                }
+            ), options);
+        }
         return safeResponse(res, 200, { ok: true, ignored: true, reason: "missing_uid" });
     }
 
     const mapping = mapLemonSqueezyEntitlement(payload, eventName, options);
     if (mapping.action !== "write") {
+        if (acceptedMode && LEMONSQUEEZY_MONEY_EVENTS.has(eventName) &&
+            (mapping.reason === "store_mismatch" || mapping.reason === "variant_mismatch")) {
+            await deliverPaymentAlert(buildPaymentAlertPayload(
+                "lemonSqueezyWebhook",
+                new Error(`A payment webhook was rejected because of ${mapping.reason.replace(/_/g, " ")}.`),
+                { uid },
+                {
+                    eventName,
+                    eventId,
+                    providerMode,
+                    critical: providerMode === "live",
+                    alertDomain: "payments"
+                }
+            ), options);
+        }
         return safeResponse(res, 200, { ok: true, ignored: true, reason: mapping.reason || "ignored" });
     }
 
@@ -3215,44 +3256,70 @@ function buildPaymentAlertPayload(fnName, error, identity = {}, extra = {}) {
     };
 }
 
+const PAYMENT_FUNCTIONS = new Set([
+    "createCheckoutSession",
+    "getCustomerPortalUrl",
+    "restorePremiumPurchase",
+    "cancelPremiumSubscription",
+    "lemonSqueezyWebhook"
+]);
+
+function getAlertDomain(fnName, extra = {}) {
+    if (extra.alertDomain) return extra.alertDomain;
+    if (PAYMENT_FUNCTIONS.has(fnName)) return "payments";
+    if (String(fnName || "").startsWith("client/")) return "client";
+    return "system";
+}
+
 // In-memory alert throttle (per function instance). Stops an outage or an error
 // loop from flooding the inbox: the same error signature emails at most once per
 // cooldown, with a hard hourly cap. Every alert is still logged regardless, so
 // nothing is lost — only the email side is throttled.
 const ALERT_DEDUP_COOLDOWN_MS = 2 * 60 * 1000;
 const ALERT_MAX_EMAILS_PER_HOUR = 40;
-const _alertSignatureLastSent = new Map();
-let _alertHourWindowStart = 0;
-let _alertHourEmailCount = 0;
+const _alertThrottleScopes = new Map();
 
 function resetAlertThrottle() {
-    _alertSignatureLastSent.clear();
-    _alertHourWindowStart = 0;
-    _alertHourEmailCount = 0;
+    _alertThrottleScopes.clear();
 }
 
 function alertEmailAllowed(payload, now = Date.now()) {
-    if (now - _alertHourWindowStart >= 60 * 60 * 1000) {
-        _alertHourWindowStart = now;
-        _alertHourEmailCount = 0;
+    const domain = getAlertDomain(payload && payload.fn, payload || {});
+    const scopeName = payload && payload.critical === true && domain === "payments"
+        ? "payment-critical"
+        : domain;
+    const maxPerHour = scopeName === "payment-critical" ? 100 : ALERT_MAX_EMAILS_PER_HOUR;
+    const scope = _alertThrottleScopes.get(scopeName) || {
+        windowStart: now,
+        count: 0,
+        signatures: new Map()
+    };
+    if (now - scope.windowStart >= 60 * 60 * 1000) {
+        scope.windowStart = now;
+        scope.count = 0;
+        scope.signatures.clear();
     }
-    if (_alertHourEmailCount >= ALERT_MAX_EMAILS_PER_HOUR) return false;
+    if (scope.count >= maxPerHour) {
+        _alertThrottleScopes.set(scopeName, scope);
+        return false;
+    }
 
     const signature = [
         payload.fn || "unknown",
         payload.errorCode || "",
         String(payload.errorMessage || "").slice(0, 140)
     ].join("|");
-    const lastSent = _alertSignatureLastSent.get(signature);
+    const lastSent = scope.signatures.get(signature);
     if (lastSent && (now - lastSent) < ALERT_DEDUP_COOLDOWN_MS) return false;
 
-    _alertSignatureLastSent.set(signature, now);
-    _alertHourEmailCount += 1;
-    if (_alertSignatureLastSent.size > 500) {
-        for (const [key, ts] of _alertSignatureLastSent) {
-            if (now - ts > ALERT_DEDUP_COOLDOWN_MS) _alertSignatureLastSent.delete(key);
+    scope.signatures.set(signature, now);
+    scope.count += 1;
+    if (scope.signatures.size > 500) {
+        for (const [key, ts] of scope.signatures) {
+            if (now - ts > ALERT_DEDUP_COOLDOWN_MS) scope.signatures.delete(key);
         }
     }
+    _alertThrottleScopes.set(scopeName, scope);
     return true;
 }
 
@@ -3261,10 +3328,13 @@ function alertEmailAllowed(payload, now = Date.now()) {
 // #system-status so a broken screen doesn't read as an outage.
 function routeAlertToDiscord(payload, options = {}) {
     const isClientReport = payload.source === "client";
+    const domain = getAlertDomain(payload.fn, payload);
     // A client report must never claim payment risk, even if `critical` is set.
     const isCritical = payload.critical === true && !isClientReport;
 
-    const channel = isCritical ? "incidentResponse" : (isClientReport ? "bugs" : "systemStatus");
+    const channel = isCritical
+        ? "incidentResponse"
+        : (isClientReport ? "bugs" : (domain === "payments" ? "salesAndBilling" : "systemStatus"));
     const title = isCritical
         ? `CRITICAL: ${payload.fn} failed`
         : (isClientReport ? `Client report: ${payload.fn}` : `${payload.fn} failed`);
@@ -3278,10 +3348,16 @@ function routeAlertToDiscord(payload, options = {}) {
             : `\`${payload.errorMessage || "unknown error"}\``,
         fields: [
             { name: "Error code", value: payload.errorCode || "n/a" },
-            { name: "User", value: opsDiscord.maskEmail(payload.email) || payload.uid || null },
+            { name: "User", value: opsDiscord.maskEmail(payload.email) || opsDiscord.maskIdentifier(payload.uid) || null },
             { name: "App version", value: payload.appVersion },
+            { name: "Release", value: payload.releaseChannel },
             { name: "Path", value: payload.clientPath },
-            { name: "Freeze (ms)", value: Number.isFinite(payload.durationMs) ? String(payload.durationMs) : null },
+            { name: "Freeze duration", value: Number.isFinite(payload.durationSeconds) ? `${payload.durationSeconds.toFixed(1)} seconds` : null },
+            { name: "Likely area", value: payload.likelyArea },
+            { name: "Last action", value: payload.lastAction },
+            { name: "Operation", value: payload.likelyOperation },
+            { name: "Device", value: [payload.deviceFamily, payload.browserFamily].filter(Boolean).join(" · ") || null },
+            { name: "Pins / zoom", value: Number.isFinite(payload.pinCount) ? `${payload.pinCount} pins${Number.isFinite(payload.mapZoom) ? ` · zoom ${payload.mapZoom}` : ""}` : null },
             { name: "Event", value: payload.eventName }
         ],
         footer: payload.project || null,
@@ -3290,7 +3366,7 @@ function routeAlertToDiscord(payload, options = {}) {
 }
 
 async function deliverPaymentAlert(payload, options = {}) {
-    console.error("[PAYMENT_ALERT]", JSON.stringify(payload));
+    console.error("[OPS_ALERT]", JSON.stringify(payload));
     const sender = options.emailSender || paymentAlertEmailSender;
     const hasEmailSender = typeof sender === "function";
     const hasDiscord = opsDiscord.discordConfigured(options);
@@ -3316,11 +3392,14 @@ async function deliverPaymentAlert(payload, options = {}) {
 
 function formatPaymentAlertEmailBody(payload) {
     const isClientReport = payload.source === "client";
+    const isPaymentReport = getAlertDomain(payload.fn, payload) === "payments";
     return [
         isClientReport
             ? `A user's browser reported a client-side issue on US BARK Rangers.`
-            : `A payment-critical function failed on US BARK Rangers.`,
-        (!isClientReport && payload.critical) ? `\n*** CRITICAL: a customer may be charged but not upgraded. ***` : "",
+            : (isPaymentReport
+                ? `A payment operation failed on US BARK Rangers.`
+                : `A backend operation failed on US BARK Rangers.`),
+        (!isClientReport && isPaymentReport && payload.critical) ? `\n*** CRITICAL: a customer may be charged but not upgraded. ***` : "",
         ``,
         `Function:    ${payload.fn}`,
         `Time:        ${payload.timestamp}`,
@@ -3329,10 +3408,18 @@ function formatPaymentAlertEmailBody(payload) {
         payload.email ? `User email:  ${payload.email}` : null,
         payload.source ? `Source:      ${payload.source}` : null,
         payload.appVersion ? `App version: ${payload.appVersion}` : null,
+        payload.releaseChannel ? `Release:     ${payload.releaseChannel}` : null,
         payload.clientPath ? `Path:        ${payload.clientPath}` : null,
         payload.userAgent ? `User agent:  ${payload.userAgent}` : null,
         payload.clientContext ? `Context:     ${payload.clientContext}` : null,
-        Number.isFinite(payload.durationMs) ? `Freeze (ms): ${payload.durationMs}` : null,
+        Number.isFinite(payload.durationSeconds) ? `Freeze:      ${payload.durationSeconds.toFixed(1)} seconds` : null,
+        payload.severity ? `Severity:    ${payload.severity}` : null,
+        payload.likelyArea ? `Likely area: ${payload.likelyArea}` : null,
+        payload.lastAction ? `Last action: ${payload.lastAction}` : null,
+        payload.likelyOperation ? `Operation:   ${payload.likelyOperation}` : null,
+        payload.deviceFamily || payload.browserFamily
+            ? `Device:      ${[payload.deviceFamily, payload.browserFamily].filter(Boolean).join(" · ")}`
+            : null,
         payload.eventName ? `Event:       ${payload.eventName}` : null,
         payload.eventId ? `Event ID:    ${payload.eventId}` : null,
         `Error code:  ${payload.errorCode || "n/a"}`,
@@ -3409,10 +3496,36 @@ function wrapCallableWithPaymentAlert(fnName, handler) {
 // app, so persistence and email failures are swallowed.
 
 const CLIENT_ERROR_TYPES = new Set(["error", "unhandledrejection", "freeze", "boot", "other"]);
+const CLIENT_ERROR_SEVERITIES = new Set(["routine", "noticeable", "important", "severe", "extreme"]);
 
 function cleanClientErrorType(value) {
     const text = typeof value === "string" ? value.trim().toLowerCase() : "";
     return CLIENT_ERROR_TYPES.has(text) ? text : "error";
+}
+
+function cleanClientErrorSeverity(value, type, durationSeconds) {
+    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (CLIENT_ERROR_SEVERITIES.has(normalized)) return normalized;
+    if (type === "freeze") {
+        if (durationSeconds >= 45) return "extreme";
+        if (durationSeconds >= 15) return "severe";
+        return "noticeable";
+    }
+    return "important";
+}
+
+function cleanFiniteClientNumber(value, { min = -Infinity, max = Infinity } = {}) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < min || numeric > max) return null;
+    return numeric;
+}
+
+function shouldImmediatelyAlertClientError(record) {
+    if (!record || record.lowInformation === true || record.severity === "routine") return false;
+    if (record.type === "freeze") return Number(record.durationSeconds) >= 15;
+    if (record.type === "boot") return true;
+    if (record.likelyArea === "storage/database") return true;
+    return record.type === "error" || record.type === "unhandledrejection";
 }
 
 function getClientErrorRateLimit(options = {}) {
@@ -3474,6 +3587,11 @@ async function handleReportClientError(requestOrData, context, options = {}) {
 
     const type = cleanClientErrorType(payload.type);
     const durationMsRaw = Number(payload.durationMs);
+    const durationMs = Number.isFinite(durationMsRaw) ? Math.max(0, durationMsRaw) : null;
+    const suppliedSeconds = cleanFiniteClientNumber(payload.durationSeconds, { min: 0, max: 120 });
+    const durationSeconds = suppliedSeconds !== null
+        ? Math.round(suppliedSeconds * 10) / 10
+        : (durationMs !== null ? Math.round(durationMs / 100) / 10 : null);
     const record = {
         uid,
         email: cleanFeedbackString(token.email, 254),
@@ -3481,10 +3599,29 @@ async function handleReportClientError(requestOrData, context, options = {}) {
         message: cleanFeedbackString(payload.message, 500) || "(no message)",
         stack: cleanFeedbackString(payload.stack, 4000),
         path: cleanFeedbackString(payload.path, 300),
+        hostname: cleanFeedbackString(payload.hostname, 120),
         userAgent: cleanFeedbackString(payload.userAgent, 300),
         appVersion: cleanFeedbackString(payload.appVersion == null ? "" : String(payload.appVersion), 20),
         context: cleanFeedbackString(payload.context, 500),
-        durationMs: Number.isFinite(durationMsRaw) ? durationMsRaw : null,
+        durationMs,
+        durationSeconds,
+        severity: cleanClientErrorSeverity(payload.severity, type, durationSeconds || 0),
+        likelyArea: cleanFeedbackString(payload.likelyArea, 80) || "unknown",
+        freezeCategory: cleanFeedbackString(payload.freezeCategory, 120),
+        fingerprint: cleanFeedbackString(payload.fingerprint, 180),
+        errorName: cleanFeedbackString(payload.errorName, 80),
+        errorCode: cleanFeedbackString(payload.errorCode, 80),
+        releaseChannel: cleanFeedbackString(payload.releaseChannel, 30),
+        deviceFamily: cleanFeedbackString(payload.deviceFamily, 40),
+        browserFamily: cleanFeedbackString(payload.browserFamily, 40),
+        activeScreen: cleanFeedbackString(payload.activeScreen, 60),
+        lastAction: cleanFeedbackString(payload.lastAction, 80),
+        lastActionAgeSeconds: cleanFiniteClientNumber(payload.lastActionAgeSeconds, { min: 0, max: 86400 }),
+        likelyOperation: cleanFeedbackString(payload.likelyOperation, 80),
+        operationDurationMs: cleanFiniteClientNumber(payload.operationDurationMs, { min: 0, max: 120000 }),
+        pinCount: cleanFiniteClientNumber(payload.pinCount, { min: 0, max: 100000 }),
+        mapZoom: cleanFiniteClientNumber(payload.mapZoom, { min: 0, max: 30 }),
+        lowInformation: payload.lowInformation === true,
         source: "client",
         status: "new",
         createdAt: FieldValue.serverTimestamp()
@@ -3499,7 +3636,7 @@ async function handleReportClientError(requestOrData, context, options = {}) {
 
     // Email under the per-uid cap; swallow every issue so the client is never disrupted.
     try {
-        if (await clientErrorEmailAllowed(uid, options)) {
+        if (shouldImmediatelyAlertClientError(record) && await clientErrorEmailAllowed(uid, options)) {
             await deliverPaymentAlert(buildPaymentAlertPayload(
                 `client/${type}`,
                 { message: record.message, stack: record.stack },
@@ -3510,7 +3647,20 @@ async function handleReportClientError(requestOrData, context, options = {}) {
                     userAgent: record.userAgent,
                     appVersion: record.appVersion,
                     clientContext: record.context,
-                    durationMs: record.durationMs
+                    errorName: record.errorName,
+                    errorCode: record.errorCode,
+                    durationMs: record.durationMs,
+                    durationSeconds: record.durationSeconds,
+                    severity: record.severity,
+                    likelyArea: record.likelyArea,
+                    releaseChannel: record.releaseChannel,
+                    deviceFamily: record.deviceFamily,
+                    browserFamily: record.browserFamily,
+                    lastAction: record.lastAction,
+                    likelyOperation: record.likelyOperation,
+                    pinCount: record.pinCount,
+                    mapZoom: record.mapZoom,
+                    alertDomain: "client"
                 }
             ), options);
         }
@@ -3528,25 +3678,53 @@ async function handleReportClientError(requestOrData, context, options = {}) {
 
 function summarizeClientErrors(docs, sinceMs, nowMs) {
     const byType = {};
-    const byMessage = {};
+    const bySeverity = {};
+    const byLikelyArea = {};
+    const byRelease = {};
+    const byIssue = new Map();
+    const freezeDurations = [];
     const users = new Set();
     docs.forEach((data) => {
         const type = (data && data.type) || "error";
         byType[type] = (byType[type] || 0) + 1;
+        const severity = (data && data.severity) || "unknown";
+        bySeverity[severity] = (bySeverity[severity] || 0) + 1;
+        const area = (data && data.likelyArea) || "unknown";
+        byLikelyArea[area] = (byLikelyArea[area] || 0) + 1;
+        const release = (data && (data.releaseChannel || data.appVersion)) || "unknown";
+        byRelease[release] = (byRelease[release] || 0) + 1;
         const msg = ((data && data.message) || "(no message)").slice(0, 120);
-        byMessage[msg] = (byMessage[msg] || 0) + 1;
+        const issueKey = (data && data.fingerprint) || `${type}|${area}|${msg}`;
+        const issue = byIssue.get(issueKey) || { message: msg, count: 0, type, likelyArea: area };
+        issue.count += 1;
+        byIssue.set(issueKey, issue);
+        const seconds = Number(data && data.durationSeconds);
+        if (type === "freeze" && Number.isFinite(seconds)) freezeDurations.push(seconds);
         if (data && data.uid) users.add(data.uid);
     });
-    const topMessages = Object.entries(byMessage)
-        .sort((a, b) => b[1] - a[1])
+    const topIssues = Array.from(byIssue.values())
+        .sort((a, b) => b.count - a.count)
         .slice(0, 5)
-        .map(([message, count]) => ({ message, count }));
+        .map((issue) => ({ ...issue }));
+    const freeze = freezeDurations.length ? {
+        count: freezeDurations.length,
+        averageSeconds: Math.round((freezeDurations.reduce((sum, value) => sum + value, 0) / freezeDurations.length) * 10) / 10,
+        maxSeconds: Math.round(Math.max(...freezeDurations) * 10) / 10,
+        severeOrWorse: freezeDurations.filter((value) => value >= 15).length,
+        extreme: freezeDurations.filter((value) => value >= 45).length
+    } : null;
     return {
         total: docs.length,
         windowHours: Math.round((nowMs - sinceMs) / (60 * 60 * 1000)),
         distinctUsers: users.size,
         byType,
-        topMessages
+        bySeverity,
+        byLikelyArea,
+        byRelease,
+        freeze,
+        topIssues,
+        // Backward-compatible name for older callers and tests.
+        topMessages: topIssues
     };
 }
 
@@ -3561,8 +3739,15 @@ function formatDigestEmailBody(summary) {
     const typeLines = Object.entries(summary.byType)
         .sort((a, b) => b[1] - a[1])
         .map(([type, count]) => `  ${type.padEnd(20)} ${count}`);
-    const msgLines = summary.topMessages
-        .map((m) => `  ${String(m.count).padStart(3)} x  ${m.message}`);
+    const areaLines = Object.entries(summary.byLikelyArea || {})
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6)
+        .map(([area, count]) => `  ${String(count).padStart(3)} x  ${area}`);
+    const issueLines = (summary.topIssues || summary.topMessages || [])
+        .map((issue) => `  ${String(issue.count).padStart(3)} x  [${issue.likelyArea || "unknown"}] ${issue.message}`);
+    const freezeLine = summary.freeze
+        ? `Freeze detail:   ${summary.freeze.count} total · ${summary.freeze.averageSeconds.toFixed(1)} seconds avg · ${summary.freeze.maxSeconds.toFixed(1)} seconds max · ${summary.freeze.extreme} extreme`
+        : `Freeze detail:   none`;
     return [
         `US BARK Rangers — client error digest (last ${summary.windowHours}h)`,
         ``,
@@ -3572,8 +3757,13 @@ function formatDigestEmailBody(summary) {
         `By type:`,
         ...typeLines,
         ``,
+        freezeLine,
+        ``,
+        `Likely areas:`,
+        ...areaLines,
+        ``,
         `Top issues:`,
-        ...msgLines,
+        ...issueLines,
         ``,
         `Full records: Firestore "clientErrors" collection.`
     ].join("\n");
@@ -3619,9 +3809,17 @@ function postDigestToDiscord(summary, options = {}) {
         .sort((a, b) => b[1] - a[1])
         .map(([type, count]) => `${type} ${count}`)
         .join(" · ");
-    const topIssues = (summary.topMessages || [])
-        .map((m) => `\`${m.count}x\` ${m.message}`)
+    const topIssues = (summary.topIssues || summary.topMessages || [])
+        .map((issue) => `\`${issue.count}x\` [${issue.likelyArea || "unknown"}] ${issue.message}`)
         .join("\n");
+    const freezeDetail = summary.freeze
+        ? `${summary.freeze.count} · avg ${summary.freeze.averageSeconds.toFixed(1)} seconds · max ${summary.freeze.maxSeconds.toFixed(1)} seconds · extreme ${summary.freeze.extreme}`
+        : "none";
+    const likelyAreas = Object.entries(summary.byLikelyArea || {})
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([area, count]) => `${area} ${count}`)
+        .join(" · ");
 
     return opsDiscord.postDiscord({
         channel: "dailyBriefing",
@@ -3634,7 +3832,9 @@ function postDigestToDiscord(summary, options = {}) {
             : topIssues,
         fields: [
             { name: "Distinct users", value: String(summary.distinctUsers) },
-            { name: "By type", value: byType }
+            { name: "By type", value: byType },
+            { name: "Freeze detail", value: freezeDetail },
+            { name: "Likely areas", value: likelyAreas }
         ],
         footer: "Firestore: clientErrors"
     }, options);
@@ -3774,6 +3974,7 @@ if (process.env.NODE_ENV === "test") {
         postBillingEventToDiscord,
         postDigestToDiscord,
         runOpsMetricsRollup,
+        dataIntegrity,
         opsDiscord,
         opsMetrics,
         feedbackAttachments
@@ -3796,12 +3997,46 @@ async function runOpsMetricsRollup({ windowHours, channel, title }, options = {}
     const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
     const sinceMs = nowMs - (windowHours * 60 * 60 * 1000);
 
-    const summary = await opsMetrics.collectOpsMetrics({
-        db,
-        sinceDate: Timestamp.fromMillis(sinceMs),
-        sinceMs,
-        nowMs
-    }, options);
+    const [metricsSummary, parkData] = await Promise.all([
+        opsMetrics.collectOpsMetrics({
+            db,
+            sinceDate: Timestamp.fromMillis(sinceMs),
+            sinceMs,
+            nowMs
+        }, options),
+        options.includeParkDataCheck === false
+            ? Promise.resolve(null)
+            : dataIntegrity.fetchParkDataIntegrity(options)
+    ]);
+    const summary = { ...metricsSummary, parkData };
+
+    // Passing checks add no Firestore traffic. A mismatch is recorded in Cloud
+    // Logging and posted to ops without creating a daily database document.
+    if (parkData && !parkData.ok) {
+        console.error("[data-integrity] park data check failed", {
+            available: parkData.available,
+            error: parkData.error || null,
+            spreadsheetRows: parkData.spreadsheetRows,
+            validMapRows: parkData.validMapRows,
+            uniqueParkIds: parkData.uniqueParkIds,
+            uniqueAwardSites: parkData.uniqueAwardSites,
+            issueCodes: parkData.issueCodes
+        });
+        try {
+            await opsDiscord.postDiscord(dataIntegrity.buildParkDataAlertMessage(parkData), options);
+        } catch (err) {
+            console.error("[data-integrity] Discord notify issue:", err && err.message);
+        }
+    }
+
+    const paymentFunnelAlert = opsMetrics.buildPaymentFunnelAlertMessage(summary.traffic);
+    if (paymentFunnelAlert) {
+        try {
+            await opsDiscord.postDiscord(paymentFunnelAlert, options);
+        } catch (err) {
+            console.error("[metrics] payment funnel Discord notify issue:", err && err.message);
+        }
+    }
 
     try {
         await opsDiscord.postDiscord(opsMetrics.buildMetricsMessage(summary, { channel, title }), options);
@@ -3833,7 +4068,7 @@ exports.weeklyOpsReport = functions
             windowHours: 24 * 7,
             channel: "weeklyReport",
             title: "Weekly report"
-        });
+        }, { includeParkDataCheck: false });
     });
 
 // REMOVED 2026-08-07: generateHourlyLeaderboard.

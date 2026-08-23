@@ -1,0 +1,74 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const { test } = require('node:test');
+
+const source = fs.readFileSync(
+    path.resolve(__dirname, '..', '01-code', 'app', 'modules', 'errorReporter.js'),
+    'utf8'
+);
+
+test('freeze reporter records a 90-second visible stall in seconds', async () => {
+    let now = 0;
+    const intervals = [];
+    const timeouts = [];
+    const reports = [];
+    const storage = new Map();
+    class FakeDate extends Date { static now() { return now; } }
+    const window = {
+        BARK: {
+            APP_VERSION: '0.50',
+            monitoring: {
+                snapshot: () => ({ likelyArea: 'map interaction', releaseChannel: 'beta', pinCount: 389 }),
+                classifyFreeze: (durationMs, context) => ({
+                    durationSeconds: durationMs / 1000,
+                    severity: durationMs >= 45000 ? 'extreme' : 'severe',
+                    likelyArea: context.likelyArea,
+                    freezeCategory: `${context.likelyArea}:extreme`
+                }),
+                classifyError: () => ({ likelyArea: 'unknown', severity: 'important' })
+            }
+        },
+        BARK_ERROR_REPORTER_CONFIG: { watchdogStartDelayMs: 0, pendingRetryDelayMs: 999999 },
+        addEventListener() {}
+    };
+    const firebase = {
+        auth: () => ({ currentUser: { uid: 'user-1' } }),
+        functions: () => ({ httpsCallable: () => async (payload) => { reports.push(payload); } })
+    };
+    firebase.auth.currentUser = { uid: 'user-1' };
+    window.firebase = firebase;
+    const context = {
+        window,
+        firebase,
+        document: { visibilityState: 'visible', addEventListener() {} },
+        location: { pathname: '/USBarkRangers/01-code/app/', hash: '', hostname: 'usbarkrangers.github.io' },
+        navigator: { userAgent: 'iPhone Safari' },
+        localStorage: {
+            getItem: (key) => storage.get(key) || null,
+            setItem: (key, value) => storage.set(key, value),
+            removeItem: (key) => storage.delete(key)
+        },
+        setTimeout: (fn, delay) => { timeouts.push({ fn, delay }); return timeouts.length; },
+        setInterval: (fn) => { intervals.push(fn); return intervals.length; },
+        Date: FakeDate,
+        Math,
+        Promise,
+        console
+    };
+    window.window = window;
+    vm.runInNewContext(source, context, { filename: 'modules/errorReporter.js' });
+    timeouts.find((timer) => timer.delay === 0).fn();
+
+    now = 90000;
+    intervals[0]();
+    await Promise.resolve();
+
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0].durationSeconds, 90);
+    assert.equal(reports[0].severity, 'extreme');
+    assert.equal(reports[0].likelyArea, 'map interaction');
+    assert.match(reports[0].message, /90\.0 seconds/);
+    assert.doesNotMatch(reports[0].message, /ms/);
+});

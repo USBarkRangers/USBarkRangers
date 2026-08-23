@@ -89,6 +89,13 @@ function maskEmail(value) {
     return `${text[0]}***${text.slice(at)}`;
 }
 
+function maskIdentifier(value) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!text) return null;
+    if (text.length <= 6) return `${text[0] || "?"}***`;
+    return `${text.slice(0, 4)}…${text.slice(-2)}`;
+}
+
 // Everything lives in one secret so a new alert site does not mean threading
 // another entry through a dozen runWith({ secrets: [...] }) lists. Shape:
 //   { "adminRoleId": "123", "systemStatus": "https://discord.com/api/webhooks/…" }
@@ -288,6 +295,7 @@ module.exports = {
     setDiscordSender,
     resetDiscordState,
     maskEmail,
+    maskIdentifier,
     truncate,
     isAdminOnlyChannel,
     TIERS,

@@ -63,6 +63,8 @@ if (window.map && window.BARK.markerLayer && window.BARK.markerClusterGroup) ret
 applyGlobalStyles();
 
 let mapSaveTimeout;
+let mapMoveOperation = null;
+let mapZoomOperation = null;
 const LOWER_48_MIN_ZOOM = 4;
 
 const mapOptions = window.ultraLowEnabled ? {
@@ -216,9 +218,17 @@ map.on('moveend', () => {
             }, 300);
         }
     }
+    if (typeof window.BARK.perfOperationEnd === 'function') {
+        window.BARK.perfOperationEnd(mapMoveOperation, `zoom ${map.getZoom()}`);
+    }
+    mapMoveOperation = null;
 });
 
 map.on('movestart', () => {
+    if (typeof window.BARK.noteInteraction === 'function') window.BARK.noteInteraction('map-pan', `zoom ${map.getZoom()}`);
+    if (typeof window.BARK.perfOperationStart === 'function') {
+        mapMoveOperation = window.BARK.perfOperationStart('map-pan', `zoom ${map.getZoom()}`);
+    }
     window.BARK._isMoving = true;
     if (window.BARK.getMarkerLayerPolicy && window.BARK.getMarkerLayerPolicy(map.getZoom()).useReducedVisualsDuringMotion) {
         document.body.classList.add('map-is-moving');
@@ -240,6 +250,10 @@ let zoomFloorGuardCenter = null;
 let zoomFloorGuardZoom = null;
 
 map.on('zoomstart', () => {
+    if (typeof window.BARK.noteInteraction === 'function') window.BARK.noteInteraction('map-zoom', `zoom ${map.getZoom()}`);
+    if (typeof window.BARK.perfOperationStart === 'function') {
+        mapZoomOperation = window.BARK.perfOperationStart('map-zoom', `from ${map.getZoom()}`);
+    }
     window.BARK._isZooming = true;
     const minZoom = getActiveMinZoom();
     zoomFloorGuardZoom = map.getZoom();
@@ -263,6 +277,10 @@ map.on('zoomend', () => {
     }
     zoomFloorGuardCenter = null;
     zoomFloorGuardZoom = null;
+    if (typeof window.BARK.perfOperationEnd === 'function') {
+        window.BARK.perfOperationEnd(mapZoomOperation, `to ${map.getZoom()}`);
+    }
+    mapZoomOperation = null;
 
     const nextLayerType = getEffectiveMarkerLayerTypeForZoom(map.getZoom());
     const layerTypeChanged = nextLayerType !== lastZoomLayerType;

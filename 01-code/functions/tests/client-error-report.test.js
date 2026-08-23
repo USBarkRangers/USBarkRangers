@@ -107,14 +107,19 @@ describe("handleReportClientError", () => {
         assert.equal(sent[0].source, "client");
     });
 
-    it("reports freezes with duration and context, without the payment-critical flag", async () => {
+    it("reports severe freezes in seconds with structured context, without the payment-critical flag", async () => {
         const firestore = makeFirestore();
         const sent = [];
         await handleReportClientError(
             {
                 type: "freeze",
                 message: "UI unresponsive",
-                durationMs: 6200,
+                durationMs: 16200,
+                durationSeconds: 16.2,
+                severity: "severe",
+                likelyArea: "map interaction",
+                releaseChannel: "beta",
+                pinCount: 389,
                 context: "vis=visible;sinceVisChange=45s;crumbs=marker-sync:1987+2s"
             },
             authedContext(),
@@ -122,9 +127,27 @@ describe("handleReportClientError", () => {
         );
         assert.equal(sent[0].fn, "client/freeze");
         assert.ok(!sent[0].critical);
-        assert.equal(sent[0].durationMs, 6200);
+        assert.equal(sent[0].durationMs, 16200);
+        assert.equal(sent[0].durationSeconds, 16.2);
+        assert.equal(sent[0].likelyArea, "map interaction");
+        assert.equal(sent[0].pinCount, 389);
         assert.equal(sent[0].clientContext, "vis=visible;sinceVisChange=45s;crumbs=marker-sync:1987+2s");
         assert.equal(firestore.state.adds[0].context, "vis=visible;sinceVisChange=45s;crumbs=marker-sync:1987+2s");
+    });
+
+    it("persists a short freeze without spending a rate-limit transaction or immediate alert", async () => {
+        const firestore = makeFirestore();
+        const sent = [];
+        await handleReportClientError(
+            { type: "freeze", message: "UI stalled for 6.2 seconds", durationSeconds: 6.2 },
+            authedContext(),
+            { firestore, emailSender: async (payload) => sent.push(payload) }
+        );
+
+        assert.equal(firestore.state.adds.length, 1);
+        assert.equal(firestore.state.adds[0].severity, "noticeable");
+        assert.equal(firestore.state.rateLimitWrites, 0);
+        assert.equal(sent.length, 0);
     });
 
     it("still persists but does NOT email once the per-user cap is hit", async () => {

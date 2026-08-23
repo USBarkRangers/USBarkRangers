@@ -394,6 +394,9 @@ function updateMarkers() {
 
     const parkRepo = getParkRepo();
     const allPoints = parkRepo ? parkRepo.getAll() : [];
+    const renderOperation = typeof window.BARK.perfOperationStart === 'function'
+        ? window.BARK.perfOperationStart('map-pin-render', `${allPoints.length} pins`)
+        : null;
     const activeSwagFilters = window.BARK.activeSwagFilters;
     const activeSearchQuery = window.BARK.activeSearchQuery;
     const activeTypeFilter = window.BARK.activeTypeFilter;
@@ -557,6 +560,9 @@ function updateMarkers() {
                 animate: !window.lowGfxEnabled
             });
         }
+    }
+    if (typeof window.BARK.perfOperationEnd === 'function') {
+        window.BARK.perfOperationEnd(renderOperation, `${filteredPinCount} visible`);
     }
 }
 

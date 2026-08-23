@@ -136,6 +136,15 @@ test('free visit limit keeps a readable fallback alert if paywall is unavailable
     assert.match(safety.alertMessages[0], /Adding more than 5 parks is a Premium feature/);
 });
 
+test('verified check-in range messages display miles without changing the kilometre radius', () => {
+    const safety = loadPanelRendererSafety();
+
+    assert.equal(
+        safety.formatCheckinRangeMessage(10, 25),
+        'Out of Range! You are 6.2 miles away. You must be within 15.5 miles to verify.'
+    );
+});
+
 test('swag link formatter validates URLs and adds noopener rel', () => {
     const bark = loadRenderEngineHelpers();
     const html = bark.formatSwagLinks('https://example.test/" onclick="alert(1) javascript:alert(1)');

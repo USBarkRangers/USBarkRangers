@@ -142,6 +142,15 @@ function openFreeVisitLimitPaywall(result = {}) {
     return false;
 }
 
+const KILOMETERS_TO_MILES = 0.621371;
+
+function formatCheckinRangeMessage(distanceKm, radiusKm) {
+    const distanceMiles = Number(distanceKm) * KILOMETERS_TO_MILES;
+    const radiusMiles = Number(radiusKm) * KILOMETERS_TO_MILES;
+
+    return `Out of Range! You are ${distanceMiles.toFixed(1)} miles away. You must be within ${radiusMiles.toFixed(1)} miles to verify.`;
+}
+
 function setAccountLockedCheckinButton(button, textEl, label, source) {
     if (!button) return;
     button.disabled = false;
@@ -185,6 +194,7 @@ function buildMapSearchUrl(name, lat, lng, provider) {
 }
 
 window.BARK.panelRendererSafety = {
+    formatCheckinRangeMessage,
     getSafeHttpUrls,
     hasUsableParkData,
     openFreeVisitLimitPaywall,
@@ -532,7 +542,7 @@ function renderMarkerClickPanel(context) {
                     const radiusKm = window.BARK.config && window.BARK.config.CHECKIN_RADIUS_KM;
                     const err = checkinResult && checkinResult.error;
                     if (err === 'OUT_OF_RANGE' && Number.isFinite(checkinResult.distance)) {
-                        alert(`Out of Range! You are ${checkinResult.distance.toFixed(1)} km away. You must be within ${radiusKm} km to verify.`);
+                        alert(formatCheckinRangeMessage(checkinResult.distance, radiusKm));
                     } else if (err === 'GEOLOCATION_UNSUPPORTED') {
                         alert("Geolocation is not supported by your browser.");
                     } else if (err === 'PERMISSION_DENIED') {

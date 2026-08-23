@@ -4,6 +4,26 @@
  */
 window.BARK = window.BARK || {};
 
+function isBarkTextEntryElement(el) {
+    if (!el) return false;
+    if (el.tagName === 'TEXTAREA') return true;
+    if (el.tagName !== 'INPUT') return false;
+
+    const type = (el.getAttribute('type') || 'text').toLowerCase();
+    return ['email', 'number', 'password', 'search', 'tel', 'text', 'url'].includes(type);
+}
+
+function isBarkKeyboardViewportOpen({ baselineHeight, viewportHeight, screenHeight, activeElement }) {
+    if (!isBarkTextEntryElement(activeElement)) return false;
+    const shrinkThreshold = Math.max(120, Number(screenHeight) * 0.2);
+    return (Number(baselineHeight) - Number(viewportHeight)) > shrinkThreshold;
+}
+
+window.BARK.keyboardViewportGuard = Object.freeze({
+    isTextEntryElement: isBarkTextEntryElement,
+    isKeyboardViewportOpen: isBarkKeyboardViewportOpen
+});
+
 window.BARK.initUI = function initUI() {
 let keyboardFocusContext = null;
 
@@ -13,15 +33,6 @@ document.addEventListener('contextmenu', function (e) {
         e.preventDefault();
     }
 });
-
-function isTextEntryElement(el) {
-    if (!el) return false;
-    if (el.tagName === 'TEXTAREA') return true;
-    if (el.tagName !== 'INPUT') return false;
-
-    const type = (el.getAttribute('type') || 'text').toLowerCase();
-    return ['email', 'number', 'password', 'search', 'tel', 'text', 'url'].includes(type);
-}
 
 function isAppTabActive() {
     return Boolean(document.querySelector('.ui-view.active'));
@@ -125,7 +136,7 @@ function dismissKeyboardTransientUi() {
         window.BARK.hideAllInlinePlannerSuggestions();
     }
 
-    if (isTextEntryElement(activeElement) && typeof activeElement.blur === 'function') {
+    if (isBarkTextEntryElement(activeElement) && typeof activeElement.blur === 'function') {
         activeElement.blur();
     }
 
@@ -138,7 +149,17 @@ if (window.visualViewport) {
     let initialHeight = window.visualViewport.height;
 
     window.visualViewport.addEventListener('resize', () => {
-        const isKeyboardOpen = (initialHeight - window.visualViewport.height) > window.screen.height * 0.2;
+        const viewportHeight = window.visualViewport.height;
+        const activeElement = document.activeElement;
+        if (!isBarkTextEntryElement(activeElement)) {
+            initialHeight = Math.max(initialHeight, viewportHeight);
+        }
+        const isKeyboardOpen = isBarkKeyboardViewportOpen({
+            baselineHeight: initialHeight,
+            viewportHeight,
+            screenHeight: window.screen.height,
+            activeElement
+        });
         const wasKeyboardOpen = document.body.classList.contains('keyboard-open');
 
         if (!isKeyboardOpen && wasKeyboardOpen) {
@@ -157,8 +178,22 @@ if (window.visualViewport) {
         }
     });
 
+    document.addEventListener('focusout', () => {
+        setTimeout(() => {
+            if (isBarkTextEntryElement(document.activeElement)) return;
+            const wasKeyboardOpen = document.body.classList.contains('keyboard-open');
+            document.body.classList.remove('keyboard-open');
+            initialHeight = Math.max(initialHeight, window.visualViewport.height);
+            if (wasKeyboardOpen) scheduleAppViewportSettle();
+        }, 0);
+    });
+
     window.addEventListener('orientationchange', () => {
-        setTimeout(() => { initialHeight = window.visualViewport.height; }, 500);
+        setTimeout(() => {
+            if (isBarkTextEntryElement(document.activeElement)) return;
+            initialHeight = window.visualViewport.height;
+            document.body.classList.remove('keyboard-open');
+        }, 500);
     });
 }
 
@@ -237,7 +272,7 @@ if (slidePanel && window.MutationObserver) {
 }
 
 document.addEventListener('focusin', (e) => {
-    if (!isTextEntryElement(e.target) || !isAppTabActive()) return;
+    if (!isBarkTextEntryElement(e.target) || !isAppTabActive()) return;
     const activeView = document.querySelector('.ui-view.active');
     keyboardFocusContext = activeView
         ? { view: activeView, scrollTop: activeView.scrollTop }
@@ -246,9 +281,9 @@ document.addEventListener('focusin', (e) => {
 });
 
 document.addEventListener('focusout', (e) => {
-    if (!isTextEntryElement(e.target) || !isAppTabActive()) return;
+    if (!isBarkTextEntryElement(e.target) || !isAppTabActive()) return;
     setTimeout(() => {
-        if (isTextEntryElement(document.activeElement)) return;
+        if (isBarkTextEntryElement(document.activeElement)) return;
         scheduleAppViewportSettle();
     }, 120);
 }, true);

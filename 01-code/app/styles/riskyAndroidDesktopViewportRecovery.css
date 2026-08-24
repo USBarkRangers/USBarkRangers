@@ -38,8 +38,23 @@ html.bark-risky-android-desktop-phone-recovery .auth-failure-banner {
     width: min(calc(var(--bark-risky-phone-width) - 28px), 520px);
 }
 
+html.bark-risky-android-desktop-phone-recovery #filter-panel {
+    max-height: calc(var(--bark-risky-phone-height) - 107px);
+    overflow: hidden;
+}
+
+html.bark-risky-android-desktop-phone-recovery #filter-panel .panel-header {
+    flex: 0 0 auto;
+    position: relative;
+    z-index: 1;
+}
+
 html.bark-risky-android-desktop-phone-recovery .filter-content {
-    max-height: var(--bark-risky-filter-max-height);
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 /* Force the normal phone navigation even though Chrome still tells media

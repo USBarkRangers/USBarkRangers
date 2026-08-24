@@ -7,6 +7,7 @@ const vm = require('node:vm');
 function loadTripLayerManager(options = {}) {
     const visibleLayers = new Set();
     const createdLines = [];
+    const createdMarkers = [];
     const layerGroup = {
         addTo() {
             return this;
@@ -47,6 +48,51 @@ function loadTripLayerManager(options = {}) {
         },
         L: {
             layerGroup: () => layerGroup,
+            divIcon: options => ({ ...options }),
+            marker(latlng, markerOptions) {
+                const marker = {
+                    latlng: { lat: latlng[0], lng: latlng[1] },
+                    options: { ...markerOptions },
+                    popup: null,
+                    popupOpen: false,
+                    closePopupCalls: 0,
+                    getLatLng() {
+                        return this.latlng;
+                    },
+                    setLatLng(next) {
+                        this.latlng = { lat: next[0], lng: next[1] };
+                    },
+                    setIcon(icon) {
+                        this.options.icon = icon;
+                    },
+                    bindPopup(html, popupOptions) {
+                        this.popup = { html, options: popupOptions, getElement: () => null };
+                        return this;
+                    },
+                    unbindPopup() {
+                        this.popup = null;
+                        this.popupOpen = false;
+                    },
+                    getPopup() {
+                        return this.popup;
+                    },
+                    isPopupOpen() {
+                        return this.popupOpen;
+                    },
+                    openPopup() {
+                        this.popupOpen = true;
+                    },
+                    closePopup() {
+                        this.closePopupCalls += 1;
+                        this.popupOpen = false;
+                    },
+                    on() {
+                        return this;
+                    }
+                };
+                createdMarkers.push(marker);
+                return marker;
+            },
             polyline(latLngs, options) {
                 const line = {
                     latLngs,
@@ -79,6 +125,7 @@ function loadTripLayerManager(options = {}) {
     return {
         api: context.window.BARK.tripLayer,
         createdLines,
+        createdMarkers,
         visibleLayers,
         routeDays
     };
@@ -158,4 +205,24 @@ test('fallback route lines still update when geometry or day color really change
     assert.equal(harness.createdLines[0].options.color, '#2E7D32');
     assert.equal(harness.createdLines[1].setLatLngsCalls, 0, 'unchanged geometry remains untouched');
     assert.equal(harness.createdLines[1].setStyleCalls, 1, 'the shared day color still updates');
+});
+
+test('removing a stop closes its popup before the marker position is reused by the next stop', () => {
+    const first = { name: 'First', lat: 1, lng: 1 };
+    const removed = { name: 'Removed', lat: 2, lng: 2 };
+    const next = { name: 'Next', lat: 3, lng: 3 };
+    const stops = [first, removed, next];
+    const harness = loadTripLayerManager({ routeDays: [] });
+    harness.api.init({ map: {} });
+    harness.api.sync([{ stops }], {});
+
+    const reusedMarker = harness.createdMarkers[1];
+    reusedMarker.openPopup();
+    stops.splice(1, 1);
+    harness.api.sync([{ stops }], {});
+
+    assert.equal(harness.createdMarkers[1], reusedMarker, 'the positional marker is intentionally reused');
+    assert.equal(reusedMarker._tripStopName, 'Next');
+    assert.equal(reusedMarker.isPopupOpen(), false, 'the removed stop action menu must not follow the next stop');
+    assert.equal(reusedMarker.closePopupCalls, 1);
 });

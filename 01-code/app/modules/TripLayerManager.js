@@ -253,6 +253,10 @@ function hasTripVisitedPlace(placeOrId) {
                 if (typeof removeStop === 'function') {
                     const dayIndex = Number(marker._tripDayIndex ?? removeBtn.getAttribute('data-trip-day-index'));
                     const stopIndex = Number(marker._tripStopIndex ?? removeBtn.getAttribute('data-trip-stop-index'));
+                    // Close the action menu before the array is changed. Stops
+                    // after this one shift down an index, and their marker can
+                    // intentionally reuse this Leaflet marker object.
+                    if (typeof marker.closePopup === 'function') marker.closePopup();
                     removeStop(dayIndex, stopIndex, { confirmRemoval: true });
                 }
             }, { once: true });
@@ -328,6 +332,7 @@ function hasTripVisitedPlace(placeOrId) {
         marker._tripIsOfficialBarkStop = Boolean(parkId);
         marker._tripBadgeStyleKey = iconSpec.styleKey;
         marker._tripStopData = { ...stop };
+        marker._tripStopSource = stop;
         syncTripPopup(marker, marker._tripStopName, 'Trip stop', true, {
             dayIndex,
             stopIndex,
@@ -338,6 +343,14 @@ function hasTripVisitedPlace(placeOrId) {
     }
 
     function updateBadgeMarker(marker, stop, number, parkId, occurrenceKey, dayIndex, stopIndex) {
+        const markerWasReassigned = Boolean(marker._tripStopSource && marker._tripStopSource !== stop);
+        if (markerWasReassigned) {
+            const popupIsOpen = typeof marker.isPopupOpen === 'function'
+                ? marker.isPopupOpen()
+                : false;
+            if (popupIsOpen && typeof marker.closePopup === 'function') marker.closePopup();
+        }
+
         const latlng = marker.getLatLng();
         if (latlng.lat !== stop.lat || latlng.lng !== stop.lng) {
             marker.setLatLng([stop.lat, stop.lng]);
@@ -360,6 +373,7 @@ function hasTripVisitedPlace(placeOrId) {
         marker._tripStopIndex = stopIndex;
         marker._tripStopName = stop.name || 'Trip stop';
         marker._tripStopData = { ...stop };
+        marker._tripStopSource = stop;
         syncTripPopup(marker, marker._tripStopName, 'Trip stop', true, {
             dayIndex,
             stopIndex,

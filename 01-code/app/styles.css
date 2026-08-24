@@ -866,6 +866,27 @@ textarea,
     overscroll-behavior: contain;
 }
 
+/* Short phone viewports: keep the search/header visible and let only the
+   expanded filter controls scroll to the bottom. */
+@media (max-width: 1024px) and (max-height: 700px) {
+    #filter-panel {
+        max-height: calc(100dvh - 40px - env(safe-area-inset-bottom, 0px));
+        overflow: hidden;
+    }
+
+    #filter-panel .panel-header {
+        flex: 0 0 auto;
+    }
+
+    #filter-panel .filter-content {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: none;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
 #filter-panel.collapsed .filter-content {
     max-height: 0;
     margin-top: 0;

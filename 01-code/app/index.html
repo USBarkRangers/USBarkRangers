@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <script src="modules/oauthFragmentGuard.js?v=1"></script>
     <title>US BARK Rangers</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -1576,7 +1577,7 @@
 
     <!-- Lightweight monitoring context and reporter load early to cover boot. -->
     <script src="modules/monitoringContext.js?v=1" defer></script>
-    <script src="modules/errorReporter.js?v=5" defer></script>
+    <script src="modules/errorReporter.js?v=6" defer></script>
     <!-- Core Dependencies (load before modules) -->
     <script src="utils/geoUtils.js?v=2" defer></script>
     <script src="utils/scoringUtils.js?v=2" defer></script>
@@ -1603,12 +1604,12 @@
     <script src="services/checkinService.js?v=14" defer></script>
     <script src="services/authPremiumUi.js?v=4" defer></script>
     <script src="services/premiumService.js?v=2" defer></script>
-    <script src="services/authAccountUi.js?v=20" defer></script>
+    <script src="services/authAccountUi.js?v=21" defer></script>
     <!-- feedbackTransport owns the feedback addresses and mailto builder, so it must
          parse before authService and panelRenderer, which build fallback links from it. -->
-    <script src="modules/feedbackTransport.js?v=5" defer></script>
-    <script src="modules/paywallController.js?v=17" defer></script>
-    <script src="services/authService.js?v=69" defer></script>
+    <script src="modules/feedbackTransport.js?v=6" defer></script>
+    <script src="modules/paywallController.js?v=18" defer></script>
+    <script src="services/authService.js?v=70" defer></script>
     <script src="modules/markerLayerPolicy.js?v=2" defer></script>
     <script src="modules/MarkerLayerManager.js?v=16" defer></script>
     <script src="engines/tripRoutePlan.js?v=3" defer></script>

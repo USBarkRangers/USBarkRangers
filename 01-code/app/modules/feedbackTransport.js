@@ -55,7 +55,7 @@ window.BARK = window.BARK || {};
                 userAgent: navigator.userAgent,
                 platform: navigator.platform,
                 language: navigator.language,
-                path: `${location.pathname}${location.hash}`,
+                path: String(location.pathname || '/').split(/[?#]/, 1)[0] || '/',
                 viewportWidth: window.innerWidth,
                 viewportHeight: window.innerHeight
             };

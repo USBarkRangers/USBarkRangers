@@ -72,3 +72,57 @@ test('freeze reporter records a 90-second visible stall in seconds', async () =>
     assert.match(reports[0].message, /90\.0 seconds/);
     assert.doesNotMatch(reports[0].message, /ms/);
 });
+
+test('error reporter removes fragments and redacts bearer, OAuth, and JWT credentials', async () => {
+    const reports = [];
+    const window = {
+        BARK: {
+            APP_VERSION: '0.59',
+            monitoring: {
+                snapshot: () => ({}),
+                classifyError: () => ({ likelyArea: 'authentication', severity: 'important' })
+            }
+        },
+        BARK_ERROR_REPORTER_CONFIG: { watchdogStartDelayMs: 999999, pendingRetryDelayMs: 999999 },
+        addEventListener() {}
+    };
+    const firebase = {
+        auth: () => ({ currentUser: { uid: 'user-1' } }),
+        functions: () => ({ httpsCallable: () => async (payload) => { reports.push(payload); } })
+    };
+    window.firebase = firebase;
+    const context = {
+        window,
+        firebase,
+        document: { visibilityState: 'visible', addEventListener() {} },
+        location: {
+            pathname: '/USBarkRangers/01-code/app/',
+            hash: '#id_token=must-not-leak',
+            hostname: 'usbarkrangers.github.io'
+        },
+        navigator: { userAgent: 'Test Browser' },
+        localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+        setTimeout: () => 1,
+        setInterval: () => 1,
+        Date,
+        Math,
+        Promise,
+        console
+    };
+    window.window = window;
+    vm.runInNewContext(source, context, { filename: 'modules/errorReporter.js' });
+
+    window.BARK.reportClientError(
+        'error',
+        'login failed id_token=secret-token',
+        'Authorization: Bearer secret-bearer\neyJabcdefghijk.abcdefghijk.abcdefghijk'
+    );
+    await Promise.resolve();
+
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0].path, '/USBarkRangers/01-code/app/');
+    assert.doesNotMatch(JSON.stringify(reports[0]), /secret-token|secret-bearer|eyJabcdefghijk/);
+    assert.match(reports[0].message, /id_token=\[REDACTED\]/);
+    assert.match(reports[0].stack, /Bearer \[REDACTED\]/);
+    assert.match(reports[0].stack, /\[REDACTED_JWT\]/);
+});

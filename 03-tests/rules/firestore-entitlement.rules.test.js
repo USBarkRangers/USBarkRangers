@@ -803,6 +803,20 @@ describe('Firestore entitlement and admin field rules', () => {
         }));
     });
 
+    it('publishes only the allowlisted leaderboard system summary', async () => {
+        await seedDoc(['system', 'leaderboardData'], { totalPoints: 123, topUsers: [] });
+        await seedDoc(['system', 'privateOperations'], { secret: 'must stay private' });
+
+        const publicDb = unauthDb();
+        const aliceDb = authedDb('alice');
+
+        await assertSucceeds(getDoc(doc(publicDb, 'system', 'leaderboardData')));
+        await assertSucceeds(getDoc(doc(aliceDb, 'system', 'leaderboardData')));
+        await assertFails(getDoc(doc(publicDb, 'system', 'privateOperations')));
+        await assertFails(getDoc(doc(aliceDb, 'system', 'privateOperations')));
+        await assertFails(setDoc(doc(aliceDb, 'system', 'leaderboardData'), { totalPoints: 0 }));
+    });
+
     it('denies arbitrary top-level collections by default', async () => {
         await seedDoc(['randomCollection', 'doc1'], {
             seeded: true

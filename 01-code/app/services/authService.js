@@ -275,7 +275,10 @@ function startGoogleRedirectSignIn() {
 // the ID token. Validate the anti-CSRF state, scrub the URL, and sign in.
 async function maybeCompleteGoogleRedirectSignIn() {
     if (typeof firebase === 'undefined' || !firebase.auth) return;
-    const hash = window.location.hash ? window.location.hash.slice(1) : '';
+    const guardedHash = window.BARK && typeof window.BARK.consumeOAuthRedirectFragment === 'function'
+        ? window.BARK.consumeOAuthRedirectFragment()
+        : '';
+    const hash = guardedHash || (window.location.hash ? window.location.hash.slice(1) : '');
     if (!hash) return;
     const frag = new URLSearchParams(hash);
     const idToken = frag.get('id_token');

@@ -184,7 +184,7 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    match /system/{docId} {
+    match /system/leaderboardData {
       allow read: if true;
       allow write: if false;
     }

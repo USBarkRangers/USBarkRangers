@@ -977,7 +977,7 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
                     BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
                     BARK_LEMONSQUEEZY_STORE_ID: "999001",
                     BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "888002",
-                    BARK_APP_BASE_URL: "https://barkranger.example/"
+                    BARK_APP_BASE_URL: "https://usbarkrangersmap.com"
                 }
             }
         });
@@ -1009,7 +1009,7 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
                     BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
                     BARK_LEMONSQUEEZY_STORE_ID: "999001",
                     BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "888002",
-                    BARK_APP_BASE_URL: "https://barkranger.example/"
+                    BARK_APP_BASE_URL: "https://usbarkrangersmap.com"
                 }
             }
         });
@@ -1039,7 +1039,7 @@ describe("Lemon Squeezy webhook ignored and idempotent paths", () => {
                     BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
                     BARK_LEMONSQUEEZY_STORE_ID: "999001",
                     BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "888002",
-                    BARK_APP_BASE_URL: "https://barkranger.example/"
+                    BARK_APP_BASE_URL: "https://usbarkrangersmap.com"
                 }
             }
         });

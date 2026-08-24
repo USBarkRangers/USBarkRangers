@@ -32,6 +32,7 @@
         ])
     });
     const PROVIDER = 'lemonsqueezy';
+    const LEMON_SQUEEZY_STORE_HOST = 'usbarkrangers.lemonsqueezy.com';
     const DEFAULT_VERIFYING_FALLBACK_MS = 15000;
     const CHECKOUT_EXTERNAL_PENDING_KEY = 'bark_checkout_external_pending';
     const CHECKOUT_EXTERNAL_STARTED_KEY = 'bark_checkout_external_started_at';
@@ -965,7 +966,14 @@
         if (typeof value !== 'string' || !value.trim()) return null;
         try {
             const url = new URL(value);
-            return url.protocol === 'https:' ? url.toString() : null;
+            const pathname = url.pathname || '/';
+            const isApprovedCheckout = url.protocol === 'https:' &&
+                url.hostname === LEMON_SQUEEZY_STORE_HOST &&
+                url.port === '' &&
+                url.username === '' &&
+                url.password === '' &&
+                pathname.startsWith('/checkout/');
+            return isApprovedCheckout ? url.toString() : null;
         } catch (error) {
             return null;
         }

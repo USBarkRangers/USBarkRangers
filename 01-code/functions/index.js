@@ -465,6 +465,21 @@ function cleanFeedbackString(value, maxLength = 200) {
     return text ? text.slice(0, maxLength) : null;
 }
 
+function redactSensitiveDiagnosticText(value, maxLength = 500) {
+    const text = typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+    if (!text) return null;
+    return text
+        .replace(/\b(Bearer)\s+[A-Za-z0-9._~+\/-]+=*/gi, "$1 [REDACTED]")
+        .replace(/\b(id_token|access_token|refresh_token|authorization|oobCode|apiKey)(=|%3D)([^\s&#]*)/gi, "$1$2[REDACTED]")
+        .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_JWT]");
+}
+
+function cleanDiagnosticPath(value, maxLength = 300) {
+    const safe = redactSensitiveDiagnosticText(value, maxLength);
+    if (!safe) return null;
+    return safe.split(/[?#]/, 1)[0] || "/";
+}
+
 // A signed-out reporter types their own address, so unlike a token email it has
 // to be checked before it lands in a Discord field: one @, something either
 // side, and no whitespace that could break the embed apart.
@@ -489,7 +504,7 @@ function cleanFeedbackBrowserMetadata(value) {
         userAgent: cleanFeedbackString(metadata.userAgent, 300),
         platform: cleanFeedbackString(metadata.platform, 80),
         language: cleanFeedbackString(metadata.language, 40),
-        path: cleanFeedbackString(metadata.path, 200),
+        path: cleanDiagnosticPath(metadata.path, 200),
         viewportWidth: Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : null,
         viewportHeight: Number.isFinite(viewportHeight) && viewportHeight > 0 ? viewportHeight : null
     };
@@ -1232,6 +1247,8 @@ const LEMONSQUEEZY_CUSTOMERS_URL = `${LEMONSQUEEZY_API_ORIGIN}/v1/customers`;
 const DEFAULT_LEMONSQUEEZY_STORE_ID = "363425";
 const DEFAULT_LEMONSQUEEZY_ANNUAL_VARIANT_ID = "1604336";
 const DEFAULT_APP_BASE_URL = "https://outswarming.github.io/bark-ranger-map/";
+const CANONICAL_APP_ORIGIN = "https://usbarkrangersmap.com";
+const LEMONSQUEEZY_STORE_HOST = "usbarkrangers.lemonsqueezy.com";
 const BARK_LEMON_MODE_ENV = "BARK_LEMON_MODE";
 const BARK_LEMONSQUEEZY_STORE_ID_ENV = "BARK_LEMONSQUEEZY_STORE_ID";
 const BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID_ENV = "BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID";
@@ -1332,6 +1349,20 @@ function getRequiredHttpsUrl(value, envKey) {
     return url;
 }
 
+function getRequiredCanonicalAppUrl(value, envKey) {
+    const normalized = getRequiredHttpsUrl(value, envKey);
+    const url = new URL(normalized);
+    if (url.origin !== CANONICAL_APP_ORIGIN || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+        throw new functions.https.HttpsError(
+            "failed-precondition",
+            `${envKey} must be the canonical ${CANONICAL_APP_ORIGIN}/ origin.`
+        );
+    }
+    url.hash = "";
+    url.search = "";
+    return url.toString();
+}
+
 function getLemonSqueezyProviderConfig(options = {}) {
     const env = options.env || process.env;
     const mode = requireValidLemonSqueezyMode(options);
@@ -1355,7 +1386,7 @@ function getLemonSqueezyProviderConfig(options = {}) {
         )
         : null;
     const appBaseUrl = mode.mode === "live"
-        ? getRequiredHttpsUrl(
+        ? getRequiredCanonicalAppUrl(
             options.appBaseUrl || env[BARK_APP_BASE_URL_ENV],
             BARK_APP_BASE_URL_ENV
         )
@@ -1433,6 +1464,16 @@ function normalizeHttpsUrl(value) {
     } catch (error) {
         return null;
     }
+}
+
+function normalizeLemonSqueezyStoreUrl(value, expectedPathPrefix) {
+    const normalized = normalizeHttpsUrl(value);
+    if (!normalized) return null;
+    const url = new URL(normalized);
+    const pathname = url.pathname || "/";
+    if (url.hostname !== LEMONSQUEEZY_STORE_HOST || url.port || url.username || url.password) return null;
+    if (expectedPathPrefix && pathname !== expectedPathPrefix && !pathname.startsWith(`${expectedPathPrefix}/`)) return null;
+    return url.toString();
 }
 
 function getUrlLogParts(value) {
@@ -1595,18 +1636,19 @@ function extractLemonSqueezyCheckoutUrl(response) {
         response.data.data.attributes &&
         response.data.data.attributes.url;
 
-    if (!checkoutUrl || typeof checkoutUrl !== "string") {
+    const safeCheckoutUrl = normalizeLemonSqueezyStoreUrl(checkoutUrl, "/checkout");
+    if (!safeCheckoutUrl) {
         throw new functions.https.HttpsError("internal", "Checkout service returned an invalid response.");
     }
 
-    return checkoutUrl;
+    return safeCheckoutUrl;
 }
 
 function getLemonSqueezyCustomerPortalUrlFromAttributes(attributes = {}) {
     const urls = attributes && attributes.urls && typeof attributes.urls === "object" && !Array.isArray(attributes.urls)
         ? attributes.urls
         : {};
-    const customerPortalUrl = normalizeHttpsUrl(urls.customer_portal);
+    const customerPortalUrl = normalizeLemonSqueezyStoreUrl(urls.customer_portal, "/billing");
     if (!customerPortalUrl) return null;
     return customerPortalUrl;
 }
@@ -2721,7 +2763,7 @@ async function setFirestoreDoc(ref, data, options = {}) {
 }
 
 async function deleteKnownUserSubcollections(db, userRef, options = {}) {
-    const subcollections = options.userSubcollections || ["savedRoutes"];
+    const subcollections = options.userSubcollections || ["savedRoutes", "achievements"];
     for (const collectionName of subcollections) {
         if (!userRef || typeof userRef.collection !== "function") continue;
         const collectionRef = userRef.collection(collectionName);
@@ -3693,28 +3735,28 @@ async function handleReportClientError(requestOrData, context, options = {}) {
         uid,
         email: cleanFeedbackString(token.email, 254),
         type,
-        message: cleanFeedbackString(payload.message, 500) || "(no message)",
-        stack: cleanFeedbackString(payload.stack, 4000),
-        path: cleanFeedbackString(payload.path, 300),
+        message: redactSensitiveDiagnosticText(payload.message, 500) || "(no message)",
+        stack: redactSensitiveDiagnosticText(payload.stack, 4000),
+        path: cleanDiagnosticPath(payload.path, 300),
         hostname: cleanFeedbackString(payload.hostname, 120),
         userAgent: cleanFeedbackString(payload.userAgent, 300),
         appVersion: cleanFeedbackString(payload.appVersion == null ? "" : String(payload.appVersion), 20),
-        context: cleanFeedbackString(payload.context, 500),
+        context: redactSensitiveDiagnosticText(payload.context, 500),
         durationMs,
         durationSeconds,
         severity: cleanClientErrorSeverity(payload.severity, type, durationSeconds || 0),
         likelyArea: cleanFeedbackString(payload.likelyArea, 80) || "unknown",
         freezeCategory: cleanFeedbackString(payload.freezeCategory, 120),
-        fingerprint: cleanFeedbackString(payload.fingerprint, 180),
+        fingerprint: redactSensitiveDiagnosticText(payload.fingerprint, 180),
         errorName: cleanFeedbackString(payload.errorName, 80),
-        errorCode: cleanFeedbackString(payload.errorCode, 80),
+        errorCode: redactSensitiveDiagnosticText(payload.errorCode, 80),
         releaseChannel: cleanFeedbackString(payload.releaseChannel, 30),
         deviceFamily: cleanFeedbackString(payload.deviceFamily, 40),
         browserFamily: cleanFeedbackString(payload.browserFamily, 40),
         activeScreen: cleanFeedbackString(payload.activeScreen, 60),
-        lastAction: cleanFeedbackString(payload.lastAction, 80),
+        lastAction: redactSensitiveDiagnosticText(payload.lastAction, 80),
         lastActionAgeSeconds: cleanFiniteClientNumber(payload.lastActionAgeSeconds, { min: 0, max: 86400 }),
-        likelyOperation: cleanFeedbackString(payload.likelyOperation, 80),
+        likelyOperation: redactSensitiveDiagnosticText(payload.likelyOperation, 80),
         operationDurationMs: cleanFiniteClientNumber(payload.operationDurationMs, { min: 0, max: 120000 }),
         pinCount: cleanFiniteClientNumber(payload.pinCount, { min: 0, max: 100000 }),
         mapZoom: cleanFiniteClientNumber(payload.mapZoom, { min: 0, max: 30 }),
@@ -4042,6 +4084,8 @@ if (process.env.NODE_ENV === "test") {
         enforceAnonymousFeedbackRateLimit,
         getFeedbackConnectionKey,
         cleanContactEmail,
+        redactSensitiveDiagnosticText,
+        cleanDiagnosticPath,
         handleSubmitFeedback,
         handleDeleteAccount,
         handleCancelPremiumSubscription,

@@ -7,6 +7,8 @@ const {
     __test: {
         handleReportClientError,
         cleanClientErrorType,
+        redactSensitiveDiagnosticText,
+        cleanDiagnosticPath,
         resetAlertThrottle
     }
 } = require("../index.js");
@@ -80,6 +82,18 @@ describe("cleanClientErrorType", () => {
     });
 });
 
+describe("diagnostic credential redaction", () => {
+    it("removes URL secrets, bearer credentials, and JWT-shaped values", () => {
+        const jwt = "eyJabcdefghijk.abcdefghijk.abcdefghijk";
+        assert.equal(cleanDiagnosticPath(`/map?oobCode=secret#id_token=${jwt}`), "/map");
+        const redacted = redactSensitiveDiagnosticText(`Authorization=Bearer-secret Bearer abc.def ${jwt}`, 500);
+        assert.doesNotMatch(redacted, /Bearer-secret|abc\.def|eyJabcdefghijk/);
+        assert.match(redacted, /Authorization=\[REDACTED\]/);
+        assert.match(redacted, /Bearer \[REDACTED\]/);
+        assert.match(redacted, /\[REDACTED_JWT\]/);
+    });
+});
+
 describe("handleReportClientError", () => {
     it("persists the report and emails when under the per-user cap", async () => {
         const firestore = makeFirestore();
@@ -89,7 +103,7 @@ describe("handleReportClientError", () => {
                 type: "error",
                 message: "Cannot read properties of undefined",
                 stack: "TypeError: ...\n at foo.js:1",
-                path: "/#map",
+                path: "/?mode=debug#id_token=must-not-persist",
                 userAgent: "TestBrowser/1.0",
                 appVersion: 55
             },
@@ -102,6 +116,7 @@ describe("handleReportClientError", () => {
         assert.equal(firestore.state.adds[0].type, "error");
         assert.equal(firestore.state.adds[0].source, "client");
         assert.equal(firestore.state.adds[0].appVersion, "55");
+        assert.equal(firestore.state.adds[0].path, "/");
         assert.equal(sent.length, 1);
         assert.equal(sent[0].fn, "client/error");
         assert.equal(sent[0].source, "client");

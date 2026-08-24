@@ -693,6 +693,36 @@ test('manage subscription rejects Lemon storefront root URL before redirect', as
     );
 });
 
+test('manage subscription rejects a signed-looking billing URL on another host', async () => {
+    const harness = loadAuthAccountUi({
+        premiumActive: true,
+        premiumEntitlement: {
+            premium: true,
+            status: 'active',
+            source: 'lemon_squeezy',
+            providerCustomerId: 'cus_wrong_host',
+            providerSubscriptionId: 'sub_wrong_host'
+        },
+        customerPortalUrl: 'https://evil.example/billing?expires=2100000000&signature=fake'
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'wrong-host-user',
+        email: 'wrong-host@example.com',
+        displayName: 'Wrong Host Ranger',
+        providerData: [{ providerId: 'google.com' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await openManagementPortal(harness);
+
+    assert.deepEqual(harness.locationAssignCalls, []);
+    assert.equal(
+        harness.element('account-management-message').textContent,
+        'Billing portal returned an invalid store URL. Please contact support.'
+    );
+});
+
 test('manage subscription shows dashboard message for blocked Lemon test portal', async () => {
     const testPortalUrl = 'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh&store_domain=usbarkrangers.lemonsqueezy.com&test_mode=1&user=123';
     const harness = loadAuthAccountUi({

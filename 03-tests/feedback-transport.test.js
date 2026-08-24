@@ -134,7 +134,7 @@ test('submitToBackend sends the resolved type and never the raw picker id', asyn
     assert.equal(payload.parkId, 'park-123');
     assert.equal(payload.screenshots.length, 1);
     assert.equal(payload.browser.viewportWidth, 390);
-    assert.equal(payload.browser.path, '/USBarkRangers/01-code/app/#map');
+    assert.equal(payload.browser.path, '/USBarkRangers/01-code/app/');
     assert.equal(payload.surface, 'park-panel', 'the entry point must reach the backend, not just be recorded locally');
     assert.equal(payload.typeId, undefined);
 });

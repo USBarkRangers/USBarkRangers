@@ -4,6 +4,7 @@ const BASE_URL = process.env.BARK_E2E_BASE_URL || 'http://localhost:4173/index.h
 const CHECKOUT_URL = 'https://usbarkrangers.lemonsqueezy.com/checkout/test-session';
 
 async function openApp(page) {
+    await page.addInitScript(() => localStorage.setItem('barkTermsAgreement', '1'));
     await page.goto(BASE_URL);
     await page.waitForFunction(() => Boolean(
         window.BARK &&
@@ -15,7 +16,7 @@ async function openApp(page) {
 }
 
 async function installCheckoutHarness(page, options = {}) {
-    await page.evaluate(({ user }) => {
+    await page.evaluate(({ user, checkoutUrl }) => {
         const authState = { currentUser: user || null };
         window.__checkoutCalls = [];
         window.__unexpectedCallableNames = [];
@@ -41,7 +42,7 @@ async function installCheckoutHarness(page, options = {}) {
                     window.__checkoutCalls.push({ name, payload });
                     return {
                         data: {
-                            checkoutUrl: `https://usbarkrangers.lemonsqueezy.com/checkout/test-session?payload=${encodeURIComponent(JSON.stringify(payload || {}))}`
+                            checkoutUrl: checkoutUrl || `https://usbarkrangers.lemonsqueezy.com/checkout/test-session?payload=${encodeURIComponent(JSON.stringify(payload || {}))}`
                         }
                     };
                 };
@@ -69,7 +70,7 @@ test.describe('Lemon-only coupon checkout flow', () => {
         await expect(page.locator('#paywall-promo-code-input')).toHaveCount(0);
         await expect(page.locator('#paywall-promo-code-btn')).toHaveCount(0);
         await expect(page.locator('input[id*="coupon"], input[id*="promo"], input[id*="beta"], input[id*="access"], input[id*="discount"]')).toHaveCount(0);
-        await expect(page.locator('.paywall-support-copy')).toContainText('Payment and coupon codes are handled securely by Lemon Squeezy');
+        await expect(page.locator('.paywall-support-copy')).toContainText('Secure checkout by Lemon Squeezy');
     });
 
     test('signed-out upgrade path prompts sign-in before checkout', async ({ page }) => {
@@ -104,7 +105,28 @@ test.describe('Lemon-only coupon checkout flow', () => {
         await page.evaluate(() => window.BARK.paywall.openPaywall({ source: 'profile-premium-card' }));
         await page.locator('#paywall-primary-btn').click();
 
-        await page.waitForURL(`${CHECKOUT_URL}?payload=%7B%7D`, { timeout: 10000 });
+        await page.waitForURL(url => url.origin + url.pathname === CHECKOUT_URL, { timeout: 10000 });
+        const checkoutPayload = JSON.parse(new URL(page.url()).searchParams.get('payload'));
+        expect(checkoutPayload).toEqual({ tier: 'standard' });
+    });
+
+    test('signed-in user never follows a checkout URL on an unapproved host', async ({ page }) => {
+        await openApp(page);
+        await installCheckoutHarness(page, {
+            user: {
+                uid: 'blocked-checkout-user',
+                email: 'blocked-checkout@example.test',
+                emailVerified: true,
+                providerData: [{ providerId: 'password' }]
+            },
+            checkoutUrl: 'https://evil.example/checkout/steal'
+        });
+
+        await page.evaluate(() => window.BARK.paywall.openPaywall({ source: 'security-test' }));
+        await page.locator('#paywall-primary-btn').click();
+
+        await expect(page).toHaveURL(BASE_URL);
+        await expect(page.locator('#paywall-body')).toContainText('Checkout could not start');
     });
 
     test('unverified email/password user is blocked before Lemon checkout', async ({ page }) => {

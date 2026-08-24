@@ -597,12 +597,14 @@
             throw new Error('No customer portal is available for this subscription.');
         }
 
-        const pathname = url.pathname || '/';
-        const isRootPath = pathname === '/' || pathname.trim() === '';
-        if (url.protocol !== 'https:' || isRootPath) {
-            throw new Error('Billing portal returned an invalid store URL. Please contact support.');
-        }
-        if (url.hostname === LEMON_SQUEEZY_STORE_HOST && isRootPath) {
+        const normalizedPathname = (url.pathname || '/').replace(/\/+$/, '') || '/';
+        const isApprovedPortal = url.protocol === 'https:' &&
+            url.hostname === LEMON_SQUEEZY_STORE_HOST &&
+            url.port === '' &&
+            url.username === '' &&
+            url.password === '' &&
+            normalizedPathname === '/billing';
+        if (!isApprovedPortal) {
             throw new Error('Billing portal returned an invalid store URL. Please contact support.');
         }
 

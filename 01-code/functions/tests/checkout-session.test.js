@@ -131,7 +131,8 @@ function makeDeleteAccountFirestore(userData = {}) {
         deletedDocs: [],
         setDocs: [],
         batchCommits: 0,
-        savedRouteDeletes: 0
+        savedRouteDeletes: 0,
+        achievementDeletes: 0
     };
     const refs = new Map();
 
@@ -148,6 +149,7 @@ function makeDeleteAccountFirestore(userData = {}) {
             async delete() {
                 state.deletedDocs.push(path);
                 if (path.includes('/savedRoutes/')) state.savedRouteDeletes += 1;
+                if (path.includes('/achievements/')) state.achievementDeletes += 1;
             },
             collection(name) {
                 return {
@@ -157,6 +159,14 @@ function makeDeleteAccountFirestore(userData = {}) {
                                 docs: [
                                     { ref: makeRef('users/delete-user/savedRoutes/route-a') },
                                     { ref: makeRef('users/delete-user/savedRoutes/route-b') }
+                                ]
+                            };
+                        }
+                        if (path === 'users/delete-user' && name === 'achievements') {
+                            return {
+                                docs: [
+                                    { ref: makeRef('users/delete-user/achievements/bronzePaw') },
+                                    { ref: makeRef('users/delete-user/achievements/silverPaw') }
                                 ]
                             };
                         }
@@ -382,7 +392,7 @@ describe("Lemon Squeezy checkout session helpers", () => {
                 BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
                 BARK_LEMONSQUEEZY_STORE_ID: "999001",
                 BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "888002",
-                BARK_APP_BASE_URL: "https://barkranger.example/"
+                BARK_APP_BASE_URL: "https://usbarkrangersmap.com"
             }
         });
 
@@ -407,7 +417,7 @@ describe("Lemon Squeezy checkout session helpers", () => {
                 BARK_LEMONSQUEEZY_STORE_ID: "999001",
                 BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "888002",
                 BARK_LEMONSQUEEZY_SUPPORTER_VARIANT_ID: "888003",
-                BARK_APP_BASE_URL: "https://barkranger.example/"
+                BARK_APP_BASE_URL: "https://usbarkrangersmap.com"
             }
         });
         const payload = buildLemonSqueezyCheckoutPayload({
@@ -424,7 +434,23 @@ describe("Lemon Squeezy checkout session helpers", () => {
         assert.equal(payload.data.attributes.checkout_data.custom.provider_mode, "live");
         assert.equal(
             payload.data.attributes.product_options.redirect_url,
-            "https://barkranger.example/?checkout=success&provider=lemonsqueezy"
+            "https://usbarkrangersmap.com/?checkout=success&provider=lemonsqueezy"
+        );
+    });
+
+    it("rejects a non-canonical live checkout return origin", () => {
+        assert.throws(
+            () => getLemonSqueezyConfig({
+                apiKey: "live-api-key",
+                env: {
+                    BARK_LEMON_MODE: "live",
+                    BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
+                    BARK_LEMONSQUEEZY_STORE_ID: "999001",
+                    BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "888002",
+                    BARK_APP_BASE_URL: "https://barkrangermap-auth.web.app"
+                }
+            }),
+            (error) => getHttpsErrorCode(error) === "failed-precondition" && /canonical/.test(error.message)
         );
     });
 });
@@ -541,6 +567,32 @@ describe("Lemon Squeezy checkout session callable", () => {
 
         assert.equal(postCalls, 1);
         assert.equal(result.checkoutUrl, "https://usbarkrangers.lemonsqueezy.com/checkout/test-session");
+    });
+
+    it("rejects checkout destinations outside the exact Lemon Squeezy store", async () => {
+        await assertRejectsCode(
+            handleCreateCheckoutSession(
+                {},
+                authedContext("wrong-checkout-host", {
+                    email: "wrong-host@example.test",
+                    email_verified: true,
+                    firebase: { sign_in_provider: "password" }
+                }),
+                {
+                    ...config,
+                    axiosPost: async () => ({
+                        data: {
+                            data: {
+                                attributes: {
+                                    url: "https://evil.example/checkout/copied-session"
+                                }
+                            }
+                        }
+                    })
+                }
+            ),
+            "internal"
+        );
     });
 
     it("returns only the hosted checkout URL for signed-in users", async () => {
@@ -949,6 +1001,8 @@ describe("Account deletion callable", () => {
             "DELETE https://api.lemonsqueezy.com/v1/subscriptions/sub_delete_123"
         ]);
         assert.equal(lemonCalls[1].requestConfig.headers.Authorization, "Bearer test-api-key");
+        assert.equal(firestore.state.savedRouteDeletes, 2);
+        assert.equal(firestore.state.achievementDeletes, 2);
         assert.ok(firestore.state.deletedDocs.includes("users/delete-user"));
         assert.deepEqual(firestore.state.setDocs.find(doc => doc.path === "_deletedUsers/delete-user").data, {
             uid: "delete-user",
@@ -1034,7 +1088,7 @@ describe("Account deletion callable", () => {
                 BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
                 BARK_LEMONSQUEEZY_STORE_ID: "363425",
                 BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "1834440",
-                BARK_APP_BASE_URL: "https://barkrangermap-auth.web.app"
+                BARK_APP_BASE_URL: "https://usbarkrangersmap.com"
             },
             axiosGet: async (url, requestConfig) => {
                 lemonCalls.push({ method: "GET", url, requestConfig });
@@ -1223,7 +1277,7 @@ describe("Lemon Squeezy customer portal callable", () => {
                     BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
                     BARK_LEMONSQUEEZY_STORE_ID: "363425",
                     BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "1834440",
-                    BARK_APP_BASE_URL: "https://barkrangermap-auth.web.app"
+                    BARK_APP_BASE_URL: "https://usbarkrangersmap.com"
                 },
                 axiosGet: async (url, requestConfig) => {
                     calls.push({ url, requestConfig });
@@ -1312,7 +1366,7 @@ describe("Lemon Squeezy customer portal callable", () => {
                     BARK_LEMON_LIVE_MODE_APPROVAL: "CARTER_APPROVED_LIVE_RC",
                     BARK_LEMONSQUEEZY_STORE_ID: "363425",
                     BARK_LEMONSQUEEZY_ANNUAL_VARIANT_ID: "1834440",
-                    BARK_APP_BASE_URL: "https://barkrangermap-auth.web.app"
+                    BARK_APP_BASE_URL: "https://usbarkrangersmap.com"
                 },
                 axiosGet: async (url, requestConfig) => {
                     calls.push({ url, requestConfig });
@@ -1425,37 +1479,38 @@ describe("Lemon Squeezy customer portal callable", () => {
         );
     });
 
-    it("returns Lemon root portal responses so the frontend debug guard can show the exact URL", async () => {
-        const result = await handleGetCustomerPortalUrl(
-            {},
-            authedContext("paid-user"),
-            {
-                firestore: makeUserFirestore({
-                    entitlement: {
-                        premium: true,
-                        status: "active",
-                        source: "lemon_squeezy",
-                        providerSubscriptionId: "sub_root_portal"
-                    }
-                }),
-                apiKey: config.apiKey,
-                axiosGet: async () => ({
-                    status: 200,
-                    data: {
+    it("rejects Lemon storefront root responses before they reach the browser", async () => {
+        await assertRejectsCode(
+            handleGetCustomerPortalUrl(
+                {},
+                authedContext("paid-user"),
+                {
+                    firestore: makeUserFirestore({
+                        entitlement: {
+                            premium: true,
+                            status: "active",
+                            source: "lemon_squeezy",
+                            providerSubscriptionId: "sub_root_portal"
+                        }
+                    }),
+                    apiKey: config.apiKey,
+                    axiosGet: async () => ({
+                        status: 200,
                         data: {
-                            attributes: {
-                                store_id: 363425,
-                                urls: {
-                                    customer_portal: "https://usbarkrangers.lemonsqueezy.com/"
+                            data: {
+                                attributes: {
+                                    store_id: 363425,
+                                    urls: {
+                                        customer_portal: "https://usbarkrangers.lemonsqueezy.com/"
+                                    }
                                 }
                             }
                         }
-                    }
-                })
-            }
+                    })
+                }
+            ),
+            "failed-precondition"
         );
-
-        assert.equal(result.url, "https://usbarkrangers.lemonsqueezy.com/");
     });
 
     it("syncs cancelled Lemon subscription state while retrieving a portal URL", async () => {

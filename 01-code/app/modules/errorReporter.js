@@ -29,6 +29,30 @@ window.BARK = window.BARK || {};
     function monitoring() { return window.BARK && window.BARK.monitoring; }
     function clean(value, max) { return String(value === undefined || value === null ? '' : value).slice(0, max); }
 
+    function redactSensitiveText(value, max) {
+        return clean(value, max)
+            .replace(/\b(Bearer)\s+[A-Za-z0-9._~+\/-]+=*/gi, '$1 [REDACTED]')
+            .replace(/\b(id_token|access_token|refresh_token|authorization|oobCode|apiKey)(=|%3D)([^\s&#]*)/gi, '$1$2[REDACTED]')
+            .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, '[REDACTED_JWT]');
+    }
+
+    function cleanPath(value) {
+        return clean(value, 300).split(/[?#]/, 1)[0] || '/';
+    }
+
+    function sanitizePayload(payload) {
+        const safe = Object.assign({}, payload || {});
+        safe.message = redactSensitiveText(safe.message, 500);
+        safe.stack = redactSensitiveText(safe.stack, 4000);
+        safe.context = redactSensitiveText(safe.context, 500);
+        safe.fingerprint = redactSensitiveText(safe.fingerprint, 180);
+        safe.errorCode = redactSensitiveText(safe.errorCode, 80);
+        safe.lastAction = redactSensitiveText(safe.lastAction, 80);
+        safe.likelyOperation = redactSensitiveText(safe.likelyOperation, 80);
+        safe.path = cleanPath(safe.path);
+        return safe;
+    }
+
     function currentUid() {
         try {
             return window.firebase && firebase.auth && firebase.auth().currentUser
@@ -107,19 +131,20 @@ window.BARK = window.BARK || {};
 
     function sendPayload(payload, options = {}) {
         try {
-            if (payload.type === 'freeze' && !options.retry) savePendingFreeze(payload);
+            const safePayload = sanitizePayload(payload);
+            if (safePayload.type === 'freeze' && !options.retry) savePendingFreeze(safePayload);
             if (reportCount >= CFG.maxReportsPerSession || !currentUid()) return false;
             const callable = getCallable();
             if (!callable) return false;
             const now = Date.now();
             if (!options.retry && now - lastSendAt < CFG.minSendIntervalMs) return false;
-            const signature = buildSignature(payload.type, payload.message, payload.stack, payload);
+            const signature = buildSignature(safePayload.type, safePayload.message, safePayload.stack, safePayload);
             if (!options.retry && !signatureAllowed(signature, now)) return false;
 
             reportCount += 1;
             lastSendAt = now;
-            Promise.resolve(callable(payload))
-                .then(() => { if (payload.type === 'freeze') clearPendingFreeze(payload.reportId); })
+            Promise.resolve(callable(safePayload))
+                .then(() => { if (safePayload.type === 'freeze') clearPendingFreeze(safePayload.reportId); })
                 .catch(() => { /* pending freeze remains for next load */ });
             return true;
         } catch (_error) { return false; }
@@ -139,7 +164,7 @@ window.BARK = window.BARK || {};
                 type,
                 message: clean(message, 500),
                 stack: clean(stack, 4000),
-                path: clean(location.pathname + location.hash, 300),
+                path: cleanPath(location.pathname),
                 hostname: clean(location.hostname, 120),
                 userAgent: clean(navigator.userAgent, 300),
                 appVersion: window.BARK.APP_VERSION || null,

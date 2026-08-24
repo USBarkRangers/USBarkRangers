@@ -15,7 +15,7 @@
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js" defer></script>
 
-    <link rel="stylesheet" href="styles.css?v=69">
+    <link rel="stylesheet" href="styles.css?v=70">
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
     <link rel="stylesheet" href="styles/trophyCase.css?v=5">
     <link rel="stylesheet" href="styles/feedbackModal.css?v=2">
@@ -634,48 +634,50 @@
 
                         <div style="border-top: 1px solid rgba(0,0,0,0.1); margin: 5px 0;"></div>
 
-                        <!-- 🔬 ADVANCED OPTIMIZATION -->
-                        <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px; margin-bottom: 15px;">Advanced Optimization</div>
-
-                        <div id="performance-settings-master" style="display: flex; flex-direction: column; gap: 15px;"></div>
-
-                        <div data-cluster-setting="premium" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Premium Bubble Mode</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Semantic Zooming: Explodes clusters as you zoom in. Keeps high-level map clean.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="premium-cluster-toggle">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div data-cluster-setting="standard" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Standard Bubble Mode</div>
-                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
-                                    Groups aggressively to keep the screen clean. Recommended for older devices.
-                                </div>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="standard-cluster-toggle">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
-                        <div id="performance-settings-registry" style="display: flex; flex-direction: column; gap: 15px;"></div>
-
-                        <!-- 🔨 ULTRA-LOW SLEDGEHAMMER -->
-                        <div class="settings-bottom-stack">
-                            <section class="settings-bottom-block">
-                                <div class="settings-section-kicker">Aggressive Recovery</div>
-                                <div class="settings-toggle-row">
+                        <section class="settings-preference-section">
+                            <div class="settings-preference-heading">Pin Clustering</div>
+                            <div class="settings-preference-list">
+                                <div data-cluster-setting="standard" class="settings-preference-row">
                                     <div class="settings-toggle-copy">
-                                        <div class="settings-toggle-title settings-toggle-title--warning">Ultra Low Mode</div>
+                                        <div class="settings-toggle-title">Standard Bubble Mode</div>
                                         <div class="settings-toggle-description">
-                                            <strong>iPhone 3 and lower only.</strong> Disables visual effects for maximum memory recovery.
+                                            Groups pins aggressively to keep the screen clean. Recommended for older devices.
+                                        </div>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="standard-cluster-toggle">
+                                        <span class="slider round"></span>
+                                    </label>
+                                </div>
+
+                                <div data-cluster-setting="premium" class="settings-preference-row">
+                                    <div class="settings-toggle-copy">
+                                        <div class="settings-toggle-title">Premium Bubble Mode</div>
+                                        <div class="settings-toggle-description">
+                                            Opens clusters progressively as you zoom in while keeping the national map clean.
+                                        </div>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="premium-cluster-toggle">
+                                        <span class="slider round"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="settings-preference-section settings-preference-section--optimizations">
+                            <div class="settings-preference-heading">Optimizations</div>
+                            <div class="settings-optimization-levels">
+                                <div id="performance-settings-master"></div>
+
+                                <div class="settings-preference-row settings-optimization-tier settings-optimization-tier--level-2">
+                                    <div class="settings-toggle-copy">
+                                        <div class="settings-preference-title-line">
+                                            <div class="settings-toggle-title">Ultra Fast Mode</div>
+                                            <span class="settings-level-badge settings-level-badge--level-2">Level 2</span>
+                                        </div>
+                                        <div class="settings-toggle-description">
+                                            Maximum speed mode for older phones. Disables animations and visual effects, then reloads the app.
                                         </div>
                                     </div>
                                     <label class="switch">
@@ -683,8 +685,13 @@
                                         <span class="slider round"></span>
                                     </label>
                                 </div>
-                            </section>
+                            </div>
 
+                            <div class="settings-custom-optimization-heading">Individual Controls</div>
+                            <div id="performance-settings-registry" class="settings-preference-list"></div>
+                        </section>
+
+                        <div class="settings-bottom-stack">
                             <!-- ☁️ Cloud sync -->
                             <section class="settings-cloud-card">
                                 <button id="save-settings-cloud-btn" class="settings-cloud-sync-btn">
@@ -1580,14 +1587,14 @@
     <script src="MapMarkerConfig.js?v=4" defer></script>
 
     <!-- NEW: Modular Architecture (strict load order) -->
-    <script src="modules/settingsRegistry.js?v=1" defer></script>
+    <script src="modules/settingsRegistry.js?v=2" defer></script>
     <script src="repos/ParkRepo.js?v=2" defer></script>
     <script src="repos/VaultRepo.js?v=4" defer></script>
     <script src="modules/launchFlags.js?v=1" defer></script>
     <script src="modules/barkState.js?v=17" defer></script>
     <script src="modules/barkConfig.js?v=8" defer></script>
     <script src="config/domRefs.js?v=4" defer></script>
-    <script src="state/settingsStore.js?v=4" defer></script>
+    <script src="state/settingsStore.js?v=5" defer></script>
     <script src="state/appState.js?v=4" defer></script>
     <!-- Phase 2B: additive refreshCoordinator seam; existing refresh calls still remain in place. -->
     <script src="modules/RefreshCoordinator.js?v=2" defer></script>
@@ -1626,7 +1633,7 @@
     <script src="engines/tripPlannerCore.js?v=25" defer></script>
     <script src="modules/shareEngine.js?v=10" defer></script>
     <script src="modules/watermarkTool.js?v=4" defer></script>
-    <script src="modules/settingsController.js?v=10" defer></script>
+    <script src="modules/settingsController.js?v=11" defer></script>
     <script src="modules/uiController.js?v=18" defer></script>
     <script src="modules/firstOpenDisclaimer.js?v=2" defer></script>
     <!-- The combobox scores parks with searchEngine, so both load after it;

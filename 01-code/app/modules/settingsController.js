@@ -336,15 +336,21 @@ window.BARK.initSettings = function initSettings() {
             const setting = settingsRegistry[key];
             if (!setting) return '';
 
-            const rowStyle = setting.master
-                ? 'display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; background: rgba(33, 150, 243, 0.06); padding: 10px; border-radius: 8px; border: 1px solid rgba(33, 150, 243, 0.14);'
-                : 'display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;';
+            const rowClass = setting.master
+                ? 'settings-preference-row settings-optimization-tier settings-optimization-tier--level-1'
+                : 'settings-preference-row';
+            const levelLabel = setting.levelLabel
+                ? `<span class="settings-level-badge">${setting.levelLabel}</span>`
+                : '';
 
             return `
-                <div data-setting-key="${key}" style="${rowStyle}">
-                    <div style="flex: 1;">
-                        <div style="font-size: 15px; font-weight: 800; color: #1e293b;">${setting.label}</div>
-                        <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">${setting.description}</div>
+                <div data-setting-key="${key}" class="${rowClass}">
+                    <div class="settings-toggle-copy">
+                        <div class="settings-preference-title-line">
+                            <div class="settings-toggle-title">${setting.label}</div>
+                            ${levelLabel}
+                        </div>
+                        <div class="settings-toggle-description">${setting.description}</div>
                     </div>
                     <label class="switch">
                         <input type="checkbox" id="${setting.elementId}">
@@ -564,13 +570,13 @@ window.BARK.initSettings = function initSettings() {
             await saveSettingsToCloud();
         };
 
-        // Ultra Low Toggle
+        // Ultra Fast (stored under the legacy ultra-low key for compatibility)
         if (ultraLowToggle) {
             ultraLowToggle.addEventListener('change', async (e) => {
                 const isEnabled = e.target.checked;
                 const msg = isEnabled ?
-                    "⚠️ ENABLE ULTRA-LOW GRAPHICS?\n\nThis will disable all animations and effects.\nPage will reload." :
-                    "Switching to High Graphics requires a page reload. Proceed?";
+                    "⚡ ENABLE ULTRA FAST MODE?\n\nThis will disable all animations and effects.\nPage will reload." :
+                    "Turn off Ultra Fast Mode and restore full graphics?\nThe page will reload.";
                 if (!window.confirm(msg)) { e.target.checked = !isEnabled; return; }
 
                 setSettingValue('ultraLowEnabled', isEnabled);
@@ -579,7 +585,7 @@ window.BARK.initSettings = function initSettings() {
                 try {
                     await saveUltraLowBeforeReload();
                 } catch (error) {
-                    console.warn('[settingsController] Ultra Low cloud save failed before reload; preserving local setting.', error);
+                    console.warn('[settingsController] Ultra Fast cloud save failed before reload; preserving local setting.', error);
                 } finally {
                     reloadAfterUltraLowChange();
                 }

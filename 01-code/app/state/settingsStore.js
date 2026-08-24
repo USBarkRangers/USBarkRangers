@@ -153,10 +153,21 @@
         });
     }
 
+    function getLowGraphicsPresetValues(isEnabled) {
+        const preset = window.BARK.LOW_GRAPHICS_PRESET || {};
+        if (isEnabled) return preset;
+
+        return Object.keys(preset).reduce((resetValues, presetKey) => {
+            resetValues[presetKey] = false;
+            return resetValues;
+        }, {});
+    }
+
     function getUltraLowPresetValues(isEnabled) {
         if (!isEnabled) {
             return {
                 lowGfxEnabled: false,
+                ...getLowGraphicsPresetValues(false),
                 instantNav: false,
                 simplifyTrails: false
             };
@@ -214,8 +225,8 @@
             applyPresetValues(getUltraLowPresetValues(false));
         }
 
-        if (key === 'lowGfxEnabled' && values.lowGfxEnabled) {
-            applyPresetValues(window.BARK.LOW_GRAPHICS_PRESET || {});
+        if (key === 'lowGfxEnabled') {
+            applyPresetValues(getLowGraphicsPresetValues(values.lowGfxEnabled));
         }
 
         const nextClusterState = get('clusteringEnabled');

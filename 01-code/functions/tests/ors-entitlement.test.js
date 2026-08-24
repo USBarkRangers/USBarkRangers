@@ -416,7 +416,7 @@ describe("ORS premium callable handlers", () => {
             rateLimitCount: 2
         });
 
-        await assertRejectsCode(
+        await assert.rejects(
             handlePremiumRoute(
                 {
                     data: {
@@ -437,7 +437,13 @@ describe("ORS premium callable handlers", () => {
                     }
                 }
             ),
-            "resource-exhausted"
+            (error) => {
+                assert.equal(getHttpsErrorCode(error), "resource-exhausted");
+                assert.equal(error.details.action, "getPremiumRoute");
+                assert.equal(error.details.retryAfterSeconds, 40);
+                assert.equal(error.details.retryAt, "2023-11-14T22:14:00.000Z");
+                return true;
+            }
         );
 
         assert.equal(firestore.state.rateLimitReads, 1);

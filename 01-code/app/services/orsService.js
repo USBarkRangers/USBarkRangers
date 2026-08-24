@@ -14,6 +14,44 @@
     const routeCache = routeCacheApi && typeof routeCacheApi.createRouteCache === 'function'
         ? routeCacheApi.createRouteCache()
         : null;
+    let routeBlockedUntilMs = 0;
+    let routeBlockedMessage = '';
+
+    function isRouteRateLimitError(error) {
+        const code = String(error && error.code || '').toLowerCase();
+        return code === 'resource-exhausted' || code === 'functions/resource-exhausted';
+    }
+
+    function rememberRouteRateLimit(error) {
+        if (!isRouteRateLimitError(error)) return;
+        const details = error && error.details && typeof error.details === 'object' ? error.details : {};
+        const retryAtMs = Date.parse(details.retryAt || '');
+        const retryAfterSeconds = Number(details.retryAfterSeconds);
+        routeBlockedUntilMs = Number.isFinite(retryAtMs)
+            ? retryAtMs
+            : Date.now() + (Number.isFinite(retryAfterSeconds) ? Math.max(1, retryAfterSeconds) * 1000 : 60 * 1000);
+        routeBlockedMessage = error && error.message
+            ? error.message
+            : 'Route generation is temporarily limited. Please try again shortly.';
+    }
+
+    function getActiveRouteRateLimitError() {
+        const remainingMs = routeBlockedUntilMs - Date.now();
+        if (remainingMs <= 0) {
+            routeBlockedUntilMs = 0;
+            routeBlockedMessage = '';
+            return null;
+        }
+
+        const error = new Error(routeBlockedMessage || 'Route generation is temporarily limited.');
+        error.code = 'functions/resource-exhausted';
+        error.details = {
+            retryAfterSeconds: Math.ceil(remainingMs / 1000),
+            retryAt: new Date(routeBlockedUntilMs).toISOString(),
+            localBlock: true
+        };
+        return error;
+    }
 
     function getCallable(name) {
         if (typeof firebase === 'undefined' || typeof firebase.functions !== 'function') {
@@ -99,6 +137,8 @@
             throw makeDisabledError('premiumRiskyToolsEnabled', 'Premium tools are paused for beta safety.');
         }
         assertVerifiedEmailForPremiumCallable();
+        const activeRateLimit = getActiveRouteRateLimitError();
+        if (activeRateLimit) throw activeRateLimit;
 
         const payload = { coordinates };
         if (Array.isArray(options.radiuses) && options.radiuses.length === coordinates.length) {
@@ -123,6 +163,7 @@
                 ? await routeCache.getOrLoad(cacheKey, loadRoute)
                 : await loadRoute();
         } catch (error) {
+            rememberRouteRateLimit(error);
             console.error('ORS directions request failed.', error);
             throw error;
         }

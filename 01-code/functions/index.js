@@ -18,6 +18,33 @@ const { compactRouteResponse } = require("./routeResponseCompact.js");
 // Initialize Firebase Admin SDK
 admin.initializeApp();
 
+// A resident Gen 1 instance can be alive while its first Firestore transaction
+// still pays for credential and gRPC setup. Warm the exact transaction path on
+// the compact-route instance during startup, before a customer can reach it.
+// FUNCTION_TARGET keeps this one read out of every unrelated function process.
+const compactRouteBackendReady = (() => {
+    if (process.env.NODE_ENV === "test" || process.env.FUNCTION_TARGET !== "getPremiumRouteCompact") {
+        return Promise.resolve();
+    }
+
+    const startedAt = Date.now();
+    const db = admin.firestore();
+    const warmupRef = db.doc("_analytics/ors_usage");
+    return db.runTransaction(transaction => transaction.get(warmupRef))
+        .then(() => {
+            console.info("[routing] Compact route Firestore transaction path is ready.", {
+                durationMs: Date.now() - startedAt
+            });
+        })
+        .catch(error => {
+            // A startup warmup is an optimization, never an availability gate.
+            console.warn("[routing] Compact route Firestore warmup did not complete.", {
+                durationMs: Date.now() - startedAt,
+                message: error && error.message ? error.message : String(error)
+            });
+        });
+})();
+
 // Keep admin callables compatible with the current admin page. The backend
 // still enforces signed-in admin status plus per-admin rate limits.
 const ADMIN_CALLABLE_OPTIONS = {};
@@ -288,7 +315,12 @@ async function enforcePremiumCallableRateLimit(uid, action, options = {}) {
             const retrySeconds = getRateLimitRetrySeconds(windowEndsAt, now);
             throw new functions.https.HttpsError(
                 "resource-exhausted",
-                `${limit.message} Try again in ${retrySeconds} seconds.`
+                `${limit.message} Try again in ${retrySeconds} seconds.`,
+                {
+                    action,
+                    retryAfterSeconds: retrySeconds,
+                    retryAt: new Date(windowEndsAt).toISOString()
+                }
             );
         }
 
@@ -3194,13 +3226,27 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
 }
 
 async function handlePremiumRouteCompact(requestOrData, context, options = {}) {
-    return handlePremiumRoute(requestOrData, context, {
-        ...options,
-        compactResponse: true,
-        // The route response must not wait for an unrelated analytics write.
-        // Provider status and quota remain available in structured logs.
-        orsTelemetryMode: "log-only"
-    });
+    const requestedAt = Date.now();
+    const backendReady = options.compactRouteBackendReady || compactRouteBackendReady;
+    await backendReady;
+    const warmupWaitDurationMs = Date.now() - requestedAt;
+
+    try {
+        return await handlePremiumRoute(requestOrData, context, {
+            ...options,
+            compactResponse: true,
+            // The route response must not wait for an unrelated analytics write.
+            // Provider status and quota remain available in structured logs.
+            orsTelemetryMode: "log-only"
+        });
+    } catch (error) {
+        console.info("[routing] Compact route request ended before a route was returned.", {
+            code: error && error.code ? error.code : null,
+            warmupWaitDurationMs,
+            totalDurationMs: Date.now() - requestedAt
+        });
+        throw error;
+    }
 }
 
 async function handlePremiumGeocode(requestOrData, context, options = {}) {

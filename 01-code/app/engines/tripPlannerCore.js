@@ -298,6 +298,27 @@ function waitForRouteBatchThrottle(batchIndex, batchCount) {
     return new Promise(resolve => setTimeout(resolve, ROUTE_BATCH_THROTTLE_MS));
 }
 
+function isRouteRateLimitError(error) {
+    const code = String(error && error.code || '').toLowerCase();
+    return code === 'resource-exhausted' || code === 'functions/resource-exhausted';
+}
+
+function formatRouteRateLimitReset(error) {
+    const details = error && error.details && typeof error.details === 'object' ? error.details : {};
+    const retryAtMs = Date.parse(details.retryAt || '');
+    if (Number.isFinite(retryAtMs)) {
+        const resetTime = new Date(retryAtMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        return `Available again at ${resetTime}.`;
+    }
+
+    const retryAfterSeconds = Number(details.retryAfterSeconds);
+    if (Number.isFinite(retryAfterSeconds)) {
+        const retryMinutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
+        return `Available again in about ${retryMinutes} minute${retryMinutes === 1 ? '' : 's'}.`;
+    }
+    return 'Please try again shortly.';
+}
+
 function focusMapSearchForTripStop(dayNumber, dayColor) {
     const searchInput = getDomRef('parkSearch');
     const mapTab = document.querySelector('.nav-item[data-target="map-view"]');
@@ -1558,6 +1579,7 @@ function initTripPlanner() {
         let routeButtonIsSlow = false;
         let finalRouteButtonNotice = null;
         let routeBecameStale = false;
+        let routeRateLimitError = null;
         const slowRouteTimer = setTimeout(() => {
             if (routeRunId !== routeRenderGeneration) return;
             routeButtonIsSlow = true;
@@ -1643,6 +1665,10 @@ function initTripPlanner() {
                         });
                     }
                 } catch (err) {
+                    if (isRouteRateLimitError(err)) {
+                        routeRateLimitError = err;
+                        break;
+                    }
                     routeBatch.days.forEach(day => failedDayNumbers.add(day.dayIndex + 1));
                     console.error(`Route batch failed for days ${routeBatch.days.map(day => day.dayIndex + 1).join(', ')}:`, err);
                 }
@@ -1652,6 +1678,21 @@ function initTripPlanner() {
                     break;
                 }
                 await waitForRouteBatchThrottle(batchIndex, routeBatches.length);
+            }
+
+            if (routeRateLimitError) {
+                const resetDetail = formatRouteRateLimitReset(routeRateLimitError);
+                setRouteTelemetryStatus(
+                    'slow',
+                    'Route limit reached.',
+                    `${resetDetail} This trip stopped immediately; no more route calls were made.`
+                );
+                finalRouteButtonNotice = {
+                    label: 'Route Limit Reached',
+                    detail: resetDetail,
+                    status: 'warning'
+                };
+                return;
             }
 
             if (routeBecameStale) {

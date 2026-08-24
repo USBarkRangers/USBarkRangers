@@ -625,6 +625,47 @@ test('partial route generation leaves a straight fallback only for failed days',
     assert.deepEqual(harness.routedDayCoverage.at(-1), [0]);
 });
 
+test('route generation aborts every remaining batch after the first rate limit response', async () => {
+    const harness = loadTripPlanner({ timerMode: 'manual' });
+    harness.window.BARK.tripDays = [
+        {
+            color: '#1976D2',
+            stops: [
+                { name: 'Day 1 Start', lat: 0, lng: 0 },
+                { name: 'Day 1 End', lat: 0, lng: 1 }
+            ],
+            notes: ''
+        },
+        {
+            color: '#2E7D32',
+            stops: [
+                { name: 'Day 2 Start', lat: 50, lng: 100 },
+                { name: 'Day 2 End', lat: 50, lng: 101 }
+            ],
+            notes: ''
+        }
+    ];
+    harness.window.BARK.initTripPlanner();
+    harness.window.BARK.updateTripUI();
+
+    await openRouteChoiceAndSkip(harness);
+    assert.equal(harness.directionsCalls.length, 1);
+    const error = new Error('Route generation limit reached.');
+    error.code = 'functions/resource-exhausted';
+    error.details = {
+        retryAfterSeconds: 1200,
+        retryAt: '2030-01-01T18:00:00.000Z'
+    };
+    harness.rejectDirections(error);
+    await flushPromises(12);
+
+    assert.equal(harness.directionsCalls.length, 1, 'remaining route batches must not call Firebase');
+    assert.equal(harness.element('route-telemetry').dataset.routeStatus, 'slow');
+    assert.match(harness.getTextContent(harness.element('route-telemetry')), /stopped immediately/i);
+    assert.equal(harness.element('start-route-btn').dataset.routeStatus, 'warning');
+    assert.match(harness.getTextContent(harness.element('start-route-btn')), /Route Limit Reached/);
+});
+
 test('route generation choice can optimize before generating', async () => {
     const harness = loadTripPlanner();
     harness.window.BARK.tripDays = [{

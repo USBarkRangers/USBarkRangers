@@ -652,6 +652,44 @@ test('route generation choice can optimize before generating', async () => {
     assert.equal(harness.directionsCalls.length, 1);
 });
 
+test('Trip Start and Trip End generate a direct route without intermediate stops', async () => {
+    const harness = loadTripPlanner({ timerMode: 'manual' });
+    harness.window.BARK.tripDays = [{ color: '#1976D2', stops: [], notes: '' }];
+    harness.window.tripStartNode = { name: 'Trip Start', lat: 1, lng: 1 };
+    harness.window.tripEndNode = { name: 'Trip End', lat: 2, lng: 2 };
+    harness.window.BARK.initTripPlanner();
+    harness.window.BARK.updateTripUI();
+
+    harness.element('start-route-btn').onclick();
+    await flushPromises();
+
+    assert.equal(harness.element('route-generation-choice-modal').style.display, 'none');
+    assert.equal(harness.directionsCalls.length, 1);
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(harness.directionsCalls[0].coordinates)),
+        [[1, 1], [2, 2]]
+    );
+
+    harness.resolveDirections();
+    await flushPromises(12);
+    assert.equal(harness.element('start-route-btn').dataset.routeStatus, 'complete');
+});
+
+test('one route point remains insufficient for route generation', async () => {
+    const harness = loadTripPlanner();
+    harness.window.BARK.tripDays = [{ color: '#1976D2', stops: [], notes: '' }];
+    harness.window.tripStartNode = { name: 'Trip Start', lat: 1, lng: 1 };
+    harness.window.tripEndNode = null;
+    harness.window.BARK.initTripPlanner();
+    harness.window.BARK.updateTripUI();
+
+    harness.element('start-route-btn').onclick();
+    await flushPromises();
+
+    assert.equal(harness.element('route-generation-choice-modal').style.display, 'none');
+    assert.equal(harness.directionsCalls.length, 0);
+});
+
 test('trip planner estimates long route days before calling directions', () => {
     const harness = loadTripPlanner({ haversineDistance: () => 2000 });
 

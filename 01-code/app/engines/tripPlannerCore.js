@@ -1325,10 +1325,17 @@ function initTripPlanner() {
             updateRouteGenerationButtonState();
             return false;
         }
-        return getTotalStops() > 0;
+        const routePlan = buildCurrentTripRoutePlan();
+        return routePlan.routableDays.length > 0;
     }
 
     function openRouteGenerationChoiceModal() {
+        // Start/end bookends (or one stop plus a bookend) already form a valid
+        // route, but there is nothing useful for the optimizer to reorder.
+        if (getTotalStops() < 2) {
+            generateAndRenderTripRoute();
+            return;
+        }
         if (!routeChoiceModal || !routeChoiceOptimizeBtn || !routeChoiceSkipBtn) {
             generateAndRenderTripRoute();
             return;

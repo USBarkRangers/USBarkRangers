@@ -59,6 +59,21 @@ test('Trip End attaches to the last populated day when final days are empty', ()
     assert.deepEqual(names(plan.days[0]), ['First', 'Trip End']);
 });
 
+test('Trip Start and Trip End form a routable day without intermediate stops', () => {
+    const start = stop('Trip Start', 1, 1);
+    const end = stop('Trip End', 2, 2);
+    const plan = buildTripRoutePlan({
+        tripDays: [day('#111111', [])],
+        startNode: start,
+        endNode: end
+    });
+
+    assert.equal(plan.days.length, 1);
+    assert.equal(plan.routableDays.length, 1);
+    assert.deepEqual(names(plan.days[0]), ['Trip Start', 'Trip End']);
+    assert.deepEqual(plan.days[0].coordinates, [[1, 1], [2, 2]]);
+});
+
 test('adjacent saved boundary duplicates are compacted', () => {
     const shared = stop('Shared', 1, 1);
     const next = stop('Next', 2, 2);

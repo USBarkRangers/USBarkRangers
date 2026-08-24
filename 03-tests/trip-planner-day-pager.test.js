@@ -482,7 +482,9 @@ test('route generation shows progress on the route button before completion', as
 
     await openRouteChoiceAndSkip(harness);
 
-    assert.equal(harness.element('route-telemetry').style.display, 'none');
+    assert.equal(harness.element('route-telemetry').style.display, 'block');
+    assert.equal(harness.element('route-telemetry').dataset.routeStatus, 'working');
+    assert.match(harness.getTextContent(harness.element('route-telemetry')), /still responsive/i);
     assert.equal(harness.element('start-route-btn').dataset.routeStatus, 'working');
     assert.match(harness.getTextContent(harness.element('start-route-btn')), /Generating Route/);
     assert.match(harness.getTextContent(harness.element('start-route-btn')), /1 \/ 1/);
@@ -491,6 +493,8 @@ test('route generation shows progress on the route button before completion', as
     assert.equal(harness.element('start-route-btn').dataset.routeStatus, 'slow');
     assert.match(harness.getTextContent(harness.element('start-route-btn')), /Still Generating/);
     assert.match(harness.getTextContent(harness.element('start-route-btn')), /A few min/);
+    assert.equal(harness.element('route-telemetry').dataset.routeStatus, 'slow');
+    assert.match(harness.getTextContent(harness.element('route-telemetry')), /keep using the app/i);
 
     harness.resolveDirections();
     await flushPromises();

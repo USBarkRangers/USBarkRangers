@@ -1577,6 +1577,29 @@ body.app-tab-active #slide-panel {
     box-shadow: 0 6px 16px rgba(37, 99, 235, 0.24);
 }
 
+.planner-action-primary.planner-action-route-generating::before,
+.planner-action-primary.planner-action-route-slow::before {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    border: 2px solid rgba(255, 255, 255, 0.45);
+    border-top-color: #fff;
+    border-radius: 50%;
+    content: '';
+    animation: bark-route-spinner 0.8s linear infinite;
+}
+
+@keyframes bark-route-spinner {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .planner-action-primary.planner-action-route-generating::before,
+    .planner-action-primary.planner-action-route-slow::before {
+        animation-duration: 1.8s;
+    }
+}
+
 .planner-action-primary.planner-action-route-slow,
 .planner-action-primary.planner-action-route-notice[data-route-status="warning"] {
     background: #d97706;

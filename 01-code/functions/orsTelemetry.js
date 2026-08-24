@@ -53,11 +53,27 @@ async function recordOrsRequestAttempt(event, options = {}) {
         success: event.success === true
     };
 
+    if (typeof options.recordOrsUsage === "function") {
+        await options.recordOrsUsage(normalized);
+        return;
+    }
+
+    // Compact route requests run on the latency-sensitive path used by the
+    // trip planner. Cloud Logging preserves the provider status/quota signal
+    // without making the customer wait for a second Firestore write after ORS
+    // has already returned the route. Other callables keep the durable
+    // Firestore aggregate unless they explicitly opt into log-only telemetry.
+    if (options.orsTelemetryMode === "log-only") {
+        console.info("[routing] ORS request attempt completed.", {
+            endpoint: normalized.endpoint,
+            status: normalized.status,
+            success: normalized.success,
+            quota: normalized.quota
+        });
+        return;
+    }
+
     try {
-        if (typeof options.recordOrsUsage === "function") {
-            await options.recordOrsUsage(normalized);
-            return;
-        }
         if (process.env.NODE_ENV === "test") return;
 
         const db = options.orsTelemetryFirestore || admin.firestore();

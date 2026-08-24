@@ -1548,6 +1548,11 @@ function initTripPlanner() {
             setRouteGenerationButtonProgress(startRouteBtn, 1, routeBatches.length);
             startRouteBtn.disabled = true;
         }
+        setRouteTelemetryStatus(
+            'working',
+            'Finding the road route…',
+            'The app is still responsive while routing finishes.'
+        );
 
         let routeButtonBatchNumber = 1;
         let routeButtonIsSlow = false;
@@ -1557,6 +1562,11 @@ function initTripPlanner() {
             if (routeRunId !== routeRenderGeneration) return;
             routeButtonIsSlow = true;
             setRouteGenerationButtonProgress(startRouteBtn, routeButtonBatchNumber, routeBatches.length, { status: 'slow' });
+            setRouteTelemetryStatus(
+                'slow',
+                'The routing service is taking longer than usual.',
+                'You can keep using the app; the road line will appear when ready.'
+            );
         }, 1800);
 
         const allBounds = [];

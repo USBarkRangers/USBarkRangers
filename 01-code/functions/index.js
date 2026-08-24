@@ -910,22 +910,37 @@ async function requestOrsWithRetry(requestFn, options = {}, endpoint = "other") 
         : ORS_RETRY_MAX_ATTEMPTS;
 
     for (let attemptIndex = 0; attemptIndex < maxAttempts; attemptIndex += 1) {
+        const attemptStartedAt = Date.now();
         try {
             const response = await requestFn();
+            const providerDurationMs = Date.now() - attemptStartedAt;
             await orsTelemetry.recordOrsRequestAttempt({
                 endpoint,
                 quota: orsTelemetry.getOrsQuotaObservation(response && response.headers),
                 status: response && response.status,
                 success: true
             }, options);
+            console.info("[routing] ORS provider timing.", {
+                endpoint,
+                attempt: attemptIndex + 1,
+                durationMs: providerDurationMs,
+                status: response && response.status
+            });
             return response;
         } catch (error) {
+            const providerDurationMs = Date.now() - attemptStartedAt;
             await orsTelemetry.recordOrsRequestAttempt({
                 endpoint,
                 quota: orsTelemetry.getOrsQuotaObservation(error && error.response && error.response.headers),
                 status: getOrsErrorStatus(error),
                 success: false
             }, options);
+            console.info("[routing] ORS provider timing.", {
+                endpoint,
+                attempt: attemptIndex + 1,
+                durationMs: providerDurationMs,
+                status: getOrsErrorStatus(error)
+            });
             const isLastAttempt = attemptIndex >= maxAttempts - 1;
             if (isLastAttempt || !isRetryableOrsError(error)) throw error;
 
@@ -3090,10 +3105,14 @@ function postBillingEventToDiscord({ uid, eventName, entitlement }, options = {}
 }
 
 async function handlePremiumRoute(requestOrData, context, options = {}) {
+    const routeStartedAt = Date.now();
     requireFunctionFlagEnabled("getPremiumRoute", options);
     const uid = requireVerifiedEmailCallable(context);
+    const accessStartedAt = Date.now();
+    // Keep the limiter first so blocked abuse never spends an entitlement read.
     await enforcePremiumCallableRateLimit(uid, "getPremiumRoute", options);
     await requirePremiumCallable(context, "getPremiumRoute", options);
+    const accessDurationMs = Date.now() - accessStartedAt;
 
     const payload = getCallablePayload(requestOrData);
     const coordinates = normalizeRouteCoordinates(payload.coordinates);
@@ -3130,6 +3149,7 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
     };
 
     try {
+        const providerStartedAt = Date.now();
         let response;
         try {
             response = await requestDirections(coordinates);
@@ -3145,9 +3165,21 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
             console.info("[routing] Retrying an off-road route with recovered coordinates.");
             response = await requestDirections(snappedCoordinates);
         }
-        return options.compactResponse === true
+        const providerDurationMs = Date.now() - providerStartedAt;
+        const compactStartedAt = Date.now();
+        const result = options.compactResponse === true
             ? compactRouteResponse(response.data)
             : response.data;
+        const compactDurationMs = Date.now() - compactStartedAt;
+        console.info("[routing] Premium route completed.", {
+            coordinateCount: coordinates.length,
+            compactResponse: options.compactResponse === true,
+            accessDurationMs,
+            providerDurationMs,
+            compactDurationMs,
+            totalDurationMs: Date.now() - routeStartedAt
+        });
+        return result;
     } catch (error) {
         const status = getOrsErrorStatus(error);
         console.error("Networking/ORS Error:", error.message, { status });
@@ -3164,7 +3196,10 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
 async function handlePremiumRouteCompact(requestOrData, context, options = {}) {
     return handlePremiumRoute(requestOrData, context, {
         ...options,
-        compactResponse: true
+        compactResponse: true,
+        // The route response must not wait for an unrelated analytics write.
+        // Provider status and quota remain available in structured logs.
+        orsTelemetryMode: "log-only"
     });
 }
 
@@ -3885,8 +3920,9 @@ exports.getPremiumRoute = functions
     .https.onCall(wrapCallableWithPaymentAlert("getPremiumRoute", handlePremiumRoute));
 
 // Additive beta path: production clients stay on getPremiumRoute until the
-// compact response has completed beta soak. One warm instance removes the
-// first-route startup penalty while the response compactor reduces phone heap.
+// compact response has completed beta soak. One resident instance avoids a
+// container startup, while the compact response reduces phone heap. Provider
+// and Firebase phases are timed separately because their latency is external.
 exports.getPremiumRouteCompact = functions
     .runWith({
         secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"],

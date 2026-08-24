@@ -13,7 +13,10 @@
     }
 })(typeof window !== 'undefined' ? window : null, function createOrsRouteCacheApi() {
     const DEFAULT_TTL_MS = 15 * 60 * 1000;
-    const DEFAULT_MAX_ENTRIES = 12;
+    // Keep only a few recent route variants. GeoJSON values can be large on
+    // phones; identical in-flight and recently repeated requests still reuse
+    // work without retaining an itinerary-editing session's entire history.
+    const DEFAULT_MAX_ENTRIES = 4;
 
     function buildRouteCacheKey(request = {}) {
         return JSON.stringify({

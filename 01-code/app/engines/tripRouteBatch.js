@@ -112,6 +112,14 @@
     }
 
     function getSegmentGeometryRange(segment) {
+        if (segment && Array.isArray(segment.way_points)) {
+            const start = Number(segment.way_points[0]);
+            const end = Number(segment.way_points[1]);
+            if (Number.isInteger(start) && Number.isInteger(end) && start >= 0 && end >= start) {
+                return { start, end };
+            }
+        }
+
         const steps = segment && Array.isArray(segment.steps) ? segment.steps : [];
         const firstStep = steps[0];
         const lastStep = steps[steps.length - 1];
@@ -129,7 +137,6 @@
                 type: 'Feature',
                 geometry: { type: 'LineString', coordinates },
                 properties: {
-                    ...(feature.properties || {}),
                     segments,
                     summary
                 }
@@ -164,8 +171,7 @@
                 distance: result.distance + (Number(segment.distance) || 0),
                 duration: result.duration + (Number(segment.duration) || 0)
             }), { distance: 0, duration: 0 });
-            const dayCoordinates = coordinates.slice(firstRange.start, lastRange.end + 1);
-            if (dayCoordinates.length < 2) {
+            if (lastRange.end - firstRange.start < 1) {
                 throw new Error(`Routing service returned too little geometry for Day ${daySpec.dayIndex + 1}.`);
             }
 
@@ -197,7 +203,6 @@
             return {
                 dayIndex: daySpec.dayIndex,
                 color: daySpec.color,
-                geoJSON: makeFeatureCollection(feature, dayCoordinates, daySegments, summary),
                 segmentRoutes,
                 summary
             };

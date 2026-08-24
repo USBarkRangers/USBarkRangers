@@ -13,6 +13,7 @@ const feedbackAttachments = require("./feedbackAttachments.js");
 const routeRequestStrategy = require("./routeRequestStrategy.js");
 const { ORS_ENDPOINTS } = require("./orsEndpoints.js");
 const orsTelemetry = require("./orsTelemetry.js");
+const { compactRouteResponse } = require("./routeResponseCompact.js");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -3144,7 +3145,9 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
             console.info("[routing] Retrying an off-road route with recovered coordinates.");
             response = await requestDirections(snappedCoordinates);
         }
-        return response.data;
+        return options.compactResponse === true
+            ? compactRouteResponse(response.data)
+            : response.data;
     } catch (error) {
         const status = getOrsErrorStatus(error);
         console.error("Networking/ORS Error:", error.message, { status });
@@ -3156,6 +3159,13 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
         }
         throw new functions.https.HttpsError("internal", "Failed to calculate route.");
     }
+}
+
+async function handlePremiumRouteCompact(requestOrData, context, options = {}) {
+    return handlePremiumRoute(requestOrData, context, {
+        ...options,
+        compactResponse: true
+    });
 }
 
 async function handlePremiumGeocode(requestOrData, context, options = {}) {
@@ -3874,6 +3884,17 @@ exports.getPremiumRoute = functions
     .runWith({ secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], timeoutSeconds: 120 })
     .https.onCall(wrapCallableWithPaymentAlert("getPremiumRoute", handlePremiumRoute));
 
+// Additive beta path: production clients stay on getPremiumRoute until the
+// compact response has completed beta soak. One warm instance removes the
+// first-route startup penalty while the response compactor reduces phone heap.
+exports.getPremiumRouteCompact = functions
+    .runWith({
+        secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"],
+        timeoutSeconds: 120,
+        minInstances: 1
+    })
+    .https.onCall(wrapCallableWithPaymentAlert("getPremiumRouteCompact", handlePremiumRouteCompact));
+
 exports.getPremiumGeocode = functions
     .runWith({ secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
     .https.onCall(wrapCallableWithPaymentAlert("getPremiumGeocode", handlePremiumGeocode));
@@ -3944,6 +3965,7 @@ if (process.env.NODE_ENV === "test") {
         handleCancelPremiumSubscription,
         requirePremiumCallable,
         handlePremiumRoute,
+        handlePremiumRouteCompact,
         handlePremiumGeocode,
         normalizeRouteCoordinates,
         normalizeRouteWaypoints,

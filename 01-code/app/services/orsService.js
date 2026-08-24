@@ -113,7 +113,7 @@
             : null;
 
         const loadRoute = async () => {
-            const callable = getCallable('getPremiumRoute');
+            const callable = getCallable('getPremiumRouteCompact');
             const result = await callable(payload);
             return result.data;
         };

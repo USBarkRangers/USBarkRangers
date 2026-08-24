@@ -94,6 +94,15 @@ if (shouldActivate) {
                             distance: 1234,
                             duration: 567
                         },
+                        segments: [{
+                            distance: 1234,
+                            duration: 567,
+                            steps: [{
+                                instruction: "Stubbed driving instruction",
+                                name: "Stub Road",
+                                way_points: [0, 1]
+                            }]
+                        }],
                         stubbed: true
                     },
                     geometry: {

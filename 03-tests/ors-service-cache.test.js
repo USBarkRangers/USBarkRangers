@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 function loadOrsService() {
     let callableCount = 0;
+    const callableNames = [];
     const context = {
         window: {
             BARK: {
@@ -22,8 +23,9 @@ function loadOrsService() {
                 }
             }),
             functions: () => ({
-                httpsCallable: () => async payload => {
+                httpsCallable: name => async payload => {
                     callableCount += 1;
+                    callableNames.push(name);
                     return { data: { call: callableCount, coordinates: payload.coordinates } };
                 }
             })
@@ -42,7 +44,8 @@ function loadOrsService() {
 
     return {
         directions: context.window.BARK.services.ors.directions,
-        getCallableCount: () => callableCount
+        getCallableCount: () => callableCount,
+        getCallableNames: () => callableNames
     };
 }
 
@@ -54,6 +57,7 @@ test('unchanged route generation reuses the first callable result', async () => 
     const repeated = await harness.directions(coordinates, { radiuses: [-1, -1] });
 
     assert.equal(harness.getCallableCount(), 1);
+    assert.deepEqual(harness.getCallableNames(), ['getPremiumRouteCompact']);
     assert.deepEqual(repeated, first);
 });
 

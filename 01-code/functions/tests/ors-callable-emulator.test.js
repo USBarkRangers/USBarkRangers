@@ -97,6 +97,10 @@ async function callRoute(data) {
     return callable("getPremiumRoute")(data);
 }
 
+async function callCompactRoute(data) {
+    return callable("getPremiumRouteCompact")(data);
+}
+
 async function createSignedInUser(label, options = {}) {
     const emailVerified = options.emailVerified !== false;
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -296,6 +300,29 @@ describe("ORS callable emulator entitlement enforcement", { concurrency: false }
         assert.equal(calls.length, 1);
         assert.equal(calls[0].service, "route");
         assert.deepEqual(calls[0].body.coordinates, routePayload.coordinates);
+    });
+
+    it("returns compact route geometry without unused instruction text", async () => {
+        const user = await createSignedInUser("premium-compact-route");
+        await seedEntitlement(user.uid, premiumEntitlement);
+
+        const result = await withTimeout(
+            callCompactRoute(routePayload),
+            "Compact premium route callable"
+        );
+        const calls = readOrsCalls();
+        const feature = result.data.features[0];
+
+        assert.equal(calls.length, 1);
+        assert.deepEqual(calls[0].body.coordinates, routePayload.coordinates);
+        assert.deepEqual(feature.geometry.coordinates, routePayload.coordinates);
+        assert.deepEqual(feature.properties.summary, { distance: 1234, duration: 567 });
+        assert.deepEqual(feature.properties.segments, [{
+            distance: 1234,
+            duration: 567,
+            way_points: [0, 1]
+        }]);
+        assert.equal(feature.properties.stubbed, undefined);
     });
 
     it("ignores client-provided premium, entitlement, status, and uid claims", async () => {

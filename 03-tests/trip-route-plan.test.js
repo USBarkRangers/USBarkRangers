@@ -189,13 +189,44 @@ test('batched geometry is split back into local day colors', () => {
     const results = splitRouteBatchResponse(batch, response);
 
     assert.deepEqual(results.map(result => result.color), ['#111111', '#222222']);
-    assert.deepEqual(results[0].geoJSON.features[0].geometry.coordinates, geometry.slice(0, 3));
-    assert.deepEqual(results[1].geoJSON.features[0].geometry.coordinates, geometry.slice(2));
+    assert.equal(Object.prototype.hasOwnProperty.call(results[0], 'geoJSON'), false);
     assert.deepEqual(
         results.flatMap(result => result.segmentRoutes.map(segment => segment.geoJSON.features[0].geometry.coordinates)),
         [geometry.slice(0, 3), geometry.slice(2, 5), geometry.slice(4)]
     );
     assert.deepEqual(results.map(result => result.summary.distance), [10, 20]);
+});
+
+test('compact segment ranges split without turn-by-turn instruction objects', () => {
+    const plan = buildTripRoutePlan({
+        tripDays: [day('#111111', [stop('Middle', 1, 1)])],
+        startNode: stop('Start', 0, 0),
+        endNode: stop('End', 2, 2)
+    });
+    const batch = buildRouteBatches(plan.routableDays)[0];
+    const geometry = [[0, 0], [0.5, 0.5], [1, 1], [1.5, 1.5], [2, 2]];
+    const response = {
+        type: 'FeatureCollection',
+        features: [{
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: geometry },
+            properties: {
+                summary: { distance: 20, duration: 40 },
+                segments: [
+                    { distance: 10, duration: 20, way_points: [0, 2] },
+                    { distance: 10, duration: 20, way_points: [2, 4] }
+                ]
+            }
+        }]
+    };
+
+    const [result] = splitRouteBatchResponse(batch, response);
+
+    assert.deepEqual(
+        result.segmentRoutes.map(segment => segment.geoJSON.features[0].geometry.coordinates),
+        [geometry.slice(0, 3), geometry.slice(2)]
+    );
+    assert.equal(result.summary.distance, 20);
 });
 
 test('batch builder splits at a point limit and rejects an oversized day', () => {

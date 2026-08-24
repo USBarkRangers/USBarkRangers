@@ -630,6 +630,11 @@
     }
 
     function getSubscriptionManagementErrorMessage(error) {
+        const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+        if (rateLimitUi && typeof rateLimitUi.getRateLimitWarning === 'function') {
+            const warning = rateLimitUi.getRateLimitWarning(error);
+            if (warning) return warning;
+        }
         const message = error && typeof error.message === 'string' ? error.message : '';
         if (/Billing portal returned an invalid store URL\. Please contact support\./i.test(message)) {
             return 'Billing portal returned an invalid store URL. Please contact support.';
@@ -826,6 +831,10 @@
         } catch (error) {
             console.error('[authAccountUi] manage subscription URL failed:', error);
             const message = getSubscriptionManagementErrorMessage(error);
+            const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+            if (rateLimitUi && typeof rateLimitUi.showRateLimitWarning === 'function') {
+                rateLimitUi.showRateLimitWarning(error);
+            }
             setAccountManagementMessage(message, 'error');
             setStatus(message, 'error');
         } finally {
@@ -863,9 +872,16 @@
             setStatus('Subscription renewal canceled.', 'success');
         } catch (error) {
             console.error('[authAccountUi] cancel subscription failed:', error);
-            const message = error && typeof error.message === 'string' && error.message
+            const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+            const rateLimitMessage = rateLimitUi && typeof rateLimitUi.getRateLimitWarning === 'function'
+                ? rateLimitUi.getRateLimitWarning(error)
+                : '';
+            if (rateLimitMessage && typeof rateLimitUi.showRateLimitWarning === 'function') {
+                rateLimitUi.showRateLimitWarning(error);
+            }
+            const message = rateLimitMessage || (error && typeof error.message === 'string' && error.message
                 ? error.message
-                : 'Subscription could not be canceled. Open the billing portal or contact support.';
+                : 'Subscription could not be canceled. Open the billing portal or contact support.');
             setAccountManagementMessage(message, 'error');
             setStatus(message, 'error');
         } finally {
@@ -909,11 +925,18 @@
             console.error('[authAccountUi] delete account failed:', error);
             const code = error && error.code ? String(error.code) : '';
             const errorMessage = error && typeof error.message === 'string' ? error.message : '';
-            const message = code.includes('failed-precondition') && /DELETE/i.test(errorMessage)
+            const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+            const rateLimitMessage = rateLimitUi && typeof rateLimitUi.getRateLimitWarning === 'function'
+                ? rateLimitUi.getRateLimitWarning(error)
+                : '';
+            if (rateLimitMessage && typeof rateLimitUi.showRateLimitWarning === 'function') {
+                rateLimitUi.showRateLimitWarning(error);
+            }
+            const message = rateLimitMessage || (code.includes('failed-precondition') && /DELETE/i.test(errorMessage)
                 ? 'Type DELETE to confirm account deletion.'
                 : /subscription|billing|Premium/i.test(errorMessage)
                     ? errorMessage
-                : 'Account deletion could not be completed. Please contact support.';
+                : 'Account deletion could not be completed. Please contact support.');
             setAccountManagementMessage(message, 'error');
             setStatus(message, 'error');
         } finally {

@@ -111,6 +111,40 @@ const CLIENT_ERROR_RATE_LIMIT = {
     envWindowKey: "BARK_RATE_LIMIT_CLIENT_ERROR_WINDOW_MS"
 };
 
+const RATE_LIMIT_DAY_MS = 24 * 60 * 60 * 1000;
+
+// User-facing, writable, or provider-backed callables that previously had no
+// durable request ceiling. Each action gets a short burst window plus a daily
+// budget. Values can be changed with environment variables without editing the
+// implementation (for example BARK_RATE_LIMIT_CREATE_CHECKOUT_SESSION_SHORT_MAX).
+const BOUNDED_CALLABLE_RATE_LIMITS = Object.freeze({
+    getPremiumRouteBurst: Object.freeze({ shortMax: 12, shortWindowMs: 10 * 60 * 1000 }),
+    getPremiumGeocodeBurst: Object.freeze({ shortMax: 30, shortWindowMs: 5 * 60 * 1000 }),
+    createCheckoutSession: Object.freeze({ shortMax: 5, shortWindowMs: 15 * 60 * 1000, dailyMax: 20 }),
+    restorePremiumPurchase: Object.freeze({ shortMax: 6, shortWindowMs: 15 * 60 * 1000, dailyMax: 30 }),
+    getCustomerPortalUrl: Object.freeze({ shortMax: 15, shortWindowMs: 60 * 60 * 1000, dailyMax: 60 }),
+    cancelPremiumSubscription: Object.freeze({ shortMax: 3, shortWindowMs: 60 * 60 * 1000, dailyMax: 5 }),
+    deleteAccount: Object.freeze({ shortMax: 2, shortWindowMs: 60 * 60 * 1000, dailyMax: 3 }),
+    syncLeaderboardScore: Object.freeze({ shortMax: 30, shortWindowMs: 10 * 60 * 1000, dailyMax: 120 }),
+    reportClientError: Object.freeze({ shortMax: 20, shortWindowMs: 60 * 60 * 1000, dailyMax: 50 })
+});
+
+const GLOBAL_CALLABLE_RATE_LIMITS = Object.freeze({
+    lemonApi: Object.freeze({ shortMax: 200, shortWindowMs: 5 * 60 * 1000, dailyMax: 5000 }),
+    leaderboardWrites: Object.freeze({ shortMax: 1000, shortWindowMs: 10 * 60 * 1000 }),
+    diagnosticWrites: Object.freeze({ shortMax: 2000, shortWindowMs: 60 * 60 * 1000 })
+});
+
+const CALLABLE_GLOBAL_RATE_LIMIT_SCOPE = Object.freeze({
+    createCheckoutSession: "lemonApi",
+    restorePremiumPurchase: "lemonApi",
+    getCustomerPortalUrl: "lemonApi",
+    cancelPremiumSubscription: "lemonApi",
+    deleteAccount: "lemonApi",
+    syncLeaderboardScore: "leaderboardWrites",
+    reportClientError: "diagnosticWrites"
+});
+
 const FUNCTION_FLAG_CONFIG = Object.freeze({
     getPremiumRoute: {
         envKey: "BARK_ENABLE_PREMIUM_ROUTE",
@@ -263,6 +297,137 @@ function parsePositiveInteger(value, fallback) {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function toRateLimitEnvPrefix(value) {
+    return String(value || "")
+        .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+        .replace(/[^a-zA-Z0-9]+/g, "_")
+        .toUpperCase();
+}
+
+function resolveBoundedRateLimitConfig(name, defaults, options = {}, overrideGroup = "callableRateLimits") {
+    if (!defaults) return null;
+    const env = options.env || process.env;
+    const overrides = options[overrideGroup] || {};
+    const override = overrides && typeof overrides[name] === "object" ? overrides[name] : {};
+    const prefix = `BARK_RATE_LIMIT_${toRateLimitEnvPrefix(name)}`;
+    return {
+        shortMax: parsePositiveInteger(
+            override.shortMax === undefined ? env[`${prefix}_SHORT_MAX`] : override.shortMax,
+            defaults.shortMax
+        ),
+        shortWindowMs: parsePositiveInteger(
+            override.shortWindowMs === undefined ? env[`${prefix}_SHORT_WINDOW_MS`] : override.shortWindowMs,
+            defaults.shortWindowMs
+        ),
+        dailyMax: defaults.dailyMax
+            ? parsePositiveInteger(
+                override.dailyMax === undefined ? env[`${prefix}_DAILY_MAX`] : override.dailyMax,
+                defaults.dailyMax
+            )
+            : null
+    };
+}
+
+function getRateLimitWindowState(stored, prefix, now, windowMs) {
+    const windowStart = Math.floor(now / windowMs) * windowMs;
+    const storedStart = Number(stored && stored[`${prefix}WindowStartMs`]);
+    const storedCount = Number(stored && stored[`${prefix}Count`]);
+    return {
+        windowStart,
+        windowEndsAt: windowStart + windowMs,
+        count: storedStart === windowStart && Number.isFinite(storedCount) ? Math.max(0, storedCount) : 0
+    };
+}
+
+function buildRateLimitCounterUpdate({ stored, config, now, identity }) {
+    const short = getRateLimitWindowState(stored, "short", now, config.shortWindowMs);
+    const daily = config.dailyMax
+        ? getRateLimitWindowState(stored, "daily", now, RATE_LIMIT_DAY_MS)
+        : null;
+    const blocked = [];
+    if (short.count >= config.shortMax) blocked.push(short.windowEndsAt);
+    if (daily && daily.count >= config.dailyMax) blocked.push(daily.windowEndsAt);
+    const retryAtMs = blocked.length ? Math.max(...blocked) : null;
+    const expiresAtMs = Math.max(short.windowEndsAt, daily ? daily.windowEndsAt : 0) + RATE_LIMIT_DAY_MS;
+
+    return {
+        retryAtMs,
+        value: {
+            ...identity,
+            shortWindowStartMs: short.windowStart,
+            shortCount: short.count + 1,
+            shortLimit: config.shortMax,
+            dailyWindowStartMs: daily ? daily.windowStart : null,
+            dailyCount: daily ? daily.count + 1 : null,
+            dailyLimit: daily ? config.dailyMax : null,
+            expiresAt: Timestamp.fromMillis(expiresAtMs),
+            updatedAt: FieldValue.serverTimestamp()
+        }
+    };
+}
+
+function makeBotRateLimitError(action, retryAtMs, scope = "user", now = Date.now()) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((retryAtMs - now) / 1000));
+    const retryAt = new Date(retryAtMs).toISOString();
+    return new functions.https.HttpsError(
+        "resource-exhausted",
+        `Are you a bot? Rate limit reached. Rate limit resets at ${retryAt}.`,
+        { action, scope, retryAfterSeconds, retryAt }
+    );
+}
+
+async function enforceBoundedCallableRateLimit(uid, action, options = {}) {
+    const userDefaults = BOUNDED_CALLABLE_RATE_LIMITS[action];
+    if (!userDefaults) return;
+    const userConfig = resolveBoundedRateLimitConfig(action, userDefaults, options);
+    const globalScope = CALLABLE_GLOBAL_RATE_LIMIT_SCOPE[action];
+    const globalDefaults = globalScope ? GLOBAL_CALLABLE_RATE_LIMITS[globalScope] : null;
+    const globalConfig = globalDefaults
+        ? resolveBoundedRateLimitConfig(globalScope, globalDefaults, options, "globalCallableRateLimits")
+        : null;
+    const db = options.rateLimitFirestore || options.firestore || admin.firestore();
+    if (!db || typeof db.runTransaction !== "function") {
+        throw new functions.https.HttpsError("internal", "Rate limit could not be verified.");
+    }
+
+    const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
+    const safeUid = encodeURIComponent(uid);
+    const userRef = db.collection("_callableRateLimits").doc(`${encodeURIComponent(action)}_${safeUid}`);
+    const globalRef = globalConfig
+        ? db.collection("_globalCallableRateLimits").doc(encodeURIComponent(globalScope))
+        : null;
+
+    await db.runTransaction(async transaction => {
+        const userSnapshot = await transaction.get(userRef);
+        const globalSnapshot = globalRef ? await transaction.get(globalRef) : null;
+        const userCounter = buildRateLimitCounterUpdate({
+            stored: userSnapshot && userSnapshot.exists ? userSnapshot.data() : {},
+            config: userConfig,
+            now,
+            identity: { uid, action, scope: "user" }
+        });
+        const globalCounter = globalConfig ? buildRateLimitCounterUpdate({
+            stored: globalSnapshot && globalSnapshot.exists ? globalSnapshot.data() : {},
+            config: globalConfig,
+            now,
+            identity: { actionGroup: globalScope, scope: "global" }
+        }) : null;
+
+        if (userCounter.retryAtMs) throw makeBotRateLimitError(action, userCounter.retryAtMs, "user", now);
+        if (globalCounter && globalCounter.retryAtMs) throw makeBotRateLimitError(action, globalCounter.retryAtMs, "global", now);
+
+        transaction.set(userRef, userCounter.value, { merge: true });
+        if (globalRef && globalCounter) transaction.set(globalRef, globalCounter.value, { merge: true });
+    });
+}
+
+async function enforceConfiguredCallableRateLimit(uid, action, options = {}) {
+    // Existing handler unit tests use deliberately tiny Firestore doubles. The
+    // limiter itself has dedicated tests; handler tests can opt in explicitly.
+    if (process.env.NODE_ENV === "test" && options.enforceCallableRateLimits !== true) return;
+    return enforceBoundedCallableRateLimit(uid, action, options);
+}
+
 function getPremiumCallableRateLimit(action, options = {}) {
     const defaults = PREMIUM_CALLABLE_RATE_LIMITS[action];
     if (!defaults) return null;
@@ -312,16 +477,7 @@ async function enforcePremiumCallableRateLimit(uid, action, options = {}) {
         const currentCount = snapshot.exists ? Number(snapshot.data().count || 0) : 0;
 
         if (currentCount >= limit.maxRequests) {
-            const retrySeconds = getRateLimitRetrySeconds(windowEndsAt, now);
-            throw new functions.https.HttpsError(
-                "resource-exhausted",
-                `${limit.message} Try again in ${retrySeconds} seconds.`,
-                {
-                    action,
-                    retryAfterSeconds: retrySeconds,
-                    retryAt: new Date(windowEndsAt).toISOString()
-                }
-            );
+            throw makeBotRateLimitError(action, windowEndsAt, "user", now);
         }
 
         transaction.set(ref, {
@@ -791,6 +947,7 @@ function calculateServerLeaderboardScore(userData) {
 
 async function handleSyncLeaderboardScore(requestOrData, context, options = {}) {
     const uid = requireAuthCallable(context);
+    await enforceConfiguredCallableRateLimit(uid, "syncLeaderboardScore", options);
     const db = options.firestore || admin.firestore();
     const userRef = db.collection("users").doc(uid);
     const leaderboardRef = db.collection("leaderboard").doc(uid);
@@ -884,10 +1041,17 @@ const ROUTE_MAX_COORDINATES = 40;
 const ROUTE_FALLBACK_GEOCODE_RADIUS_KM = 50;
 const ROUTE_FALLBACK_GEOCODE_SIZE = 10;
 const ROUTE_FALLBACK_CANDIDATE_LIMIT = 6;
+const ROUTE_FALLBACK_POINT_LIMIT = 4;
+const ROUTE_PROVIDER_ATTEMPT_LIMIT = 12;
 const ORS_RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
-const ORS_RETRY_MAX_ATTEMPTS = 4;
+const ORS_RETRY_MAX_ATTEMPTS = 2;
 const ORS_RETRY_BASE_DELAY_MS = 1500;
 const ORS_RETRY_MAX_DELAY_MS = 12000;
+const ORS_CIRCUIT_LIMITS = Object.freeze({
+    directions: Object.freeze({ shortMax: 32, shortWindowMs: 60 * 1000, dailyMax: 1600 }),
+    snap: Object.freeze({ shortMax: 80, shortWindowMs: 60 * 1000, dailyMax: 1600 }),
+    geocoding: Object.freeze({ shortMax: 80, shortWindowMs: 60 * 1000, dailyMax: 2400 })
+});
 
 function getCallablePayload(requestOrData) {
     return requestOrData && requestOrData.data ? requestOrData.data : requestOrData || {};
@@ -899,6 +1063,52 @@ function getOrsApiKey(options = {}) {
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
+}
+
+function createProviderAttemptBudget(maxAttempts = ROUTE_PROVIDER_ATTEMPT_LIMIT) {
+    const limit = Math.max(1, Math.floor(Number(maxAttempts) || ROUTE_PROVIDER_ATTEMPT_LIMIT));
+    let used = 0;
+    return {
+        get limit() { return limit; },
+        get used() { return used; },
+        get remaining() { return Math.max(0, limit - used); },
+        consume(endpoint, reserve = 0) {
+            const reserved = Math.max(0, Math.floor(Number(reserve) || 0));
+            if (used >= limit - reserved) {
+                throw new functions.https.HttpsError(
+                    "failed-precondition",
+                    "This route needs too much off-road recovery. Move or remove an off-road stop, then try again.",
+                    { reason: "route-recovery-budget", endpoint, attemptLimit: limit }
+                );
+            }
+            used += 1;
+            return used;
+        }
+    };
+}
+
+async function enforceOrsCircuitLimit(endpoint, options = {}) {
+    const defaults = ORS_CIRCUIT_LIMITS[endpoint];
+    if (!defaults) return;
+    if (process.env.NODE_ENV === "test" && options.enforceOrsCircuitLimits !== true) return;
+    const config = resolveBoundedRateLimitConfig(endpoint, defaults, options, "orsCircuitLimits");
+    const db = options.orsCircuitFirestore || options.firestore || admin.firestore();
+    if (!db || typeof db.runTransaction !== "function") {
+        throw new functions.https.HttpsError("internal", "Routing safety limit could not be verified.");
+    }
+    const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
+    const ref = db.collection("_orsCircuitLimits").doc(endpoint);
+    await db.runTransaction(async transaction => {
+        const snapshot = await transaction.get(ref);
+        const counter = buildRateLimitCounterUpdate({
+            stored: snapshot && snapshot.exists ? snapshot.data() : {},
+            config,
+            now,
+            identity: { endpoint, scope: "ors-global" }
+        });
+        if (counter.retryAtMs) throw makeBotRateLimitError(`ors-${endpoint}`, counter.retryAtMs, "global", now);
+        transaction.set(ref, counter.value, { merge: true });
+    });
 }
 
 function getHeaderValue(headers, headerName) {
@@ -958,6 +1168,10 @@ async function requestOrsWithRetry(requestFn, options = {}, endpoint = "other") 
 
     for (let attemptIndex = 0; attemptIndex < maxAttempts; attemptIndex += 1) {
         const attemptStartedAt = Date.now();
+        if (options.providerAttemptBudget && typeof options.providerAttemptBudget.consume === "function") {
+            options.providerAttemptBudget.consume(endpoint, options.providerAttemptReserve);
+        }
+        await enforceOrsCircuitLimit(endpoint, options);
         try {
             const response = await requestFn();
             const providerDurationMs = Date.now() - attemptStartedAt;
@@ -1212,6 +1426,23 @@ async function snapRouteCoordinates(coordinates, apiKey, options = {}) {
         }, options);
         const snapped = getSnappedRouteLocations(coordinates, response.data);
         const waypoints = normalizeRouteWaypoints(options.waypoints, coordinates);
+        const unresolvedIndexes = snapped
+            .map((coordinate, index) => coordinate ? null : index)
+            .filter(index => index !== null);
+        const fallbackPointLimit = Number.isFinite(Number(options.routeFallbackPointLimit))
+            ? Math.max(0, Math.floor(Number(options.routeFallbackPointLimit)))
+            : ROUTE_FALLBACK_POINT_LIMIT;
+        if (unresolvedIndexes.length > fallbackPointLimit) {
+            throw new functions.https.HttpsError(
+                "failed-precondition",
+                `This route has ${unresolvedIndexes.length} off-road stops; the safe recovery limit is ${fallbackPointLimit}. Move or remove an off-road stop, then try again.`,
+                {
+                    reason: "too-many-off-road-stops",
+                    unresolvedWaypointIndexes: unresolvedIndexes.slice(0, fallbackPointLimit + 1),
+                    fallbackPointLimit
+                }
+            );
+        }
 
         for (let index = 0; index < snapped.length; index += 1) {
             if (snapped[index]) continue;
@@ -1224,6 +1455,7 @@ async function snapRouteCoordinates(coordinates, apiKey, options = {}) {
                     options
                 );
             } catch (error) {
+                if (error instanceof functions.https.HttpsError) throw error;
                 console.warn("[routing] ORS fallback geocode failed; keeping original waypoint coordinate.", {
                     waypoint: waypoints[index] && waypoints[index].name,
                     message: error && error.message ? error.message : String(error)
@@ -1233,6 +1465,7 @@ async function snapRouteCoordinates(coordinates, apiKey, options = {}) {
 
         return coordinates.map((coordinate, index) => snapped[index] || coordinate);
     } catch (error) {
+        if (error instanceof functions.https.HttpsError) throw error;
         console.warn("[routing] ORS snap failed; falling back to original waypoint coordinates.", {
             message: error && error.message ? error.message : String(error)
         });
@@ -1976,6 +2209,7 @@ async function getCurrentStoredEntitlement(db, uid) {
 async function handleRestorePremiumPurchase(requestOrData, context, options = {}) {
     void requestOrData;
     const uid = requireVerifiedEmailCallable(context);
+    await enforceConfiguredCallableRateLimit(uid, "restorePremiumPurchase", options);
     const token = context && context.auth && context.auth.token ? context.auth.token : {};
     const email = cleanOptionalString(token.email);
     if (!email) {
@@ -2043,6 +2277,7 @@ async function handleRestorePremiumPurchase(requestOrData, context, options = {}
 async function handleCreateCheckoutSession(requestOrData, context, options = {}) {
     requireFunctionFlagEnabled("createCheckoutSession", options);
     const uid = requireVerifiedEmailCallable(context);
+    await enforceConfiguredCallableRateLimit(uid, "createCheckoutSession", options);
     const config = getLemonSqueezyConfig(options);
     const token = context && context.auth && context.auth.token ? context.auth.token : {};
     const tier = getCheckoutTierFromRequest(requestOrData);
@@ -2082,6 +2317,7 @@ async function handleCreateCheckoutSession(requestOrData, context, options = {})
 
 async function handleGetCustomerPortalUrl(requestOrData, context, options = {}) {
     const uid = requireAuthCallable(context);
+    await enforceConfiguredCallableRateLimit(uid, "getCustomerPortalUrl", options);
     const db = options.firestore || admin.firestore();
     const token = context && context.auth && context.auth.token ? context.auth.token : {};
     const email = cleanOptionalString(token.email);
@@ -2888,6 +3124,7 @@ async function cancelLemonSqueezySubscriptionBeforeAccountDeletion({ uid, userDa
 async function handleCancelPremiumSubscription(requestOrData, context, options = {}) {
     void requestOrData;
     const uid = requireAuthCallable(context);
+    await enforceConfiguredCallableRateLimit(uid, "cancelPremiumSubscription", options);
     const db = options.firestore || admin.firestore();
     const userRef = db.collection("users").doc(uid);
     const userDoc = userRef && typeof userRef.get === "function" ? await userRef.get() : null;
@@ -2939,6 +3176,7 @@ async function handleDeleteAccount(requestOrData, context, options = {}) {
     if (!data || data.confirmation !== "DELETE") {
         throw new functions.https.HttpsError("failed-precondition", "Type DELETE to confirm account deletion.");
     }
+    await enforceConfiguredCallableRateLimit(uid, "deleteAccount", options);
 
     const db = options.firestore || admin.firestore();
     const auth = options.auth || admin.auth();
@@ -3185,6 +3423,7 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
     const accessStartedAt = Date.now();
     // Keep the limiter first so blocked abuse never spends an entitlement read.
     await enforcePremiumCallableRateLimit(uid, "getPremiumRoute", options);
+    await enforceConfiguredCallableRateLimit(uid, "getPremiumRouteBurst", options);
     await requirePremiumCallable(context, "getPremiumRoute", options);
     const accessDurationMs = Date.now() - accessStartedAt;
 
@@ -3205,6 +3444,9 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
     }
 
     const post = options.axiosPost || axios.post;
+    const providerAttemptBudget = options.providerAttemptBudget || createProviderAttemptBudget(
+        options.routeProviderAttemptLimit
+    );
     const requestConfig = {
         headers: {
             "Authorization": apiKey,
@@ -3212,14 +3454,18 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
             "Accept": "application/json, application/geo+json; charset=utf-8"
         }
     };
-    const requestDirections = routeCoordinates => {
+    const requestDirections = (routeCoordinates, requestOptions = {}) => {
         const body = {
             coordinates: routeCoordinates,
             geometry: true,
             instructions: true
         };
         if (Array.isArray(radiuses) && radiuses.length === coordinates.length) body.radiuses = radiuses;
-        return postOrsWithRetry(post, ORS_DIRECTIONS_URL, body, requestConfig, options);
+        return postOrsWithRetry(post, ORS_DIRECTIONS_URL, body, requestConfig, {
+            ...options,
+            ...requestOptions,
+            providerAttemptBudget
+        });
     };
 
     try {
@@ -3232,12 +3478,14 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
 
             const snappedCoordinates = await snapRouteCoordinates(coordinates, apiKey, {
                 ...options,
+                providerAttemptBudget,
+                providerAttemptReserve: 1,
                 waypoints: normalizeRouteWaypoints(payload.waypoints, coordinates)
             });
             if (!routeRequestStrategy.routeCoordinatesChanged(coordinates, snappedCoordinates)) throw initialError;
 
             console.info("[routing] Retrying an off-road route with recovered coordinates.");
-            response = await requestDirections(snappedCoordinates);
+            response = await requestDirections(snappedCoordinates, { providerAttemptReserve: 0 });
         }
         const providerDurationMs = Date.now() - providerStartedAt;
         const compactStartedAt = Date.now();
@@ -3250,18 +3498,19 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
             compactResponse: options.compactResponse === true,
             accessDurationMs,
             providerDurationMs,
+            providerAttemptCount: providerAttemptBudget.used,
             compactDurationMs,
             totalDurationMs: Date.now() - routeStartedAt
         });
         return result;
     } catch (error) {
+        if (error instanceof functions.https.HttpsError) throw error;
         const status = getOrsErrorStatus(error);
         console.error("Networking/ORS Error:", error.message, { status });
         if (status === 429) {
-            throw new functions.https.HttpsError(
-                "resource-exhausted",
-                "Routing is busy. Please try again in a minute."
-            );
+            const retryAfterMs = parseRetryAfterMs(getHeaderValue(error && error.response && error.response.headers, "retry-after"));
+            const retryAtMs = Date.now() + Math.max(60 * 1000, retryAfterMs || 0);
+            throw makeBotRateLimitError("ors-provider", retryAtMs, "global");
         }
         throw new functions.https.HttpsError("internal", "Failed to calculate route.");
     }
@@ -3295,6 +3544,7 @@ async function handlePremiumGeocode(requestOrData, context, options = {}) {
     requireFunctionFlagEnabled("getPremiumGeocode", options);
     const uid = requireVerifiedEmailCallable(context);
     await enforcePremiumCallableRateLimit(uid, "getPremiumGeocode", options);
+    await enforceConfiguredCallableRateLimit(uid, "getPremiumGeocodeBurst", options);
     await requirePremiumCallable(context, "getPremiumGeocode", options);
 
     const payload = getCallablePayload(requestOrData);
@@ -3327,6 +3577,11 @@ async function handlePremiumGeocode(requestOrData, context, options = {}) {
         return response.data;
     } catch (error) {
         console.error("Networking/ORS Geocode Error:", error.message);
+        if (error instanceof functions.https.HttpsError) throw error;
+        if (getOrsErrorStatus(error) === 429) {
+            const retryAfterMs = parseRetryAfterMs(getHeaderValue(error && error.response && error.response.headers, "retry-after"));
+            throw makeBotRateLimitError("ors-geocoding", Date.now() + Math.max(60 * 1000, retryAfterMs || 0), "global");
+        }
         throw new functions.https.HttpsError("internal", "Failed to perform geocode.");
     }
 }
@@ -3628,10 +3883,10 @@ function wrapCallableWithPaymentAlert(fnName, handler) {
 
 // ===== CLIENT-SIDE ERROR REPORTING =====
 // The browser app reports uncaught errors, unhandled promise rejections, and UI
-// freezes here. Every report is written to the "clientErrors" collection (the
-// durable log); an alert email is sent only while under the per-user cap so a
-// single broken screen can't flood the inbox. Reporting must never disrupt the
-// app, so persistence and email failures are swallowed.
+// freezes here. Reports within the durable write budget are written to the
+// "clientErrors" collection; alert email has a second, tighter cap so a single
+// broken screen can't flood the inbox. Persistence and delivery failures are
+// swallowed, while an exceeded durable budget returns its reset timestamp.
 
 const CLIENT_ERROR_TYPES = new Set(["error", "unhandledrejection", "freeze", "boot", "other"]);
 const CLIENT_ERROR_SEVERITIES = new Set(["routine", "noticeable", "important", "severe", "extreme"]);
@@ -3720,6 +3975,7 @@ async function clientErrorEmailAllowed(uid, options = {}) {
 
 async function handleReportClientError(requestOrData, context, options = {}) {
     const uid = requireAuthCallable(context);
+    await enforceConfiguredCallableRateLimit(uid, "reportClientError", options);
     const payload = getCallablePayload(requestOrData);
     const token = getCallableAuthToken(context);
     const db = options.firestore || admin.firestore();
@@ -4004,7 +4260,7 @@ function postDigestToDiscord(summary, options = {}) {
 initPaymentAlertEmailSender();
 
 exports.getPremiumRoute = functions
-    .runWith({ secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], timeoutSeconds: 120 })
+    .runWith({ secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], timeoutSeconds: 120, maxInstances: 3 })
     .https.onCall(wrapCallableWithPaymentAlert("getPremiumRoute", handlePremiumRoute));
 
 // Additive beta path: production clients stay on getPremiumRoute until the
@@ -4015,16 +4271,17 @@ exports.getPremiumRouteCompact = functions
     .runWith({
         secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"],
         timeoutSeconds: 120,
-        minInstances: 1
+        minInstances: 1,
+        maxInstances: 5
     })
     .https.onCall(wrapCallableWithPaymentAlert("getPremiumRouteCompact", handlePremiumRouteCompact));
 
 exports.getPremiumGeocode = functions
-    .runWith({ secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
+    .runWith({ secrets: ["ORS_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 5 })
     .https.onCall(wrapCallableWithPaymentAlert("getPremiumGeocode", handlePremiumGeocode));
 
 exports.createCheckoutSession = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 5 })
     .https.onCall(wrapCallableWithPaymentAlert("createCheckoutSession", handleCreateCheckoutSession));
 
 exports.redeemAccessOrPromoCode = functions
@@ -4032,39 +4289,40 @@ exports.redeemAccessOrPromoCode = functions
     .https.onCall(wrapCallableWithPaymentAlert("redeemAccessOrPromoCode", handleRedeemAccessOrPromoCode));
 
 exports.getCustomerPortalUrl = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 5 })
     .https.onCall(wrapCallableWithPaymentAlert("getCustomerPortalUrl", handleGetCustomerPortalUrl));
 
 exports.restorePremiumPurchase = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 5 })
     .https.onCall(wrapCallableWithPaymentAlert("restorePremiumPurchase", handleRestorePremiumPurchase));
 
 exports.cancelPremiumSubscription = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 3 })
     .https.onCall(wrapCallableWithPaymentAlert("cancelPremiumSubscription", handleCancelPremiumSubscription));
 
 exports.lemonSqueezyWebhook = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 10 })
     .https.onRequest(async (req, res) => {
         return handleLemonSqueezyWebhook(req, res);
     });
 
 exports.syncLeaderboardScore = functions
-    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
+    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 10 })
     .https.onCall(wrapCallableWithPaymentAlert("syncLeaderboardScore", handleSyncLeaderboardScore));
 
 exports.submitFeedback = functions
-    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
+    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 5 })
     .https.onCall(wrapCallableWithPaymentAlert("submitFeedback", handleSubmitFeedback));
 
 exports.deleteAccount = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 3 })
     .https.onCall(wrapCallableWithPaymentAlert("deleteAccount", handleDeleteAccount));
 
-// Client-side error/freeze reports from the browser app. Handler swallows its
-// own failures and always returns ok, so it is intentionally not alert-wrapped.
+// Client-side error/freeze reports from the browser app. Internal persistence
+// failures are swallowed, but the durable write limiter may return a reset time.
+// It remains intentionally separate from payment-failure alert wrapping.
 exports.reportClientError = functions
-    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"] })
+    .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 5 })
     .https.onCall(async (requestOrData, context) => {
         return handleReportClientError(requestOrData, context);
     });
@@ -4079,6 +4337,10 @@ if (process.env.NODE_ENV === "test") {
         requireVerifiedEmailCallable,
         getPremiumCallableRateLimit,
         enforcePremiumCallableRateLimit,
+        resolveBoundedRateLimitConfig,
+        enforceBoundedCallableRateLimit,
+        enforceOrsCircuitLimit,
+        createProviderAttemptBudget,
         getFeedbackRateLimit,
         enforceFeedbackRateLimit,
         enforceAnonymousFeedbackRateLimit,
@@ -4096,6 +4358,7 @@ if (process.env.NODE_ENV === "test") {
         normalizeRouteCoordinates,
         normalizeRouteWaypoints,
         extractSnappedRouteCoordinates,
+        snapRouteCoordinates,
         getOrsEndpointName: orsTelemetry.getOrsEndpointName,
         getOrsQuotaObservation: orsTelemetry.getOrsQuotaObservation,
         requestOrsWithRetry,

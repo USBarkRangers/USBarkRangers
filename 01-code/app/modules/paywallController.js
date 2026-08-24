@@ -1053,9 +1053,16 @@
                 error,
                 `payment:checkout-start:${error && error.code ? error.code : 'unknown'}`
             );
-            const message = error && error.message && /paused|disabled|unavailable/i.test(error.message)
+            const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+            const rateLimitMessage = rateLimitUi && typeof rateLimitUi.getRateLimitWarning === 'function'
+                ? rateLimitUi.getRateLimitWarning(error)
+                : '';
+            if (rateLimitMessage && typeof rateLimitUi.showRateLimitWarning === 'function') {
+                rateLimitUi.showRateLimitWarning(error);
+            }
+            const message = rateLimitMessage || (error && error.message && /paused|disabled|unavailable/i.test(error.message)
                 ? error.message
-                : 'Checkout could not start. Please try again in a moment or contact support.';
+                : 'Checkout could not start. Please try again in a moment or contact support.');
             checkoutInFlight = false;
             restoreStatusMessage = message;
             renderCurrentState();
@@ -1107,7 +1114,14 @@
             restoreStatusMessage = data.message || 'No active Lemon Squeezy subscription was found yet for this signed-in email. Wait a minute, then recheck before starting another checkout.';
         } catch (error) {
             console.error('[paywallController] restorePremiumPurchase failed:', error);
-            restoreStatusMessage = 'Premium restore could not complete. Please try again in a moment or contact support with the email on this account.';
+            const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+            const rateLimitMessage = rateLimitUi && typeof rateLimitUi.getRateLimitWarning === 'function'
+                ? rateLimitUi.getRateLimitWarning(error)
+                : '';
+            if (rateLimitMessage && typeof rateLimitUi.showRateLimitWarning === 'function') {
+                rateLimitUi.showRateLimitWarning(error);
+            }
+            restoreStatusMessage = rateLimitMessage || 'Premium restore could not complete. Please try again in a moment or contact support with the email on this account.';
         } finally {
             restorePurchaseInFlight = false;
             renderCurrentState();

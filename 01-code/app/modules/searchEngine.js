@@ -1122,6 +1122,10 @@ async function executeGeocode(query, targetType) {
         renderGeocodeResults(query, targetType, data);
     } catch (err) {
         console.error('Search geocode failed:', err);
+        const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+        if (rateLimitUi && typeof rateLimitUi.showRateLimitWarning === 'function' && rateLimitUi.showRateLimitWarning(err)) {
+            return;
+        }
         alert(err && err.code === 'launch-disabled'
             ? getPremiumGeocodeDisabledMessage()
             : "Search service unavailable.");

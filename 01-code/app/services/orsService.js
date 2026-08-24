@@ -30,9 +30,15 @@
         routeBlockedUntilMs = Number.isFinite(retryAtMs)
             ? retryAtMs
             : Date.now() + (Number.isFinite(retryAfterSeconds) ? Math.max(1, retryAfterSeconds) * 1000 : 60 * 1000);
-        routeBlockedMessage = error && error.message
-            ? error.message
-            : 'Route generation is temporarily limited. Please try again shortly.';
+        const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+        routeBlockedMessage = rateLimitUi && typeof rateLimitUi.getRateLimitWarning === 'function'
+            ? rateLimitUi.getRateLimitWarning(error)
+            : '';
+        if (!routeBlockedMessage) {
+            routeBlockedMessage = error && error.message
+                ? error.message
+                : 'Route generation is temporarily limited. Please try again shortly.';
+        }
     }
 
     function getActiveRouteRateLimitError() {
@@ -122,6 +128,10 @@
             return result.data;
         } catch (error) {
             console.error('ORS geocode request failed.', error);
+            const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+            if (rateLimitUi && typeof rateLimitUi.showRateLimitWarning === 'function') {
+                rateLimitUi.showRateLimitWarning(error);
+            }
             throw error;
         }
     }
@@ -164,6 +174,10 @@
                 : await loadRoute();
         } catch (error) {
             rememberRouteRateLimit(error);
+            const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+            if (rateLimitUi && typeof rateLimitUi.showRateLimitWarning === 'function') {
+                rateLimitUi.showRateLimitWarning(error);
+            }
             console.error('ORS directions request failed.', error);
             throw error;
         }

@@ -391,6 +391,10 @@ async function syncScoreToLeaderboard() {
         }
     } catch (error) {
         console.warn('[leaderboardEngine] Server leaderboard sync failed; local profile rendering will continue.', error);
+        const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+        if (rateLimitUi && typeof rateLimitUi.showRateLimitWarning === 'function') {
+            rateLimitUi.showRateLimitWarning(error);
+        }
     } finally {
         _leaderboardSyncInProgress = false;
         scheduleQueuedLeaderboardSync();

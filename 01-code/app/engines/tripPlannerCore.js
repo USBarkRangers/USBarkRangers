@@ -304,6 +304,11 @@ function isRouteRateLimitError(error) {
 }
 
 function formatRouteRateLimitReset(error) {
+    const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+    if (rateLimitUi && typeof rateLimitUi.getRateLimitWarning === 'function') {
+        const warning = rateLimitUi.getRateLimitWarning(error);
+        if (warning) return warning;
+    }
     const details = error && error.details && typeof error.details === 'object' ? error.details : {};
     const retryAtMs = Date.parse(details.retryAt || '');
     if (Number.isFinite(retryAtMs)) {
@@ -1682,6 +1687,10 @@ function initTripPlanner() {
 
             if (routeRateLimitError) {
                 const resetDetail = formatRouteRateLimitReset(routeRateLimitError);
+                const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+                if (rateLimitUi && typeof rateLimitUi.showRateLimitWarning === 'function') {
+                    rateLimitUi.showRateLimitWarning(routeRateLimitError);
+                }
                 setRouteTelemetryStatus(
                     'slow',
                     'Route limit reached.',

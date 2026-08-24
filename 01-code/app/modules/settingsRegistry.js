@@ -80,7 +80,7 @@ window.BARK.SETTINGS_REGISTRY = Object.freeze({
         cloudKey: 'lowGfxEnabled',
         defaultValue: false,
         label: 'Low Graphics Mode',
-        description: 'Master speed mode for older phones. Enables the safe performance options below.',
+        description: '2–5× faster map actions in testing. Removes effects and limits off-screen pin work.',
         levelLabel: 'Level 1',
         elementId: 'low-gfx-toggle',
         section: 'performance',

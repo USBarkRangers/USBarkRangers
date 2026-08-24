@@ -4,13 +4,17 @@ const { describe, it } = require("node:test");
 process.env.NODE_ENV = "test";
 
 const {
-    __test: {
-        enforceBoundedCallableRateLimit,
-        enforceOrsCircuitLimit,
-        createProviderAttemptBudget,
-        snapRouteCoordinates
-    }
-} = require("../index.js");
+    BOUNDED_CALLABLE_RATE_LIMITS,
+    GLOBAL_CALLABLE_RATE_LIMITS,
+    enforceBoundedCallableRateLimit
+} = require("../rateLimits.js");
+const {
+    ROUTE_PROVIDER_ATTEMPT_LIMIT,
+    ORS_CIRCUIT_LIMITS,
+    enforceOrsCircuitLimit,
+    createProviderAttemptBudget
+} = require("../orsSafety.js");
+const { __test: { snapRouteCoordinates } } = require("../index.js");
 
 function errorCode(error) {
     return String(error && error.code || "").replace(/^functions\//, "");
@@ -52,6 +56,24 @@ function makeCounterFirestore() {
 }
 
 describe("bounded callable rate limits", () => {
+    it("keeps the deployed route, provider, and shared ceilings unchanged", () => {
+        assert.deepEqual(BOUNDED_CALLABLE_RATE_LIMITS.getPremiumRouteBurst, {
+            shortMax: 12,
+            shortWindowMs: 10 * 60 * 1000
+        });
+        assert.deepEqual(GLOBAL_CALLABLE_RATE_LIMITS.lemonApi, {
+            shortMax: 200,
+            shortWindowMs: 5 * 60 * 1000,
+            dailyMax: 5000
+        });
+        assert.equal(ROUTE_PROVIDER_ATTEMPT_LIMIT, 12);
+        assert.deepEqual(ORS_CIRCUIT_LIMITS.directions, {
+            shortMax: 32,
+            shortWindowMs: 60 * 1000,
+            dailyMax: 1600
+        });
+    });
+
     it("blocks the third call in a two-call short window with an exact reset timestamp", async () => {
         const firestore = makeCounterFirestore();
         const now = Date.parse("2026-08-24T20:01:00.000Z");

@@ -14,6 +14,21 @@ const routeRequestStrategy = require("./routeRequestStrategy.js");
 const { ORS_ENDPOINTS } = require("./orsEndpoints.js");
 const orsTelemetry = require("./orsTelemetry.js");
 const { compactRouteResponse } = require("./routeResponseCompact.js");
+const {
+    parsePositiveInteger,
+    makeBotRateLimitError,
+    enforceConfiguredCallableRateLimit,
+    getRateLimitRetrySeconds,
+    enforcePremiumCallableRateLimit
+} = require("./rateLimits.js");
+const {
+    createProviderAttemptBudget,
+    getHeaderValue,
+    parseRetryAfterMs,
+    getOrsErrorStatus,
+    getOrsWithRetry,
+    postOrsWithRetry
+} = require("./orsSafety.js");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -52,23 +67,6 @@ const ADMIN_CALLABLE_OPTIONS = {};
 const ADMIN_RATE_LIMITS = {
     extractParkData: { maxRequests: 20, windowMs: 60 * 1000 },
     syncToSpreadsheet: { maxRequests: 10, windowMs: 60 * 1000 }
-};
-
-const PREMIUM_CALLABLE_RATE_LIMITS = {
-    getPremiumRoute: {
-        maxRequests: 30,
-        windowMs: 60 * 60 * 1000,
-        envMaxKey: "BARK_RATE_LIMIT_PREMIUM_ROUTE_MAX",
-        envWindowKey: "BARK_RATE_LIMIT_PREMIUM_ROUTE_WINDOW_MS",
-        message: "Route generation limit reached. Please try again shortly."
-    },
-    getPremiumGeocode: {
-        maxRequests: 120,
-        windowMs: 60 * 60 * 1000,
-        envMaxKey: "BARK_RATE_LIMIT_PREMIUM_GEOCODE_MAX",
-        envWindowKey: "BARK_RATE_LIMIT_PREMIUM_GEOCODE_WINDOW_MS",
-        message: "Global town search limit reached. Please try again shortly."
-    }
 };
 
 const FEEDBACK_RATE_LIMIT = {
@@ -110,40 +108,6 @@ const CLIENT_ERROR_RATE_LIMIT = {
     envMaxKey: "BARK_RATE_LIMIT_CLIENT_ERROR_MAX",
     envWindowKey: "BARK_RATE_LIMIT_CLIENT_ERROR_WINDOW_MS"
 };
-
-const RATE_LIMIT_DAY_MS = 24 * 60 * 60 * 1000;
-
-// User-facing, writable, or provider-backed callables that previously had no
-// durable request ceiling. Each action gets a short burst window plus a daily
-// budget. Values can be changed with environment variables without editing the
-// implementation (for example BARK_RATE_LIMIT_CREATE_CHECKOUT_SESSION_SHORT_MAX).
-const BOUNDED_CALLABLE_RATE_LIMITS = Object.freeze({
-    getPremiumRouteBurst: Object.freeze({ shortMax: 12, shortWindowMs: 10 * 60 * 1000 }),
-    getPremiumGeocodeBurst: Object.freeze({ shortMax: 30, shortWindowMs: 5 * 60 * 1000 }),
-    createCheckoutSession: Object.freeze({ shortMax: 5, shortWindowMs: 15 * 60 * 1000, dailyMax: 20 }),
-    restorePremiumPurchase: Object.freeze({ shortMax: 6, shortWindowMs: 15 * 60 * 1000, dailyMax: 30 }),
-    getCustomerPortalUrl: Object.freeze({ shortMax: 15, shortWindowMs: 60 * 60 * 1000, dailyMax: 60 }),
-    cancelPremiumSubscription: Object.freeze({ shortMax: 3, shortWindowMs: 60 * 60 * 1000, dailyMax: 5 }),
-    deleteAccount: Object.freeze({ shortMax: 2, shortWindowMs: 60 * 60 * 1000, dailyMax: 3 }),
-    syncLeaderboardScore: Object.freeze({ shortMax: 30, shortWindowMs: 10 * 60 * 1000, dailyMax: 120 }),
-    reportClientError: Object.freeze({ shortMax: 20, shortWindowMs: 60 * 60 * 1000, dailyMax: 50 })
-});
-
-const GLOBAL_CALLABLE_RATE_LIMITS = Object.freeze({
-    lemonApi: Object.freeze({ shortMax: 200, shortWindowMs: 5 * 60 * 1000, dailyMax: 5000 }),
-    leaderboardWrites: Object.freeze({ shortMax: 1000, shortWindowMs: 10 * 60 * 1000 }),
-    diagnosticWrites: Object.freeze({ shortMax: 2000, shortWindowMs: 60 * 60 * 1000 })
-});
-
-const CALLABLE_GLOBAL_RATE_LIMIT_SCOPE = Object.freeze({
-    createCheckoutSession: "lemonApi",
-    restorePremiumPurchase: "lemonApi",
-    getCustomerPortalUrl: "lemonApi",
-    cancelPremiumSubscription: "lemonApi",
-    deleteAccount: "lemonApi",
-    syncLeaderboardScore: "leaderboardWrites",
-    reportClientError: "diagnosticWrites"
-});
 
 const FUNCTION_FLAG_CONFIG = Object.freeze({
     getPremiumRoute: {
@@ -290,207 +254,6 @@ function requireVerifiedEmailCallable(context) {
         );
     }
     return uid;
-}
-
-function parsePositiveInteger(value, fallback) {
-    const parsed = Number.parseInt(value, 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function toRateLimitEnvPrefix(value) {
-    return String(value || "")
-        .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-        .replace(/[^a-zA-Z0-9]+/g, "_")
-        .toUpperCase();
-}
-
-function resolveBoundedRateLimitConfig(name, defaults, options = {}, overrideGroup = "callableRateLimits") {
-    if (!defaults) return null;
-    const env = options.env || process.env;
-    const overrides = options[overrideGroup] || {};
-    const override = overrides && typeof overrides[name] === "object" ? overrides[name] : {};
-    const prefix = `BARK_RATE_LIMIT_${toRateLimitEnvPrefix(name)}`;
-    return {
-        shortMax: parsePositiveInteger(
-            override.shortMax === undefined ? env[`${prefix}_SHORT_MAX`] : override.shortMax,
-            defaults.shortMax
-        ),
-        shortWindowMs: parsePositiveInteger(
-            override.shortWindowMs === undefined ? env[`${prefix}_SHORT_WINDOW_MS`] : override.shortWindowMs,
-            defaults.shortWindowMs
-        ),
-        dailyMax: defaults.dailyMax
-            ? parsePositiveInteger(
-                override.dailyMax === undefined ? env[`${prefix}_DAILY_MAX`] : override.dailyMax,
-                defaults.dailyMax
-            )
-            : null
-    };
-}
-
-function getRateLimitWindowState(stored, prefix, now, windowMs) {
-    const windowStart = Math.floor(now / windowMs) * windowMs;
-    const storedStart = Number(stored && stored[`${prefix}WindowStartMs`]);
-    const storedCount = Number(stored && stored[`${prefix}Count`]);
-    return {
-        windowStart,
-        windowEndsAt: windowStart + windowMs,
-        count: storedStart === windowStart && Number.isFinite(storedCount) ? Math.max(0, storedCount) : 0
-    };
-}
-
-function buildRateLimitCounterUpdate({ stored, config, now, identity }) {
-    const short = getRateLimitWindowState(stored, "short", now, config.shortWindowMs);
-    const daily = config.dailyMax
-        ? getRateLimitWindowState(stored, "daily", now, RATE_LIMIT_DAY_MS)
-        : null;
-    const blocked = [];
-    if (short.count >= config.shortMax) blocked.push(short.windowEndsAt);
-    if (daily && daily.count >= config.dailyMax) blocked.push(daily.windowEndsAt);
-    const retryAtMs = blocked.length ? Math.max(...blocked) : null;
-    const expiresAtMs = Math.max(short.windowEndsAt, daily ? daily.windowEndsAt : 0) + RATE_LIMIT_DAY_MS;
-
-    return {
-        retryAtMs,
-        value: {
-            ...identity,
-            shortWindowStartMs: short.windowStart,
-            shortCount: short.count + 1,
-            shortLimit: config.shortMax,
-            dailyWindowStartMs: daily ? daily.windowStart : null,
-            dailyCount: daily ? daily.count + 1 : null,
-            dailyLimit: daily ? config.dailyMax : null,
-            expiresAt: Timestamp.fromMillis(expiresAtMs),
-            updatedAt: FieldValue.serverTimestamp()
-        }
-    };
-}
-
-function makeBotRateLimitError(action, retryAtMs, scope = "user", now = Date.now()) {
-    const retryAfterSeconds = Math.max(1, Math.ceil((retryAtMs - now) / 1000));
-    const retryAt = new Date(retryAtMs).toISOString();
-    return new functions.https.HttpsError(
-        "resource-exhausted",
-        `Are you a bot? Rate limit reached. Rate limit resets at ${retryAt}.`,
-        { action, scope, retryAfterSeconds, retryAt }
-    );
-}
-
-async function enforceBoundedCallableRateLimit(uid, action, options = {}) {
-    const userDefaults = BOUNDED_CALLABLE_RATE_LIMITS[action];
-    if (!userDefaults) return;
-    const userConfig = resolveBoundedRateLimitConfig(action, userDefaults, options);
-    const globalScope = CALLABLE_GLOBAL_RATE_LIMIT_SCOPE[action];
-    const globalDefaults = globalScope ? GLOBAL_CALLABLE_RATE_LIMITS[globalScope] : null;
-    const globalConfig = globalDefaults
-        ? resolveBoundedRateLimitConfig(globalScope, globalDefaults, options, "globalCallableRateLimits")
-        : null;
-    const db = options.rateLimitFirestore || options.firestore || admin.firestore();
-    if (!db || typeof db.runTransaction !== "function") {
-        throw new functions.https.HttpsError("internal", "Rate limit could not be verified.");
-    }
-
-    const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
-    const safeUid = encodeURIComponent(uid);
-    const userRef = db.collection("_callableRateLimits").doc(`${encodeURIComponent(action)}_${safeUid}`);
-    const globalRef = globalConfig
-        ? db.collection("_globalCallableRateLimits").doc(encodeURIComponent(globalScope))
-        : null;
-
-    await db.runTransaction(async transaction => {
-        const userSnapshot = await transaction.get(userRef);
-        const globalSnapshot = globalRef ? await transaction.get(globalRef) : null;
-        const userCounter = buildRateLimitCounterUpdate({
-            stored: userSnapshot && userSnapshot.exists ? userSnapshot.data() : {},
-            config: userConfig,
-            now,
-            identity: { uid, action, scope: "user" }
-        });
-        const globalCounter = globalConfig ? buildRateLimitCounterUpdate({
-            stored: globalSnapshot && globalSnapshot.exists ? globalSnapshot.data() : {},
-            config: globalConfig,
-            now,
-            identity: { actionGroup: globalScope, scope: "global" }
-        }) : null;
-
-        if (userCounter.retryAtMs) throw makeBotRateLimitError(action, userCounter.retryAtMs, "user", now);
-        if (globalCounter && globalCounter.retryAtMs) throw makeBotRateLimitError(action, globalCounter.retryAtMs, "global", now);
-
-        transaction.set(userRef, userCounter.value, { merge: true });
-        if (globalRef && globalCounter) transaction.set(globalRef, globalCounter.value, { merge: true });
-    });
-}
-
-async function enforceConfiguredCallableRateLimit(uid, action, options = {}) {
-    // Existing handler unit tests use deliberately tiny Firestore doubles. The
-    // limiter itself has dedicated tests; handler tests can opt in explicitly.
-    if (process.env.NODE_ENV === "test" && options.enforceCallableRateLimits !== true) return;
-    return enforceBoundedCallableRateLimit(uid, action, options);
-}
-
-function getPremiumCallableRateLimit(action, options = {}) {
-    const defaults = PREMIUM_CALLABLE_RATE_LIMITS[action];
-    if (!defaults) return null;
-
-    const optionLimits = options.premiumCallableRateLimits || {};
-    const override = optionLimits && typeof optionLimits[action] === "object" ? optionLimits[action] : {};
-    const env = options.env || process.env;
-
-    return {
-        maxRequests: parsePositiveInteger(
-            override.maxRequests === undefined ? env[defaults.envMaxKey] : override.maxRequests,
-            defaults.maxRequests
-        ),
-        windowMs: parsePositiveInteger(
-            override.windowMs === undefined ? env[defaults.envWindowKey] : override.windowMs,
-            defaults.windowMs
-        ),
-        message: typeof override.message === "string" && override.message.trim()
-            ? override.message.trim()
-            : defaults.message
-    };
-}
-
-function getRateLimitRetrySeconds(windowEndsAt, now) {
-    return Math.max(1, Math.ceil((windowEndsAt - now) / 1000));
-}
-
-async function enforcePremiumCallableRateLimit(uid, action, options = {}) {
-    const limit = getPremiumCallableRateLimit(action, options);
-    if (!limit) return;
-
-    const db = options.firestore || admin.firestore();
-    if (!db || typeof db.runTransaction !== "function") {
-        console.error("[premiumRateLimit] Firestore transaction support is unavailable.", { uid, action });
-        throw new functions.https.HttpsError("internal", "Rate limit could not be verified.");
-    }
-
-    const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
-    const windowStart = Math.floor(now / limit.windowMs) * limit.windowMs;
-    const windowEndsAt = windowStart + limit.windowMs;
-    const safeUid = encodeURIComponent(uid);
-    const safeAction = encodeURIComponent(action);
-    const ref = db.collection("_premiumCallableRateLimits").doc(`${safeAction}_${safeUid}_${windowStart}`);
-
-    await db.runTransaction(async (transaction) => {
-        const snapshot = await transaction.get(ref);
-        const currentCount = snapshot.exists ? Number(snapshot.data().count || 0) : 0;
-
-        if (currentCount >= limit.maxRequests) {
-            throw makeBotRateLimitError(action, windowEndsAt, "user", now);
-        }
-
-        transaction.set(ref, {
-            uid,
-            action,
-            count: currentCount + 1,
-            limit: limit.maxRequests,
-            windowStart: Timestamp.fromMillis(windowStart),
-            windowEndsAt: Timestamp.fromMillis(windowEndsAt),
-            expiresAt: Timestamp.fromMillis(windowEndsAt + 24 * 60 * 60 * 1000),
-            updatedAt: FieldValue.serverTimestamp()
-        }, { merge: true });
-    });
 }
 
 // Defaults, overridable by env var in production and by an options bag in tests.
@@ -1042,16 +805,6 @@ const ROUTE_FALLBACK_GEOCODE_RADIUS_KM = 50;
 const ROUTE_FALLBACK_GEOCODE_SIZE = 10;
 const ROUTE_FALLBACK_CANDIDATE_LIMIT = 6;
 const ROUTE_FALLBACK_POINT_LIMIT = 4;
-const ROUTE_PROVIDER_ATTEMPT_LIMIT = 12;
-const ORS_RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
-const ORS_RETRY_MAX_ATTEMPTS = 2;
-const ORS_RETRY_BASE_DELAY_MS = 1500;
-const ORS_RETRY_MAX_DELAY_MS = 12000;
-const ORS_CIRCUIT_LIMITS = Object.freeze({
-    directions: Object.freeze({ shortMax: 32, shortWindowMs: 60 * 1000, dailyMax: 1600 }),
-    snap: Object.freeze({ shortMax: 80, shortWindowMs: 60 * 1000, dailyMax: 1600 }),
-    geocoding: Object.freeze({ shortMax: 80, shortWindowMs: 60 * 1000, dailyMax: 2400 })
-});
 
 function getCallablePayload(requestOrData) {
     return requestOrData && requestOrData.data ? requestOrData.data : requestOrData || {};
@@ -1059,173 +812,6 @@ function getCallablePayload(requestOrData) {
 
 function getOrsApiKey(options = {}) {
     return typeof options.getOrsApiKey === "function" ? options.getOrsApiKey() : process.env.ORS_API_KEY;
-}
-
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
-}
-
-function createProviderAttemptBudget(maxAttempts = ROUTE_PROVIDER_ATTEMPT_LIMIT) {
-    const limit = Math.max(1, Math.floor(Number(maxAttempts) || ROUTE_PROVIDER_ATTEMPT_LIMIT));
-    let used = 0;
-    return {
-        get limit() { return limit; },
-        get used() { return used; },
-        get remaining() { return Math.max(0, limit - used); },
-        consume(endpoint, reserve = 0) {
-            const reserved = Math.max(0, Math.floor(Number(reserve) || 0));
-            if (used >= limit - reserved) {
-                throw new functions.https.HttpsError(
-                    "failed-precondition",
-                    "This route needs too much off-road recovery. Move or remove an off-road stop, then try again.",
-                    { reason: "route-recovery-budget", endpoint, attemptLimit: limit }
-                );
-            }
-            used += 1;
-            return used;
-        }
-    };
-}
-
-async function enforceOrsCircuitLimit(endpoint, options = {}) {
-    const defaults = ORS_CIRCUIT_LIMITS[endpoint];
-    if (!defaults) return;
-    if (process.env.NODE_ENV === "test" && options.enforceOrsCircuitLimits !== true) return;
-    const config = resolveBoundedRateLimitConfig(endpoint, defaults, options, "orsCircuitLimits");
-    const db = options.orsCircuitFirestore || options.firestore || admin.firestore();
-    if (!db || typeof db.runTransaction !== "function") {
-        throw new functions.https.HttpsError("internal", "Routing safety limit could not be verified.");
-    }
-    const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
-    const ref = db.collection("_orsCircuitLimits").doc(endpoint);
-    await db.runTransaction(async transaction => {
-        const snapshot = await transaction.get(ref);
-        const counter = buildRateLimitCounterUpdate({
-            stored: snapshot && snapshot.exists ? snapshot.data() : {},
-            config,
-            now,
-            identity: { endpoint, scope: "ors-global" }
-        });
-        if (counter.retryAtMs) throw makeBotRateLimitError(`ors-${endpoint}`, counter.retryAtMs, "global", now);
-        transaction.set(ref, counter.value, { merge: true });
-    });
-}
-
-function getHeaderValue(headers, headerName) {
-    if (!headers || !headerName) return null;
-    if (typeof headers.get === "function") return headers.get(headerName);
-
-    const lowerName = headerName.toLowerCase();
-    const matchingKey = Object.keys(headers).find(key => key.toLowerCase() === lowerName);
-    return matchingKey ? headers[matchingKey] : null;
-}
-
-function parseRetryAfterMs(value) {
-    if (!value) return null;
-
-    const seconds = Number(value);
-    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
-
-    const timestamp = Date.parse(value);
-    if (!Number.isNaN(timestamp)) return Math.max(0, timestamp - Date.now());
-
-    return null;
-}
-
-function getOrsErrorStatus(error) {
-    const status = error && error.response ? Number(error.response.status) : Number(error && error.status);
-    return Number.isFinite(status) ? status : null;
-}
-
-function isRetryableOrsError(error) {
-    const status = getOrsErrorStatus(error);
-    if (status) return ORS_RETRYABLE_STATUS_CODES.has(status);
-
-    return Boolean(error && !error.response);
-}
-
-function getOrsRetryDelayMs(error, attemptIndex, options = {}) {
-    const baseDelay = Number.isFinite(Number(options.orsRetryBaseDelayMs))
-        ? Number(options.orsRetryBaseDelayMs)
-        : ORS_RETRY_BASE_DELAY_MS;
-    const maxDelay = Number.isFinite(Number(options.orsRetryMaxDelayMs))
-        ? Number(options.orsRetryMaxDelayMs)
-        : ORS_RETRY_MAX_DELAY_MS;
-    const retryAfterMs = parseRetryAfterMs(getHeaderValue(error && error.response && error.response.headers, "retry-after"));
-    const exponentialDelay = baseDelay * (2 ** attemptIndex);
-    const cappedDelay = Math.min(maxDelay, retryAfterMs !== null ? retryAfterMs : exponentialDelay);
-    const jitter = options.disableOrsRetryJitter
-        ? 0
-        : Math.floor(Math.random() * Math.min(500, Math.max(0, baseDelay / 3)));
-
-    return Math.max(0, cappedDelay + jitter);
-}
-
-async function requestOrsWithRetry(requestFn, options = {}, endpoint = "other") {
-    const maxAttempts = Number.isFinite(Number(options.orsRetryMaxAttempts))
-        ? Math.max(1, Math.floor(Number(options.orsRetryMaxAttempts)))
-        : ORS_RETRY_MAX_ATTEMPTS;
-
-    for (let attemptIndex = 0; attemptIndex < maxAttempts; attemptIndex += 1) {
-        const attemptStartedAt = Date.now();
-        if (options.providerAttemptBudget && typeof options.providerAttemptBudget.consume === "function") {
-            options.providerAttemptBudget.consume(endpoint, options.providerAttemptReserve);
-        }
-        await enforceOrsCircuitLimit(endpoint, options);
-        try {
-            const response = await requestFn();
-            const providerDurationMs = Date.now() - attemptStartedAt;
-            await orsTelemetry.recordOrsRequestAttempt({
-                endpoint,
-                quota: orsTelemetry.getOrsQuotaObservation(response && response.headers),
-                status: response && response.status,
-                success: true
-            }, options);
-            console.info("[routing] ORS provider timing.", {
-                endpoint,
-                attempt: attemptIndex + 1,
-                durationMs: providerDurationMs,
-                status: response && response.status
-            });
-            return response;
-        } catch (error) {
-            const providerDurationMs = Date.now() - attemptStartedAt;
-            await orsTelemetry.recordOrsRequestAttempt({
-                endpoint,
-                quota: orsTelemetry.getOrsQuotaObservation(error && error.response && error.response.headers),
-                status: getOrsErrorStatus(error),
-                success: false
-            }, options);
-            console.info("[routing] ORS provider timing.", {
-                endpoint,
-                attempt: attemptIndex + 1,
-                durationMs: providerDurationMs,
-                status: getOrsErrorStatus(error)
-            });
-            const isLastAttempt = attemptIndex >= maxAttempts - 1;
-            if (isLastAttempt || !isRetryableOrsError(error)) throw error;
-
-            const delayMs = getOrsRetryDelayMs(error, attemptIndex, options);
-            console.warn("[routing] ORS request was throttled or unavailable; retrying.", {
-                status: getOrsErrorStatus(error),
-                attempt: attemptIndex + 1,
-                maxAttempts,
-                delayMs
-            });
-
-            if (delayMs > 0) await sleep(delayMs);
-        }
-    }
-
-    throw new Error("ORS retry exhausted.");
-}
-
-function getOrsWithRetry(get, url, options = {}) {
-    return requestOrsWithRetry(() => get(url), options, orsTelemetry.getOrsEndpointName(url));
-}
-
-function postOrsWithRetry(post, url, body, config, options = {}) {
-    return requestOrsWithRetry(() => post(url, body, config), options, orsTelemetry.getOrsEndpointName(url));
 }
 
 function isValidRouteCoordinatePair(pair) {
@@ -4335,11 +3921,7 @@ if (process.env.NODE_ENV === "test") {
         requireFunctionFlagEnabled,
         isCallableEmailVerified,
         requireVerifiedEmailCallable,
-        getPremiumCallableRateLimit,
         enforcePremiumCallableRateLimit,
-        resolveBoundedRateLimitConfig,
-        enforceBoundedCallableRateLimit,
-        enforceOrsCircuitLimit,
         createProviderAttemptBudget,
         getFeedbackRateLimit,
         enforceFeedbackRateLimit,
@@ -4361,7 +3943,6 @@ if (process.env.NODE_ENV === "test") {
         snapRouteCoordinates,
         getOrsEndpointName: orsTelemetry.getOrsEndpointName,
         getOrsQuotaObservation: orsTelemetry.getOrsQuotaObservation,
-        requestOrsWithRetry,
         getLemonSqueezyConfig,
         getLemonSqueezyProviderConfig,
         getLemonSqueezyModeConfig,

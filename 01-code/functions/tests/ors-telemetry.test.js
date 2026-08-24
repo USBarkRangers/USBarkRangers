@@ -3,13 +3,8 @@ const { describe, it } = require("node:test");
 
 process.env.NODE_ENV = "test";
 
-const {
-    __test: {
-        getOrsEndpointName,
-        getOrsQuotaObservation,
-        requestOrsWithRetry
-    }
-} = require("../index.js");
+const { getOrsEndpointName, getOrsQuotaObservation } = require("../orsTelemetry.js");
+const { requestOrsWithRetry } = require("../orsSafety.js");
 
 describe("ORS usage telemetry", () => {
     it("maps every HeiGIT routing URL to the CarterSwarm endpoint name", () => {

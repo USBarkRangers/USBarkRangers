@@ -8,7 +8,6 @@ const {
         normalizeEntitlement,
         isEffectivePremium,
         isFunctionFlagEnabled,
-        getPremiumCallableRateLimit,
         requirePremiumCallable,
         handlePremiumRoute,
         handlePremiumGeocode,
@@ -16,6 +15,7 @@ const {
         extractSnappedRouteCoordinates
     }
 } = require("../index.js");
+const { getPremiumCallableRateLimit } = require("../rateLimits.js");
 
 function authedContext(uid = "user-a", token = {}) {
     return { auth: { uid, token } };

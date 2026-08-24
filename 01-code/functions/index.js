@@ -19,7 +19,8 @@ const {
     makeBotRateLimitError,
     enforceConfiguredCallableRateLimit,
     getRateLimitRetrySeconds,
-    enforcePremiumCallableRateLimit
+    enforcePremiumCallableRateLimit,
+    enforcePremiumCallableRateLimits
 } = require("./rateLimits.js");
 const {
     createProviderAttemptBudget,
@@ -3008,8 +3009,7 @@ async function handlePremiumRoute(requestOrData, context, options = {}) {
     const uid = requireVerifiedEmailCallable(context);
     const accessStartedAt = Date.now();
     // Keep the limiter first so blocked abuse never spends an entitlement read.
-    await enforcePremiumCallableRateLimit(uid, "getPremiumRoute", options);
-    await enforceConfiguredCallableRateLimit(uid, "getPremiumRouteBurst", options);
+    await enforcePremiumCallableRateLimits(uid, "getPremiumRoute", options);
     await requirePremiumCallable(context, "getPremiumRoute", options);
     const accessDurationMs = Date.now() - accessStartedAt;
 

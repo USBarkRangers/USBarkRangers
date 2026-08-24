@@ -6,6 +6,7 @@
 (function () {
     window.BARK = window.BARK || {};
     let lastWarningKey = '';
+    let warningSequence = 0;
 
     function isRateLimitError(error) {
         const code = String(error && error.code || '').toLowerCase();
@@ -41,10 +42,76 @@
 
     function getRateLimitWarning(error) {
         if (!isRateLimitError(error)) return '';
+        const details = getRateLimitDetails(error);
         const resetTime = formatResetTime(getResetDate(error));
+        const lead = details.scope === 'global'
+            ? 'This service is unusually busy.'
+            : 'Are you a bot?';
         return resetTime
-            ? `Are you a bot? Rate limit resets at ${resetTime}.`
-            : 'Are you a bot? Rate limit resets shortly.';
+            ? `${lead} Rate limit resets at ${resetTime}.`
+            : `${lead} Rate limit resets shortly.`;
+    }
+
+    function ensureWarningPanel() {
+        if (!window.document || typeof window.document.createElement !== 'function') return null;
+        let panel = window.document.getElementById('rate-limit-warning');
+        if (panel) return panel;
+
+        panel = window.document.createElement('section');
+        panel.id = 'rate-limit-warning';
+        panel.className = 'rate-limit-warning';
+        panel.setAttribute('role', 'alert');
+        panel.setAttribute('aria-live', 'assertive');
+        panel.setAttribute('aria-atomic', 'true');
+        panel.hidden = true;
+
+        const icon = window.document.createElement('span');
+        icon.className = 'rate-limit-warning__icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = '⏳';
+
+        const content = window.document.createElement('div');
+        content.className = 'rate-limit-warning__content';
+        const title = window.document.createElement('strong');
+        title.className = 'rate-limit-warning__title';
+        title.textContent = 'Please slow down';
+        const message = window.document.createElement('span');
+        message.className = 'rate-limit-warning__message';
+        content.appendChild(title);
+        content.appendChild(message);
+
+        const close = window.document.createElement('button');
+        close.className = 'rate-limit-warning__close';
+        close.type = 'button';
+        close.setAttribute('aria-label', 'Dismiss rate limit warning');
+        close.textContent = '×';
+        close.addEventListener('click', () => {
+            panel.classList.remove('show');
+            panel.hidden = true;
+        });
+
+        panel.appendChild(icon);
+        panel.appendChild(content);
+        panel.appendChild(close);
+        window.document.body.appendChild(panel);
+        return panel;
+    }
+
+    function renderRateLimitWarning(message, details) {
+        const panel = ensureWarningPanel();
+        if (!panel) return false;
+        const title = panel.querySelector('.rate-limit-warning__title');
+        const messageNode = panel.querySelector('.rate-limit-warning__message');
+        if (title) title.textContent = details.scope === 'global' ? 'Service temporarily busy' : 'Please slow down';
+        if (messageNode) messageNode.textContent = message;
+        panel.dataset.scope = details.scope === 'global' ? 'global' : 'user';
+        panel.hidden = false;
+        warningSequence += 1;
+        const sequence = warningSequence;
+        window.requestAnimationFrame(() => {
+            if (sequence === warningSequence) panel.classList.add('show');
+        });
+        return true;
     }
 
     function showRateLimitWarning(error) {
@@ -52,16 +119,19 @@
         if (!message) return false;
         const details = getRateLimitDetails(error);
         const key = `${details.action || 'unknown'}|${details.retryAt || message}`;
-        if (key === lastWarningKey) return true;
+        const existing = window.document && window.document.getElementById
+            ? window.document.getElementById('rate-limit-warning')
+            : null;
+        if (key === lastWarningKey && existing && !existing.hidden) return true;
         lastWarningKey = key;
-        if (typeof window.alert === 'function') window.alert(message);
-        return true;
+        return renderRateLimitWarning(message, details);
     }
 
     window.BARK.rateLimitUi = {
         isRateLimitError,
         getResetDate,
         getRateLimitWarning,
-        showRateLimitWarning
+        showRateLimitWarning,
+        ensureWarningPanel
     };
 })();

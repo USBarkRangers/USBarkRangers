@@ -327,6 +327,95 @@ textarea,
     cursor: pointer;
 }
 
+/* Non-blocking callable rate-limit notice. It stays above fixed map/search and
+ * navigation controls without taking over scrolling on short phone screens. */
+.rate-limit-warning[hidden] {
+    display: none !important;
+}
+
+.rate-limit-warning {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    left: 50%;
+    z-index: 100001;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    width: min(calc(100vw - 24px), 520px);
+    align-items: center;
+    gap: 10px;
+    padding: 12px 12px 12px 14px;
+    border: 1px solid rgba(180, 83, 9, 0.28);
+    border-radius: 12px;
+    background: rgba(255, 251, 235, 0.98);
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.24);
+    color: #78350f;
+    opacity: 0;
+    transform: translate(-50%, -18px);
+    transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.rate-limit-warning[data-scope="global"] {
+    border-color: rgba(30, 64, 175, 0.25);
+    background: rgba(239, 246, 255, 0.98);
+    color: #1e3a8a;
+}
+
+.rate-limit-warning.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+.rate-limit-warning__icon {
+    font-size: 20px;
+    line-height: 1;
+}
+
+.rate-limit-warning__content {
+    min-width: 0;
+}
+
+.rate-limit-warning__title,
+.rate-limit-warning__message {
+    display: block;
+}
+
+.rate-limit-warning__title {
+    margin-bottom: 2px;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.rate-limit-warning__message {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.rate-limit-warning__close {
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(120, 53, 15, 0.09);
+    color: currentColor;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+@media (max-height: 520px) {
+    .rate-limit-warning {
+        top: calc(env(safe-area-inset-top, 0px) + 6px);
+        padding-block: 9px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rate-limit-warning {
+        transition: none;
+    }
+}
+
 .account-auth-card,
 .account-status-card {
     background: white;

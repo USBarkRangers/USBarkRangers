@@ -446,8 +446,8 @@ describe("ORS premium callable handlers", () => {
             }
         );
 
-        assert.equal(firestore.state.rateLimitReads, 1);
-        assert.equal(firestore.state.rateLimitWrites, 0);
+        assert.equal(firestore.state.rateLimitReads, 2);
+        assert.equal(firestore.state.rateLimitWrites, 1);
         assert.equal(firestore.state.userReads, 0);
         assert.equal(postCalls, 0);
     });

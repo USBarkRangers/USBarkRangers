@@ -30,6 +30,16 @@ window.BARK.firebaseConfig = {
     measurementId: "G-V2QCN2MFBZ"
 };
 
+// Public reCAPTCHA Enterprise site keys identify a website; they are not
+// secrets. App Check remains monitor-only until valid Beta and production
+// traffic has been observed and shared-backend enforcement is explicitly
+// enabled.
+window.BARK.appCheckConfig = Object.freeze({
+    provider: 'recaptcha-enterprise',
+    siteKey: '6Lci8pYtAAAAANxu0Lr_O27Ax70Pybqk86kF52Oj',
+    tokenAutoRefresh: true
+});
+
 // ====== SERVICE CONFIG ======
 // ORS access is proxied through Firebase callables (getPremiumRoute,
 // getPremiumGeocode). The key is held server-side as a Firebase secret;

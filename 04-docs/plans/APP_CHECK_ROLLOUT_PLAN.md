@@ -1,7 +1,7 @@
 # BARK Ranger Map App Check Rollout Plan
 
 Date: 2026-05-09
-Status: staged rollout plan. Prepare first; do not blindly enforce.
+Status: Stage 0 configured for Beta v0.62 on 2026-08-24; enforcement remains off for the shared backend.
 Scope: App Check readiness for Firestore and Functions without breaking testers.
 
 ## 1. Goal
@@ -45,13 +45,20 @@ App Check should add a layer. It should not replace entitlement checks, email ve
 
 ## 4. Preparation Checklist
 
-- [ ] Confirm the Firebase web app is registered in Firebase Console.
-- [ ] Choose the web App Check provider in Firebase Console. Use the provider supported by the current Firebase project and app setup.
-- [ ] Add allowed production domains.
-- [ ] Add local/development debug token process for Carter's machine.
-- [ ] Verify the app initializes App Check tokens before any enforcement is enabled. If the code does not initialize App Check yet, do not enforce.
+- [x] Confirm the Firebase web app is registered in Firebase Console.
+- [x] Configure reCAPTCHA Enterprise for the registered web app.
+- [x] Restrict the provider key to Beta, production, and Firebase auth domains.
+- [x] Add a local/development debug-token path without committing a debug secret.
+- [x] Verify the app initializes App Check immediately after Firebase and before service use.
 - [ ] Confirm Firestore, Functions, checkout, route/geocode, and signed-in flows still work in a monitor-only state.
 - [ ] Save screenshots of App Check request metrics before enforcement.
+
+Beta v0.62 sends App Check tokens and exposes a small runtime status at
+`window.BARK.appCheckStatus`. Production v0.17 does not yet initialize App
+Check, while both sites use the same Firebase services. Enforcing Functions or
+Firestore before production receives the token-enabled client would block
+production traffic, so hard enforcement is an explicit post-production-client
+gate rather than part of the Beta-only deployment.
 
 ## 5. Stage 0: Monitor Only
 

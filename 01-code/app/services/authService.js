@@ -1213,6 +1213,48 @@ function resetAccountScopedRuntimeState() {
     if (typeof window.BARK.updateStatsUI === 'function') window.BARK.updateStatsUI();
 }
 
+function isLocalAppCheckEnvironment() {
+    if (typeof location === 'undefined') return true;
+    const host = String(location.hostname || '').toLowerCase();
+    return location.protocol === 'file:' || host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
+function initializeFirebaseAppCheck() {
+    const appCheckConfig = window.BARK && window.BARK.appCheckConfig;
+    const status = {
+        configured: Boolean(appCheckConfig && appCheckConfig.siteKey),
+        active: false,
+        mode: isLocalAppCheckEnvironment() ? 'debug' : 'recaptcha-enterprise',
+        reason: null
+    };
+    window.BARK.appCheckStatus = status;
+
+    if (!status.configured) {
+        status.reason = 'missing-site-key';
+        return status;
+    }
+    if (typeof firebase === 'undefined' || typeof firebase.appCheck !== 'function' ||
+        !firebase.appCheck.ReCaptchaEnterpriseProvider) {
+        status.reason = 'sdk-unavailable';
+        return status;
+    }
+
+    try {
+        // Firebase's debug provider prints a one-time local token that can be
+        // registered for emulator/development use. It is never enabled on a
+        // hosted origin and no debug secret is committed to the app.
+        if (status.mode === 'debug') window.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+        const provider = new firebase.appCheck.ReCaptchaEnterpriseProvider(appCheckConfig.siteKey);
+        firebase.appCheck().activate(provider, appCheckConfig.tokenAutoRefresh !== false);
+        status.active = true;
+        return status;
+    } catch (error) {
+        status.reason = 'activation-failed';
+        console.warn('[appCheck] App Check could not initialize; enforcement remains off.', error);
+        return status;
+    }
+}
+
 async function initFirebase() {
     if (typeof firebase === 'undefined') return;
 
@@ -1220,6 +1262,7 @@ async function initFirebase() {
 
     try {
         firebase.initializeApp(getEffectiveFirebaseConfig());
+        initializeFirebaseAppCheck();
         await ensureLocalAuthPersistence();
     } catch (error) {
         console.error("[authService] initializeApp failed:", error);
@@ -1467,6 +1510,7 @@ async function initFirebase() {
 
 window.BARK.services.auth = {
     initFirebase,
+    initializeFirebaseAppCheck,
     createGoogleProvider,
     ensureLocalAuthPersistence,
     signInWithGoogleProvider,

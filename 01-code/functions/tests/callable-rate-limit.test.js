@@ -6,7 +6,8 @@ process.env.NODE_ENV = "test";
 const {
     BOUNDED_CALLABLE_RATE_LIMITS,
     GLOBAL_CALLABLE_RATE_LIMITS,
-    enforceBoundedCallableRateLimit
+    enforceBoundedCallableRateLimit,
+    enforcePremiumCallableRateLimits
 } = require("../rateLimits.js");
 const {
     ROUTE_PROVIDER_ATTEMPT_LIMIT,
@@ -22,7 +23,7 @@ function errorCode(error) {
 
 function makeCounterFirestore() {
     const docs = new Map();
-    const state = { reads: 0, writes: 0 };
+    const state = { reads: 0, writes: 0, transactions: 0 };
 
     function ref(collectionName, docId) {
         const key = `${collectionName}/${docId}`;
@@ -43,6 +44,7 @@ function makeCounterFirestore() {
             return { doc(docId) { return ref(collectionName, docId); } };
         },
         async runTransaction(callback) {
+            state.transactions += 1;
             return callback({
                 get(target) { return target.get(); },
                 set(target, value, options = {}) {
@@ -141,6 +143,42 @@ describe("bounded callable rate limits", () => {
             enforceBoundedCallableRateLimit("ranger-c", "createCheckoutSession", options),
             error => errorCode(error) === "resource-exhausted" && error.details.scope === "global"
         );
+    });
+
+    it("migrates active route counters once, then admits routes with one read and one write", async () => {
+        const firestore = makeCounterFirestore();
+        const uid = "route-migration-user";
+        const nowMillis = Date.parse("2026-08-24T20:02:00.000Z");
+        const premiumWindowStart = Date.parse("2026-08-24T20:00:00.000Z");
+        const burstWindowStart = Date.parse("2026-08-24T20:00:00.000Z");
+        firestore.docs.set(`_premiumCallableRateLimits/getPremiumRoute_${uid}_${premiumWindowStart}`, { count: 7 });
+        firestore.docs.set(`_callableRateLimits/getPremiumRouteBurst_${uid}`, {
+            shortWindowStartMs: burstWindowStart,
+            shortCount: 3
+        });
+        const options = {
+            firestore,
+            nowMillis,
+            premiumCallableRateLimits: {
+                getPremiumRoute: { maxRequests: 30, windowMs: 60 * 60 * 1000 }
+            },
+            callableRateLimits: {
+                getPremiumRouteBurst: { shortMax: 12, shortWindowMs: 10 * 60 * 1000 }
+            }
+        };
+
+        await enforcePremiumCallableRateLimits(uid, "getPremiumRoute", options);
+        const migrated = firestore.docs.get(`_premiumCallableRateLimits/getPremiumRoute_${uid}`);
+        assert.equal(migrated.schemaVersion, 2);
+        assert.equal(migrated.premiumCount, 8);
+        assert.equal(migrated.burstCount, 4);
+        assert.deepEqual(firestore.state, { reads: 3, writes: 1, transactions: 1 });
+
+        await enforcePremiumCallableRateLimits(uid, "getPremiumRoute", options);
+        const admittedAgain = firestore.docs.get(`_premiumCallableRateLimits/getPremiumRoute_${uid}`);
+        assert.equal(admittedAgain.premiumCount, 9);
+        assert.equal(admittedAgain.burstCount, 5);
+        assert.deepEqual(firestore.state, { reads: 4, writes: 2, transactions: 2 });
     });
 });
 

@@ -52,6 +52,11 @@ const CALLABLE_GLOBAL_RATE_LIMIT_SCOPE = Object.freeze({
     reportClientError: "diagnosticWrites"
 });
 
+const PREMIUM_BURST_ACTIONS = Object.freeze({
+    getPremiumRoute: "getPremiumRouteBurst",
+    getPremiumGeocode: "getPremiumGeocodeBurst"
+});
+
 function parsePositiveInteger(value, fallback) {
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -253,6 +258,102 @@ async function enforcePremiumCallableRateLimit(uid, action, options = {}) {
     });
 }
 
+function getWindowCount(stored, prefix, windowStart) {
+    const storedStart = Number(stored && stored[`${prefix}WindowStartMs`]);
+    const storedCount = Number(stored && stored[`${prefix}Count`]);
+    return storedStart === windowStart && Number.isFinite(storedCount)
+        ? Math.max(0, storedCount)
+        : 0;
+}
+
+/**
+ * Enforces the premium hourly and burst windows in one Firestore transaction.
+ * The first request migrates active legacy counters; later requests read and
+ * write one stable per-user document. Hourly admission retains precedence and
+ * still consumes an hourly slot when the later burst check blocks, matching the
+ * formerly sequential transactions exactly.
+ */
+async function enforcePremiumCallableRateLimits(uid, action, options = {}) {
+    const premiumConfig = getPremiumCallableRateLimit(action, options);
+    const burstAction = PREMIUM_BURST_ACTIONS[action];
+    const burstDefaults = burstAction ? BOUNDED_CALLABLE_RATE_LIMITS[burstAction] : null;
+    if (!premiumConfig || !burstDefaults) {
+        return enforcePremiumCallableRateLimit(uid, action, options);
+    }
+
+    const burstConfig = resolveBoundedRateLimitConfig(burstAction, burstDefaults, options);
+    const db = options.rateLimitFirestore || options.firestore || admin.firestore();
+    if (!db || typeof db.runTransaction !== "function") {
+        throw new functions.https.HttpsError("internal", "Rate limit could not be verified.");
+    }
+
+    const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
+    const premiumWindowStart = Math.floor(now / premiumConfig.windowMs) * premiumConfig.windowMs;
+    const premiumWindowEndsAt = premiumWindowStart + premiumConfig.windowMs;
+    const burstWindowStart = Math.floor(now / burstConfig.shortWindowMs) * burstConfig.shortWindowMs;
+    const burstWindowEndsAt = burstWindowStart + burstConfig.shortWindowMs;
+    const safeUid = encodeURIComponent(uid);
+    const safeAction = encodeURIComponent(action);
+    const compositeRef = db.collection("_premiumCallableRateLimits").doc(`${safeAction}_${safeUid}`);
+    const legacyPremiumRef = db.collection("_premiumCallableRateLimits")
+        .doc(`${safeAction}_${safeUid}_${premiumWindowStart}`);
+    const legacyBurstRef = db.collection("_callableRateLimits")
+        .doc(`${encodeURIComponent(burstAction)}_${safeUid}`);
+    let blocked = null;
+
+    await db.runTransaction(async transaction => {
+        const compositeSnapshot = await transaction.get(compositeRef);
+        const compositeStored = compositeSnapshot && compositeSnapshot.exists ? compositeSnapshot.data() : {};
+        const isMigrated = Number(compositeStored && compositeStored.schemaVersion) === 2;
+        let premiumCount = getWindowCount(compositeStored, "premium", premiumWindowStart);
+        let burstCount = getWindowCount(compositeStored, "burst", burstWindowStart);
+
+        if (!isMigrated) {
+            const legacyPremiumSnapshot = await transaction.get(legacyPremiumRef);
+            const legacyBurstSnapshot = await transaction.get(legacyBurstRef);
+            const legacyPremiumStored = legacyPremiumSnapshot && legacyPremiumSnapshot.exists
+                ? legacyPremiumSnapshot.data()
+                : {};
+            const legacyBurstStored = legacyBurstSnapshot && legacyBurstSnapshot.exists
+                ? legacyBurstSnapshot.data()
+                : {};
+            const legacyPremiumCount = Number(legacyPremiumStored.count);
+            premiumCount = Number.isFinite(legacyPremiumCount) ? Math.max(0, legacyPremiumCount) : 0;
+            burstCount = getWindowCount(legacyBurstStored, "short", burstWindowStart);
+        }
+
+        const premiumBlocked = premiumCount >= premiumConfig.maxRequests;
+        const burstBlocked = burstCount >= burstConfig.shortMax;
+        if (premiumBlocked) {
+            blocked = { action, retryAtMs: premiumWindowEndsAt };
+        } else {
+            premiumCount += 1;
+            if (burstBlocked) {
+                blocked = { action: burstAction, retryAtMs: burstWindowEndsAt };
+            } else {
+                burstCount += 1;
+            }
+        }
+
+        transaction.set(compositeRef, {
+            schemaVersion: 2,
+            uid,
+            action,
+            burstAction,
+            premiumWindowStartMs: premiumWindowStart,
+            premiumCount,
+            premiumLimit: premiumConfig.maxRequests,
+            burstWindowStartMs: burstWindowStart,
+            burstCount,
+            burstLimit: burstConfig.shortMax,
+            expiresAt: Timestamp.fromMillis(Math.max(premiumWindowEndsAt, burstWindowEndsAt) + RATE_LIMIT_DAY_MS),
+            updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+    });
+
+    if (blocked) throw makeBotRateLimitError(blocked.action, blocked.retryAtMs, "user", now);
+}
+
 module.exports = {
     PREMIUM_CALLABLE_RATE_LIMITS,
     BOUNDED_CALLABLE_RATE_LIMITS,
@@ -266,5 +367,6 @@ module.exports = {
     enforceConfiguredCallableRateLimit,
     getPremiumCallableRateLimit,
     getRateLimitRetrySeconds,
-    enforcePremiumCallableRateLimit
+    enforcePremiumCallableRateLimit,
+    enforcePremiumCallableRateLimits
 };

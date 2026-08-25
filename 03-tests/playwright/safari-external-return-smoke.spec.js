@@ -67,16 +67,16 @@ test.describe('Safari installed-app external return', () => {
                 panelTop: rect.top,
                 viewportHeight: window.innerHeight,
                 pointerEvents: style.pointerEvents,
-                visibility: style.visibility
+                visibility: style.visibility,
+                display: style.display
             };
         });
 
         expect(handoffState.bodyPending).toBe(true);
         expect(handoffState.panelOpen).toBe(false);
-        expect(handoffState.panelTitle).toBe('Park Name');
-        expect(handoffState.panelTop).toBeGreaterThanOrEqual(handoffState.viewportHeight);
+        expect(handoffState.panelTitle).toBe('');
         expect(handoffState.pointerEvents).toBe('none');
-        expect(handoffState.visibility).toBe('hidden');
+        expect(handoffState.display).toBe('none');
 
         await page.evaluate(() => {
             window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
@@ -94,7 +94,11 @@ test.describe('Safari installed-app external return', () => {
                 panelTop: rect.top,
                 viewportHeight: window.innerHeight,
                 pointerEvents: style.pointerEvents,
-                visibility: style.visibility
+                visibility: style.visibility,
+                display: style.display,
+                panelTitle: document.getElementById('panel-title').textContent,
+                websiteButtonCount: document.getElementById('websites-container').childElementCount,
+                videoHref: document.getElementById('panel-video').getAttribute('href')
             };
         });
 
@@ -104,6 +108,23 @@ test.describe('Safari installed-app external return', () => {
         expect(returnedState.panelTop).toBeGreaterThanOrEqual(returnedState.viewportHeight);
         expect(returnedState.pointerEvents).toBe('none');
         expect(returnedState.visibility).toBe('hidden');
+        expect(returnedState.display).not.toBe('none');
+        expect(returnedState.panelTitle).toBe('');
+        expect(returnedState.websiteButtonCount).toBe(0);
+        expect(returnedState.videoHref).toBeNull();
+
+        const reopenedState = await page.evaluate(() => {
+            const marker = Array.from(window.BARK.markerManager.markers.values())
+                .find(candidate => candidate && candidate._parkData);
+            window.BARK.markerManager.renderMarkerPanel(marker);
+            return {
+                panelOpen: document.getElementById('slide-panel').classList.contains('open'),
+                panelTitle: document.getElementById('panel-title').textContent,
+                expectedTitle: marker._parkData.name
+            };
+        });
+        expect(reopenedState.panelOpen).toBe(true);
+        expect(reopenedState.panelTitle).toBe(reopenedState.expectedTitle);
 
         await context.close();
     });

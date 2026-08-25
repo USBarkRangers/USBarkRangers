@@ -48,6 +48,7 @@ let keyboardFocusContext = null;
 const EXTERNAL_HANDOFF_PENDING_KEY = 'bark_external_handoff_pending';
 const EXTERNAL_HANDOFF_STARTED_KEY = 'bark_external_handoff_started_at';
 const EXTERNAL_HANDOFF_CLASS = 'bark-external-handoff-pending';
+const EXTERNAL_RETURN_QUARANTINE_MS = 1200;
 let externalReturnSettleGeneration = 0;
 let externalHandoffPendingInMemory = false;
 
@@ -68,7 +69,39 @@ function syncAppTabMode() {
 
 function resetSlidePanelShell() {
     const title = document.getElementById('panel-title');
-    if (title) title.textContent = 'Park Name';
+    if (title) title.textContent = '';
+
+    [
+        'panel-meta-container',
+        'panel-info',
+        'websites-container',
+        'panel-pics',
+        'panel-sticky-footer'
+    ].forEach((id) => {
+        const element = document.getElementById(id);
+        if (!element) return;
+        while (element.firstChild) element.removeChild(element.firstChild);
+    });
+
+    ['panel-visited-section', 'panel-info-section', 'panel-sticky-footer'].forEach((id) => {
+        const element = document.getElementById(id);
+        if (element) element.style.display = 'none';
+    });
+
+    const showMoreButton = document.getElementById('show-more-info');
+    if (showMoreButton) showMoreButton.style.display = 'none';
+
+    const videoLink = document.getElementById('panel-video');
+    if (videoLink) {
+        videoLink.removeAttribute('href');
+        videoLink.style.display = 'none';
+    }
+
+    const suggestEditButton = document.getElementById('suggest-edit-btn');
+    if (suggestEditButton) {
+        suggestEditButton.href = 'mailto:support@usbarkrangersmap.com';
+        suggestEditButton.onclick = null;
+    }
 }
 
 function getUsableActivePinMarker() {
@@ -167,6 +200,9 @@ function settleExternalReturnViewport(reason) {
     const settle = () => {
         if (generation !== externalReturnSettleGeneration) return;
         closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
         if (window.map && typeof window.map.invalidateSize === 'function') {
             window.map.invalidateSize({ pan: false });
         }
@@ -176,14 +212,19 @@ function settleExternalReturnViewport(reason) {
     };
 
     requestAnimationFrame(() => requestAnimationFrame(settle));
+    setTimeout(settle, 480);
     setTimeout(() => {
         if (generation !== externalReturnSettleGeneration) return;
         settle();
         document.body.classList.remove(EXTERNAL_HANDOFF_CLASS);
+        // Force WebKit to build a fresh fixed/composited scene after its Safari
+        // overlay has fully finished dismissing. The stale park card is already
+        // empty, so even an old snapshot cannot leak a park name or button.
+        void document.body.offsetHeight;
         window.dispatchEvent(new CustomEvent('bark:external-return-settled', {
             detail: { reason: reason || 'external-return' }
         }));
-    }, 360);
+    }, EXTERNAL_RETURN_QUARANTINE_MS);
 }
 
 function handleAppReturn(reason) {

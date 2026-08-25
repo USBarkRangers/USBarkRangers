@@ -1178,8 +1178,8 @@ textarea,
     -webkit-overflow-scrolling: touch;
     visibility: hidden;
     pointer-events: none;
-    /* GPU Promotion — offloads compositing to the GPU for butter-smooth slide-in */
-    will-change: transform, opacity;
+    /* Keep the closed sheet out of its own long-lived Safari compositing layer. */
+    will-change: auto;
     transform: translateZ(0);
     backface-visibility: hidden;
 }
@@ -1187,12 +1187,16 @@ textarea,
 #slide-panel.open {
     visibility: visible;
     pointer-events: auto;
+    will-change: transform;
     transition-delay: 0s, 0s;
 }
 
 body.bark-external-handoff-pending #slide-panel {
+    display: none !important;
     visibility: hidden !important;
     pointer-events: none !important;
+    transform: none !important;
+    will-change: auto !important;
     transition: none !important;
 }
 

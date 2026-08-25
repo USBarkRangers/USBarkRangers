@@ -113,6 +113,22 @@ test.describe('Safari installed-app external return', () => {
         expect(returnedState.websiteButtonCount).toBe(0);
         expect(returnedState.videoHref).toBeNull();
 
+        const viewportGeometry = await page.evaluate(() => {
+            const mapRect = document.getElementById('map').getBoundingClientRect();
+            const navRect = document.querySelector('.glass-nav').getBoundingClientRect();
+            return {
+                mapBottom: mapRect.bottom,
+                navTop: navRect.top,
+                viewportHeight: window.innerHeight
+            };
+        });
+
+        // Safari can preserve a percentage-height child at the shorter height
+        // used by its external-site overlay. The map must cover the viewport
+        // beneath the fixed nav, and the mobile sheet must anchor to that nav.
+        expect(viewportGeometry.mapBottom).toBeGreaterThanOrEqual(viewportGeometry.viewportHeight - 1);
+        expect(viewportGeometry.mapBottom).toBeGreaterThanOrEqual(viewportGeometry.navTop);
+
         const reopenedState = await page.evaluate(() => {
             const marker = Array.from(window.BARK.markerManager.markers.values())
                 .find(candidate => candidate && candidate._parkData);
@@ -125,6 +141,37 @@ test.describe('Safari installed-app external return', () => {
         });
         expect(reopenedState.panelOpen).toBe(true);
         expect(reopenedState.panelTitle).toBe(reopenedState.expectedTitle);
+
+        await page.waitForTimeout(400);
+        const openSheetGeometry = await page.evaluate(() => ({
+            panelBottom: document.getElementById('slide-panel').getBoundingClientRect().bottom,
+            navTop: document.querySelector('.glass-nav').getBoundingClientRect().top
+        }));
+        expect(Math.abs(openSheetGeometry.panelBottom - openSheetGeometry.navTop)).toBeLessThanOrEqual(1);
+
+        await context.close();
+    });
+
+    test('community information links use an isolated Safari window', async ({ browser }) => {
+        const context = await newBarkContext(browser, { viewport: { width: 390, height: 844 } });
+        const page = await context.newPage();
+        await openLoadedApp(page);
+
+        const links = await page.locator('a[href^="https://usbarkrangers.com/"]').evaluateAll(elements =>
+            elements
+                .filter(element => /\/(safety-tips|meet-the-team)$/.test(element.href))
+                .map(element => ({
+                    href: element.href,
+                    target: element.target,
+                    rel: element.rel.split(/\s+/).filter(Boolean).sort()
+                }))
+        );
+
+        expect(links).toHaveLength(2);
+        for (const link of links) {
+            expect(link.target).toBe('_blank');
+            expect(link.rel).toEqual(['noopener', 'noreferrer']);
+        }
 
         await context.close();
     });

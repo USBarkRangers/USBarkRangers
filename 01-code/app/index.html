@@ -37,7 +37,7 @@
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js" defer></script>
 
-    <link rel="stylesheet" href="styles.css?v=77">
+    <link rel="stylesheet" href="styles.css?v=78">
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
     <link rel="stylesheet" href="styles/trophyCase.css?v=8">
     <link rel="stylesheet" href="styles/feedbackModal.css?v=2">
@@ -514,8 +514,7 @@
             </div>
 
             <!-- Sticky Settings Gear (Persistent App Header) -->
-            <button id="settings-gear-btn"
-                style="position: fixed; top: 12px; right: 15px; background: rgba(255,255,255,0.7); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(0,0,0,0.08); font-size: 22px; cursor: pointer; padding: 6px 8px; border-radius: 50%; transition: transform 0.2s, background 0.3s; z-index: 1001; line-height: 1; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">⚙️</button>
+            <button id="settings-gear-btn" type="button" aria-label="Open settings">⚙️</button>
 
             <!-- Premium Settings Modal Overlay (Fixed standard) -->
             <div id="settings-overlay" class="modal-overlay">
@@ -1300,7 +1299,7 @@
 
     <!-- Navigation Bar -->
     <nav id="main-nav" class="glass-nav">
-        <button class="nav-item" data-target="home-view">
+        <button type="button" class="nav-item" data-target="home-view">
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
@@ -1308,7 +1307,7 @@
             </svg>
             <span>Home</span>
         </button>
-        <button class="nav-item active" data-target="map-view">
+        <button type="button" class="nav-item active" data-target="map-view" aria-current="page">
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon>
@@ -1317,7 +1316,7 @@
             </svg>
             <span>USBarkRangers</span>
         </button>
-        <button class="nav-item" data-target="planner-view" style="position: relative;">
+        <button type="button" class="nav-item" data-target="planner-view" style="position: relative;">
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
                 <rect x="1" y="3" width="15" height="13"></rect>
@@ -1329,7 +1328,7 @@
             <span id="planner-badge"
                 style="display: none; position: absolute; top: 5px; right: 15px; background: #FF9800; color: white; border-radius: 12px; font-size: 10px; font-weight: 800; padding: 2px 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">0</span>
         </button>
-        <button class="nav-item" data-target="profile-view">
+        <button type="button" class="nav-item" data-target="profile-view">
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
@@ -1655,7 +1654,7 @@
     <script src="modules/shareEngine.js?v=10" defer></script>
     <script src="modules/watermarkTool.js?v=4" defer></script>
     <script src="modules/settingsController.js?v=11" defer></script>
-    <script src="modules/uiController.js?v=24" defer></script>
+    <script src="modules/uiController.js?v=25" defer></script>
     <script src="modules/firstOpenDisclaimer.js?v=2" defer></script>
     <!-- The combobox scores parks with searchEngine, so both load after it;
          feedbackTransport is loaded earlier, above. -->

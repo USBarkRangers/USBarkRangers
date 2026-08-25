@@ -58,6 +58,29 @@ window.BARK.externalHandoffGuard = Object.freeze({
     shouldUseIOSSameContextHandoff: shouldUseBarkIOSSameContextHandoff
 });
 
+function shouldActivateBarkNavPointer({
+    pointerType,
+    isPrimary,
+    button,
+    startX,
+    startY,
+    endX,
+    endY
+}) {
+    if (isPrimary === false) return false;
+    if (Number.isFinite(Number(button)) && Number(button) !== 0) return false;
+    if (!['mouse', 'pen', 'touch'].includes(String(pointerType || '').toLowerCase())) return false;
+
+    const deltaX = Number(endX) - Number(startX);
+    const deltaY = Number(endY) - Number(startY);
+    if (![deltaX, deltaY].every(Number.isFinite)) return false;
+    return Math.hypot(deltaX, deltaY) <= 14;
+}
+
+window.BARK.navInputGuard = Object.freeze({
+    shouldActivatePointer: shouldActivateBarkNavPointer
+});
+
 window.BARK.initUI = function initUI() {
 let keyboardFocusContext = null;
 const EXTERNAL_HANDOFF_PENDING_KEY = 'bark_external_handoff_pending';
@@ -585,7 +608,6 @@ if (filterPanel) {
 if (bottomNav) {
     L.DomEvent.disableClickPropagation(bottomNav);
     L.DomEvent.disableScrollPropagation(bottomNav);
-    bindFixedSurfaceScrollGuard(bottomNav);
 }
 
 document.addEventListener('click', (event) => {
@@ -625,45 +647,110 @@ if (closeSlideBtn) {
 }
 
 // ====== NAVIGATION LOGIC ======
-navItems.forEach(btn => {
-    btn.addEventListener('click', () => {
-        const targetId = btn.getAttribute('data-target');
+function activateNavItem(btn) {
+    if (!btn || !btn.classList.contains('nav-item')) return;
+    const targetId = btn.getAttribute('data-target');
+    if (!targetId) return;
 
-        if (typeof window.BARK.closeSettingsModal === 'function') {
-            window.BARK.closeSettingsModal();
-        }
+    if (typeof window.BARK.closeSettingsModal === 'function') {
+        window.BARK.closeSettingsModal();
+    }
 
-        navItems.forEach(n => n.classList.remove('active'));
-        btn.classList.add('active');
-
-        if (targetId === 'map-view') {
-            uiViews.forEach(v => v.classList.remove('active'));
-            syncAppTabMode();
-            closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
-            requestAnimationFrame(() => {
-                if (filterPanel) filterPanel.style.display = 'flex';
-                if (leafletControls.length) leafletControls[0].style.display = 'block';
-                if (window.map) window.map.invalidateSize();
-                if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
-                    window.BARK.invalidateMarkerVisibility();
-                }
-                if (typeof window.syncState === 'function') {
-                    window.BARK._pendingMarkerSync = false;
-                    window.syncState();
-                }
-            });
-        } else {
-            uiViews.forEach(v => {
-                if (v.id === targetId) v.classList.add('active');
-                else v.classList.remove('active');
-            });
-            syncAppTabMode();
-            if (filterPanel) filterPanel.style.display = 'none';
-            closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
-            if (leafletControls.length) leafletControls[0].style.display = 'none';
-        }
+    navItems.forEach((navItem) => {
+        const active = navItem === btn;
+        navItem.classList.toggle('active', active);
+        if (active) navItem.setAttribute('aria-current', 'page');
+        else navItem.removeAttribute('aria-current');
     });
-});
+
+    if (targetId === 'map-view') {
+        uiViews.forEach(v => v.classList.remove('active'));
+        syncAppTabMode();
+        closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
+        requestAnimationFrame(() => {
+            if (filterPanel) filterPanel.style.display = 'flex';
+            if (leafletControls.length) leafletControls[0].style.display = 'block';
+            if (window.map) window.map.invalidateSize();
+            if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
+                window.BARK.invalidateMarkerVisibility();
+            }
+            if (typeof window.syncState === 'function') {
+                window.BARK._pendingMarkerSync = false;
+                window.syncState();
+            }
+        });
+        return;
+    }
+
+    uiViews.forEach(v => {
+        if (v.id === targetId) v.classList.add('active');
+        else v.classList.remove('active');
+    });
+    syncAppTabMode();
+    if (filterPanel) filterPanel.style.display = 'none';
+    closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
+    if (leafletControls.length) leafletControls[0].style.display = 'none';
+}
+
+if (bottomNav) {
+    let navPointerStart = null;
+    let lastPointerActivation = { button: null, at: -Infinity };
+
+    bottomNav.addEventListener('pointerdown', (event) => {
+        const btn = event.target.closest('.nav-item');
+        if (!btn || event.isPrimary === false || event.button !== 0) {
+            navPointerStart = null;
+            return;
+        }
+        navPointerStart = {
+            pointerId: event.pointerId,
+            pointerType: event.pointerType,
+            isPrimary: event.isPrimary,
+            button: event.button,
+            x: event.clientX,
+            y: event.clientY,
+            btn
+        };
+    });
+
+    bottomNav.addEventListener('pointerup', (event) => {
+        const start = navPointerStart;
+        navPointerStart = null;
+        const btn = event.target.closest('.nav-item');
+        if (!start || !btn || btn !== start.btn || event.pointerId !== start.pointerId) return;
+        if (!shouldActivateBarkNavPointer({
+            pointerType: start.pointerType,
+            isPrimary: start.isPrimary,
+            button: start.button,
+            startX: start.x,
+            startY: start.y,
+            endX: event.clientX,
+            endY: event.clientY
+        })) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        lastPointerActivation = { button: btn, at: performance.now() };
+        activateNavItem(btn);
+    });
+
+    bottomNav.addEventListener('pointercancel', () => {
+        navPointerStart = null;
+    });
+
+    bottomNav.addEventListener('click', (event) => {
+        const btn = event.target.closest('.nav-item');
+        if (!btn) return;
+        const followsHandledPointer = lastPointerActivation.button === btn
+            && performance.now() - lastPointerActivation.at < 700
+            && event.detail !== 0;
+        if (followsHandledPointer) {
+            event.preventDefault();
+            return;
+        }
+        activateNavItem(btn);
+    });
+}
 
 // ====== MAP INTERACTION HANDLERS ======
 if (window.map) {

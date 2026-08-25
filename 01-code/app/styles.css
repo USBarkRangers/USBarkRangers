@@ -2281,6 +2281,13 @@ body.app-tab-active #slide-panel {
     color: #666;
     transition: all 0.2s;
     flex: 1;
+    min-width: 0;
+    touch-action: manipulation;
+}
+
+.nav-item svg,
+.nav-item span {
+    pointer-events: none;
 }
 
 .nav-item:hover,
@@ -2861,7 +2868,7 @@ body.app-tab-active #slide-panel {
 /* Update Toast Notification */
 .update-toast {
     position: fixed;
-    top: 20px;
+    top: max(24px, calc(env(safe-area-inset-top, 0px) + 12px));
     left: 50%;
     transform: translateX(-50%) translateY(-150px);
     background: rgba(33, 150, 243, 0.95);
@@ -2879,6 +2886,29 @@ body.app-tab-active #slide-panel {
     font-weight: 600;
     font-size: 14px;
     transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+#settings-gear-btn {
+    position: fixed;
+    top: max(22px, calc(env(safe-area-inset-top, 0px) + 10px));
+    right: max(15px, calc(env(safe-area-inset-right, 0px) + 12px));
+    z-index: 1001;
+    display: inline-flex;
+    width: 42px;
+    height: 42px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: transform 0.2s, background 0.3s;
 }
 
 .update-toast.show {

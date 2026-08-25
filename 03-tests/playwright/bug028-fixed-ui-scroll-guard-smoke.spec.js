@@ -27,7 +27,7 @@ async function wheelOverLocator(page, locator, deltaY) {
 }
 
 test.describe('BUG-AUDIT-028 fixed UI scroll guards', () => {
-    test('bottom nav and map filter panel do not leak scroll gestures', async ({ browser }) => {
+    test('bottom nav permits tap completion without leaking scroll; filter remains guarded', async ({ browser }) => {
         const context = await newBarkContext(browser, {
             viewport: { width: 390, height: 844 },
             isMobile: true,
@@ -55,7 +55,10 @@ test.describe('BUG-AUDIT-028 fixed UI scroll guards', () => {
             };
         });
 
-        expect(syntheticGuardState.navPrevented).toBe(true);
+        // The nav must not cancel default movement: Safari cancels the following
+        // click when a finger or Pencil drifts by even a few pixels. Its own
+        // propagation guard and the locked app shell still prevent scroll leaks.
+        expect(syntheticGuardState.navPrevented).toBe(false);
         expect(syntheticGuardState.filterPrevented).toBe(true);
 
         await page.evaluate(() => window.map.setZoom(7, { animate: false }));

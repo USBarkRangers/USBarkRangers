@@ -34,3 +34,14 @@ test('the park action footer does not apply the bottom safe area twice', () => {
     assert.doesNotMatch(footerRule[0], /safe-area-inset-bottom/);
     assert.match(trophyStyles, /@media\s*\(max-width:\s*767px\)[\s\S]*#slide-panel\s*\{[\s\S]*padding-bottom:\s*0/);
 });
+
+test('profile and refresh controls clear the top safe area', () => {
+    assert.match(styles, /#settings-gear-btn\s*\{[\s\S]*top:\s*max\(22px,\s*calc\(env\(safe-area-inset-top,\s*0px\)\s*\+\s*10px\)\)/);
+    assert.match(styles, /\.update-toast\s*\{[\s\S]*top:\s*max\(24px,\s*calc\(env\(safe-area-inset-top,\s*0px\)\s*\+\s*12px\)\)/);
+});
+
+test('bottom navigation does not install the fixed-surface touchmove canceler', () => {
+    const uiController = fs.readFileSync(path.join(appDir, 'modules', 'uiController.js'), 'utf8');
+    assert.doesNotMatch(uiController, /bindFixedSurfaceScrollGuard\(bottomNav\)/);
+    assert.match(uiController, /addEventListener\('pointerup'/);
+});

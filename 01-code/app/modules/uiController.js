@@ -39,8 +39,23 @@ function isBarkExternalHandoffDestination({ href, target, currentHref }) {
     }
 }
 
+function shouldUseBarkIOSSameContextHandoff({ href, currentHref, isIOS, isStandalone }) {
+    if (!isIOS || !isStandalone || typeof href !== 'string' || !href.trim()) return false;
+
+    try {
+        const currentUrl = new URL(currentHref);
+        const destinationUrl = new URL(href, currentUrl);
+        const protocol = destinationUrl.protocol.toLowerCase();
+        return (protocol === 'http:' || protocol === 'https:')
+            && destinationUrl.origin !== currentUrl.origin;
+    } catch (error) {
+        return false;
+    }
+}
+
 window.BARK.externalHandoffGuard = Object.freeze({
-    isExternalHandoffDestination: isBarkExternalHandoffDestination
+    isExternalHandoffDestination: isBarkExternalHandoffDestination,
+    shouldUseIOSSameContextHandoff: shouldUseBarkIOSSameContextHandoff
 });
 
 window.BARK.initUI = function initUI() {
@@ -192,6 +207,47 @@ function prepareExternalHandoff(details = {}) {
     if (panel) void panel.offsetHeight;
 }
 
+function isIOSStandaloneApp() {
+    const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent || '')
+        || (navigator.platform === 'MacIntel' && Number(navigator.maxTouchPoints) > 1);
+    const isStandalone = navigator.standalone === true
+        || (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches);
+    return { isIOS, isStandalone };
+}
+
+function shouldUseSameContextForExternalWebsite(href) {
+    const environment = isIOSStandaloneApp();
+    return shouldUseBarkIOSSameContextHandoff({
+        href,
+        currentHref: window.location.href,
+        isIOS: environment.isIOS,
+        isStandalone: environment.isStandalone
+    });
+}
+
+function openExternalWebsite(destination, details = {}) {
+    let safeDestination;
+    try {
+        safeDestination = new URL(destination, window.location.href);
+    } catch (error) {
+        return false;
+    }
+
+    if (!['http:', 'https:'].includes(safeDestination.protocol.toLowerCase())) return false;
+
+    prepareExternalHandoff({ ...details, destination: safeDestination.href });
+    if (shouldUseSameContextForExternalWebsite(safeDestination.href)) {
+        // In an installed iPhone web app, this still opens Apple's external
+        // Safari sheet. Unlike target=_blank, its X returns to this exact live
+        // document instead of cold-loading the app again.
+        window.location.assign(safeDestination.href);
+        return true;
+    }
+
+    window.open(safeDestination.href, '_blank', 'noopener,noreferrer');
+    return true;
+}
+
 function settleExternalReturnViewport(reason) {
     const generation = ++externalReturnSettleGeneration;
     closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
@@ -238,6 +294,7 @@ function handleAppReturn(reason) {
 }
 
 window.BARK.prepareExternalHandoff = prepareExternalHandoff;
+window.BARK.openExternalWebsite = openExternalWebsite;
 
 function settleAppViewportAfterKeyboard() {
     requestAnimationFrame(() => {
@@ -539,6 +596,18 @@ document.addEventListener('click', (event) => {
         target: link.getAttribute('target') || '',
         currentHref: window.location.href
     })) return;
+
+    if (!event.defaultPrevented
+        && !link.hasAttribute('download')
+        && (!Number.isFinite(event.button) || event.button === 0)
+        && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
+        && shouldUseSameContextForExternalWebsite(link.href)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        openExternalWebsite(link.href, { source: 'link' });
+        return;
+    }
+
     prepareExternalHandoff({ destination: link.href, source: 'link' });
 }, true);
 

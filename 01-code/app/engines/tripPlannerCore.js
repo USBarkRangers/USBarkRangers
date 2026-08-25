@@ -872,10 +872,15 @@ window.exportDayToMaps = function (dayIdx) {
         return;
     }
     const waypoints = routeDay.points.map(point => `${point.lat},${point.lng}`);
+    const destination = `https://www.google.com/maps/dir/${waypoints.join('/')}`;
+    if (window.BARK && typeof window.BARK.openExternalWebsite === 'function') {
+        window.BARK.openExternalWebsite(destination, { source: 'google-maps-route' });
+        return;
+    }
     if (window.BARK && typeof window.BARK.prepareExternalHandoff === 'function') {
         window.BARK.prepareExternalHandoff({ source: 'google-maps-route' });
     }
-    window.open(`https://www.google.com/maps/dir/${waypoints.join('/')}`, '_blank');
+    window.open(destination, '_blank', 'noopener,noreferrer');
 };
 
 // ====== DAY MANAGEMENT ======

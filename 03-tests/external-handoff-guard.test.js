@@ -47,3 +47,25 @@ test('ordinary internal navigation and inert links stay inside the app', () => {
         assert.equal(guard.isExternalHandoffDestination({ ...destination, currentHref }), false);
     });
 });
+
+test('installed iPhone web apps preserve the live document for cross-origin websites', () => {
+    const guard = loadGuard();
+    assert.equal(guard.shouldUseIOSSameContextHandoff({
+        href: 'https://usbarkrangers.com/safety-tips',
+        currentHref,
+        isIOS: true,
+        isStandalone: true
+    }), true);
+});
+
+test('same-context handoff does not alter other devices, normal Safari tabs, or native links', () => {
+    const guard = loadGuard();
+    [
+        { href: 'https://usbarkrangers.com/meet-the-team', isIOS: false, isStandalone: true },
+        { href: 'https://usbarkrangers.com/meet-the-team', isIOS: true, isStandalone: false },
+        { href: 'pages/privacy.html', isIOS: true, isStandalone: true },
+        { href: 'mailto:support@usbarkrangersmap.com', isIOS: true, isStandalone: true }
+    ].forEach(destination => {
+        assert.equal(guard.shouldUseIOSSameContextHandoff({ ...destination, currentHref }), false);
+    });
+});

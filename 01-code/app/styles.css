@@ -2870,7 +2870,7 @@ body.app-tab-active #slide-panel {
     position: fixed;
     top: max(24px, calc(env(safe-area-inset-top, 0px) + 12px));
     left: 50%;
-    transform: translateX(-50%) translateY(-150px);
+    transform: translateX(-50%) translateY(calc(-100% - env(safe-area-inset-top, 0px) - 32px));
     background: rgba(33, 150, 243, 0.95);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);

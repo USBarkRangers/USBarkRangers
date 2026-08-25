@@ -38,6 +38,8 @@ test('the park action footer does not apply the bottom safe area twice', () => {
 test('profile and refresh controls clear the top safe area', () => {
     assert.match(styles, /#settings-gear-btn\s*\{[\s\S]*top:\s*max\(22px,\s*calc\(env\(safe-area-inset-top,\s*0px\)\s*\+\s*10px\)\)/);
     assert.match(styles, /\.update-toast\s*\{[\s\S]*top:\s*max\(24px,\s*calc\(env\(safe-area-inset-top,\s*0px\)\s*\+\s*12px\)\)/);
+    assert.match(styles, /\.update-toast\s*\{[\s\S]*translateY\(calc\(-100%\s*-\s*env\(safe-area-inset-top,\s*0px\)\s*-\s*32px\)\)/);
+    assert.match(styles, /\.update-toast\.show\s*\{\s*transform:\s*translateX\(-50%\)\s*translateY\(0\)/);
 });
 
 test('bottom navigation does not install the fixed-surface touchmove canceler', () => {

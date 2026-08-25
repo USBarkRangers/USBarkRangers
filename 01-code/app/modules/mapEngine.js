@@ -10,10 +10,11 @@ window.BARK = window.BARK || {};
 // (e.g. Leaflet CDN failure). authService.js calls this after Firebase auth resolves.
 window.dismissBarkLoader = function () {
     const loader = document.getElementById('bark-loader');
-    if (loader && loader.style.opacity !== '0') {
-        loader.style.opacity = '0';
-        setTimeout(() => loader.remove(), 600);
-    }
+    if (!loader || loader.dataset.dismissing === 'true') return;
+
+    loader.dataset.dismissing = 'true';
+    loader.classList.add('is-dismissing');
+    setTimeout(() => loader.remove(), 400);
 };
 
 // Safety fallback: if Firebase auth never resolves, dismiss after 8s unconditionally.

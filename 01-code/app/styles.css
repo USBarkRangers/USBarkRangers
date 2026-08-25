@@ -15,21 +15,35 @@
 /* Cold Start Loading Screen */
 #bark-loader {
     position: fixed;
-    top: 0;
-    left: 0;
+    inset: 0;
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
     background: #2d3436;
     z-index: 10000;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    transition: opacity 0.6s ease-out;
+    opacity: 1;
+    isolation: isolate;
     color: white;
     font-size: 16px;
     font-weight: 600;
     gap: 16px;
+}
+
+/* Keep the full-screen cover opaque until startup is complete. Fading the
+   entire loader exposes the map and bright bottom navigation too early. */
+#bark-loader > * {
+    position: relative;
+    z-index: 1;
+    opacity: 1;
+    transition: opacity 0.35s ease-out;
+}
+
+#bark-loader.is-dismissing > * {
+    opacity: 0;
 }
 
 .dog-spinner {

@@ -4041,8 +4041,10 @@ async function runOpsMetricsRollup({ windowHours, channel, title }, options = {}
     return summary;
 }
 
+// GoatCounter is optional in opsMetrics; do not bind an undeployed secret and
+// block the otherwise useful Firestore/Discord rollup from deploying.
 exports.dailyOpsMetrics = functions
-    .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON", "GOATCOUNTER_API_TOKEN"] })
+    .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON"] })
     .pubsub.schedule("0 8 * * *")
     .timeZone("America/New_York")
     .onRun(async () => {
@@ -4054,7 +4056,7 @@ exports.dailyOpsMetrics = functions
     });
 
 exports.weeklyOpsReport = functions
-    .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON", "GOATCOUNTER_API_TOKEN"] })
+    .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON"] })
     .pubsub.schedule("5 8 * * 1")
     .timeZone("America/New_York")
     .onRun(async () => {

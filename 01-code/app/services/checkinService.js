@@ -64,6 +64,16 @@ function clearUnconfirmedVisit(uid, visitId) {
     saveUnconfirmedVisitsMap(uid, map);
 }
 
+function clearUnconfirmedVisits(uid) {
+    const key = getUnconfirmedVisitsKey(uid);
+    if (!key) return;
+    try {
+        localStorage.removeItem(key);
+    } catch (error) {
+        console.warn('[checkinService] unable to clear unconfirmed visits cache:', error);
+    }
+}
+
 // Called from the authoritative Firestore snapshot handler in authService. Any
 // visit that the server now knows about can be safely removed from the local
 // safety net. Visits still missing from the server stay queued for replay.
@@ -874,6 +884,7 @@ window.BARK.services.checkin = {
     markAsVisited,
     replayUnconfirmedVisits,
     reconcileUnconfirmedVisits,
+    clearUnconfirmedVisits,
     awaitServerConfirmation,
     notifyAuthoritativeSnapshot,
     cancelPendingServerConfirmations,

@@ -126,10 +126,11 @@ function makeUserFirestore(userData = {}) {
     };
 }
 
-function makeDeleteAccountFirestore(userData = {}) {
+function makeDeleteAccountFirestore(userData = {}, controls = {}) {
     const state = {
         deletedDocs: [],
         setDocs: [],
+        operations: [],
         batchCommits: 0,
         savedRouteDeletes: 0,
         achievementDeletes: 0
@@ -144,9 +145,11 @@ function makeDeleteAccountFirestore(userData = {}) {
                 return { exists: path.startsWith('users/'), data: () => ({ ...userData }) };
             },
             async set(data, options = {}) {
+                state.operations.push(`set:${path}`);
                 state.setDocs.push({ path, data, options });
             },
             async delete() {
+                state.operations.push(`delete:${path}`);
                 state.deletedDocs.push(path);
                 if (path.includes('/savedRoutes/')) state.savedRouteDeletes += 1;
                 if (path.includes('/achievements/')) state.achievementDeletes += 1;
@@ -154,6 +157,10 @@ function makeDeleteAccountFirestore(userData = {}) {
             collection(name) {
                 return {
                     async get() {
+                        state.operations.push(`list:${path}/${name}`);
+                        if (controls.failSubcollectionCleanup === name) {
+                            throw new Error(`forced ${name} cleanup failure`);
+                        }
                         if (path === 'users/delete-user' && name === 'savedRoutes') {
                             return {
                                 docs: [
@@ -931,6 +938,11 @@ describe("Account deletion callable", () => {
         assert.equal(result.deleted, true);
         assert.deepEqual(deletedAuthUsers, ["delete-user"]);
         assert.equal(firestore.state.savedRouteDeletes, 2);
+        assert.ok(
+            firestore.state.operations.indexOf("set:_deletedUsers/delete-user") <
+                firestore.state.operations.indexOf("list:users/delete-user/savedRoutes"),
+            "deletion tombstone must block stale-token writes before subcollections are listed"
+        );
         assert.ok(firestore.state.deletedDocs.includes("users/delete-user"));
         assert.ok(firestore.state.deletedDocs.includes("leaderboard/delete-user"));
         assert.deepEqual(firestore.state.setDocs.find(doc => doc.path === "_deletedUsers/delete-user").data, {
@@ -940,6 +952,32 @@ describe("Account deletion callable", () => {
             lemonSubscriptionCanceled: false,
             lemonSubscriptionId: null
         });
+    });
+
+    it("rolls back the write barrier if Firestore cleanup fails before parent deletion", async () => {
+        const firestore = makeDeleteAccountFirestore({}, {
+            failSubcollectionCleanup: "savedRoutes"
+        });
+        const deletedAuthUsers = [];
+
+        await assert.rejects(
+            handleDeleteAccount({ confirmation: "DELETE" }, authedContext("delete-user"), {
+                firestore,
+                auth: {
+                    async deleteUser(uid) {
+                        deletedAuthUsers.push(uid);
+                    }
+                },
+                serverTimestamp: () => "server-now"
+            }),
+            /forced savedRoutes cleanup failure/
+        );
+
+        assert.deepEqual(deletedAuthUsers, []);
+        assert.ok(firestore.state.operations.includes("set:_deletedUsers/delete-user"));
+        assert.ok(firestore.state.operations.includes("delete:_deletedUsers/delete-user"));
+        assert.equal(firestore.state.deletedDocs.includes("users/delete-user"), false);
+        assert.equal(firestore.state.deletedDocs.includes("leaderboard/delete-user"), false);
     });
 
     it("deletes verified free accounts without Lemon API configuration", async () => {

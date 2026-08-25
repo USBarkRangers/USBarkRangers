@@ -741,11 +741,22 @@ async function handleSyncLeaderboardScore(requestOrData, context, options = {}) 
     const db = options.firestore || admin.firestore();
     const userRef = db.collection("users").doc(uid);
     const leaderboardRef = db.collection("leaderboard").doc(uid);
+    const deletedUserRef = db.collection("_deletedUsers").doc(uid);
     const token = context && context.auth && context.auth.token ? context.auth.token : {};
 
     let result = null;
 
     await db.runTransaction(async (transaction) => {
+        // Firebase ID tokens issued before account deletion can remain valid for
+        // a short period. The deletion tombstone is therefore the authoritative
+        // server-side gate: a retained token must never recreate private or
+        // public account records after deletion has completed.
+        const deletedUserSnap = await transaction.get(deletedUserRef);
+        if (deletedUserSnap && deletedUserSnap.exists) {
+            result = { ignored: true, reason: "account_deleted" };
+            return;
+        }
+
         const userSnap = await transaction.get(userRef);
         const userData = userSnap && userSnap.exists && typeof userSnap.data === "function"
             ? userSnap.data()
@@ -2821,31 +2832,49 @@ async function handleDeleteAccount(requestOrData, context, options = {}) {
         context,
         options
     });
+    const tombstone = {
+        uid,
+        deletedAt: timestamp,
+        source: "user_request",
+        lemonSubscriptionCanceled: cancellation.canceled === true,
+        lemonSubscriptionId: cancellation.providerSubscriptionId || null
+    };
+    let firestoreDeletionCommitted = false;
 
-    await deleteKnownUserSubcollections(db, userRef, options);
+    // Establish the write barrier before enumerating subcollections. Otherwise
+    // an already-issued token could create a route/achievement after the list
+    // query but before the final parent deletion, leaving orphaned data behind.
+    await setFirestoreDoc(deletedUserRef, tombstone, { merge: true });
 
-    if (db && typeof db.batch === "function") {
-        const batch = db.batch();
-        batch.set(deletedUserRef, {
-            uid,
-            deletedAt: timestamp,
-            source: "user_request",
-            lemonSubscriptionCanceled: cancellation.canceled === true,
-            lemonSubscriptionId: cancellation.providerSubscriptionId || null
-        }, { merge: true });
-        batch.delete(userRef);
-        batch.delete(leaderboardRef);
-        await batch.commit();
-    } else {
-        await setFirestoreDoc(deletedUserRef, {
-            uid,
-            deletedAt: timestamp,
-            source: "user_request",
-            lemonSubscriptionCanceled: cancellation.canceled === true,
-            lemonSubscriptionId: cancellation.providerSubscriptionId || null
-        }, { merge: true });
-        await deleteFirestoreDoc(userRef);
-        await deleteFirestoreDoc(leaderboardRef);
+    try {
+        await deleteKnownUserSubcollections(db, userRef, options);
+
+        if (db && typeof db.batch === "function") {
+            const batch = db.batch();
+            batch.delete(userRef);
+            batch.delete(leaderboardRef);
+            await batch.commit();
+        } else {
+            await deleteFirestoreDoc(userRef);
+            await deleteFirestoreDoc(leaderboardRef);
+        }
+        firestoreDeletionCommitted = true;
+    } catch (error) {
+        // If parent deletion never committed, the Auth account still exists and
+        // must remain usable. Remove the temporary write barrier before
+        // returning the failure. Once the parent deletion commits, the durable
+        // tombstone is intentionally retained even if Auth deletion later fails.
+        if (!firestoreDeletionCommitted) {
+            try {
+                await deleteFirestoreDoc(deletedUserRef);
+            } catch (rollbackError) {
+                console.error("[account] Deletion tombstone rollback failed.", {
+                    uid,
+                    message: rollbackError && rollbackError.message ? rollbackError.message : String(rollbackError)
+                });
+            }
+        }
+        throw error;
     }
 
     try {

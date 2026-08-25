@@ -159,6 +159,7 @@ function loadAuthAccountUi(overrides = {}) {
     const reloadCalls = [];
     const tokenRefreshCalls = [];
     const portalCalls = [];
+    const deletionCleanupCalls = [];
     const alertCalls = [];
     const user = {
         uid: 'uid-123',
@@ -262,7 +263,13 @@ function loadAuthAccountUi(overrides = {}) {
         window: {
             BARK: {
                 services: {
-                    premium: premiumService
+                    premium: premiumService,
+                    auth: {
+                        prepareForAccountDeletion(uid) {
+                            deletionCleanupCalls.push(uid);
+                            if (overrides.deletionCleanupError) throw overrides.deletionCleanupError;
+                        }
+                    }
                 },
                 incrementRequestCount() {}
             },
@@ -346,6 +353,7 @@ function loadAuthAccountUi(overrides = {}) {
         reloadCalls,
         tokenRefreshCalls,
         portalCalls,
+        deletionCleanupCalls,
         alertCalls,
         locationAssignCalls,
         premiumService,
@@ -899,6 +907,34 @@ test('free users can delete account from management modal', async () => {
     const deleteCall = harness.portalCalls.find(call => call.name === 'deleteAccount');
     assert.ok(deleteCall);
     assert.equal(JSON.stringify(deleteCall.payload), '{"confirmation":"DELETE"}');
+    assert.deepEqual(harness.deletionCleanupCalls, ['free-delete-user']);
+    assert.equal(harness.auth.currentUser, null);
+    assert.equal(harness.element('account-auth-message').dataset.tone, 'success');
+});
+
+test('local cleanup failure after server deletion cannot prevent sign-out', async () => {
+    const harness = loadAuthAccountUi({
+        deletionCleanupError: new Error('local storage unavailable'),
+        deleteAccountData: {
+            deleted: true,
+            subscriptionCanceled: false
+        }
+    });
+    harness.auth.currentUser = {
+        ...harness.user,
+        uid: 'cleanup-failure-user',
+        email: 'cleanup-failure@example.com',
+        displayName: 'Cleanup Failure Ranger',
+        providerData: [{ providerId: 'password' }]
+    };
+
+    harness.window.BARK.authAccountUi.refreshAccountDisplay();
+    await harness.element('account-manage-subscription-btn').dispatch('click');
+    harness.element('account-delete-confirm-input').value = 'DELETE';
+    await harness.element('account-delete-confirm-input').dispatch('input');
+    await harness.element('account-delete-confirm-btn').dispatch('click');
+
+    assert.deepEqual(harness.deletionCleanupCalls, ['cleanup-failure-user']);
     assert.equal(harness.auth.currentUser, null);
     assert.equal(harness.element('account-auth-message').dataset.tone, 'success');
 });

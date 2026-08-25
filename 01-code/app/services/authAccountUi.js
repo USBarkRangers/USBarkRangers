@@ -912,6 +912,17 @@
             await deleteAccount({ confirmation: 'DELETE' });
 
             try {
+                const authService = window.BARK.services && window.BARK.services.auth;
+                if (authService && typeof authService.prepareForAccountDeletion === 'function') {
+                    authService.prepareForAccountDeletion(user.uid);
+                }
+            } catch (cleanupError) {
+                // Server deletion already succeeded. Local cleanup must never
+                // prevent sign-out or misleadingly report that deletion failed.
+                console.warn('[authAccountUi] local account cleanup after deletion failed:', cleanupError);
+            }
+
+            try {
                 await getFirebaseAuth().signOut();
             } catch (signOutError) {
                 console.warn('[authAccountUi] sign out after account deletion failed:', signOutError);

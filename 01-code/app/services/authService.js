@@ -889,6 +889,21 @@ function stopUserSnapshotSubscription() {
     }
 }
 
+function prepareForAccountDeletion(uid) {
+    // Detach account-scoped work as soon as the server confirms deletion. A
+    // pre-deletion Firebase token can remain cached briefly, so pending UI work
+    // must not try to replay private state while sign-out is completing.
+    stopUserSnapshotSubscription();
+    stopVaultRepoVisitSubscription();
+
+    const checkinService = window.BARK.services && window.BARK.services.checkin;
+    if (checkinService && typeof checkinService.clearUnconfirmedVisits === 'function') {
+        checkinService.clearUnconfirmedVisits(uid);
+    }
+
+    resetAccountScopedRuntimeState();
+}
+
 function handlePremiumGating(isPremium, options = {}) {
     const premiumUi = window.BARK.authPremiumUi;
     if (premiumUi && typeof premiumUi.applyPremiumGating === 'function') {
@@ -1519,6 +1534,7 @@ window.BARK.services.auth = {
     getEffectiveFirebaseConfig,
     startGoogleRedirectSignIn,
     getGoogleRedirectUri,
-    maybeCompleteGoogleRedirectSignIn
+    maybeCompleteGoogleRedirectSignIn,
+    prepareForAccountDeletion
 };
 window.BARK.initFirebase = initFirebase;

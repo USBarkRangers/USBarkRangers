@@ -10,6 +10,10 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    function hasNoDeletionTombstone(uid) {
+      return !exists(/databases/$(database)/documents/_deletedUsers/$(uid));
+    }
+
     function protectedUserKeys() {
       return [
         'entitlement',
@@ -143,18 +147,19 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isOwner(uid);
-      allow create: if isOwner(uid) && createsNoProtectedUserKeys() && createsValidVisitedPlacesForPlan();
-      allow update: if isOwner(uid) && changesNoProtectedUserKeys() && updatesValidVisitedPlacesForPlan();
+      allow create: if isOwner(uid) && hasNoDeletionTombstone(uid) && createsNoProtectedUserKeys() && createsValidVisitedPlacesForPlan();
+      allow update: if isOwner(uid) && hasNoDeletionTombstone(uid) && changesNoProtectedUserKeys() && updatesValidVisitedPlacesForPlan();
       allow delete: if false;
 
       match /savedRoutes/{routeId} {
-        allow read, create, update: if hasSavedRoutePremiumAccess(uid);
+        allow read: if hasSavedRoutePremiumAccess(uid);
+        allow create, update: if hasNoDeletionTombstone(uid) && hasSavedRoutePremiumAccess(uid);
         allow delete: if isOwner(uid);
       }
 
       match /achievements/{achievementId} {
         allow read: if isOwner(uid);
-        allow create, update: if isOwner(uid) && isValidAchievementWrite(achievementId);
+        allow create, update: if isOwner(uid) && hasNoDeletionTombstone(uid) && isValidAchievementWrite(achievementId);
         allow delete: if false;
       }
 

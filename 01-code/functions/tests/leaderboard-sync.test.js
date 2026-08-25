@@ -25,7 +25,7 @@ async function assertRejectsCode(promise, code) {
     );
 }
 
-function makeFirestore({ userData = {}, userExists = true } = {}) {
+function makeFirestore({ userData = {}, userExists = true, deletedUserExists = false } = {}) {
     const writes = [];
 
     function makeDocRef(collectionName, docId) {
@@ -36,6 +36,13 @@ function makeFirestore({ userData = {}, userExists = true } = {}) {
                     return {
                         exists: userExists,
                         data: () => ({ ...userData })
+                    };
+                }
+
+                if (collectionName === "_deletedUsers") {
+                    return {
+                        exists: deletedUserExists,
+                        data: () => deletedUserExists ? { uid: docId } : {}
                     };
                 }
 
@@ -139,6 +146,25 @@ describe("server-authoritative leaderboard sync", () => {
             handleSyncLeaderboardScore({}, {}, { firestore: makeFirestore() }),
             "unauthenticated"
         );
+    });
+
+    it("does not recreate user or leaderboard records for a tombstoned uid", async () => {
+        const firestore = makeFirestore({
+            userExists: false,
+            deletedUserExists: true
+        });
+
+        const result = await handleSyncLeaderboardScore(
+            {},
+            authedContext("deleted-alice", { name: "Deleted Alice" }),
+            { firestore }
+        );
+
+        assert.deepEqual(result, {
+            ignored: true,
+            reason: "account_deleted"
+        });
+        assert.deepEqual(firestore.writes, []);
     });
 
     it("lets an authenticated user sync a legitimate server-calculated leaderboard score", async () => {

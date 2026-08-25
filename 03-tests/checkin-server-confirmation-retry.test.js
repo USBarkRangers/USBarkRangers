@@ -119,3 +119,15 @@ test('server confirmation retries until a fresh server doc contains the visit', 
         'server confirmation should clear the local pending mutation'
     );
 });
+
+test('account deletion cleanup removes the entire unconfirmed-visit safety net for that uid', () => {
+    const context = loadCheckinService();
+    const key = 'bark.unconfirmedVisits.deleted-user';
+    context.localStorage.setItem(key, JSON.stringify({
+        'visit-1': { visit: { id: 'visit-1' }, stashedAt: 1710000000000 }
+    }));
+
+    context.window.BARK.services.checkin.clearUnconfirmedVisits('deleted-user');
+
+    assert.equal(context.localStorage.getItem(key), null);
+});

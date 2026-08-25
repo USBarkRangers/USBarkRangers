@@ -125,6 +125,34 @@ async function clearUserDocs() {
     await Promise.all(refs.map((ref) => ref.delete()));
 }
 
+async function clearAccountDeletionDocs() {
+    for (const collectionName of [
+        "leaderboard",
+        "_deletedUsers",
+        "_callableRateLimits",
+        "_premiumCallableRateLimits"
+    ]) {
+        const refs = await db.collection(collectionName).listDocuments();
+        await Promise.all(refs.map((ref) => ref.delete()));
+    }
+}
+
+async function callWithRetainedToken(name, idToken, data = {}) {
+    const response = await fetch(
+        `http://${FUNCTIONS_EMULATOR_HOST}:${FUNCTIONS_EMULATOR_PORT}/${PROJECT_ID}/${REGION}/${name}`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${idToken}`
+            },
+            body: JSON.stringify({ data })
+        }
+    );
+    const body = await response.json();
+    return { response, body };
+}
+
 async function deleteCreatedAuthUsers() {
     const uids = createdUids;
     createdUids = [];
@@ -211,6 +239,7 @@ describe("ORS callable emulator entitlement enforcement", { concurrency: false }
         resetOrsStubFiles();
         await resetClientAuth();
         await clearUserDocs();
+        await clearAccountDeletionDocs();
         await deleteCreatedAuthUsers();
     });
 
@@ -219,6 +248,7 @@ describe("ORS callable emulator entitlement enforcement", { concurrency: false }
         resetOrsMarker();
         if (auth) await resetClientAuth();
         if (db) await clearUserDocs();
+        if (db) await clearAccountDeletionDocs();
         await deleteCreatedAuthUsers();
         if (adminApp) await adminApp.delete();
         if (clientApp) await deleteApp(clientApp);
@@ -388,5 +418,42 @@ describe("ORS callable emulator entitlement enforcement", { concurrency: false }
 
             assert.deepEqual(readOrsCalls(), [], status);
         }
+    });
+
+    it("blocks a retained pre-deletion token from recreating user and leaderboard records", async () => {
+        const user = await createSignedInUser("deleted-account-replay");
+        const uid = user.uid;
+        const retainedToken = await user.getIdToken();
+        await db.collection("users").doc(uid).set({
+            displayName: "Deleted Account Replay",
+            entitlement: { premium: false, status: "free", source: "none" },
+            visitedPlaces: []
+        }, { merge: true });
+
+        await withTimeout(
+            callable("syncLeaderboardScore")({}),
+            "Initial leaderboard sync"
+        );
+        assert.equal((await db.collection("leaderboard").doc(uid).get()).exists, true);
+
+        const deletionResult = await withTimeout(
+            callable("deleteAccount")({ confirmation: "DELETE" }),
+            "Account deletion"
+        );
+        assert.equal(deletionResult.data.deleted, true);
+
+        const replay = await withTimeout(
+            callWithRetainedToken("syncLeaderboardScore", retainedToken),
+            "Retained-token leaderboard replay"
+        );
+
+        assert.equal(replay.response.ok, true);
+        assert.deepEqual(replay.body.result || replay.body.data, {
+            ignored: true,
+            reason: "account_deleted"
+        });
+        assert.equal((await db.collection("_deletedUsers").doc(uid).get()).exists, true);
+        assert.equal((await db.collection("users").doc(uid).get()).exists, false);
+        assert.equal((await db.collection("leaderboard").doc(uid).get()).exists, false);
     });
 });

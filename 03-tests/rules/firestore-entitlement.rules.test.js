@@ -132,6 +132,43 @@ describe('Firestore entitlement and admin field rules', () => {
         }));
     });
 
+    it('prevents retained owner tokens from recreating tombstoned account data', async () => {
+        await seedDoc(['_deletedUsers', 'alice'], {
+            uid: 'alice',
+            source: 'user_request',
+            deletedAt: new Date('2026-08-25T12:00:00.000Z')
+        });
+        await seedDoc(['users', 'alice'], {
+            entitlement: { premium: true, status: 'manual_active' },
+            settings: { mapStyle: 'default' }
+        });
+        await seedDoc(['_deletedUsers', 'bob'], {
+            uid: 'bob',
+            source: 'user_request',
+            deletedAt: new Date('2026-08-25T12:00:00.000Z')
+        });
+
+        const aliceDb = authedDb('alice');
+        const bobDb = authedDb('bob');
+
+        await assertFails(updateDoc(doc(aliceDb, 'users', 'alice'), {
+            settings: { mapStyle: 'terrain' }
+        }));
+        await assertFails(setDoc(doc(bobDb, 'users', 'bob'), {
+            settings: { mapStyle: 'default' }
+        }));
+        await assertFails(setDoc(doc(aliceDb, 'users', 'alice', 'savedRoutes', 'route-after-delete'), {
+            tripName: 'Must Not Return',
+            createdAt: 1710000000000,
+            tripDays: []
+        }));
+        await assertFails(setDoc(doc(aliceDb, 'users', 'alice', 'achievements', 'badge-after-delete'), {
+            achievementId: 'badge-after-delete',
+            tier: 'honor',
+            dateEarned: serverTimestamp()
+        }));
+    });
+
     it('allows allowed user writes while preserving server-written entitlement', async () => {
         await seedDoc(['users', 'alice'], {
             entitlement: {

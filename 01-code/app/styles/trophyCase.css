@@ -639,7 +639,9 @@
     bottom: 0;
     background: #ffffff !important;
     padding: 10px 20px 10px 20px !important;
-    padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)) !important;
+    /* The mobile sheet already stops above the device-aware bottom nav.
+       Applying the inset again here creates a second blank band on iPhones. */
+    padding-bottom: 10px !important;
     border-top: 2px solid #f1f5f9;
     display: grid;
     grid-template-columns: 1fr 1fr 1.5fr;

@@ -389,7 +389,7 @@ const LocateControl = L.Control.extend({
         L.DomEvent.disableClickPropagation(container);
         L.DomEvent.on(button, 'click', function (e) {
             L.DomEvent.preventDefault(e);
-            requestUserLocationCenter(10);
+            map.locate({ setView: true, maxZoom: 10 });
         });
         return container;
     }
@@ -397,138 +397,38 @@ const LocateControl = L.Control.extend({
 map.addControl(new LocateControl());
 
 let userLocationMarker = null;
-let userLocationWatchId = null;
-let pendingUserLocationFix = null;
-let userLocationFrame = null;
-let pendingLocationCenterZoom = null;
-let hasSyncedInitialUserLocation = false;
-
 window.BARK.getUserLocationMarker = function () { return userLocationMarker; };
 
-// A moving marker in Leaflet's shared markerPane can invalidate hundreds of
-// park-pin layers on mobile Safari. Keep live location in its own composited
-// pane so a GPS update repaints only this one static dot.
-const USER_LOCATION_PANE = 'barkUserLocation';
-const userLocationPane = map.createPane(USER_LOCATION_PANE);
-userLocationPane.classList.add('bark-user-location-pane');
-
-const userLocationIcon = L.divIcon({
-    className: 'custom-location-pulse',
-    html: '<div class="pulse-location-dot" style="width: 16px; height: 16px;"></div>',
-    iconSize: [16, 16],
-    iconAnchor: [8, 8]
-});
-
-function applyUserLocationFix(fix) {
-    userLocationFrame = null;
-    pendingUserLocationFix = null;
-
-    if (!fix || !Number.isFinite(fix.lat) || !Number.isFinite(fix.lng)) return;
-
-    const latlng = L.latLng(fix.lat, fix.lng);
-    if (!userLocationMarker) {
-        userLocationMarker = L.marker(latlng, {
-            icon: userLocationIcon,
-            pane: USER_LOCATION_PANE,
-            interactive: false,
-            keyboard: false,
-            bubblingMouseEvents: false
-        }).addTo(map);
-    } else {
-        userLocationMarker.setLatLng(latlng);
-    }
-
-    if (pendingLocationCenterZoom !== null) {
-        map.setView(latlng, pendingLocationCenterZoom, { animate: false });
-        pendingLocationCenterZoom = null;
-    }
-
-    if (!hasSyncedInitialUserLocation && typeof window.syncState === 'function') {
-        hasSyncedInitialUserLocation = true;
-        window.syncState();
-    }
-}
-
-function queueUserLocationFix(position) {
-    const coords = position && position.coords;
-    const lat = Number(coords && coords.latitude);
-    const lng = Number(coords && coords.longitude);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-
-    pendingUserLocationFix = { lat, lng };
-    if (userLocationFrame !== null) return;
-
-    userLocationFrame = window.requestAnimationFrame(() => {
-        applyUserLocationFix(pendingUserLocationFix);
-    });
-}
-
-function stopUserLocationWatch() {
-    if (userLocationWatchId !== null && navigator.geolocation) {
-        navigator.geolocation.clearWatch(userLocationWatchId);
-    }
-    userLocationWatchId = null;
-
-    if (userLocationFrame !== null) {
-        window.cancelAnimationFrame(userLocationFrame);
-        userLocationFrame = null;
-    }
-    pendingUserLocationFix = null;
-}
-
-function handleUserLocationError(error) {
-    if (error && error.code === 1) stopUserLocationWatch();
-    console.warn('Could not access your location. Please check your browser permissions.');
-}
-
-function startUserLocationWatch() {
-    if (userLocationWatchId !== null || document.hidden || !navigator.geolocation) return;
-
-    try {
-        userLocationWatchId = navigator.geolocation.watchPosition(
-            queueUserLocationFix,
-            handleUserLocationError,
-            {
-                enableHighAccuracy: true,
-                maximumAge: 1000,
-                timeout: 15000
-            }
-        );
-    } catch (error) {
-        userLocationWatchId = null;
-        handleUserLocationError(error);
-    }
-}
-
-function requestUserLocationCenter(maxZoom = 10) {
-    const safeZoom = Number.isFinite(Number(maxZoom)) ? Number(maxZoom) : 10;
+map.on('locationfound', function (e) {
     if (userLocationMarker) {
-        map.setView(userLocationMarker.getLatLng(), safeZoom, { animate: false });
-        return;
+        map.removeLayer(userLocationMarker);
     }
 
-    pendingLocationCenterZoom = safeZoom;
-    startUserLocationWatch();
-}
+    const pulsingIcon = L.divIcon({
+        className: 'custom-location-pulse',
+        html: '<div class="pulse-location-dot" style="width: 16px; height: 16px;"></div>',
+        iconSize: [16, 16],
+        iconAnchor: [8, 8]
+    });
 
-window.BARK.requestUserLocationCenter = requestUserLocationCenter;
-window.BARK.startUserLocationWatch = startUserLocationWatch;
-window.BARK.stopUserLocationWatch = stopUserLocationWatch;
+    userLocationMarker = L.marker(e.latlng, { icon: pulsingIcon }).addTo(map);
+    userLocationMarker.bindPopup('You are here!', { autoPan: false }).openPopup();
 
-document.addEventListener('visibilitychange', () => {
-    if (document.hidden) stopUserLocationWatch();
-    else startUserLocationWatch();
+    // 🎯 RE-CALCULATE AND RE-SORT ACHIEVEMENTS NOW THAT WE HAVE ACTUAL LOCATION
+    window.syncState();
 });
-window.addEventListener('pagehide', stopUserLocationWatch);
-window.addEventListener('pageshow', startUserLocationWatch);
+
+map.on('locationerror', function (e) {
+    console.warn("Could not access your location. Please check your browser permissions.");
+});
 
 // Prompt for location immediately on load
 setTimeout(() => {
     const usedSaved = window.rememberMapPosition && localStorage.getItem('mapLat');
     if (!usedSaved && !window.startNationalView) {
-        requestUserLocationCenter(10);
+        map.locate({ setView: true, maxZoom: 10 });
     } else {
-        startUserLocationWatch();
+        map.locate({ setView: false, watch: false });
     }
 }, 500);
 

@@ -3849,27 +3849,18 @@ details[open] .chevron {
 }
 
 /* --- Map & Location Enhancements --- */
-.leaflet-pane.bark-user-location-pane {
-    z-index: 650;
-    pointer-events: none;
-    isolation: isolate;
-    will-change: transform;
-    transform: translateZ(0);
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
-}
-
-.custom-location-pulse {
-    background: transparent !important;
-    border: 0 !important;
-}
-
 .pulse-location-dot {
     background-color: #2196F3;
     border-radius: 50%;
     border: 3px solid white;
-    box-shadow: 0 0 0 4px rgba(33, 150, 243, 0.28);
-    animation: none;
+    box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.7);
+    animation: pulse-ring 2s infinite cubic-bezier(0.66, 0, 0, 1);
+}
+
+@keyframes pulse-ring {
+    to {
+        box-shadow: 0 0 0 20px rgba(33, 150, 243, 0);
+    }
 }
 
 /* iOS Style Toggle Switch */

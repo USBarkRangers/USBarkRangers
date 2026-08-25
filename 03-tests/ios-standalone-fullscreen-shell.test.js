@@ -32,5 +32,5 @@ test('the park action footer does not apply the bottom safe area twice', () => {
     assert.ok(footerRule, 'panel sticky footer rule should exist');
     assert.match(footerRule[0], /padding-bottom:\s*10px\s*!important/);
     assert.doesNotMatch(footerRule[0], /safe-area-inset-bottom/);
-    assert.match(trophyStyles, /@media\s*\(max-width:\s*767px\)[\s\S]*#slide-panel \.panel-content\s*\{[\s\S]*margin-bottom:\s*0/);
+    assert.match(trophyStyles, /@media\s*\(max-width:\s*767px\)[\s\S]*#slide-panel\s*\{[\s\S]*padding-bottom:\s*0/);
 });

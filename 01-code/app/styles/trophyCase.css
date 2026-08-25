@@ -652,10 +652,10 @@
 }
 
 @media (max-width: 767px) {
-    /* The desktop panel uses this legacy outer margin, but on the mobile
-       bottom sheet it becomes a blank strip between the actions and nav. */
-    #slide-panel .panel-content {
-        margin-bottom: 0;
+    /* The footer supplies its own 10px cushion. The desktop sheet padding
+       becomes a second blank strip between these actions and the mobile nav. */
+    #slide-panel {
+        padding-bottom: 0;
     }
 }
 

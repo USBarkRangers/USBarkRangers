@@ -13,10 +13,13 @@ test('iOS standalone mode is identified before the first stylesheet paints', () 
     assert.ok(classScript >= 0);
     assert.ok(mainStylesheet > classScript);
     assert.match(indexHtml, /viewport-fit=cover/);
+    assert.match(indexHtml, /--bark-ios-app-height/);
+    assert.ok(indexHtml.indexOf('--bark-ios-app-height') < mainStylesheet);
 });
 
 test('the iOS app shell uses the stable large viewport without changing other phones', () => {
     assert.match(styles, /html\.bark-ios-standalone-fullscreen[\s\S]*height:\s*100lvh/);
+    assert.match(styles, /height:\s*var\(--bark-ios-app-height,\s*100lvh\)/);
     assert.match(styles, /html\.bark-ios-standalone-fullscreen #map,[\s\S]*\.ui-view[\s\S]*height:\s*100lvh/);
     assert.match(styles, /html\.bark-ios-standalone-fullscreen \.glass-nav\s*\{\s*position:\s*absolute;/);
     assert.match(styles, /safe-area-inset-top/);

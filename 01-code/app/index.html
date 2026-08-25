@@ -10,7 +10,19 @@
         if ((/iPad|iPhone|iPod/i.test(navigator.userAgent || '')
             || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
             && navigator.standalone === true) {
-            document.documentElement.classList.add('bark-ios-standalone-fullscreen');
+            const root = document.documentElement;
+            const syncStableAppHeight = () => {
+                const dimensions = [Number(screen.width), Number(screen.height)]
+                    .filter(value => Number.isFinite(value) && value > 0);
+                if (dimensions.length !== 2) return;
+                const isPortrait = !window.matchMedia('(orientation: landscape)').matches;
+                const stableHeight = isPortrait ? Math.max(...dimensions) : Math.min(...dimensions);
+                root.style.setProperty('--bark-ios-app-height', `${stableHeight}px`);
+            };
+
+            root.classList.add('bark-ios-standalone-fullscreen');
+            syncStableAppHeight();
+            window.addEventListener('orientationchange', () => setTimeout(syncStableAppHeight, 120));
         }
     </script>
     <script src="modules/oauthFragmentGuard.js?v=1"></script>
@@ -25,7 +37,7 @@
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js" defer></script>
 
-    <link rel="stylesheet" href="styles.css?v=76">
+    <link rel="stylesheet" href="styles.css?v=77">
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
     <link rel="stylesheet" href="styles/trophyCase.css?v=5">
     <link rel="stylesheet" href="styles/feedbackModal.css?v=2">

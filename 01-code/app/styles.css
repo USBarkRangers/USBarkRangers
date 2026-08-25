@@ -81,6 +81,7 @@ html.bark-ios-standalone-fullscreen,
 html.bark-ios-standalone-fullscreen body {
     height: 100vh;
     height: 100lvh;
+    height: var(--bark-ios-app-height, 100lvh);
 }
 
 html.bark-ios-standalone-fullscreen body {
@@ -91,6 +92,7 @@ html.bark-ios-standalone-fullscreen #map,
 html.bark-ios-standalone-fullscreen .ui-view {
     height: 100vh;
     height: 100lvh;
+    height: var(--bark-ios-app-height, 100lvh);
 }
 
 /* ====== APP-WIDE SCROLLBAR STYLING ====== */

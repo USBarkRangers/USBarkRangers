@@ -199,7 +199,9 @@ function settleExternalReturnViewport(reason) {
 
     const settle = () => {
         if (generation !== externalReturnSettleGeneration) return;
-        closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
+        // Only repair viewport/compositor state here. A user can return from
+        // Safari and open a new pin before these delayed passes run; clearing
+        // map surfaces again would erase that brand-new card as stale state.
         window.scrollTo(0, 0);
         document.documentElement.scrollTop = 0;
         document.body.scrollTop = 0;

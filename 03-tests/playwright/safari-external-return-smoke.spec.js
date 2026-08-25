@@ -158,4 +158,56 @@ test.describe('Safari installed-app external return', () => {
         expect(state.panelTitle).toBe('Internal Navigation Test Park');
         await context.close();
     });
+
+    test('a pin opened immediately after Safari return survives delayed viewport cleanup', async ({ browser }) => {
+        const context = await newBarkContext(browser, {
+            viewport: { width: 390, height: 844 },
+            isMobile: true,
+            hasTouch: true
+        });
+        const page = await context.newPage();
+        await openLoadedApp(page);
+
+        const expectedTitle = await page.evaluate(() => {
+            const markers = Array.from(window.BARK.markerManager.markers.values())
+                .filter(candidate => candidate && candidate._parkData);
+            if (markers.length < 2) throw new Error('Two park markers are required for the rapid Safari return test.');
+
+            window.BARK.markerManager.renderMarkerPanel(markers[0]);
+            const externalLink = document.createElement('a');
+            externalLink.href = 'https://www.nps.gov/test/';
+            externalLink.target = '_blank';
+            externalLink.addEventListener('click', event => event.preventDefault());
+            document.body.appendChild(externalLink);
+            externalLink.click();
+
+            window.__barkRapidReturnSettled = false;
+            window.addEventListener('bark:external-return-settled', () => {
+                window.__barkRapidReturnSettled = true;
+            }, { once: true });
+            window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+
+            // This is the race from the real iPhone: the user returns to Map
+            // and opens a pin before the 1.2-second compositor quarantine ends.
+            window.BARK.markerManager.renderMarkerPanel(markers[1]);
+            return markers[1]._parkData.name;
+        });
+
+        await page.waitForFunction(() => window.__barkRapidReturnSettled === true, { timeout: 3000 });
+
+        const state = await page.evaluate(() => ({
+            bodyPending: document.body.classList.contains('bark-external-handoff-pending'),
+            panelOpen: document.getElementById('slide-panel').classList.contains('open'),
+            panelTitle: document.getElementById('panel-title').textContent,
+            activePinName: window.BARK.activePinMarker &&
+                window.BARK.activePinMarker._parkData &&
+                window.BARK.activePinMarker._parkData.name
+        }));
+
+        expect(state.bodyPending).toBe(false);
+        expect(state.panelOpen).toBe(true);
+        expect(state.panelTitle).toBe(expectedTitle);
+        expect(state.activePinName).toBe(expectedTitle);
+        await context.close();
+    });
 });

@@ -56,3 +56,13 @@ test('cloud settings fingerprint still detects a real preference change', () => 
         settingsUpdatedAt: 200
     }), true);
 });
+
+test('cloud-originated setting changes are never eligible for autosave', () => {
+    const bark = loadCloudSettingsGuards();
+
+    bark.isHydratingCloudSettings = true;
+    assert.equal(bark.shouldAutosaveCloudSettingsChange(), false);
+
+    bark.isHydratingCloudSettings = false;
+    assert.equal(bark.shouldAutosaveCloudSettingsChange(), true);
+});

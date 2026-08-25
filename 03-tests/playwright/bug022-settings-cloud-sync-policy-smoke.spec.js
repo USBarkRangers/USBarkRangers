@@ -112,22 +112,29 @@ test.describe('BUG-022 settings cloud sync policy', () => {
                 };
 
                 try {
-                    window.BARK.isHydratingCloudSettings = true;
-                    window.BARK.settings.set('lowGfxEnabled', false);
-                    window.BARK.settings.set('limitZoomOut', true);
-                    const hydratedPayload = window.BARK.buildCloudSettingsPayload();
-                    hydratedPayload.settingsUpdatedAt = 100;
-                    window.BARK.rememberCloudSettingsSnapshot(hydratedPayload);
-                    window.BARK.isHydratingCloudSettings = false;
+                    for (let replay = 0; replay < 25; replay += 1) {
+                        window.BARK.isHydratingCloudSettings = true;
+                        window.BARK.settings.set('lowGfxEnabled', false);
+                        window.BARK.settings.set('limitZoomOut', true);
+                        const hydratedPayload = window.BARK.buildCloudSettingsPayload();
+                        hydratedPayload.settingsUpdatedAt = 100 + replay;
+                        window.BARK.rememberCloudSettingsSnapshot(hydratedPayload);
+                        window.BARK.isHydratingCloudSettings = false;
+                    }
 
                     await new Promise(resolve => setTimeout(resolve, 700));
                     const writesAfterHydration = writes.length;
 
-                    window.BARK.scheduleCloudSettingsAutosave();
+                    for (let replay = 0; replay < 25; replay += 1) {
+                        window.BARK.scheduleCloudSettingsAutosave();
+                    }
                     await new Promise(resolve => setTimeout(resolve, 700));
                     const writesAfterUnchangedAutosave = writes.length;
 
                     window.BARK.settings.set('limitZoomOut', false);
+                    for (let replay = 0; replay < 25; replay += 1) {
+                        window.BARK.scheduleCloudSettingsAutosave();
+                    }
                     await new Promise(resolve => setTimeout(resolve, 700));
 
                     return {

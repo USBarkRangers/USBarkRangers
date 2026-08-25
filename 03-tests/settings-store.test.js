@@ -69,21 +69,30 @@ test('individual performance settings remain usable after Low Graphics is turned
     assert.equal(store.get('stopResizing'), false);
 });
 
-test('replaying an already-disabled Low Graphics value preserves independent child settings', () => {
+test('repeatedly hydrating disabled Low Graphics preserves every independently enabled child', () => {
     const { window } = loadSettingsStore();
     const store = window.BARK.settings;
-    let limitZoomOutChanges = 0;
+    const enabledChildKeys = Object.entries(window.BARK.LOW_GRAPHICS_PRESET)
+        .filter(([, presetValue]) => presetValue === true)
+        .map(([key]) => key);
+    const changeCounts = Object.fromEntries(enabledChildKeys.map(key => [key, 0]));
 
-    store.set('limitZoomOut', true);
-    store.onChange('limitZoomOut', () => {
-        limitZoomOutChanges += 1;
+    enabledChildKeys.forEach((key) => {
+        store.set(key, true);
+        store.onChange(key, () => {
+            changeCounts[key] += 1;
+        });
     });
 
-    store.set('lowGfxEnabled', false);
+    for (let replay = 0; replay < 50; replay += 1) {
+        store.set('lowGfxEnabled', false);
+    }
 
     assert.equal(store.get('lowGfxEnabled'), false);
-    assert.equal(store.get('limitZoomOut'), true);
-    assert.equal(limitZoomOutChanges, 0);
+    enabledChildKeys.forEach((key) => {
+        assert.equal(store.get(key), true, `${key} should survive an already-false master replay`);
+        assert.equal(changeCounts[key], 0, `${key} should not emit a synthetic change`);
+    });
 });
 
 test('turning Ultra Fast off also clears the nested Low Graphics preset', () => {

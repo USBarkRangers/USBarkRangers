@@ -31,9 +31,14 @@ function cloudSettingsMateriallyChanged(settings) {
     return !lastKnownCloudSettingsFingerprint || nextFingerprint !== lastKnownCloudSettingsFingerprint;
 }
 
+function shouldAutosaveCloudSettingsChange() {
+    return window.BARK.isHydratingCloudSettings !== true;
+}
+
 window.BARK.getCloudSettingsFingerprint = getCloudSettingsFingerprint;
 window.BARK.rememberCloudSettingsSnapshot = rememberCloudSettingsSnapshot;
 window.BARK.cloudSettingsMateriallyChanged = cloudSettingsMateriallyChanged;
+window.BARK.shouldAutosaveCloudSettingsChange = shouldAutosaveCloudSettingsChange;
 
 window.BARK.initSettings = function initSettings() {
     const settingsGearBtn = document.getElementById('settings-gear-btn');
@@ -494,7 +499,7 @@ window.BARK.initSettings = function initSettings() {
                 settingsStore.onChange(key, () => {
                     syncRegisteredControls();
                     scheduleRegistrySettingEffects(setting);
-                    if (!window.BARK.isHydratingCloudSettings) {
+                    if (shouldAutosaveCloudSettingsChange()) {
                         scheduleCloudSettingsAutosave();
                     }
                 });

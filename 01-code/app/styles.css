@@ -4187,6 +4187,14 @@ input:checked+.slider:before {
     overscroll-behavior: contain;
 }
 
+/* The Settings legal links are the final item in a long scroll area. Leave a
+   clear reading/tap zone below them instead of pinning the text against the
+   clipped bottom edge on short phones and landscape screens. */
+#settings-modal .modal-body {
+    padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    scroll-padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+}
+
 .modal-overlay.active .modal-card {
     transform: translateY(0);
 }

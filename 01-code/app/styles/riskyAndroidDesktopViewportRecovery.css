@@ -43,6 +43,10 @@ html.bark-risky-android-desktop-phone-recovery #filter-panel {
     overflow: hidden;
 }
 
+html.bark-risky-android-desktop-phone-recovery #filter-panel.search-suggestions-open {
+    overflow: visible;
+}
+
 html.bark-risky-android-desktop-phone-recovery #filter-panel .panel-header {
     flex: 0 0 auto;
     position: relative;

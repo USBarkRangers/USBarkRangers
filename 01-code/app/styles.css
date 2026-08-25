@@ -1033,6 +1033,12 @@ textarea,
     pointer-events: none;
 }
 
+/* The expanded controls own their scrolling, but autocomplete belongs to the
+   sticky header and must be allowed to escape the panel's mobile clip. */
+#filter-panel.search-suggestions-open {
+    overflow: visible;
+}
+
 #filter-panel.collapsed .chevron-icon {
     transform: rotate(180deg);
 }

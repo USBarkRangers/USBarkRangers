@@ -21,6 +21,106 @@ const autoGlobalSearchRunIds = {
     start: 0,
     end: 0
 };
+const MAIN_SEARCH_SUGGESTION_MAX_HEIGHT = 250;
+const MAIN_SEARCH_SUGGESTION_VIEWPORT_GAP = 12;
+let mainSearchSuggestionLayoutBound = false;
+
+function calculateMainSearchSuggestionMaxHeight({
+    viewportBottom,
+    inputBottom,
+    navTop = viewportBottom,
+    maxHeight = MAIN_SEARCH_SUGGESTION_MAX_HEIGHT,
+    gap = MAIN_SEARCH_SUGGESTION_VIEWPORT_GAP
+}) {
+    const numbers = [viewportBottom, inputBottom, navTop, maxHeight, gap].map(Number);
+    if (!numbers.every(Number.isFinite)) return maxHeight;
+
+    const visibleBottom = Math.min(viewportBottom, navTop);
+    return Math.max(0, Math.min(maxHeight, Math.floor(visibleBottom - inputBottom - gap)));
+}
+
+function updateMainSearchSuggestionLayout() {
+    const DOM = window.BARK && window.BARK.DOM;
+    const suggestions = DOM && DOM.searchSuggestions ? DOM.searchSuggestions() : null;
+    const input = DOM && DOM.parkSearch ? DOM.parkSearch() : null;
+    if (!suggestions || !input || suggestions.style.display !== 'block') return;
+    if (typeof input.getBoundingClientRect !== 'function') return;
+
+    const visualViewport = window.visualViewport;
+    const viewportTop = visualViewport && Number.isFinite(visualViewport.offsetTop)
+        ? visualViewport.offsetTop
+        : 0;
+    const viewportHeight = visualViewport && Number.isFinite(visualViewport.height)
+        ? visualViewport.height
+        : window.innerHeight;
+    const viewportBottom = viewportTop + viewportHeight;
+    const inputBottom = input.getBoundingClientRect().bottom;
+    const bottomNav = document.getElementById('main-nav');
+    let navTop = viewportBottom;
+
+    if (bottomNav) {
+        const navStyle = window.getComputedStyle(bottomNav);
+        const navRect = bottomNav.getBoundingClientRect();
+        const navIsVisible = navStyle.display !== 'none'
+            && navStyle.visibility !== 'hidden'
+            && Number(navStyle.opacity || 1) !== 0
+            && navRect.height > 0
+            && navRect.top > inputBottom
+            && navRect.top < viewportBottom;
+        if (navIsVisible) navTop = navRect.top;
+    }
+
+    const maxHeight = calculateMainSearchSuggestionMaxHeight({
+        viewportBottom,
+        inputBottom,
+        navTop
+    });
+    suggestions.style.maxHeight = `${maxHeight}px`;
+}
+
+function setMainSearchSuggestionsVisible(visible) {
+    const DOM = window.BARK && window.BARK.DOM;
+    const suggestions = DOM && DOM.searchSuggestions ? DOM.searchSuggestions() : null;
+    if (!suggestions) return;
+
+    const filterPanel = document.getElementById('filter-panel');
+    if (visible) {
+        if (filterPanel) filterPanel.classList.add('search-suggestions-open');
+        suggestions.style.display = 'block';
+        updateMainSearchSuggestionLayout();
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(updateMainSearchSuggestionLayout);
+        }
+        return;
+    }
+
+    suggestions.style.display = 'none';
+    if (typeof suggestions.style.removeProperty === 'function') {
+        suggestions.style.removeProperty('max-height');
+    } else {
+        suggestions.style.maxHeight = '';
+    }
+    if (filterPanel) filterPanel.classList.remove('search-suggestions-open');
+}
+
+function bindMainSearchSuggestionLayout() {
+    if (mainSearchSuggestionLayoutBound) return;
+    mainSearchSuggestionLayoutBound = true;
+    if (typeof window.addEventListener === 'function') {
+        window.addEventListener('resize', updateMainSearchSuggestionLayout, { passive: true });
+        window.addEventListener('orientationchange', updateMainSearchSuggestionLayout, { passive: true });
+    }
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', updateMainSearchSuggestionLayout, { passive: true });
+        window.visualViewport.addEventListener('scroll', updateMainSearchSuggestionLayout, { passive: true });
+    }
+}
+
+window.BARK.searchSuggestionLayout = Object.freeze({
+    calculateMaxHeight: calculateMainSearchSuggestionMaxHeight,
+    setVisible: setMainSearchSuggestionsVisible,
+    update: updateMainSearchSuggestionLayout
+});
 
 function getParkRepo() {
     return window.BARK.repos && window.BARK.repos.ParkRepo;
@@ -403,7 +503,8 @@ function renderCurrentLocationSuggestion(targetType) {
     bindSuggestionSelection(locationBtn, () => requestCurrentLocation(targetType));
 
     suggestBox.appendChild(locationBtn);
-    suggestBox.style.display = 'block';
+    if (targetType === 'stop') setMainSearchSuggestionsVisible(true);
+    else suggestBox.style.display = 'block';
 }
 
 function requestCurrentLocation(targetType) {
@@ -418,7 +519,10 @@ function requestCurrentLocation(targetType) {
 
     bumpAutoGlobalSearchRun(targetType);
     const suggestBox = DOM && getGeocodeSuggestionContainer(DOM, targetType);
-    if (suggestBox) suggestBox.style.display = 'none';
+    if (suggestBox) {
+        if (targetType === 'stop') setMainSearchSuggestionsVisible(false);
+        else suggestBox.style.display = 'none';
+    }
     if (input) input.value = 'Locating GPS...';
 
     if (!geolocation || typeof geolocation.getCurrentPosition !== 'function') {
@@ -621,7 +725,8 @@ function renderGeocodeResults(query, targetType, data) {
                 const node = { name: f.properties.label || query, lat: coords[1], lng: coords[0] };
                 if (!applyTripNodeSelection(targetType, node, { alertOnFailure: true })) {
                     clearGeocodeSearchStatus(DOM, targetType);
-                    disambiguationContainer.style.display = 'none';
+                    if (targetType === 'stop') setMainSearchSuggestionsVisible(false);
+                    else disambiguationContainer.style.display = 'none';
                     return;
                 }
 
@@ -647,17 +752,20 @@ function renderGeocodeResults(query, targetType, data) {
                     });
                 }
 
-                disambiguationContainer.style.display = 'none';
+                if (targetType === 'stop') setMainSearchSuggestionsVisible(false);
+                else disambiguationContainer.style.display = 'none';
             });
             disambiguationContainer.appendChild(div);
         });
 
-        disambiguationContainer.style.display = 'block';
+        if (targetType === 'stop') setMainSearchSuggestionsVisible(true);
+        else disambiguationContainer.style.display = 'block';
         return;
     }
 
     disambiguationContainer.innerHTML = `<p style="padding: 10px; font-size: 12px; color: #dc2626; text-align: center; font-weight: bold;">Location not found.</p>`;
-    disambiguationContainer.style.display = 'block';
+    if (targetType === 'stop') setMainSearchSuggestionsVisible(true);
+    else disambiguationContainer.style.display = 'block';
 }
 
 function appendInlineAutoGlobalStatus(type, query, suggestBox) {
@@ -731,6 +839,7 @@ function initSearchEngine() {
     let activeSearchRunId = 0;
 
     if (!searchInput) return;
+    bindMainSearchSuggestionLayout();
 
     function clearSearchTimer(timer) {
         if (timer) clearTimeout(timer);
@@ -814,7 +923,7 @@ function initSearchEngine() {
             }
             const queryToFetch = window.BARK.activeSearchQuery;
             searchInput.value = `Searching for "${queryToFetch}"...`;
-            searchSuggestions.style.display = 'none';
+            setMainSearchSuggestionsVisible(false);
             executeGeocode(queryToFetch, 'stop');
         });
 
@@ -849,7 +958,7 @@ function initSearchEngine() {
                         : 'Town search is unavailable right now.',
                     'background: #fef2f2; color: #b91c1c; font-weight: 800;'
                 );
-                searchSuggestions.style.display = 'block';
+                setMainSearchSuggestionsVisible(true);
             });
     }
 
@@ -884,7 +993,7 @@ function initSearchEngine() {
                         processedCount: 1,
                         totalCount: 1
                     };
-                    searchSuggestions.style.display = 'none';
+                    setMainSearchSuggestionsVisible(false);
                     window.syncState();
 
                     if (match.marker && match.marker._parkData) {
@@ -929,9 +1038,9 @@ function initSearchEngine() {
         }
 
         if (searchSuggestions.innerHTML !== '') {
-            searchSuggestions.style.display = 'block';
+            setMainSearchSuggestionsVisible(true);
         } else {
-            searchSuggestions.style.display = 'none';
+            setMainSearchSuggestionsVisible(false);
         }
     }
 
@@ -993,7 +1102,7 @@ function initSearchEngine() {
 
         if (!queryNorm) {
             resetSearchCache();
-            if (searchSuggestions) searchSuggestions.style.display = 'none';
+            setMainSearchSuggestionsVisible(false);
             window.syncState();
             return;
         }
@@ -1014,7 +1123,7 @@ function initSearchEngine() {
 
         if (window.BARK.activeSearchQuery.trim() === '') {
             resetSearchCache();
-            if (searchSuggestions) searchSuggestions.style.display = 'none';
+            setMainSearchSuggestionsVisible(false);
             window.syncState();
             return;
         }
@@ -1029,7 +1138,7 @@ function initSearchEngine() {
     document.addEventListener('click', (e) => {
         if (searchSuggestions && searchSuggestions.style.display === 'block') {
             if (!searchSuggestions.contains(e.target) && e.target !== searchInput) {
-                searchSuggestions.style.display = 'none';
+                setMainSearchSuggestionsVisible(false);
             }
         }
     });
@@ -1047,7 +1156,7 @@ function initSearchEngine() {
     // Reshow dropdown when focusing search bar
     searchInput.addEventListener('focus', () => {
         if (searchSuggestions && searchSuggestions.innerHTML.trim() !== '' && window.BARK.activeSearchQuery.length > 0) {
-            searchSuggestions.style.display = 'block';
+            setMainSearchSuggestionsVisible(true);
         }
     });
 
@@ -1058,7 +1167,7 @@ function initSearchEngine() {
             window.BARK.activeSearchQuery = '';
             clearSearchBtn.style.display = 'none';
             resetSearchCache();
-            if (searchSuggestions) searchSuggestions.style.display = 'none';
+            setMainSearchSuggestionsVisible(false);
             window.syncState();
             searchInput.focus();
         });

@@ -19,4 +19,6 @@ test('the iOS app shell uses the stable large viewport without changing other ph
     assert.match(styles, /html\.bark-ios-standalone-fullscreen[\s\S]*height:\s*100lvh/);
     assert.match(styles, /html\.bark-ios-standalone-fullscreen #map,[\s\S]*\.ui-view[\s\S]*height:\s*100lvh/);
     assert.match(styles, /html\.bark-ios-standalone-fullscreen \.glass-nav\s*\{\s*position:\s*absolute;/);
+    assert.match(styles, /safe-area-inset-top/);
+    assert.match(styles, /height:\s*calc\(75px \+ env\(safe-area-inset-bottom/);
 });

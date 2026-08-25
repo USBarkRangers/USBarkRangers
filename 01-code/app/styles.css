@@ -1001,6 +1001,21 @@ textarea,
     }
 }
 
+@media (max-width: 767px) {
+    html.bark-ios-standalone-fullscreen #filter-panel {
+        top: calc(20px + env(safe-area-inset-top, 0px));
+        max-height: calc(
+            100lvh - 20px - env(safe-area-inset-top, 0px) -
+            var(--filter-panel-bottom-clearance) - env(safe-area-inset-bottom, 0px)
+        );
+    }
+
+    html.bark-ios-standalone-fullscreen .ui-view {
+        padding-top: calc(20px + env(safe-area-inset-top, 0px));
+        padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+    }
+}
+
 /* In short landscape layouts the navigation is a 70px floating pill sitting
    30px above the viewport edge, so reserve its full footprint plus a gap. */
 @media (min-width: 768px) and (max-width: 1024px) and (max-height: 700px) {
@@ -2317,6 +2332,11 @@ body.app-tab-active #slide-panel {
 
     html.bark-ios-standalone-fullscreen .glass-nav {
         position: absolute;
+        height: calc(75px + env(safe-area-inset-bottom, 0px));
+    }
+
+    html.bark-ios-standalone-fullscreen .leaflet-bottom {
+        bottom: calc(90px + env(safe-area-inset-bottom, 0px)) !important;
     }
 
     /* Hide nav and slide panel when iOS keyboard is open */

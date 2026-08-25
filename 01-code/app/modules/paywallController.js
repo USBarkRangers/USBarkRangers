@@ -672,12 +672,10 @@
             if (returnState === 'success') {
                 trackFunnelEvent('premium-confirmed', 'Premium confirmed after checkout', 'premium-confirmed');
             }
-            const renewalDate = formatAccessDate(entitlement.currentPeriodEnd);
-            let activeCopy = entitlement.source === 'lemon_squeezy' &&
-                entitlement.status === 'active' &&
-                renewalDate !== 'Not set'
-                ? `Auto renews ${renewalDate}`
-                : 'Premium is active on this account.';
+            // The Profile card is a compact entitlement summary. Renewal timing
+            // remains available in the lower Account/Billing section, where the
+            // user can act on it, without repeating the date here.
+            let activeCopy = 'Premium is active on this account.';
             let eyebrow = 'Unlocked';
             let title = 'Premium active';
             let primaryText = 'Premium is active';

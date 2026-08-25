@@ -668,7 +668,12 @@
             if (returnState === 'success') {
                 trackFunnelEvent('premium-confirmed', 'Premium confirmed after checkout', 'premium-confirmed');
             }
-            let activeCopy = 'Premium is active on this account.';
+            const renewalDate = formatAccessDate(entitlement.currentPeriodEnd);
+            let activeCopy = entitlement.source === 'lemon_squeezy' &&
+                entitlement.status === 'active' &&
+                renewalDate !== 'Not set'
+                ? `Auto renews ${renewalDate}`
+                : 'Premium is active on this account.';
             let eyebrow = 'Unlocked';
             let title = 'Premium active';
             let primaryText = 'Premium is active';

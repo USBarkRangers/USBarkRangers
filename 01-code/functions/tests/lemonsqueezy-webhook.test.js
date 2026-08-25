@@ -499,6 +499,72 @@ describe("Lemon Squeezy webhook entitlement mapping", () => {
         assert.equal(firestore.state.writes[0].data.entitlement.providerOrderId, "98765");
     });
 
+    it("preserves the renewal date when a payment success invoice omits subscription dates", async () => {
+        const payload = makePayload({
+            eventName: "subscription_payment_success",
+            uid: "payment-success-renewal-user",
+            dataType: "subscription-invoices",
+            dataId: "invoice_renewal",
+            eventId: "evt_payment_success_renewal",
+            attributes: {
+                status: "paid",
+                subscription_id: 12345,
+                order_id: 98765,
+                renews_at: null,
+                ends_at: null,
+                trial_ends_at: null
+            }
+        });
+        const { firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: true,
+                    status: "active",
+                    source: "lemon_squeezy",
+                    providerSubscriptionId: "12345",
+                    currentPeriodEnd: "2099-01-01T00:00:00.000Z"
+                }
+            })
+        });
+
+        assert.equal(
+            firestore.state.writes[0].data.entitlement.currentPeriodEnd,
+            "2099-01-01T00:00:00.000Z"
+        );
+    });
+
+    it("does not carry a renewal date onto a different subscription", async () => {
+        const payload = makePayload({
+            eventName: "subscription_payment_success",
+            uid: "new-subscription-renewal-user",
+            dataType: "subscription-invoices",
+            dataId: "invoice_new_subscription",
+            eventId: "evt_payment_success_new_subscription",
+            attributes: {
+                status: "paid",
+                subscription_id: 67890,
+                renews_at: null,
+                ends_at: null,
+                trial_ends_at: null
+            }
+        });
+        const { firestore } = await invoke({
+            req: signedReq(payload),
+            firestore: makeFirestore({
+                entitlement: {
+                    premium: true,
+                    status: "active",
+                    source: "lemon_squeezy",
+                    providerSubscriptionId: "12345",
+                    currentPeriodEnd: "2099-01-01T00:00:00.000Z"
+                }
+            })
+        });
+
+        assert.equal(firestore.state.writes[0].data.entitlement.currentPeriodEnd, null);
+    });
+
     it("writes premium active for subscription_payment_recovered", async () => {
         const payload = makePayload({
             eventName: "subscription_payment_recovered",

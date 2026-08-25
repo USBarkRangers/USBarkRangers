@@ -12,3 +12,9 @@ test('the annual tier stays visible without a popularity badge in any paywall st
     assert.doesNotMatch(indexSource, /Most popular/i);
     assert.doesNotMatch(controllerSource, /Most popular/i);
 });
+
+test('active Lemon Squeezy premium copy shows the stored renewal date', () => {
+    assert.match(controllerSource, /entitlement\.source === 'lemon_squeezy'/);
+    assert.match(controllerSource, /entitlement\.status === 'active'/);
+    assert.match(controllerSource, /`Auto renews \$\{renewalDate\}`/);
+});

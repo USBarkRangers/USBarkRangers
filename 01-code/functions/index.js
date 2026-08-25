@@ -2261,6 +2261,21 @@ function getCurrentPeriodEnd(attributes) {
         null;
 }
 
+function preserveLemonSqueezyCurrentPeriodEnd(existingEntitlement = {}, mappedEntitlement = {}) {
+    if (mappedEntitlement.currentPeriodEnd) return mappedEntitlement;
+
+    const existingSubscriptionId = cleanOptionalId(existingEntitlement.providerSubscriptionId);
+    const mappedSubscriptionId = cleanOptionalId(mappedEntitlement.providerSubscriptionId);
+    if (!existingSubscriptionId || !mappedSubscriptionId || existingSubscriptionId !== mappedSubscriptionId) {
+        return mappedEntitlement;
+    }
+
+    const existingCurrentPeriodEnd = cleanOptionalString(existingEntitlement.currentPeriodEnd);
+    return existingCurrentPeriodEnd
+        ? { ...mappedEntitlement, currentPeriodEnd: existingCurrentPeriodEnd }
+        : mappedEntitlement;
+}
+
 function isFutureDate(value, nowMs = Date.now()) {
     const text = cleanOptionalString(value);
     if (!text) return false;
@@ -2577,8 +2592,9 @@ async function processLemonSqueezyWebhookEntitlement({ uid, eventName, eventId, 
             return { ignored: true, reason: "stale_event" };
         }
 
+        const mappedEntitlement = preserveLemonSqueezyCurrentPeriodEnd(existingEntitlement, mapping.entitlement);
         let entitlement = {
-            ...mapping.entitlement,
+            ...mappedEntitlement,
             updatedAt: getServerTimestamp(options),
             lastProviderEventId: eventId,
             lastProviderEventName: eventName,

@@ -273,6 +273,9 @@ window.BARK = window.BARK || {};
 
     function openEmail(url) {
         try {
+            if (window.BARK && typeof window.BARK.prepareExternalHandoff === 'function') {
+                window.BARK.prepareExternalHandoff({ source: 'feedback-email' });
+            }
             window.location.href = url;
         } catch (error) {
             console.warn('[feedback] could not open the email app automatically.', error);

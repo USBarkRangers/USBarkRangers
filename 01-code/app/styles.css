@@ -1166,7 +1166,9 @@ textarea,
     width: 100%;
     background: white;
     box-shadow: -4px 0 25px rgba(0, 0, 0, 0.15);
-    transition: transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
+    transition:
+        transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1),
+        visibility 0s linear 0.35s;
     padding: 30px 24px 24px 24px;
     display: flex;
     flex-direction: column;
@@ -1174,11 +1176,24 @@ textarea,
     overflow-y: auto;
     touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
-    pointer-events: auto;
+    visibility: hidden;
+    pointer-events: none;
     /* GPU Promotion — offloads compositing to the GPU for butter-smooth slide-in */
     will-change: transform, opacity;
     transform: translateZ(0);
     backface-visibility: hidden;
+}
+
+#slide-panel.open {
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s, 0s;
+}
+
+body.bark-external-handoff-pending #slide-panel {
+    visibility: hidden !important;
+    pointer-events: none !important;
+    transition: none !important;
 }
 
 body.app-tab-active #slide-panel {
@@ -1254,7 +1269,7 @@ body.app-tab-active #slide-panel {
         height: min(55vh, calc(100dvh - var(--mobile-nav-height) - env(safe-area-inset-bottom, 0px) - 16px));
         border-top-left-radius: 28px;
         border-top-right-radius: 28px;
-        transform: translate3d(0, calc(100% + env(safe-area-inset-bottom, 0px) + 32px), 0);
+        transform: translate3d(0, calc(100% + var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) + 1px), 0);
         /* Hidden */
     }
 

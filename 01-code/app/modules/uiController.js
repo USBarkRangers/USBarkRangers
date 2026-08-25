@@ -24,8 +24,32 @@ window.BARK.keyboardViewportGuard = Object.freeze({
     isKeyboardViewportOpen: isBarkKeyboardViewportOpen
 });
 
+function isBarkExternalHandoffDestination({ href, target, currentHref }) {
+    if (typeof href !== 'string' || !href.trim() || href.trim().startsWith('#')) return false;
+
+    try {
+        const currentUrl = new URL(currentHref);
+        const destinationUrl = new URL(href, currentUrl);
+        const protocol = destinationUrl.protocol.toLowerCase();
+        if (['mailto:', 'sms:', 'tel:'].includes(protocol)) return true;
+        if (protocol !== 'http:' && protocol !== 'https:') return false;
+        return String(target || '').toLowerCase() === '_blank' || destinationUrl.origin !== currentUrl.origin;
+    } catch (error) {
+        return false;
+    }
+}
+
+window.BARK.externalHandoffGuard = Object.freeze({
+    isExternalHandoffDestination: isBarkExternalHandoffDestination
+});
+
 window.BARK.initUI = function initUI() {
 let keyboardFocusContext = null;
+const EXTERNAL_HANDOFF_PENDING_KEY = 'bark_external_handoff_pending';
+const EXTERNAL_HANDOFF_STARTED_KEY = 'bark_external_handoff_started_at';
+const EXTERNAL_HANDOFF_CLASS = 'bark-external-handoff-pending';
+let externalReturnSettleGeneration = 0;
+let externalHandoffPendingInMemory = false;
 
 // ====== iOS SAFARI MAGNIFIER PROTECTION ======
 document.addEventListener('contextmenu', function (e) {
@@ -75,6 +99,31 @@ function consumeExternalCheckoutCleanupFlag() {
     }
 }
 
+function markExternalHandoffPending() {
+    externalHandoffPendingInMemory = true;
+    try {
+        sessionStorage.setItem(EXTERNAL_HANDOFF_PENDING_KEY, '1');
+        sessionStorage.setItem(EXTERNAL_HANDOFF_STARTED_KEY, String(Date.now()));
+    } catch (error) {
+        // Best-effort only. Storage restrictions must never block an external action.
+    }
+}
+
+function consumeExternalHandoffCleanupFlag() {
+    let pending = false;
+    try {
+        pending = sessionStorage.getItem(EXTERNAL_HANDOFF_PENDING_KEY) === '1';
+        sessionStorage.removeItem(EXTERNAL_HANDOFF_PENDING_KEY);
+        sessionStorage.removeItem(EXTERNAL_HANDOFF_STARTED_KEY);
+    } catch (error) {
+        // The body class is a storage-independent fallback for the same page instance.
+    }
+    const pendingInMemory = externalHandoffPendingInMemory;
+    const checkoutPending = consumeExternalCheckoutCleanupFlag();
+    externalHandoffPendingInMemory = false;
+    return pending || pendingInMemory || checkoutPending;
+}
+
 function closeMapOnlySurfaces(options = {}) {
     const panel = document.getElementById('slide-panel');
     if (panel) {
@@ -88,11 +137,6 @@ function closeMapOnlySurfaces(options = {}) {
 
 function closeStaleSlidePanel(reason) {
     void reason;
-    if (consumeExternalCheckoutCleanupFlag()) {
-        closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
-        return;
-    }
-
     const panel = document.getElementById('slide-panel');
     if (!panel || !panel.classList.contains('open')) return;
     const activeMarker = getUsableActivePinMarker();
@@ -101,6 +145,56 @@ function closeStaleSlidePanel(reason) {
 }
 
 window.BARK.closeMapOnlySurfaces = closeMapOnlySurfaces;
+
+function prepareExternalHandoff(details = {}) {
+    void details;
+    markExternalHandoffPending();
+    document.body.classList.add(EXTERNAL_HANDOFF_CLASS);
+    document.body.classList.remove('keyboard-open');
+    closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
+
+    // Commit the hidden state before iOS snapshots the app underneath its Safari
+    // overlay. Without this read WebKit can preserve the previous composited layer.
+    const panel = document.getElementById('slide-panel');
+    if (panel) void panel.offsetHeight;
+}
+
+function settleExternalReturnViewport(reason) {
+    const generation = ++externalReturnSettleGeneration;
+    closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
+    document.body.classList.remove('keyboard-open');
+
+    const settle = () => {
+        if (generation !== externalReturnSettleGeneration) return;
+        closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
+        if (window.map && typeof window.map.invalidateSize === 'function') {
+            window.map.invalidateSize({ pan: false });
+        }
+        if (typeof window.BARK.invalidateMarkerVisibility === 'function') {
+            window.BARK.invalidateMarkerVisibility();
+        }
+    };
+
+    requestAnimationFrame(() => requestAnimationFrame(settle));
+    setTimeout(() => {
+        if (generation !== externalReturnSettleGeneration) return;
+        settle();
+        document.body.classList.remove(EXTERNAL_HANDOFF_CLASS);
+        window.dispatchEvent(new CustomEvent('bark:external-return-settled', {
+            detail: { reason: reason || 'external-return' }
+        }));
+    }, 360);
+}
+
+function handleAppReturn(reason) {
+    if (consumeExternalHandoffCleanupFlag()) {
+        settleExternalReturnViewport(reason);
+        return;
+    }
+    closeStaleSlidePanel(reason);
+}
+
+window.BARK.prepareExternalHandoff = prepareExternalHandoff;
 
 function settleAppViewportAfterKeyboard() {
     requestAnimationFrame(() => {
@@ -394,10 +488,21 @@ if (bottomNav) {
     bindFixedSurfaceScrollGuard(bottomNav);
 }
 
-window.addEventListener('pageshow', () => closeStaleSlidePanel('pageshow'));
-window.addEventListener('focus', () => closeStaleSlidePanel('focus'));
+document.addEventListener('click', (event) => {
+    const target = event.target;
+    const link = target && typeof target.closest === 'function' ? target.closest('a[href]') : null;
+    if (!link || !isBarkExternalHandoffDestination({
+        href: link.getAttribute('href') || link.href,
+        target: link.getAttribute('target') || '',
+        currentHref: window.location.href
+    })) return;
+    prepareExternalHandoff({ destination: link.href, source: 'link' });
+}, true);
+
+window.addEventListener('pageshow', () => handleAppReturn('pageshow'));
+window.addEventListener('focus', () => handleAppReturn('focus'));
 document.addEventListener('visibilitychange', () => {
-    if (document.hidden === false) closeStaleSlidePanel('visibilitychange');
+    if (document.hidden === false) handleAppReturn('visibilitychange');
 });
 
 // Close panel and clear pin

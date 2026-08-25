@@ -268,6 +268,9 @@ function startGoogleRedirectSignIn() {
         state,
         prompt: 'select_account'
     });
+    if (window.BARK && typeof window.BARK.prepareExternalHandoff === 'function') {
+        window.BARK.prepareExternalHandoff({ source: 'google-sign-in' });
+    }
     window.location.assign(GOOGLE_OIDC_AUTH_ENDPOINT + '?' + params.toString());
 }
 

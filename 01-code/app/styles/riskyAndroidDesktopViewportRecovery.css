@@ -97,7 +97,7 @@ html.bark-risky-android-desktop-phone-recovery #slide-panel {
     height: min(55%, calc(100% - 75px - env(safe-area-inset-bottom, 0px) - 16px));
     max-height: calc(100% - 75px - env(safe-area-inset-bottom, 0px) - 16px);
     border-radius: 28px 28px 0 0;
-    transform: translate3d(0, calc(100% + env(safe-area-inset-bottom, 0px) + 32px), 0);
+    transform: translate3d(0, calc(100% + 75px + env(safe-area-inset-bottom, 0px) + 1px), 0);
 }
 
 html.bark-risky-android-desktop-phone-recovery #slide-panel.open {

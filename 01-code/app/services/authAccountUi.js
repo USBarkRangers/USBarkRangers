@@ -796,6 +796,9 @@
     function contactSupportFromManagement() {
         const destination = validateSubscriptionDestination(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('B.A.R.K. account support')}`);
         if (!destination) return;
+        if (window.BARK && typeof window.BARK.prepareExternalHandoff === 'function') {
+            window.BARK.prepareExternalHandoff({ source: 'account-support-email' });
+        }
         window.location.assign(destination);
     }
 
@@ -827,6 +830,9 @@
             }
 
             const safeDestination = validateBillingPortalDestination(signedUrl);
+            if (window.BARK && typeof window.BARK.prepareExternalHandoff === 'function') {
+                window.BARK.prepareExternalHandoff({ source: 'billing-portal' });
+            }
             window.location.assign(safeDestination);
         } catch (error) {
             console.error('[authAccountUi] manage subscription URL failed:', error);

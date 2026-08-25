@@ -16,7 +16,7 @@
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js" defer></script>
 
-    <link rel="stylesheet" href="styles.css?v=71">
+    <link rel="stylesheet" href="styles.css?v=72">
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
     <link rel="stylesheet" href="styles/trophyCase.css?v=5">
     <link rel="stylesheet" href="styles/feedbackModal.css?v=2">
@@ -24,7 +24,7 @@
     <link rel="stylesheet" href="styles/walkTracker.css?v=1">
     <!-- RISKY BETA EXPERIMENT: isolated so it is easy to disable/revert if the
          Android 980px standalone-PWA recovery causes a layout problem. -->
-    <link rel="stylesheet" href="styles/riskyAndroidDesktopViewportRecovery.css?v=2">
+    <link rel="stylesheet" href="styles/riskyAndroidDesktopViewportRecovery.css?v=3">
     <script src="modules/riskyAndroidDesktopViewportRecovery.js?v=1"></script>
 
     <!-- PWA Manifest & App Icons -->
@@ -1605,12 +1605,12 @@
     <script src="services/checkinService.js?v=15" defer></script>
     <script src="services/authPremiumUi.js?v=4" defer></script>
     <script src="services/premiumService.js?v=2" defer></script>
-    <script src="services/authAccountUi.js?v=23" defer></script>
+    <script src="services/authAccountUi.js?v=24" defer></script>
     <!-- feedbackTransport owns the feedback addresses and mailto builder, so it must
          parse before authService and panelRenderer, which build fallback links from it. -->
     <script src="modules/feedbackTransport.js?v=6" defer></script>
-    <script src="modules/paywallController.js?v=20" defer></script>
-    <script src="services/authService.js?v=72" defer></script>
+    <script src="modules/paywallController.js?v=21" defer></script>
+    <script src="services/authService.js?v=73" defer></script>
     <script src="modules/markerLayerPolicy.js?v=2" defer></script>
     <script src="modules/MarkerLayerManager.js?v=16" defer></script>
     <script src="engines/tripRoutePlan.js?v=3" defer></script>
@@ -1630,16 +1630,16 @@
     <script src="modules/leaderboardEngine.js?v=3" defer></script>
     <script src="modules/expeditionEngine.js?v=10" defer></script>
     <script src="modules/walkTracker.js?v=4" defer></script>
-    <script src="engines/tripPlannerCore.js?v=26" defer></script>
+    <script src="engines/tripPlannerCore.js?v=27" defer></script>
     <script src="modules/shareEngine.js?v=10" defer></script>
     <script src="modules/watermarkTool.js?v=4" defer></script>
     <script src="modules/settingsController.js?v=11" defer></script>
-    <script src="modules/uiController.js?v=18" defer></script>
+    <script src="modules/uiController.js?v=19" defer></script>
     <script src="modules/firstOpenDisclaimer.js?v=2" defer></script>
     <!-- The combobox scores parks with searchEngine, so both load after it;
          feedbackTransport is loaded earlier, above. -->
     <script src="modules/feedbackSubjectPicker.js?v=2" defer></script>
-    <script src="modules/feedbackModal.js?v=5" defer></script>
+    <script src="modules/feedbackModal.js?v=6" defer></script>
 
     <!-- ENTRY POINT: Bootstrap Orchestrator (must load LAST) -->
     <script src="core/app.js?v=31" defer></script>

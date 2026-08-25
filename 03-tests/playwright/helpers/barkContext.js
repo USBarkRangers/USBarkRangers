@@ -5,6 +5,12 @@ async function newBarkContext(browser, options = {}) {
     });
 
     await context.addInitScript(() => {
+        try {
+            localStorage.setItem('barkTermsAgreement', '1');
+        } catch (error) {
+            // A storage-disabled context will exercise the disclaimer itself.
+        }
+
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations()
                 .then((registrations) => registrations.forEach((registration) => registration.unregister()))

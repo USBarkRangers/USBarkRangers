@@ -314,6 +314,10 @@
 
     function closeMapSurfacesForCheckout() {
         markExternalCheckoutPending();
+        if (window.BARK && typeof window.BARK.prepareExternalHandoff === 'function') {
+            window.BARK.prepareExternalHandoff({ source: 'premium-checkout' });
+            return;
+        }
         if (window.BARK && typeof window.BARK.closeMapOnlySurfaces === 'function') {
             window.BARK.closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
             return;

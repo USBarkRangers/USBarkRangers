@@ -872,6 +872,9 @@ window.exportDayToMaps = function (dayIdx) {
         return;
     }
     const waypoints = routeDay.points.map(point => `${point.lat},${point.lng}`);
+    if (window.BARK && typeof window.BARK.prepareExternalHandoff === 'function') {
+        window.BARK.prepareExternalHandoff({ source: 'google-maps-route' });
+    }
     window.open(`https://www.google.com/maps/dir/${waypoints.join('/')}`, '_blank');
 };
 

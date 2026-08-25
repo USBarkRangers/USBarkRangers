@@ -81,6 +81,11 @@ describe("bounded callable rate limits", () => {
             shortWindowMs: 5 * 60 * 1000,
             dailyMax: 5000
         });
+        assert.deepEqual(BOUNDED_CALLABLE_RATE_LIMITS.getCustomerPortalUrl, {
+            shortMax: 20,
+            shortWindowMs: 60 * 60 * 1000,
+            dailyMax: 60
+        });
         assert.equal(ROUTE_PROVIDER_ATTEMPT_LIMIT, 12);
         assert.deepEqual(ORS_CIRCUIT_LIMITS.directions, {
             shortMax: 32,

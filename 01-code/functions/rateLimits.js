@@ -29,7 +29,7 @@ const BOUNDED_CALLABLE_RATE_LIMITS = Object.freeze({
     getPremiumGeocodeBurst: Object.freeze({ shortMax: 30, shortWindowMs: 5 * 60 * 1000 }),
     createCheckoutSession: Object.freeze({ shortMax: 5, shortWindowMs: 15 * 60 * 1000, dailyMax: 20 }),
     restorePremiumPurchase: Object.freeze({ shortMax: 6, shortWindowMs: 15 * 60 * 1000, dailyMax: 30 }),
-    getCustomerPortalUrl: Object.freeze({ shortMax: 20, shortWindowMs: 60 * 60 * 1000, dailyMax: 60 }),
+    getCustomerPortalUrl: Object.freeze({ shortMax: 30, shortWindowMs: 60 * 60 * 1000, dailyMax: 60 }),
     cancelPremiumSubscription: Object.freeze({ shortMax: 3, shortWindowMs: 60 * 60 * 1000, dailyMax: 5 }),
     deleteAccount: Object.freeze({ shortMax: 2, shortWindowMs: 60 * 60 * 1000, dailyMax: 3 }),
     syncLeaderboardScore: Object.freeze({ shortMax: 30, shortWindowMs: 10 * 60 * 1000, dailyMax: 120 }),

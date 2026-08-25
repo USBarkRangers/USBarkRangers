@@ -82,7 +82,7 @@ describe("bounded callable rate limits", () => {
             dailyMax: 5000
         });
         assert.deepEqual(BOUNDED_CALLABLE_RATE_LIMITS.getCustomerPortalUrl, {
-            shortMax: 20,
+            shortMax: 30,
             shortWindowMs: 60 * 60 * 1000,
             dailyMax: 60
         });

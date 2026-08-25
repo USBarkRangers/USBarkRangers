@@ -65,6 +65,74 @@ test.describe('Safari installed-app external return', () => {
         await context.close();
     });
 
+    test('closing Profile feedback leaves park cards usable', async ({ browser }) => {
+        const context = await newBarkContext(browser, {
+            viewport: { width: 390, height: 844 },
+            isMobile: true,
+            hasTouch: true
+        });
+        const page = await context.newPage();
+        await openLoadedApp(page);
+
+        await page.locator('.nav-item[data-target="profile-view"]').click();
+        await page.locator('#email-suggest-btn').click();
+        await expect(page.locator('#feedback-overlay')).toHaveClass(/\bactive\b/);
+        await page.locator('#feedback-close-btn').click();
+
+        const stateAfterClose = await page.evaluate(() => ({
+            feedbackOpen: document.getElementById('feedback-overlay').classList.contains('active'),
+            externalHandoffPending: document.body.classList.contains('bark-external-handoff-pending')
+        }));
+        expect(stateAfterClose.feedbackOpen).toBe(false);
+        expect(stateAfterClose.externalHandoffPending).toBe(false);
+
+        await page.locator('.nav-item[data-target="map-view"]').click();
+        await page.waitForFunction(() => document.querySelectorAll('.custom-bark-marker').length > 1);
+
+        const visiblePinIndexes = await page.getByRole('button', { name: 'Park Pin' }).evaluateAll(elements =>
+            elements.map((element, index) => {
+                const rect = element.getBoundingClientRect();
+                const visible = rect.width > 0 && rect.height > 0
+                    && rect.right > 0 && rect.bottom > 0
+                    && rect.left < window.innerWidth && rect.top < window.innerHeight;
+                if (!visible) return null;
+                const centerTarget = document.elementFromPoint(
+                    rect.left + (rect.width / 2),
+                    rect.top + (rect.height / 2)
+                );
+                return (centerTarget === element || element.contains(centerTarget)) ? index : null;
+            }).filter(index => index !== null).slice(0, 2)
+        );
+        expect(visiblePinIndexes.length).toBeGreaterThanOrEqual(2);
+
+        const openedTitles = [];
+        for (const pinIndex of visiblePinIndexes) {
+            await page.getByRole('button', { name: 'Park Pin' }).nth(pinIndex).click();
+            const panelState = await page.evaluate(() => {
+                const panel = document.getElementById('slide-panel');
+                const style = getComputedStyle(panel);
+                return {
+                    open: panel.classList.contains('open'),
+                    title: document.getElementById('panel-title').textContent.trim(),
+                    display: style.display,
+                    visibility: style.visibility,
+                    pointerEvents: style.pointerEvents
+                };
+            });
+
+            expect(panelState.open).toBe(true);
+            expect(panelState.title).not.toBe('');
+            expect(panelState.display).not.toBe('none');
+            expect(panelState.visibility).toBe('visible');
+            expect(panelState.pointerEvents).toBe('auto');
+            openedTitles.push(panelState.title);
+            await page.locator('#close-slide-panel').click();
+        }
+        expect(openedTitles).toHaveLength(2);
+
+        await context.close();
+    });
+
     test('external links hard-close the park sheet and settle the map after Back or X', async ({ browser }) => {
         const context = await newBarkContext(browser, {
             viewport: { width: 390, height: 844 },

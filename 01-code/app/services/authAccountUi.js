@@ -796,6 +796,7 @@
     function contactSupportFromManagement() {
         const destination = validateSubscriptionDestination(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('B.A.R.K. account support')}`);
         if (!destination) return;
+        closeAccountManagementModal();
         if (window.BARK && typeof window.BARK.prepareExternalHandoff === 'function') {
             window.BARK.prepareExternalHandoff({ source: 'account-support-email' });
         }
@@ -830,6 +831,10 @@
             }
 
             const safeDestination = validateBillingPortalDestination(signedUrl);
+            // iOS keeps the installed app visible underneath its Safari overlay.
+            // Close and clear this modal before the handoff so Back/X cannot
+            // reveal stale loading copy or a half-restored management surface.
+            closeAccountManagementModal();
             if (window.BARK && typeof window.BARK.prepareExternalHandoff === 'function') {
                 window.BARK.prepareExternalHandoff({ source: 'billing-portal' });
             }

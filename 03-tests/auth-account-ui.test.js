@@ -228,6 +228,7 @@ function loadAuthAccountUi(overrides = {}) {
         }
     };
     const locationAssignCalls = [];
+    const externalHandoffCalls = [];
     let premiumEntitlement = overrides.premiumEntitlement || {
         premium: false,
         status: 'free',
@@ -271,7 +272,10 @@ function loadAuthAccountUi(overrides = {}) {
                         }
                     }
                 },
-                incrementRequestCount() {}
+                incrementRequestCount() {},
+                prepareExternalHandoff(details) {
+                    externalHandoffCalls.push(details);
+                }
             },
             location: {
                 href: 'https://outswarming.github.io/bark-ranger-map/',
@@ -356,6 +360,7 @@ function loadAuthAccountUi(overrides = {}) {
         deletionCleanupCalls,
         alertCalls,
         locationAssignCalls,
+        externalHandoffCalls,
         premiumService,
         writes,
         element: id => document.element(id)
@@ -448,6 +453,10 @@ test('lemon squeezy premium account opens a fresh customer portal URL', async ()
     assert.deepEqual(harness.locationAssignCalls, [
         'https://usbarkrangers.lemonsqueezy.com/billing?expires=2100000000&signature=fresh'
     ]);
+    assert.equal(harness.externalHandoffCalls.length, 1);
+    assert.equal(harness.externalHandoffCalls[0].source, 'billing-portal');
+    assert.equal(harness.element('account-management-overlay').classList.contains('active'), false);
+    assert.equal(harness.element('account-management-message').hidden, true);
     assert.deepEqual(harness.alertCalls, []);
 });
 

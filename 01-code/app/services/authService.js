@@ -1117,7 +1117,9 @@ function resetMapViewToGuestDefault() {
     localStorage.removeItem('mapZoom');
     mapRef.setView([39.8283, -98.5795], guestZoom, { animate: false });
 
-    if (mapRef.locate && navigator.geolocation) {
+    if (typeof window.BARK.requestUserLocationCenter === 'function' && navigator.geolocation) {
+        window.BARK.requestUserLocationCenter(guestZoom);
+    } else if (mapRef.locate && navigator.geolocation) {
         mapRef.locate({ setView: true, maxZoom: guestZoom, watch: false });
     }
 }

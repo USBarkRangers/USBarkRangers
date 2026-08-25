@@ -43,6 +43,41 @@ window.BARK.externalHandoffGuard = Object.freeze({
     isExternalHandoffDestination: isBarkExternalHandoffDestination
 });
 
+function shouldRepairBarkIOSStandaloneViewport({
+    isIOS,
+    isStandalone,
+    screenHeight,
+    viewportHeight,
+    hasFocusedTextEntry
+}) {
+    if (!isIOS || !isStandalone || hasFocusedTextEntry) return false;
+    const fullHeight = Number(screenHeight);
+    const visibleHeight = Number(viewportHeight);
+    if (!Number.isFinite(fullHeight) || !Number.isFinite(visibleHeight) || fullHeight <= 0 || visibleHeight <= 0) {
+        return false;
+    }
+
+    // A normal standalone iPhone viewport is slightly shorter than screen.height
+    // for its status/safe areas. The Safari overlay defect leaves a much larger
+    // browser-toolbar-sized hole (195px on the reproduced 430x932 phone).
+    return fullHeight - visibleHeight > Math.max(120, fullHeight * 0.13);
+}
+
+function withBarkViewportFit(content, value) {
+    const parts = String(content || '')
+        .split(',')
+        .map(part => part.trim())
+        .filter(Boolean)
+        .filter(part => !/^viewport-fit\s*=/i.test(part));
+    parts.push(`viewport-fit=${value}`);
+    return parts.join(', ');
+}
+
+window.BARK.iosStandaloneViewportGuard = Object.freeze({
+    shouldRepair: shouldRepairBarkIOSStandaloneViewport,
+    withViewportFit: withBarkViewportFit
+});
+
 window.BARK.initUI = function initUI() {
 let keyboardFocusContext = null;
 const EXTERNAL_HANDOFF_PENDING_KEY = 'bark_external_handoff_pending';
@@ -51,6 +86,7 @@ const EXTERNAL_HANDOFF_CLASS = 'bark-external-handoff-pending';
 const EXTERNAL_RETURN_QUARANTINE_MS = 1200;
 let externalReturnSettleGeneration = 0;
 let externalHandoffPendingInMemory = false;
+let iosViewportRepairGeneration = 0;
 
 // ====== iOS SAFARI MAGNIFIER PROTECTION ======
 document.addEventListener('contextmenu', function (e) {
@@ -192,6 +228,53 @@ function prepareExternalHandoff(details = {}) {
     if (panel) void panel.offsetHeight;
 }
 
+function repairIOSStandaloneViewportIfStuck() {
+    const visualHeight = window.visualViewport && Number(window.visualViewport.height);
+    const viewportHeight = Math.max(Number(window.innerHeight) || 0, visualHeight || 0);
+    const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent || '')
+        || (navigator.platform === 'MacIntel' && Number(navigator.maxTouchPoints) > 1);
+    const isStandalone = navigator.standalone === true
+        || (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches);
+
+    if (!shouldRepairBarkIOSStandaloneViewport({
+        isIOS,
+        isStandalone,
+        screenHeight: window.screen && window.screen.height,
+        viewportHeight,
+        hasFocusedTextEntry: isBarkTextEntryElement(document.activeElement)
+    })) return false;
+
+    const viewportMeta = document.querySelector('meta[name="viewport"]');
+    if (!viewportMeta) return false;
+
+    const generation = ++iosViewportRepairGeneration;
+    const content = viewportMeta.getAttribute('content') || '';
+
+    // iOS can keep the installed app at the shorter Safari overlay viewport
+    // even after the overlay closes. Re-parsing viewport-fit rebuilds the native
+    // web-view bounds; changing CSS heights cannot repair a clipped web view.
+    viewportMeta.setAttribute('content', withBarkViewportFit(content, 'auto'));
+    void document.documentElement.offsetHeight;
+
+    requestAnimationFrame(() => {
+        if (generation !== iosViewportRepairGeneration) return;
+        viewportMeta.setAttribute('content', withBarkViewportFit(content, 'cover'));
+        void document.documentElement.offsetHeight;
+
+        [0, 120, 420].forEach(delay => {
+            setTimeout(() => {
+                if (generation !== iosViewportRepairGeneration) return;
+                window.scrollTo(0, 0);
+                if (window.map && typeof window.map.invalidateSize === 'function') {
+                    window.map.invalidateSize({ pan: false });
+                }
+            }, delay);
+        });
+    });
+
+    return true;
+}
+
 function settleExternalReturnViewport(reason) {
     const generation = ++externalReturnSettleGeneration;
     closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
@@ -205,6 +288,7 @@ function settleExternalReturnViewport(reason) {
         window.scrollTo(0, 0);
         document.documentElement.scrollTop = 0;
         document.body.scrollTop = 0;
+        repairIOSStandaloneViewportIfStuck();
         if (window.map && typeof window.map.invalidateSize === 'function') {
             window.map.invalidateSize({ pan: false });
         }
@@ -230,6 +314,7 @@ function settleExternalReturnViewport(reason) {
 }
 
 function handleAppReturn(reason) {
+    repairIOSStandaloneViewportIfStuck();
     if (consumeExternalHandoffCleanupFlag()) {
         settleExternalReturnViewport(reason);
         return;

@@ -14,6 +14,16 @@ function loadGuard() {
     return context.window.BARK.externalHandoffGuard;
 }
 
+function loadViewportGuard() {
+    const context = { URL, window: { BARK: {} } };
+    vm.runInNewContext(
+        fs.readFileSync(path.join(__dirname, '..', '01-code', 'app', 'modules', 'uiController.js'), 'utf8'),
+        context,
+        { filename: 'modules/uiController.js' }
+    );
+    return context.window.BARK.iosStandaloneViewportGuard;
+}
+
 const currentHref = 'https://usbarkrangers.github.io/USBarkRangers/index.html';
 
 test('cross-origin websites and native-app links are external handoffs', () => {
@@ -46,4 +56,39 @@ test('ordinary internal navigation and inert links stay inside the app', () => {
     ].forEach(destination => {
         assert.equal(guard.isExternalHandoffDestination({ ...destination, currentHref }), false);
     });
+});
+
+test('iOS standalone recovery distinguishes the broken Safari overlay height from normal safe areas', () => {
+    const viewportGuard = loadViewportGuard();
+
+    assert.equal(viewportGuard.shouldRepair({
+        isIOS: true,
+        isStandalone: true,
+        screenHeight: 932,
+        viewportHeight: 737,
+        hasFocusedTextEntry: false
+    }), true);
+    assert.equal(viewportGuard.shouldRepair({
+        isIOS: true,
+        isStandalone: true,
+        screenHeight: 932,
+        viewportHeight: 873,
+        hasFocusedTextEntry: false
+    }), false);
+    assert.equal(viewportGuard.shouldRepair({
+        isIOS: false,
+        isStandalone: true,
+        screenHeight: 932,
+        viewportHeight: 737,
+        hasFocusedTextEntry: false
+    }), false);
+});
+
+test('viewport-fit replacement is stable and never stacks duplicate directives', () => {
+    const guard = loadViewportGuard();
+    const repaired = guard.withViewportFit(
+        'width=device-width, initial-scale=1, viewport-fit=auto',
+        'cover'
+    );
+    assert.equal(repaired, 'width=device-width, initial-scale=1, viewport-fit=cover');
 });

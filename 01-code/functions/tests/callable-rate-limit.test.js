@@ -7,6 +7,7 @@ const {
     BOUNDED_CALLABLE_RATE_LIMITS,
     GLOBAL_CALLABLE_RATE_LIMITS,
     enforceBoundedCallableRateLimit,
+    warmConfiguredCallableRateLimitPath,
     enforcePremiumCallableRateLimits
 } = require("../rateLimits.js");
 const {
@@ -58,6 +59,18 @@ function makeCounterFirestore() {
 }
 
 describe("bounded callable rate limits", () => {
+    it("warms the checkout user and global transaction path without consuming a limit", async () => {
+        const firestore = makeCounterFirestore();
+
+        await warmConfiguredCallableRateLimitPath("createCheckoutSession", {
+            firestore,
+            warmupUid: "checkout-startup"
+        });
+
+        assert.deepEqual(firestore.state, { reads: 2, writes: 0, transactions: 1 });
+        assert.equal(firestore.docs.size, 0);
+    });
+
     it("keeps the deployed route, provider, and shared ceilings unchanged", () => {
         assert.deepEqual(BOUNDED_CALLABLE_RATE_LIMITS.getPremiumRouteBurst, {
             shortMax: 12,

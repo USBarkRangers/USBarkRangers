@@ -456,6 +456,42 @@ describe("Lemon Squeezy checkout session helpers", () => {
 });
 
 describe("Lemon Squeezy checkout session callable", () => {
+    it("waits for the checkout backend warmup before calling Lemon Squeezy", async () => {
+        let releaseWarmup;
+        let postCalls = 0;
+        const checkoutBackendReady = new Promise(resolve => {
+            releaseWarmup = resolve;
+        });
+        const checkoutPromise = handleCreateCheckoutSession(
+            {},
+            authedContext("warm-checkout-user"),
+            {
+                ...config,
+                checkoutBackendReady,
+                axiosPost: async () => {
+                    postCalls += 1;
+                    return {
+                        data: {
+                            data: {
+                                attributes: {
+                                    url: "https://usbarkrangers.lemonsqueezy.com/checkout/warm-session"
+                                }
+                            }
+                        }
+                    };
+                }
+            }
+        );
+
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(postCalls, 0);
+
+        releaseWarmup();
+        const result = await checkoutPromise;
+        assert.equal(postCalls, 1);
+        assert.equal(result.checkoutUrl, "https://usbarkrangers.lemonsqueezy.com/checkout/warm-session");
+    });
+
     it("can disable checkout server-side without touching Lemon Squeezy test mode", async () => {
         let postCalls = 0;
 

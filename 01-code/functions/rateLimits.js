@@ -141,6 +141,35 @@ function makeBotRateLimitError(action, retryAtMs, scope = "user", now = Date.now
     );
 }
 
+function getBoundedCallableCounterRefs(db, uid, action) {
+    const globalScope = CALLABLE_GLOBAL_RATE_LIMIT_SCOPE[action];
+    const safeUid = encodeURIComponent(uid);
+    return {
+        globalScope,
+        userRef: db.collection("_callableRateLimits").doc(`${encodeURIComponent(action)}_${safeUid}`),
+        globalRef: globalScope
+            ? db.collection("_globalCallableRateLimits").doc(encodeURIComponent(globalScope))
+            : null
+    };
+}
+
+// Prime the exact Firestore transaction transport used by a bounded callable
+// without consuming a rate-limit slot or writing a document. This is intended
+// for a resident instance's startup path, not per-request work.
+async function warmConfiguredCallableRateLimitPath(action, options = {}) {
+    const db = options.rateLimitFirestore || options.firestore || admin.firestore();
+    if (!db || typeof db.runTransaction !== "function") {
+        throw new Error("Rate-limit warmup requires Firestore transaction support.");
+    }
+
+    const warmupUid = options.warmupUid || "_startup_warmup_";
+    const { userRef, globalRef } = getBoundedCallableCounterRefs(db, warmupUid, action);
+    await db.runTransaction(async transaction => {
+        await transaction.get(userRef);
+        if (globalRef) await transaction.get(globalRef);
+    });
+}
+
 async function enforceBoundedCallableRateLimit(uid, action, options = {}) {
     const userDefaults = BOUNDED_CALLABLE_RATE_LIMITS[action];
     if (!userDefaults) return;
@@ -156,11 +185,9 @@ async function enforceBoundedCallableRateLimit(uid, action, options = {}) {
     }
 
     const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
-    const safeUid = encodeURIComponent(uid);
-    const userRef = db.collection("_callableRateLimits").doc(`${encodeURIComponent(action)}_${safeUid}`);
-    const globalRef = globalConfig
-        ? db.collection("_globalCallableRateLimits").doc(encodeURIComponent(globalScope))
-        : null;
+    const refs = getBoundedCallableCounterRefs(db, uid, action);
+    const userRef = refs.userRef;
+    const globalRef = globalConfig ? refs.globalRef : null;
 
     await db.runTransaction(async transaction => {
         const userSnapshot = await transaction.get(userRef);
@@ -364,6 +391,7 @@ module.exports = {
     buildRateLimitCounterUpdate,
     makeBotRateLimitError,
     enforceBoundedCallableRateLimit,
+    warmConfiguredCallableRateLimitPath,
     enforceConfiguredCallableRateLimit,
     getPremiumCallableRateLimit,
     getRateLimitRetrySeconds,

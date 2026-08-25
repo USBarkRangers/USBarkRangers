@@ -18,6 +18,7 @@ const {
     parsePositiveInteger,
     makeBotRateLimitError,
     enforceConfiguredCallableRateLimit,
+    warmConfiguredCallableRateLimitPath,
     getRateLimitRetrySeconds,
     enforcePremiumCallableRateLimit,
     enforcePremiumCallableRateLimits
@@ -55,6 +56,31 @@ const compactRouteBackendReady = (() => {
         .catch(error => {
             // A startup warmup is an optimization, never an availability gate.
             console.warn("[routing] Compact route Firestore warmup did not complete.", {
+                durationMs: Date.now() - startedAt,
+                message: error && error.message ? error.message : String(error)
+            });
+        });
+})();
+
+// Checkout normally scales to zero between purchases. Keep its resident
+// instance's exact Firestore rate-limit transaction path ready so the first
+// customer does not pay several seconds for credential and gRPC setup.
+const checkoutBackendReady = (() => {
+    if (process.env.NODE_ENV === "test" || process.env.FUNCTION_TARGET !== "createCheckoutSession") {
+        return Promise.resolve();
+    }
+
+    const startedAt = Date.now();
+    return warmConfiguredCallableRateLimitPath("createCheckoutSession")
+        .then(() => {
+            console.info("[payments] Checkout Firestore transaction path is ready.", {
+                durationMs: Date.now() - startedAt
+            });
+        })
+        .catch(error => {
+            // Warmup is an optimization; checkout still performs the same
+            // fail-closed transaction when a request arrives.
+            console.warn("[payments] Checkout Firestore warmup did not complete.", {
                 durationMs: Date.now() - startedAt,
                 message: error && error.message ? error.message : String(error)
             });
@@ -1862,9 +1888,16 @@ async function handleRestorePremiumPurchase(requestOrData, context, options = {}
 }
 
 async function handleCreateCheckoutSession(requestOrData, context, options = {}) {
+    const requestedAt = Date.now();
+    const backendReady = options.checkoutBackendReady || checkoutBackendReady;
+    await backendReady;
+    const warmupWaitDurationMs = Date.now() - requestedAt;
+
     requireFunctionFlagEnabled("createCheckoutSession", options);
     const uid = requireVerifiedEmailCallable(context);
+    const rateLimitStartedAt = Date.now();
     await enforceConfiguredCallableRateLimit(uid, "createCheckoutSession", options);
+    const rateLimitDurationMs = Date.now() - rateLimitStartedAt;
     const config = getLemonSqueezyConfig(options);
     const token = context && context.auth && context.auth.token ? context.auth.token : {};
     const tier = getCheckoutTierFromRequest(requestOrData);
@@ -1872,12 +1905,21 @@ async function handleCreateCheckoutSession(requestOrData, context, options = {})
     const post = options.axiosPost || axios.post;
 
     try {
+        const providerStartedAt = Date.now();
         const response = await post(LEMONSQUEEZY_CHECKOUTS_URL, payload, {
             headers: {
                 "Accept": "application/vnd.api+json",
                 "Content-Type": "application/vnd.api+json",
                 "Authorization": `Bearer ${config.apiKey}`
             }
+        });
+        const providerDurationMs = Date.now() - providerStartedAt;
+        console.info("[payments] Checkout session created.", {
+            tier,
+            warmupWaitDurationMs,
+            rateLimitDurationMs,
+            providerDurationMs,
+            totalDurationMs: Date.now() - requestedAt
         });
 
         return {
@@ -3867,7 +3909,11 @@ exports.getPremiumGeocode = functions
     .https.onCall(wrapCallableWithPaymentAlert("getPremiumGeocode", handlePremiumGeocode));
 
 exports.createCheckoutSession = functions
-    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 5 })
+    .runWith({
+        secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"],
+        minInstances: 1,
+        maxInstances: 5
+    })
     .https.onCall(wrapCallableWithPaymentAlert("createCheckoutSession", handleCreateCheckoutSession));
 
 exports.redeemAccessOrPromoCode = functions

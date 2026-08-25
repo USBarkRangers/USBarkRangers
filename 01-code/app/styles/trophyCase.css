@@ -651,6 +651,14 @@
     box-shadow: 0 -10px 20px rgba(0,0,0,0.05);
 }
 
+@media (max-width: 767px) {
+    /* The desktop panel uses this legacy outer margin, but on the mobile
+       bottom sheet it becomes a blank strip between the actions and nav. */
+    #slide-panel .panel-content {
+        margin-bottom: 0;
+    }
+}
+
 /* Make Map Buttons Pop (No more white out) */
 .panel-sticky-footer .dir-btn {
     background: #0f172a !important; /* Dark Obsidian */

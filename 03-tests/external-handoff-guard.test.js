@@ -69,3 +69,21 @@ test('same-context handoff does not alter other devices, normal Safari tabs, or 
         assert.equal(guard.shouldUseIOSSameContextHandoff({ ...destination, currentHref }), false);
     });
 });
+
+test('park feedback uses its local handler only when the complete handler is ready', () => {
+    const guard = loadGuard();
+
+    assert.equal(guard.shouldUseLocalExternalHandler({
+        localAction: 'feedback',
+        hasClickHandler: true,
+        hasFeedbackHandler: true
+    }), true);
+
+    [
+        { localAction: '', hasClickHandler: true, hasFeedbackHandler: true },
+        { localAction: 'feedback', hasClickHandler: false, hasFeedbackHandler: true },
+        { localAction: 'feedback', hasClickHandler: true, hasFeedbackHandler: false }
+    ].forEach(state => {
+        assert.equal(guard.shouldUseLocalExternalHandler(state), false);
+    });
+});

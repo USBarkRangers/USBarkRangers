@@ -19,6 +19,52 @@ async function openLoadedApp(page) {
 }
 
 test.describe('Safari installed-app external return', () => {
+    test('park Suggest an Edit opens the in-app feedback dialog', async ({ browser }) => {
+        const context = await newBarkContext(browser, {
+            viewport: { width: 390, height: 844 },
+            isMobile: true,
+            hasTouch: true
+        });
+        const page = await context.newPage();
+        await openLoadedApp(page);
+
+        const park = await page.evaluate(() => {
+            const marker = Array.from(window.BARK.markerManager.markers.values())
+                .find(candidate => candidate && candidate._parkData);
+            if (!marker) throw new Error('No park marker is available for the feedback entry-point test.');
+            window.BARK.markerManager.renderMarkerPanel(marker);
+            return {
+                id: marker._parkData.id,
+                name: marker._parkData.name,
+                state: marker._parkData.state
+            };
+        });
+
+        await page.locator('#suggest-edit-btn').click();
+
+        const state = await page.evaluate(() => ({
+            bodyPending: document.body.classList.contains('bark-external-handoff-pending'),
+            panelOpen: document.getElementById('slide-panel').classList.contains('open'),
+            panelTitle: document.getElementById('panel-title').textContent,
+            feedbackOpen: document.getElementById('feedback-overlay').classList.contains('active'),
+            feedbackHidden: document.getElementById('feedback-overlay').getAttribute('aria-hidden'),
+            subject: document.getElementById('feedback-subject-input').value,
+            correctionSelected: document.querySelector('[data-feedback-type="correction"]')
+                .classList.contains('is-selected')
+        }));
+
+        expect(state.bodyPending).toBe(false);
+        expect(state.panelOpen).toBe(true);
+        expect(state.panelTitle).toBe(park.name);
+        expect(state.feedbackOpen).toBe(true);
+        expect(state.feedbackHidden).toBe('false');
+        expect(state.subject).toContain(park.name);
+        if (park.state) expect(state.subject).toContain(park.state);
+        expect(state.correctionSelected).toBe(true);
+
+        await context.close();
+    });
+
     test('external links hard-close the park sheet and settle the map after Back or X', async ({ browser }) => {
         const context = await newBarkContext(browser, {
             viewport: { width: 390, height: 844 },

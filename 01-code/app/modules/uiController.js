@@ -53,9 +53,16 @@ function shouldUseBarkIOSSameContextHandoff({ href, currentHref, isIOS, isStanda
     }
 }
 
+function shouldUseBarkLocalExternalHandler({ localAction, hasClickHandler, hasFeedbackHandler }) {
+    return localAction === 'feedback'
+        && hasClickHandler === true
+        && hasFeedbackHandler === true;
+}
+
 window.BARK.externalHandoffGuard = Object.freeze({
     isExternalHandoffDestination: isBarkExternalHandoffDestination,
-    shouldUseIOSSameContextHandoff: shouldUseBarkIOSSameContextHandoff
+    shouldUseIOSSameContextHandoff: shouldUseBarkIOSSameContextHandoff,
+    shouldUseLocalExternalHandler: shouldUseBarkLocalExternalHandler
 });
 
 function shouldActivateBarkNavPointer({
@@ -617,6 +624,16 @@ document.addEventListener('click', (event) => {
         href: link.getAttribute('href') || link.href,
         target: link.getAttribute('target') || '',
         currentHref: window.location.href
+    })) return;
+
+    // The park edit link is a real mailto fallback, but normally its target
+    // handler opens the in-app feedback dialog. Let that handler run instead of
+    // clearing it during capture; if the feedback module failed to initialize,
+    // the ordinary external-handoff cleanup and email fallback still apply.
+    if (shouldUseBarkLocalExternalHandler({
+        localAction: link.dataset ? link.dataset.barkLocalAction : '',
+        hasClickHandler: typeof link.onclick === 'function',
+        hasFeedbackHandler: Boolean(window.BARK.feedback && typeof window.BARK.feedback.open === 'function')
     })) return;
 
     if (!event.defaultPrevented

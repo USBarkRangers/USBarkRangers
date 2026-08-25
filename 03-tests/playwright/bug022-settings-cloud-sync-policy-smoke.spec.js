@@ -87,6 +87,73 @@ async function closePaywallIfOpen(page) {
 }
 
 test.describe('BUG-022 settings cloud sync policy', () => {
+    test('cloud hydration cannot autosave an identical settings snapshot', async ({ browser }) => {
+        test.setTimeout(90000);
+
+        const context = await newBarkContext(browser);
+        const page = await context.newPage();
+        const errors = [];
+        collectRelevantErrors(page, 'cloud feedback-loop guard', errors);
+
+        try {
+            await openApp(page);
+            const result = await page.evaluate(async () => {
+                const premiumService = window.BARK.services.premium;
+                const firebaseService = window.BARK.services.firebase;
+                const originalIsPremium = premiumService.isPremium;
+                const originalGetCurrentUser = firebaseService.getCurrentUser;
+                const originalSaveUserSettings = firebaseService.saveUserSettings;
+                const writes = [];
+
+                premiumService.isPremium = () => true;
+                firebaseService.getCurrentUser = () => ({ uid: 'feedback-loop-test-user' });
+                firebaseService.saveUserSettings = async (uid, payload) => {
+                    writes.push({ uid, payload });
+                };
+
+                try {
+                    window.BARK.isHydratingCloudSettings = true;
+                    window.BARK.settings.set('lowGfxEnabled', false);
+                    window.BARK.settings.set('limitZoomOut', true);
+                    const hydratedPayload = window.BARK.buildCloudSettingsPayload();
+                    hydratedPayload.settingsUpdatedAt = 100;
+                    window.BARK.rememberCloudSettingsSnapshot(hydratedPayload);
+                    window.BARK.isHydratingCloudSettings = false;
+
+                    await new Promise(resolve => setTimeout(resolve, 700));
+                    const writesAfterHydration = writes.length;
+
+                    window.BARK.scheduleCloudSettingsAutosave();
+                    await new Promise(resolve => setTimeout(resolve, 700));
+                    const writesAfterUnchangedAutosave = writes.length;
+
+                    window.BARK.settings.set('limitZoomOut', false);
+                    await new Promise(resolve => setTimeout(resolve, 700));
+
+                    return {
+                        writesAfterHydration,
+                        writesAfterUnchangedAutosave,
+                        writesAfterRealChange: writes.length
+                    };
+                } finally {
+                    premiumService.isPremium = originalIsPremium;
+                    firebaseService.getCurrentUser = originalGetCurrentUser;
+                    firebaseService.saveUserSettings = originalSaveUserSettings;
+                    window.BARK.isHydratingCloudSettings = false;
+                }
+            });
+
+            expect(result).toEqual({
+                writesAfterHydration: 0,
+                writesAfterUnchangedAutosave: 0,
+                writesAfterRealChange: 1
+            });
+            expect(errors, errors.join('\n')).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    });
+
     test('signed-out users keep basic settings locally without cloud sync', async ({ browser }) => {
         test.setTimeout(90000);
 

@@ -562,6 +562,10 @@ function handleCloudSettingsHydration(data, metadata = {}) {
             mapRef.setView([39.8283, -98.5795], 4, { animate: false });
         }
 
+        if (typeof window.BARK.rememberCloudSettingsSnapshot === 'function') {
+            window.BARK.rememberCloudSettingsSnapshot(s);
+        }
+
         console.log("☁️ Cloud settings loaded and injected perfectly!");
     } catch (error) {
         console.error("[authService] cloud settings hydration failed:", error);

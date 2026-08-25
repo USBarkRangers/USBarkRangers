@@ -69,6 +69,23 @@ test('individual performance settings remain usable after Low Graphics is turned
     assert.equal(store.get('stopResizing'), false);
 });
 
+test('replaying an already-disabled Low Graphics value preserves independent child settings', () => {
+    const { window } = loadSettingsStore();
+    const store = window.BARK.settings;
+    let limitZoomOutChanges = 0;
+
+    store.set('limitZoomOut', true);
+    store.onChange('limitZoomOut', () => {
+        limitZoomOutChanges += 1;
+    });
+
+    store.set('lowGfxEnabled', false);
+
+    assert.equal(store.get('lowGfxEnabled'), false);
+    assert.equal(store.get('limitZoomOut'), true);
+    assert.equal(limitZoomOutChanges, 0);
+});
+
 test('turning Ultra Fast off also clears the nested Low Graphics preset', () => {
     const { window } = loadSettingsStore();
     const store = window.BARK.settings;

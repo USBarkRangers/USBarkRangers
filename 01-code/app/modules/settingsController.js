@@ -4,6 +4,37 @@
  */
 window.BARK = window.BARK || {};
 
+const CLOUD_SETTINGS_REVISION_KEYS = new Set(['settingsUpdatedAt', 'updatedAt']);
+let lastKnownCloudSettingsFingerprint = '';
+
+function getCloudSettingsFingerprint(settings) {
+    const source = settings && typeof settings === 'object' && !Array.isArray(settings)
+        ? settings
+        : {};
+    const materialSettings = {};
+
+    Object.keys(source).sort().forEach((key) => {
+        if (CLOUD_SETTINGS_REVISION_KEYS.has(key) || source[key] === undefined) return;
+        materialSettings[key] = source[key];
+    });
+
+    return JSON.stringify(materialSettings);
+}
+
+function rememberCloudSettingsSnapshot(settings) {
+    lastKnownCloudSettingsFingerprint = getCloudSettingsFingerprint(settings);
+    return lastKnownCloudSettingsFingerprint;
+}
+
+function cloudSettingsMateriallyChanged(settings) {
+    const nextFingerprint = getCloudSettingsFingerprint(settings);
+    return !lastKnownCloudSettingsFingerprint || nextFingerprint !== lastKnownCloudSettingsFingerprint;
+}
+
+window.BARK.getCloudSettingsFingerprint = getCloudSettingsFingerprint;
+window.BARK.rememberCloudSettingsSnapshot = rememberCloudSettingsSnapshot;
+window.BARK.cloudSettingsMateriallyChanged = cloudSettingsMateriallyChanged;
+
 window.BARK.initSettings = function initSettings() {
     const settingsGearBtn = document.getElementById('settings-gear-btn');
     const settingsOverlay = document.getElementById('settings-overlay');
@@ -222,6 +253,13 @@ window.BARK.initSettings = function initSettings() {
         cloudAutosaveTimer = null;
 
         const settingsPayload = buildCloudSettingsPayload();
+        if (!cloudSettingsMateriallyChanged(settingsPayload)) {
+            window._pendingLocalSettingsChanges = false;
+            return {
+                ...settingsPayload,
+                skippedUnchangedWrite: true
+            };
+        }
         console.log('[settingsController] saveSettingsToCloud: Payload being sent:', JSON.stringify(settingsPayload, null, 2));
         // Prevent cloud hydration from reverting local changes while save is in progress
         window._savingCloudSettingsRevision = settingsPayload.settingsUpdatedAt;
@@ -229,6 +267,7 @@ window.BARK.initSettings = function initSettings() {
             console.log('[settingsController] About to call saveUserSettings...');
             await context.firebaseService.saveUserSettings(context.currentUser.uid, settingsPayload);
             console.log('[settingsController] saveUserSettings completed successfully');
+            rememberCloudSettingsSnapshot(settingsPayload);
             window._lastAppliedCloudSettingsRevision = settingsPayload.settingsUpdatedAt;
             window._cloudSettingsLoaded = true;
             // Clear the pending changes flag - cloud is now in sync with local
@@ -455,7 +494,9 @@ window.BARK.initSettings = function initSettings() {
                 settingsStore.onChange(key, () => {
                     syncRegisteredControls();
                     scheduleRegistrySettingEffects(setting);
-                    scheduleCloudSettingsAutosave();
+                    if (!window.BARK.isHydratingCloudSettings) {
+                        scheduleCloudSettingsAutosave();
+                    }
                 });
             }
         });

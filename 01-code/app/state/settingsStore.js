@@ -198,8 +198,11 @@
             value = lowGraphicsPreset[key];
         }
 
-        // Capture ultraLowEnabled previous state before applyValue overwrites it,
-        // so we only fire the reset preset when actually turning OFF (true -> false transition).
+        // Capture master-toggle state before applyValue overwrites it. Presets
+        // should reset their children only on a real true -> false transition;
+        // replaying an already-false cloud value must not disturb independently
+        // enabled child settings and trigger a cloud-write feedback loop.
+        const lowGraphicsWasEnabled = key === 'lowGfxEnabled' ? values.lowGfxEnabled === true : false;
         const ultraLowWasEnabled = key === 'ultraLowEnabled' ? values.ultraLowEnabled === true : false;
 
         const previousClusterState = get('clusteringEnabled');
@@ -225,8 +228,10 @@
             applyPresetValues(getUltraLowPresetValues(false));
         }
 
-        if (key === 'lowGfxEnabled') {
-            applyPresetValues(getLowGraphicsPresetValues(values.lowGfxEnabled));
+        if (key === 'lowGfxEnabled' && values.lowGfxEnabled) {
+            applyPresetValues(getLowGraphicsPresetValues(true));
+        } else if (key === 'lowGfxEnabled' && lowGraphicsWasEnabled) {
+            applyPresetValues(getLowGraphicsPresetValues(false));
         }
 
         const nextClusterState = get('clusteringEnabled');

@@ -7,8 +7,9 @@
  * controls visible. It also owns one narrow WebKit workaround: after an
  * installed app closes Apple's external-site/photo sheet, Safari can leave
  * every existing 100dvh declaration resolved against the sheet's shorter
- * viewport. Alternating two equivalent CSS rules makes WebKit recompute dvh
- * from the restored app window. No screen dimensions or phone models are used.
+ * viewport. The coordinator therefore publishes the installed app window's
+ * stable height for structural surfaces. No screen dimensions, phone models,
+ * or per-device offsets are used.
  */
 (function exposeViewportCoordinator(root, factory) {
     const api = factory();
@@ -26,7 +27,8 @@
 
     const CONTENT_LIFT_PROPERTY = '--bark-nav-content-lift';
     const IOS_STANDALONE_CLASS = 'bark-ios-standalone-fullscreen';
-    const SHELL_REFRESH_CLASSES = ['bark-shell-refresh-a', 'bark-shell-refresh-b'];
+    const STABLE_SHELL_CLASS = 'bark-stable-standalone-shell';
+    const STABLE_SHELL_HEIGHT_PROPERTY = '--bark-standalone-app-height';
     const MAX_LIFT_PX = 260;
     const CONTENT_MARGIN_PX = 3;
     const CHANGE_TOLERANCE_PX = 1;
@@ -75,6 +77,17 @@
         const mediaStandalone = typeof targetWindow.matchMedia === 'function'
             && targetWindow.matchMedia('(display-mode: standalone)').matches;
         return targetWindow.navigator.standalone === true || mediaStandalone;
+    }
+
+    function calculateStandaloneAppHeight(metrics = {}) {
+        const candidates = [
+            metrics.outerHeight,
+            metrics.innerHeight,
+            metrics.visualHeight
+        ]
+            .map(value => finiteNumber(value))
+            .filter(value => value >= 240 && value <= 4096);
+        return candidates.length ? Math.max(...candidates) : 0;
     }
 
     function readCurrentLift(targetWindow) {
@@ -135,9 +148,9 @@
 
         let generation = 0;
         let shellGeneration = 0;
-        let shellRefreshIndex = -1;
         let lastReason = 'install';
         const standaloneApp = isStandalone(targetWindow);
+        const stableStandaloneShell = standaloneApp && isIOSDevice(targetWindow);
 
         function refresh(reason = 'manual') {
             const metrics = readMetrics(targetWindow);
@@ -177,32 +190,41 @@
             });
         }
 
-        function refreshShellViewportUnits(reason = 'manual-shell-refresh') {
-            if (!standaloneApp) return { applied: false, reason };
+        function refreshStandaloneShell(reason = 'manual-shell-refresh') {
+            if (!stableStandaloneShell) return { applied: false, reason };
 
-            shellRefreshIndex = (shellRefreshIndex + 1) % SHELL_REFRESH_CLASSES.length;
-            rootElement.classList.remove(...SHELL_REFRESH_CLASSES);
-            rootElement.classList.add(SHELL_REFRESH_CLASSES[shellRefreshIndex]);
+            const visualViewport = targetWindow.visualViewport;
+            const height = calculateStandaloneAppHeight({
+                outerHeight: targetWindow.outerHeight,
+                innerHeight: targetWindow.innerHeight,
+                visualHeight: visualViewport && visualViewport.height
+            });
+            if (!height) return { applied: false, reason };
 
-            // Reading layout commits the newly selected declaration before
-            // Leaflet receives its next invalidateSize pass.
+            const value = `${Math.round(height * 100) / 100}px`;
+            const previousValue = rootElement.style.getPropertyValue(STABLE_SHELL_HEIGHT_PROPERTY);
+            rootElement.style.setProperty(STABLE_SHELL_HEIGHT_PROPERTY, value);
+            rootElement.classList.add(STABLE_SHELL_CLASS);
+
+            // Commit the stable body before Leaflet receives its next size pass.
             void rootElement.offsetHeight;
-            rootElement.dataset.barkShellRefresh = String(shellRefreshIndex + 1);
+            rootElement.dataset.barkStandaloneAppHeight = value;
             return {
-                applied: true,
+                applied: value !== previousValue,
                 reason,
-                className: SHELL_REFRESH_CLASSES[shellRefreshIndex]
+                height,
+                value
             };
         }
 
         function scheduleShellRecovery(reason = 'shell-recovery', delays = [0, 120, 480, 1200]) {
-            if (!standaloneApp) return false;
+            if (!stableStandaloneShell) return false;
             const scheduledGeneration = ++shellGeneration;
             delays.forEach((delay) => {
                 targetWindow.setTimeout(() => {
                     if (scheduledGeneration !== shellGeneration) return;
                     targetWindow.requestAnimationFrame(() => {
-                        refreshShellViewportUnits(reason);
+                        refreshStandaloneShell(reason);
                         refresh(reason);
                     });
                 }, delay);
@@ -227,14 +249,24 @@
         }
 
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => schedule('dom-ready'), { once: true });
+            document.addEventListener('DOMContentLoaded', () => {
+                refreshStandaloneShell('dom-ready');
+                schedule('dom-ready');
+            }, { once: true });
         } else {
+            refreshStandaloneShell('ready');
             schedule('ready');
         }
 
         targetWindow.addEventListener('load', () => schedule('load', [0, 120]), { once: true });
-        targetWindow.addEventListener('orientationchange', () => schedule('orientation', [120, 420]));
-        targetWindow.addEventListener('resize', () => scheduleViewportRefresh('window-resize'));
+        targetWindow.addEventListener('orientationchange', () => {
+            scheduleShellRecovery('orientation', [0, 120, 420]);
+            schedule('orientation', [120, 420]);
+        });
+        targetWindow.addEventListener('resize', () => {
+            if (stableStandaloneShell) scheduleShellRecovery('window-resize', [0, 120]);
+            scheduleViewportRefresh('window-resize');
+        });
         if (targetWindow.visualViewport
             && typeof targetWindow.visualViewport.addEventListener === 'function') {
             targetWindow.visualViewport.addEventListener('resize', () => {
@@ -269,7 +301,7 @@
         return Object.freeze({
             refresh,
             schedule,
-            refreshShellViewportUnits,
+            refreshStandaloneShell,
             scheduleShellRecovery,
             readMetrics: () => readMetrics(targetWindow)
         });
@@ -278,7 +310,9 @@
     return Object.freeze({
         CONTENT_LIFT_PROPERTY,
         IOS_STANDALONE_CLASS,
-        SHELL_REFRESH_CLASSES,
+        STABLE_SHELL_CLASS,
+        STABLE_SHELL_HEIGHT_PROPERTY,
+        calculateStandaloneAppHeight,
         calculateRequiredContentLift,
         install
     });

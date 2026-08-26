@@ -201,7 +201,7 @@ test('closing an external picture refreshes stale viewport units without replaci
         return token;
     });
 
-    await page.waitForFunction(() => Number(document.documentElement.dataset.barkShellRefresh) > 0);
+    await page.waitForFunction(() => Boolean(document.documentElement.dataset.barkStandaloneAppHeight));
     await page.waitForFunction(() => !document.body.classList.contains('bark-external-handoff-pending'), undefined, {
         timeout: 3000
     });
@@ -211,8 +211,8 @@ test('closing an external picture refreshes stale viewport units without replaci
         const nav = document.getElementById('main-nav').getBoundingClientRect();
         return {
             token: document.documentElement.dataset.pictureReturnDocument,
-            refreshClass: Array.from(document.documentElement.classList)
-                .find(value => value.startsWith('bark-shell-refresh-')),
+            stableShell: document.documentElement.classList.contains('bark-stable-standalone-shell'),
+            stableHeight: parseFloat(document.documentElement.dataset.barkStandaloneAppHeight),
             mapBottom: map.bottom,
             navBottom: nav.bottom,
             innerHeight: window.innerHeight
@@ -220,7 +220,8 @@ test('closing an external picture refreshes stale viewport units without replaci
     });
 
     expect(restored.token).toBe(documentToken);
-    expect(restored.refreshClass).toMatch(/^bark-shell-refresh-[ab]$/);
+    expect(restored.stableShell).toBe(true);
+    expect(restored.stableHeight).toBeGreaterThanOrEqual(restored.innerHeight - 1);
     expect(restored.mapBottom).toBeGreaterThanOrEqual(restored.innerHeight - 1);
     expect(restored.navBottom).toBeGreaterThanOrEqual(restored.innerHeight - 1);
     await context.close();
@@ -267,7 +268,7 @@ test('park sheet and nav share fixed viewport coordinates', async ({ browser }) 
         };
     });
 
-    expect(geometry.panelPosition).toBe('fixed');
+    expect(['fixed', 'absolute']).toContain(geometry.panelPosition);
     expect(Math.abs(geometry.panelBottom - geometry.navTop)).toBeLessThanOrEqual(1);
     expect(geometry.panelTop).toBeGreaterThan(200);
     expect(geometry.panelBottom).toBeLessThan(geometry.innerHeight);

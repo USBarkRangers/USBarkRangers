@@ -3,6 +3,26 @@ const assert = require('node:assert/strict');
 
 const coordinator = require('../01-code/app/modules/viewportCoordinator');
 
+test('standalone shell keeps the full app window after Safari reports a shorter return viewport', () => {
+    assert.equal(coordinator.calculateStandaloneAppHeight({
+        outerHeight: 932,
+        innerHeight: 743,
+        visualHeight: 743,
+        documentHeight: 737,
+        bodyHeight: 743
+    }), 932);
+});
+
+test('standalone shell ignores invalid dimensions and never invents a phone size', () => {
+    assert.equal(coordinator.calculateStandaloneAppHeight({
+        outerHeight: Number.NaN,
+        innerHeight: 667,
+        visualHeight: -1,
+        documentHeight: 667
+    }), 667);
+    assert.equal(coordinator.calculateStandaloneAppHeight({ outerHeight: 9000 }), 0);
+});
+
 test('a phone whose navigation already fits receives no correction', () => {
     assert.equal(coordinator.calculateRequiredContentLift({
         currentLift: 0,

@@ -23,8 +23,9 @@
     --bark-map-indicator-bottom-clearance: calc(var(--bark-nav-total-height) + 29px);
 }
 
-/* CSS owns the full-screen canvas. No script is allowed to replace this with
-   screen.height, innerHeight, or a phone-specific constant. */
+/* CSS owns the full-screen canvas. The coordinator may publish only the
+   installed iOS app-window height; it never uses screen dimensions, device
+   names, or phone-specific constants. */
 html,
 body,
 #map,
@@ -35,27 +36,22 @@ body,
     height: 100dvh;
 }
 
-/* iOS can return from its external-site/photo sheet with an old computed
-   100dvh value even though the standalone app window is full height again.
-   Re-selecting an equivalent viewport-unit declaration makes WebKit resolve
-   the real app window without guessing a phone model or storing screen sizes.
-   viewportCoordinator alternates these two rules only during app restoration. */
-html.bark-shell-refresh-a,
-html.bark-shell-refresh-a body,
-html.bark-shell-refresh-a #map,
-html.bark-shell-refresh-a .ui-view,
-html.bark-shell-refresh-a .modal-overlay,
-html.bark-shell-refresh-a #bark-loader {
-    height: calc(100dvh + 0px);
+/* An installed iOS app owns the whole app window, but WebKit can restore a
+   shorter browser viewport after Apple's external-site/photo sheet closes.
+   Use the measured standalone *window* height for structural surfaces. This
+   is one rule for every iPhone/iPad size and orientation—no model list, screen
+   constants, or per-device offsets. Normal Safari and Android are untouched. */
+html.bark-stable-standalone-shell,
+html.bark-stable-standalone-shell body,
+html.bark-stable-standalone-shell #map,
+html.bark-stable-standalone-shell .ui-view,
+html.bark-stable-standalone-shell .modal-overlay,
+html.bark-stable-standalone-shell #bark-loader {
+    height: var(--bark-standalone-app-height, 100dvh);
 }
 
-html.bark-shell-refresh-b,
-html.bark-shell-refresh-b body,
-html.bark-shell-refresh-b #map,
-html.bark-shell-refresh-b .ui-view,
-html.bark-shell-refresh-b .modal-overlay,
-html.bark-shell-refresh-b #bark-loader {
-    height: calc(100dvh - 0px);
+html.bark-stable-standalone-shell body {
+    position: relative;
 }
 
 @media (max-width: 767px) {
@@ -69,6 +65,13 @@ html.bark-shell-refresh-b #bark-loader {
         box-sizing: border-box;
         align-items: center;
         overflow: visible;
+    }
+
+    /* Fixed boxes follow WebKit's stale post-sheet viewport. Anchor the two
+       bottom structural surfaces to the stable standalone body instead. */
+    html.bark-stable-standalone-shell .glass-nav,
+    html.bark-stable-standalone-shell #slide-panel {
+        position: absolute;
     }
 
     .glass-nav .nav-item {

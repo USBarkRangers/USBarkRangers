@@ -4128,6 +4128,7 @@ async function runOpsMetricsRollup({ windowHours, channel, title, mirrors = [], 
     summary.periodLabel = period.label;
 
     if (persistSnapshot) {
+        summary.accountReconciliation = await analyticsReporting.collectAccountReconciliation(db, admin.auth());
         const snapshot = await analyticsReporting.saveAnalyticsSnapshot(db, summary, period, { nowMs });
         summary.cumulative = snapshot.cumulative;
     }

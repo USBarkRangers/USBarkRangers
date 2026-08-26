@@ -303,6 +303,13 @@ function buildMetricsMessage(summary, { channel, title }) {
                 : "One or both traffic sources unavailable"
         });
     }
+    if (summary.accountReconciliation) {
+        const accounts = summary.accountReconciliation;
+        fields.push({
+            name: "Independent account check",
+            value: `Firestore ${formatCount(accounts.firestoreActive)} active (${formatCount(accounts.rawDocuments)} raw − ${formatCount(accounts.deletedDocuments)} deleted) · Firebase Auth ${formatCount(accounts.authActive)} · difference ${formatCount(accounts.difference)}`
+        });
+    }
     const funnel = traffic && traffic.paymentFunnel;
     if (funnel) {
         fields.push({

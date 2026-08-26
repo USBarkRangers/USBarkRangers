@@ -149,11 +149,46 @@ function buildAnalyticsSnapshot(previous = {}, summary, period, collectedAt) {
             goatCounterTrackingStartDate: summary.traffic && summary.traffic.allTime && summary.traffic.allTime.trackingStartDate || null
         },
         latest: {
+            accounts: summary.accountReconciliation || null,
             ga4: summary.ga4 || null,
             goatCounter: summary.traffic || null
         },
         finalizedDays: retainedDays
     };
+}
+
+async function collectAccountReconciliation(db, authClient) {
+    try {
+        const users = db.collection("users");
+        const [rawSnapshot, deletedSnapshot] = await Promise.all([
+            users.count().get(),
+            users.where("accountDeleted", "==", true).count().get()
+        ]);
+        const rawDocuments = Number(rawSnapshot.data().count) || 0;
+        const deletedDocuments = Number(deletedSnapshot.data().count) || 0;
+        const firestoreActive = Math.max(0, rawDocuments - deletedDocuments);
+
+        let authActive = 0;
+        let pageToken;
+        do {
+            const page = await authClient.listUsers(1000, pageToken);
+            authActive += Array.isArray(page.users) ? page.users.length : 0;
+            pageToken = page.pageToken || undefined;
+        } while (pageToken);
+
+        return {
+            rawDocuments,
+            deletedDocuments,
+            firestoreActive,
+            authActive,
+            difference: firestoreActive - authActive
+        };
+    } catch (error) {
+        console.error("[metrics] Account-source reconciliation unavailable.", {
+            message: error && error.message ? error.message : String(error)
+        });
+        return null;
+    }
 }
 
 async function saveAnalyticsSnapshot(db, summary, period, options = {}) {
@@ -187,5 +222,6 @@ module.exports = {
     maxObserved,
     reportedTotals,
     buildAnalyticsSnapshot,
+    collectAccountReconciliation,
     saveAnalyticsSnapshot
 };

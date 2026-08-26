@@ -50,3 +50,27 @@ describe("analytics cumulative snapshot", () => {
         assert.ok(second.finalizedDays["2026-08-26"]);
     });
 });
+
+describe("account-source reconciliation", () => {
+    it("compares Firestore raw-minus-deleted with Firebase Authentication", async () => {
+        const query = (count) => ({
+            where() { return query(40); },
+            count() { return { get: async () => ({ data: () => ({ count }) }) }; }
+        });
+        const db = { collection: () => query(129) };
+        const pages = [
+            { users: Array.from({ length: 60 }), pageToken: "next" },
+            { users: Array.from({ length: 29 }) }
+        ];
+        const authClient = { listUsers: async () => pages.shift() };
+        const result = await reporting.collectAccountReconciliation(db, authClient);
+
+        assert.deepEqual(result, {
+            rawDocuments: 129,
+            deletedDocuments: 40,
+            firestoreActive: 89,
+            authActive: 89,
+            difference: 0
+        });
+    });
+});

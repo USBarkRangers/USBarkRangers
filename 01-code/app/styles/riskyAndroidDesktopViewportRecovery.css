@@ -26,11 +26,11 @@ html.bark-risky-android-desktop-phone-recovery .modal-overlay {
 
 html.bark-risky-android-desktop-phone-recovery .ui-view {
     padding: 20px;
-    padding-bottom: 90px;
+    padding-bottom: var(--bark-view-bottom-clearance);
 }
 
 html.bark-risky-android-desktop-phone-recovery .filtered-pins-indicator {
-    bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+    bottom: var(--bark-map-indicator-bottom-clearance);
     max-width: min(390px, calc(var(--bark-risky-phone-width) - 28px));
 }
 
@@ -67,7 +67,10 @@ html.bark-risky-android-desktop-phone-recovery .glass-nav {
     bottom: 0;
     left: 0;
     width: var(--bark-risky-phone-width);
-    height: 75px;
+    height: var(--bark-nav-total-height);
+    min-height: var(--bark-nav-total-height);
+    padding: 0 0 calc(var(--bark-safe-bottom) + var(--bark-viewport-bottom-lift));
+    box-sizing: border-box;
     border-radius: 12px 12px 0 0;
     border: none;
     border-top: 1px solid rgba(0, 0, 0, 0.1);
@@ -77,11 +80,11 @@ html.bark-risky-android-desktop-phone-recovery .glass-nav {
 
 html.bark-risky-android-desktop-phone-recovery .nav-item {
     height: 100%;
-    padding-bottom: env(safe-area-inset-bottom, 10px);
+    padding-bottom: 0;
 }
 
 html.bark-risky-android-desktop-phone-recovery .leaflet-bottom {
-    bottom: 90px !important;
+    bottom: var(--bark-map-control-bottom-clearance) !important;
 }
 
 html.bark-risky-android-desktop-phone-recovery body.keyboard-open .glass-nav,
@@ -95,13 +98,13 @@ html.bark-risky-android-desktop-phone-recovery body.keyboard-open #slide-panel {
 html.bark-risky-android-desktop-phone-recovery #slide-panel {
     top: auto;
     right: auto;
-    bottom: calc(75px + env(safe-area-inset-bottom, 0px));
+    bottom: var(--bark-nav-total-height);
     left: 0;
     width: 100%;
-    height: min(55%, calc(100% - 75px - env(safe-area-inset-bottom, 0px) - 16px));
-    max-height: calc(100% - 75px - env(safe-area-inset-bottom, 0px) - 16px);
+    height: min(55%, calc(100% - var(--bark-nav-total-height) - 16px));
+    max-height: calc(100% - var(--bark-nav-total-height) - 16px);
     border-radius: 28px 28px 0 0;
-    transform: translate3d(0, calc(100% + 75px + env(safe-area-inset-bottom, 0px) + 1px), 0);
+    transform: translate3d(0, calc(100% + var(--bark-nav-total-height) + 1px), 0);
 }
 
 html.bark-risky-android-desktop-phone-recovery #slide-panel.open {

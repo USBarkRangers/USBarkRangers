@@ -1,0 +1,102 @@
+/*
+ * Device-independent viewport shell
+ *
+ * Keep all screen-edge geometry in this file. Components consume the shared
+ * variables below instead of identifying phones or repeating magic offsets.
+ * JavaScript may set only --bark-viewport-bottom-lift as a browser-bug guard.
+ */
+:root {
+    --bark-safe-top: env(safe-area-inset-top, 0px);
+    --bark-safe-right: env(safe-area-inset-right, 0px);
+    --bark-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --bark-safe-left: env(safe-area-inset-left, 0px);
+    --bark-nav-content-height: 75px;
+    --bark-viewport-bottom-lift: 0px;
+    --bark-nav-total-height: calc(
+        var(--bark-nav-content-height) +
+        var(--bark-safe-bottom) +
+        var(--bark-viewport-bottom-lift)
+    );
+    --bark-view-bottom-clearance: calc(var(--bark-nav-total-height) + 15px);
+    --bark-filter-bottom-clearance: calc(var(--bark-nav-total-height) + 12px);
+    --bark-map-control-bottom-clearance: calc(var(--bark-nav-total-height) + 15px);
+    --bark-map-indicator-bottom-clearance: calc(var(--bark-nav-total-height) + 29px);
+}
+
+/* CSS owns the full-screen canvas. No script is allowed to replace this with
+   screen.height, innerHeight, or a phone-specific constant. */
+html,
+body,
+#map,
+.ui-view,
+.modal-overlay,
+#bark-loader {
+    height: 100vh;
+    height: 100dvh;
+}
+
+@media (max-width: 767px) {
+    .glass-nav {
+        position: fixed;
+        inset: auto 0 0 0;
+        width: 100%;
+        height: var(--bark-nav-total-height);
+        min-height: var(--bark-nav-total-height);
+        padding: 0 0 calc(var(--bark-safe-bottom) + var(--bark-viewport-bottom-lift));
+        box-sizing: border-box;
+        align-items: center;
+    }
+
+    .glass-nav .nav-item {
+        height: 100%;
+        padding-bottom: 0;
+    }
+
+    .ui-view {
+        padding-top: calc(20px + var(--bark-safe-top));
+        padding-right: max(20px, var(--bark-safe-right));
+        padding-bottom: var(--bark-view-bottom-clearance);
+        padding-left: max(20px, var(--bark-safe-left));
+    }
+
+    #filter-panel {
+        --filter-panel-bottom-clearance: var(--bark-filter-bottom-clearance);
+        top: calc(20px + var(--bark-safe-top));
+        max-height: calc(
+            100dvh - 20px - var(--bark-safe-top) -
+            var(--filter-panel-bottom-clearance)
+        );
+    }
+
+    #slide-panel {
+        bottom: var(--bark-nav-total-height);
+        height: min(
+            55dvh,
+            calc(100dvh - var(--bark-safe-top) - var(--bark-nav-total-height) - 16px)
+        );
+        max-height: calc(
+            100dvh - var(--bark-safe-top) - var(--bark-nav-total-height) - 16px
+        );
+        transform: translate3d(0, calc(100% + var(--bark-nav-total-height) + 1px), 0);
+    }
+
+    #slide-panel.open {
+        transform: translate3d(0, 0, 0);
+    }
+
+    .leaflet-bottom {
+        bottom: var(--bark-map-control-bottom-clearance) !important;
+    }
+
+    .filtered-pins-indicator {
+        bottom: var(--bark-map-indicator-bottom-clearance);
+    }
+}
+
+/* Wide, short phones keep the existing floating landscape navigation. Give
+   other overlays one shared description of its 70px + 30px footprint. */
+@media (min-width: 768px) and (max-width: 1024px) and (max-height: 700px) {
+    :root {
+        --bark-filter-bottom-clearance: 112px;
+    }
+}

@@ -88,27 +88,6 @@ html {
     background-color: #e5e5e5;
 }
 
-/* iOS Home Screen apps expose a temporary, shorter dynamic viewport while an
-   external Safari sheet is open. Keep the app shell on the stable full-screen
-   viewport so the map and bottom navigation never jump when X is pressed. */
-html.bark-ios-standalone-fullscreen,
-html.bark-ios-standalone-fullscreen body {
-    height: 100vh;
-    height: 100lvh;
-    height: var(--bark-ios-app-height, 100lvh);
-}
-
-html.bark-ios-standalone-fullscreen body {
-    position: relative;
-}
-
-html.bark-ios-standalone-fullscreen #map,
-html.bark-ios-standalone-fullscreen .ui-view {
-    height: 100vh;
-    height: 100lvh;
-    height: var(--bark-ios-app-height, 100lvh);
-}
-
 /* ====== APP-WIDE SCROLLBAR STYLING ====== */
 * {
     scrollbar-width: thin;
@@ -1014,21 +993,6 @@ textarea,
         max-height: none;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
-    }
-}
-
-@media (max-width: 767px) {
-    html.bark-ios-standalone-fullscreen #filter-panel {
-        top: calc(20px + env(safe-area-inset-top, 0px));
-        max-height: calc(
-            100lvh - 20px - env(safe-area-inset-top, 0px) -
-            var(--filter-panel-bottom-clearance) - env(safe-area-inset-bottom, 0px)
-        );
-    }
-
-    html.bark-ios-standalone-fullscreen .ui-view {
-        padding-top: calc(20px + env(safe-area-inset-top, 0px));
-        padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
     }
 }
 
@@ -2357,15 +2321,6 @@ body.app-tab-active #slide-panel {
         height: 75px;
         border-radius: 12px 12px 0 0;
         transition: transform 0.25s ease;
-    }
-
-    html.bark-ios-standalone-fullscreen .glass-nav {
-        position: absolute;
-        height: calc(75px + env(safe-area-inset-bottom, 0px));
-    }
-
-    html.bark-ios-standalone-fullscreen .leaflet-bottom {
-        bottom: calc(90px + env(safe-area-inset-bottom, 0px)) !important;
     }
 
     /* Hide nav and slide panel when iOS keyboard is open */

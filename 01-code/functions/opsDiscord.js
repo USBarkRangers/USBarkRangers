@@ -14,6 +14,7 @@
 const axios = require("axios");
 
 const WEBHOOK_MAP_ENV = "DISCORD_WEBHOOKS_JSON";
+const COSTS_WEBHOOK_ENV = "DISCORD_COSTS_WEBHOOK";
 const ADMIN_ROLE_ENV = "DISCORD_ADMIN_ROLE_ID";
 
 // Tier -> embed color and whether it pings. Only "critical" pings, which is what
@@ -27,13 +28,16 @@ const TIERS = Object.freeze({
 const KNOWN_CHANNELS = Object.freeze([
     "systemStatus",
     "incidentResponse",
+    "launchMonitoring",
     "salesAndBilling",
     "supportInbox",
     "bugs",
     "featureRequests",
+    "mapCorrections",
     "customerFeedback",
     "dailyBriefing",
     "dailyMetrics",
+    "costs",
     "weeklyReport",
     "developmentUpdates"
 ]);
@@ -41,7 +45,7 @@ const KNOWN_CHANNELS = Object.freeze([
 // Channels restricted to the Admin role in the ops server. Anything posted
 // outside this set is visible to every member, so identifying detail is masked
 // there. Keep in sync with the private channels in DISCORD_OPS_SERVER.md.
-const ADMIN_ONLY_CHANNELS = Object.freeze(["salesAndBilling", "supportInbox", "adminDashboard"]);
+const ADMIN_ONLY_CHANNELS = Object.freeze(["salesAndBilling", "supportInbox", "adminDashboard", "costs"]);
 
 function isAdminOnlyChannel(channel) {
     return ADMIN_ONLY_CHANNELS.includes(channel);
@@ -134,7 +138,12 @@ function parseDiscordConfig(raw) {
 function getDiscordConfig(options = {}) {
     if (options.discordConfig && typeof options.discordConfig === "object") return options.discordConfig;
     const env = options.env || process.env;
-    return parseDiscordConfig(env[WEBHOOK_MAP_ENV]);
+    const config = parseDiscordConfig(env[WEBHOOK_MAP_ENV]);
+    const costsWebhook = env[COSTS_WEBHOOK_ENV];
+    if (typeof costsWebhook === "string" && costsWebhook.startsWith("https://discord.com/api/webhooks/")) {
+        config.channels.costs = costsWebhook;
+    }
+    return config;
 }
 
 function getWebhookMap(options = {}) {
@@ -302,5 +311,6 @@ module.exports = {
     KNOWN_CHANNELS,
     ADMIN_ONLY_CHANNELS,
     WEBHOOK_MAP_ENV,
+    COSTS_WEBHOOK_ENV,
     ADMIN_ROLE_ENV
 };

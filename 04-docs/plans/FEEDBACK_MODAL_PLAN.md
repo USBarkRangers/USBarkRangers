@@ -40,7 +40,7 @@ screenshots went with the report, so the two halves reconcile.
 | Current park from a clicked pin | `marker._parkData` in `renderers/panelRenderer.js` gives `name`, `id`, `state`, `swagType`, `cost` |
 | Modal pattern | Established: `*-overlay` + `*-modal`, `role="dialog"`, `aria-modal`, `aria-hidden` toggling. Match `paywall-overlay` or `account-management-overlay` |
 | Backend intake | `submitFeedback` is complete: auth, 5-per-hour rate limit, type classification (`general`, `bug`, `idea`, `support`, `missing_location`, `other`), browser metadata, 2000-char message cap |
-| Discord routing | Already wired and deployed: bug → `#bugs`, idea → `#feature-requests`, support → `#support-inbox`, rest → `#customer-feedback` |
+| Discord routing | Bug → `#detected-bugs`, map fix → `#map-corrections`, idea → `#feature-requests`, help → private `#support-inbox`; unrelated general comments → `#customer-feedback` |
 
 The backend is done. This is mostly a frontend job plus an image relay.
 

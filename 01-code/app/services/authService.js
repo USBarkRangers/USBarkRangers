@@ -950,6 +950,15 @@ function updatePremiumEntitlement(rawEntitlement, user, reason) {
     }
 }
 
+function trackAnalyticsAudience(kind) {
+    const monitoring = window.BARK && window.BARK.monitoring;
+    if (!monitoring || typeof monitoring.trackSessionEvent !== 'function' ||
+        typeof monitoring.getReleaseChannel !== 'function') return;
+    const release = monitoring.getReleaseChannel();
+    if (release !== 'production' && release !== 'beta') return;
+    monitoring.trackSessionEvent(`audience-${release}-${kind}`, `Audience: ${release} ${kind}`);
+}
+
 function refreshPremiumUiFromEntitlement(reason) {
     const premiumService = getPremiumService();
     const isPremium = premiumService && typeof premiumService.isPremium === 'function'
@@ -1397,6 +1406,10 @@ async function initFirebase() {
                                         }
 
                                         updatePremiumEntitlement(data.entitlement, user, 'auth-user-snapshot');
+                                        const premiumService = getPremiumService();
+                                        trackAnalyticsAudience(premiumService && typeof premiumService.isPremium === 'function' && premiumService.isPremium()
+                                            ? 'premium'
+                                            : 'free');
 
                                         handleCloudSettingsHydration(data, doc.metadata);
 
@@ -1415,6 +1428,7 @@ async function initFirebase() {
                                     } else {
                                         reconcileVaultRepoFromUserSnapshot(user, {}, doc.metadata);
                                         updatePremiumEntitlement(null, user, 'auth-user-snapshot-missing');
+                                        trackAnalyticsAudience('free');
                                         window.currentWalkPoints = 0;
                                         handleAdminCheck({}, user);
                                         handleExpeditionSync({});
@@ -1483,6 +1497,7 @@ async function initFirebase() {
                     resetSavedRouteLists();
 
                     refreshPremiumUiFromEntitlement('auth-signed-out');
+                    trackAnalyticsAudience('logged-out');
                 }
             } catch (error) {
                 console.error("[authService] auth state callback failed:", error);

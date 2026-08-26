@@ -10,9 +10,14 @@ const source = fs.readFileSync(
     'utf8'
 );
 
-function makeHarness() {
+function makeHarness(options = {}) {
     let monotonic = 100;
-    const window = { BARK: {}, map: { getZoom: () => 8 } };
+    const analytics = [];
+    const window = {
+        BARK: {},
+        map: { getZoom: () => 8 },
+        ...(options.withAnalytics ? { goatcounter: { count: (item) => analytics.push(item) } } : {})
+    };
     const context = {
         window,
         location: { hostname: 'outswarming.github.io', pathname: '/USBarkRangers/01-code/app/', protocol: 'https:' },
@@ -30,7 +35,7 @@ function makeHarness() {
     };
     window.window = window;
     vm.runInNewContext(source, context, { filename: 'modules/monitoringContext.js' });
-    return { window, advance: (ms) => { monotonic += ms; } };
+    return { window, analytics, advance: (ms) => { monotonic += ms; } };
 }
 
 test('monitoring context attributes freezes without changing map pins', () => {
@@ -57,4 +62,16 @@ test('monitoring context recognizes the recurring storage transaction error', ()
     );
     assert.equal(result.likelyArea, 'storage/database');
     assert.equal(result.lowInformation, false);
+});
+
+test('analytics separates every app open from deduplicated audience sessions', () => {
+    const harness = makeHarness({ withAnalytics: true });
+    assert.equal(harness.analytics[0].path, 'event-app-open-beta');
+    assert.equal(harness.analytics[0].no_session, true);
+    assert.equal(harness.analytics[1].path, 'event-app-session-beta');
+    assert.equal(harness.analytics[1].no_session, false);
+
+    harness.window.BARK.monitoring.trackSessionEvent('audience-beta-premium', 'Audience: beta premium');
+    assert.equal(harness.analytics[2].path, 'event-audience-beta-premium');
+    assert.equal(harness.analytics[2].no_session, false);
 });

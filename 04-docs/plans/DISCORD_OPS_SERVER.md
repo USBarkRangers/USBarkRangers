@@ -29,22 +29,24 @@ moderation, privacy, and organization.
 | --- | --- |
 | `system-status` | Uptime, Firebase health, API status, errors, unusual activity |
 | `sales-and-billing` 🔒 | Purchases, renewals, cancellations, failed payments, refunds |
-| `support-inbox` 🔒 | Customer emails and in-app support requests in one place |
-| `incident-response` | Urgent problems, one thread per incident |
-| `launch-monitoring` | Real-time traffic, signups, conversions, reads/writes, load |
+| `incident-response` | Active production incidents only. Track impact, owner, start time, containment, recovery, verification, and follow-up in one thread per incident. Routine bugs and planned tests do not belong here. |
+| `detected-bugs` | Customer-reported and automatically detected software defects. Triage the app's Bug button, freezes, and client errors here; escalate only critical live impact to `incident-response`. |
+| `launch-monitoring` | Launch-day command view. Record the deployed version, smoke-test status, traffic/signups/Premium activity, payments, Firebase/App Check/cost signals, providers, and any rollback decision. |
+| `costs` 🔒 | Google Cloud/Firebase usage, cost per user, quotas, and cost alerts |
 
 ### 🛠️ PRODUCT AND DEVELOPMENT
 | Channel | Purpose |
 | --- | --- |
 | `development-updates` | What was changed, deployed, or fixed |
-| `bugs` | Confirmed bugs and investigation threads |
-| `feature-requests` | Requests from the app or the team |
-| `testing-and-qa` | Test builds, browser and device testing, release approval |
+| `testing-and-qa` | Planned beta/production verification with version, environment, device/browser, expected result, actual result, and PASS/WATCH/FAIL. Confirmed failures move to `detected-bugs`. |
 | `release-planning` | Upcoming versions, launch checklists, priorities |
 
 ### 👥 CUSTOMERS AND COMMUNITY
 | Channel | Purpose |
 | --- | --- |
+| `feature-requests` | Customer ideas from the app's Idea button. Capture the problem and desired outcome, merge duplicates, then record consider/planned/declined/shipped. |
+| `map-corrections` | Wrong or missing places and other park-data corrections from the Map Fix button. Verify against authoritative sources before changing map or awards data. |
+| `support-inbox` 🔒 | Private Help-button requests and contact details. Resolve directly, then route confirmed bugs, map fixes, or ideas to their dedicated channels. |
 | `customer-feedback` | Useful comments and recurring themes |
 | `early-access` | Onboarding and communication for early-access customers |
 | `facebook-group` | Important group posts, reactions, growth, issues |
@@ -72,7 +74,7 @@ moderation, privacy, and organization.
 | **Bot** (blue) | Default | Assigned to the integration bot when it exists. |
 
 🔒 channels are private, restricted to **Admin** plus the server owner:
-`sales-and-billing`, `support-inbox`, `admin-dashboard`. Money and customer personal
+`sales-and-billing`, `support-inbox`, `admin-dashboard`, `costs`. Money and customer personal
 data. Add people individually rather than widening the role.
 
 ---
@@ -105,11 +107,13 @@ messages, opening threads automatically. Nothing here needs that yet.
 | --- | --- | --- | --- |
 | Any payment-critical function failure | charged-but-not-upgraded risk | `incident-response` | 🔴 pings Admin |
 | Any other server fault | unexpected crash, upstream down | `system-status` | 🟡 |
-| Browser error reports | uncaught errors, freezes | `bugs` | 🟡 |
-| In-app feedback | bug / idea / support / general | `bugs`, `feature-requests`, `support-inbox`, `customer-feedback` | 🟡 |
+| Browser error reports | uncaught errors, freezes | `detected-bugs` | 🟡 |
+| In-app feedback | bug / map fix / idea / help | `detected-bugs`, `map-corrections`, `feature-requests`, `support-inbox` | 🟡 |
+| In-app feedback | unrelated general comments | `customer-feedback` | 🟡 |
 | Lemon Squeezy | subscription and payment events | `sales-and-billing` | 🟡, 🔴 on failed or refunded payment |
 | Daily error digest | 24h client-error rollup | `daily-briefing` | 🟢 |
 | GoatCounter + Firestore | traffic, feedback, errors, billing volume | `daily-metrics`, `weekly-report` | 🟢 |
+| Hourly cost guard + daily cost summary | Firebase, App Check, reCAPTCHA, ORS, hosting, logging, users, per-user and billed cost | `costs`, with critical summaries in `system-status` | 🟢, 🔴 on threshold breach |
 | GitHub | pushes, deploys, failed checks | `development-updates` | 🟡 |
 
 ### How it is wired
@@ -122,6 +126,11 @@ behavior.
 `01-code/functions/opsMetrics.js` gathers the routine rollup: GoatCounter traffic plus
 Firestore counts. Every count is an aggregation query, so the daily post costs roughly
 one read per collection rather than one per document.
+
+`01-code/functions/costMetrics.js` performs the bounded Google Cloud/Firebase and
+user-count collection. `01-code/functions/costReporting.js` owns thresholds, 24-hour
+alert suppression, the daily summary, and critical `system-status` cross-posts. The
+hourly path has fixed query/read ceilings and does not scan collections.
 
 Delivery hangs off the alert subsystem that already existed in `index.js`:
 
@@ -141,7 +150,8 @@ the full record.
 
 ### Configuration
 
-One secret, `DISCORD_WEBHOOKS_JSON`, holds every webhook URL plus `adminRoleId`:
+The shared secret, `DISCORD_WEBHOOKS_JSON`, holds the normal webhook URLs plus
+`adminRoleId`:
 
 ```json
 { "adminRoleId": "…", "systemStatus": "https://discord.com/api/webhooks/…", "…": "…" }
@@ -152,6 +162,9 @@ malformed secret degrades to "Discord disabled" rather than crashing a payment
 function. Set it with `05-tools/scripts/set-discord-secret.sh`; the URLs live only in
 `discord-webhooks.local.json` (gitignored) and in Secret Manager.
 
+The private `#costs` feed uses a separate `DISCORD_COSTS_WEBHOOK` secret so it can be
+rotated or disabled independently without editing the shared JSON configuration.
+
 `GOATCOUNTER_API_TOKEN` is the second secret, and only the metrics rollup needs it.
 Without it the daily post still goes out with traffic shown as `n/a`.
 
@@ -159,12 +172,20 @@ Without it the daily post still goes out with traffic shown as `n/a`.
 
 ## Status
 
-**Live as of 2026-08-08.** `DISCORD_WEBHOOKS_JSON` is set (11 channels + `adminRoleId`)
+**Live as of 2026-08-26.** `DISCORD_WEBHOOKS_JSON` is set (11 channels + `adminRoleId`)
 and these functions are deployed with it: `getPremiumRoute`, `getPremiumGeocode`,
 `createCheckoutSession`, `redeemAccessOrPromoCode`, `getCustomerPortalUrl`,
 `restorePremiumPurchase`, `cancelPremiumSubscription`, `lemonSqueezyWebhook`,
 `syncLeaderboardScore`, `submitFeedback`, `deleteAccount`, `reportClientError`,
-`dailyErrorDigest`. Delivery was smoke-tested end to end into `#system-status`.
+`dailyErrorDigest`, `dailyOpsMetrics`, and `weeklyOpsReport`. Delivery was smoke-tested
+end to end into `#system-status`.
+
+`DISCORD_COSTS_WEBHOOK` is set separately and `hourlyCostMonitoring` is deployed at
+`:20` each hour, with `maxInstances: 1`. Its first production run succeeded, stored
+the alert state, posted the full alert to `#costs`, and cross-posted the critical
+summary to `#system-status`. Standard Cloud Billing export is enabled into the
+US-region `bark_cost_export` dataset; the daily report falls back to its usage estimate
+until Google's delayed export table first appears.
 
 The GitHub repo webhook is live and pinging green: push events go to the
 `developmentUpdates` Discord webhook with `/github` appended, content type
@@ -172,18 +193,8 @@ The GitHub repo webhook is live and pinging green: push events go to the
 
 ## Known gaps
 
-- `dailyOpsMetrics` and `weeklyOpsReport` are **not deployed yet**. They declare the
-  `GOATCOUNTER_API_TOKEN` secret, and Firebase refuses to deploy a function whose
-  secret does not exist. A read-statistics token named "Discord ops rollup" is already
-  created in GoatCounter; it just needs uploading, then these two deploy:
-
-  ```
-  npx firebase functions:secrets:set GOATCOUNTER_API_TOKEN
-  npx firebase deploy --only functions:dailyOpsMetrics,functions:weeklyOpsReport
-  ```
-- Channel topics are set on 14 of 25 channels. Discord rate-limited the rest; every
-  purpose is in `read-me-first` and in this file. Missing: `testing-and-qa`,
-  `release-planning`, `customer-feedback`, `early-access`, `facebook-group`,
+- Detailed topics are set for the operational and feedback-routing channels. Remaining
+  brief topics can be filled in later from this file. Missing: `release-planning`, `early-access`, `facebook-group`,
   `daily-metrics`, `weekly-report`, `growth-and-conversion`, `general-team-chat`,
   `ideas-and-planning`, `questions`.
 - One unused webhook named "Spidey Bot" is left on `#read-me-first`, and a stray

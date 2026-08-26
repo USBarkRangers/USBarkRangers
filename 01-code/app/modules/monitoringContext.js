@@ -211,7 +211,7 @@ window.BARK = window.BARK || {};
             path: item.path,
             title: item.title,
             event: true,
-            no_session: true
+            no_session: item.noSession !== false
         });
         return true;
     }
@@ -238,7 +238,23 @@ window.BARK = window.BARK || {};
             if (getReleaseChannel() === 'local') return;
             const safeName = clean(name, 60).toLowerCase().replace(/[^a-z0-9-]+/g, '-');
             if (!safeName) return;
-            const item = { path: `event-${safeName}`, title: clean(title, 120) || safeName };
+            const item = { path: `event-${safeName}`, title: clean(title, 120) || safeName, noSession: true };
+            if (sendAnalyticsEvent(item)) return;
+            pendingAnalytics.push(item);
+            if (pendingAnalytics.length > 10) pendingAnalytics.shift();
+            if (!analyticsRetryTimer) {
+                analyticsRetryAttempts = 1;
+                analyticsRetryTimer = setTimeout(flushAnalytics, 1000);
+            }
+        } catch (_error) { /* analytics must never affect the app */ }
+    }
+
+    function trackSessionEvent(name, title) {
+        try {
+            if (getReleaseChannel() === 'local') return;
+            const safeName = clean(name, 60).toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+            if (!safeName) return;
+            const item = { path: `event-${safeName}`, title: clean(title, 120) || safeName, noSession: false };
             if (sendAnalyticsEvent(item)) return;
             pendingAnalytics.push(item);
             if (pendingAnalytics.length > 10) pendingAnalytics.shift();
@@ -259,6 +275,7 @@ window.BARK = window.BARK || {};
         classifyError,
         inferArea,
         trackEvent,
+        trackSessionEvent,
         getReleaseChannel
     };
     window.BARK.perfBreadcrumb = addBreadcrumb;
@@ -266,4 +283,14 @@ window.BARK = window.BARK || {};
     window.BARK.perfOperationEnd = endOperation;
     window.BARK.noteInteraction = noteInteraction;
     window.BARK.trackMonitoringEvent = trackEvent;
+    window.BARK.trackMonitoringSessionEvent = trackSessionEvent;
+
+    // Count every real app load separately from GoatCounter's normal
+    // privacy-preserving 8-hour visit. Comparing these two measurements tells
+    // operations how many opens were repeats without adding a Firebase write.
+    const releaseChannel = getReleaseChannel();
+    if (releaseChannel === 'production' || releaseChannel === 'beta') {
+        trackEvent(`app-open-${releaseChannel}`, `App opened: ${releaseChannel}`);
+        trackSessionEvent(`app-session-${releaseChannel}`, `App session: ${releaseChannel}`);
+    }
 })();

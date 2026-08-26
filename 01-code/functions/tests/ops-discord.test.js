@@ -86,6 +86,27 @@ describe("parseDiscordConfig", () => {
     });
 });
 
+describe("getDiscordConfig", () => {
+    it("merges the dedicated Admin-only costs webhook without replacing shared channels", () => {
+        const config = opsDiscord.getDiscordConfig({
+            env: {
+                DISCORD_WEBHOOKS_JSON: JSON.stringify({ adminRoleId: "1535", systemStatus: HOOK }),
+                DISCORD_COSTS_WEBHOOK: `${HOOK}-costs`
+            }
+        });
+        assert.equal(config.channels.systemStatus, HOOK);
+        assert.equal(config.channels.costs, `${HOOK}-costs`);
+        assert.equal(config.adminRoleId, "1535");
+    });
+
+    it("rejects a non-Discord dedicated costs endpoint", () => {
+        const config = opsDiscord.getDiscordConfig({
+            env: { DISCORD_COSTS_WEBHOOK: "https://evil.example.com/webhook" }
+        });
+        assert.deepEqual(config.channels, {});
+    });
+});
+
 describe("maskEmail", () => {
     it("keeps the first character and the domain", () => {
         assert.equal(opsDiscord.maskEmail("carter@example.com"), "c***@example.com");
@@ -323,8 +344,8 @@ describe("postFeedbackToDiscord", () => {
         ["idea", "featureRequests"],
         ["support", "supportInbox"],
         ["general", "customerFeedback"],
-        ["missing_location", "customerFeedback"],
-        ["other", "customerFeedback"]
+        ["missing_location", "mapCorrections"],
+        ["other", "mapCorrections"]
     ];
 
     for (const [type, channel] of cases) {

@@ -8,6 +8,7 @@ const { createHash, createHmac, randomUUID, timingSafeEqual } = require("crypto"
 const nodemailer = require("nodemailer");
 const opsDiscord = require("./opsDiscord.js");
 const opsMetrics = require("./opsMetrics.js");
+const costReporting = require("./costReporting.js");
 const dataIntegrity = require("./dataIntegrity.js");
 const feedbackAttachments = require("./feedbackAttachments.js");
 const routeRequestStrategy = require("./routeRequestStrategy.js");
@@ -528,8 +529,8 @@ const FEEDBACK_DISCORD_CHANNELS = Object.freeze({
     idea: "featureRequests",
     support: "supportInbox",
     general: "customerFeedback",
-    missing_location: "customerFeedback",
-    other: "customerFeedback"
+    missing_location: "mapCorrections",
+    other: "mapCorrections"
 });
 
 function postFeedbackToDiscord(record, options = {}) {
@@ -4084,6 +4085,7 @@ if (process.env.NODE_ENV === "test") {
         postBillingEventToDiscord,
         postDigestToDiscord,
         runOpsMetricsRollup,
+        costReporting,
         dataIntegrity,
         opsDiscord,
         opsMetrics,
@@ -4102,7 +4104,7 @@ exports.dailyErrorDigest = functions
 // Routine-tier rollup: traffic from GoatCounter plus counts from Firestore, in
 // one post. Counts use aggregation queries, so this stays cheap no matter how
 // much the collections grow.
-async function runOpsMetricsRollup({ windowHours, channel, title }, options = {}) {
+async function runOpsMetricsRollup({ windowHours, channel, title, mirrors = [] }, options = {}) {
     const db = options.firestore || admin.firestore();
     const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
     const sinceMs = nowMs - (windowHours * 60 * 60 * 1000);
@@ -4123,31 +4125,38 @@ async function runOpsMetricsRollup({ windowHours, channel, title }, options = {}
         }
     }
 
-    try {
-        await opsDiscord.postDiscord(opsMetrics.buildMetricsMessage(summary, { channel, title }), options);
-    } catch (err) {
-        console.error("[metrics] Discord notify issue:", err && err.message);
+    const destinations = [{ channel, title }, ...mirrors];
+    for (const destination of destinations) {
+        try {
+            await opsDiscord.postDiscord(opsMetrics.buildMetricsMessage(summary, destination), options);
+        } catch (err) {
+            console.error("[metrics] Discord notify issue:", err && err.message);
+        }
     }
 
     return summary;
 }
 
-// GoatCounter is optional in opsMetrics; do not bind an undeployed secret and
-// block the otherwise useful Firestore/Discord rollup from deploying.
+// Bind the read-only GoatCounter token so traffic can be included alongside
+// the cheap Firestore aggregation counts in the same scheduled rollup.
 exports.dailyOpsMetrics = functions
-    .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON"] })
+    .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON", "GOATCOUNTER_API_TOKEN"] })
     .pubsub.schedule("0 8 * * *")
     .timeZone("America/New_York")
     .onRun(async () => {
         return runOpsMetricsRollup({
             windowHours: 24,
             channel: "dailyMetrics",
-            title: "Daily metrics"
+            title: "Daily metrics",
+            // Reuse the same already-collected summary. This gives the launch
+            // room a daily health pulse with no additional Firestore reads and
+            // no additional scheduler job.
+            mirrors: [{ channel: "launchMonitoring", title: "Daily launch health pulse" }]
         });
     });
 
 exports.weeklyOpsReport = functions
-    .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON"] })
+    .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON", "GOATCOUNTER_API_TOKEN"] })
     .pubsub.schedule("5 8 * * 1")
     .timeZone("America/New_York")
     .onRun(async () => {
@@ -4156,6 +4165,21 @@ exports.weeklyOpsReport = functions
             channel: "weeklyReport",
             title: "Weekly report"
         });
+    });
+
+// One hourly job covers both fast anomaly detection and the once-daily cost
+// summary. Keeping those responsibilities in one single-instance scheduler
+// adds only one Cloud Scheduler job and prevents overlapping state updates.
+exports.hourlyCostMonitoring = functions
+    .runWith({
+        secrets: ["DISCORD_WEBHOOKS_JSON", "DISCORD_COSTS_WEBHOOK"],
+        timeoutSeconds: 120,
+        maxInstances: 1
+    })
+    .pubsub.schedule("20 * * * *")
+    .timeZone("America/New_York")
+    .onRun(async () => {
+        return costReporting.runHourlyCostMonitoring();
     });
 
 // REMOVED 2026-08-07: generateHourlyLeaderboard.

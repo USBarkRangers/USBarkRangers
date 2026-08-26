@@ -44,9 +44,9 @@ function fakeFirestore(counts, failing = new Set()) {
 beforeEach(() => opsDiscord.resetDiscordState());
 afterEach(() => opsDiscord.resetDiscordState());
 
-describe("toIsoDate", () => {
-    it("formats as a bare YYYY-MM-DD, which is what the API wants", () => {
-        assert.equal(opsMetrics.toIsoDate(Date.UTC(2026, 7, 7, 13, 45)), "2026-08-07");
+describe("toIsoHour", () => {
+    it("preserves the requested hour while rounding sub-hour values", () => {
+        assert.equal(opsMetrics.toIsoHour(Date.UTC(2026, 7, 7, 13, 45)), "2026-08-07T13:00:00.000Z");
     });
 });
 
@@ -59,30 +59,58 @@ describe("fetchGoatCounterStats", () => {
         assert.equal(stats, null);
     });
 
-    it("reads pageviews, visitors, and top pages", async () => {
+    it("isolates app visits, environments, repeat opens, and funnel events", async () => {
         const calls = [];
         const stats = await opsMetrics.fetchGoatCounterStats(since, now, {
             env: { GOATCOUNTER_API_TOKEN: "t" },
             httpGet: async (url, config) => {
                 calls.push({ url, config });
-                if (url.endsWith("/stats/total")) return { data: { total: 120, total_unique: 45 } };
                 return { data: { hits: [
-                    { path: "/", count: 80 },
-                    { path: "/map", count: 40 },
-                    { path: "event-checkout-clicked", count: 4 },
-                    { path: "event-premium-confirmation-timeout", count: 1 }
+                    { path: "/", title: "US BARK Rangers", count: 8 },
+                    { path: "/?checkout=success", title: "US BARK Rangers", count: 1 },
+                    { path: "/USBarkRangers/01-code/app", title: "US BARK Rangers", count: 4 },
+                    { path: "/Just-Dee-Dee-Music-Map", title: "Just Dee Dee", count: 99 },
+                    { path: "event-app-session-production", event: true, count: 7 },
+                    { path: "event-app-session-beta", event: true, count: 3 },
+                    { path: "event-app-open-production", event: true, count: 13 },
+                    { path: "event-app-open-beta", event: true, count: 6 },
+                    { path: "event-audience-production-logged-out", event: true, count: 5 },
+                    { path: "event-audience-production-free", event: true, count: 3 },
+                    { path: "event-audience-beta-premium", event: true, count: 2 },
+                    { path: "event-checkout-clicked", event: true, count: 4 },
+                    { path: "event-premium-confirmation-timeout", event: true, count: 1 }
                 ] } };
             }
         });
 
-        assert.equal(stats.pageviews, 120);
-        assert.equal(stats.visitors, 45);
-        assert.deepEqual(stats.topPages, [{ path: "/", count: 80 }, { path: "/map", count: 40 }]);
+        assert.equal(stats.appVisits, 10);
+        assert.equal(stats.productionVisits, 7);
+        assert.equal(stats.betaVisits, 3);
+        assert.equal(stats.appOpens, 19);
+        assert.equal(stats.repeatOpens, 9);
+        assert.deepEqual(stats.audience, { loggedOut: 5, free: 3, premium: 2 });
+        assert.deepEqual(stats.topPages, [
+            { path: "/", count: 8 },
+            { path: "/?checkout=success", count: 1 },
+            { path: "/USBarkRangers/01-code/app", count: 4 }
+        ]);
         assert.equal(stats.paymentFunnel["checkout-clicked"], 4);
         assert.equal(stats.paymentFunnel["premium-confirmation-timeout"], 1);
         assert.ok(calls[0].url.startsWith(opsMetrics.DEFAULT_GOATCOUNTER_SITE));
         assert.equal(calls[0].config.headers.Authorization, "Bearer t");
-        assert.equal(calls[0].config.params.start, "2026-08-07");
+        assert.equal(calls[0].config.params.start, "2026-08-07T00:00:00.000Z");
+    });
+
+    it("does not claim zero opens before the new client event exists", async () => {
+        const stats = await opsMetrics.fetchGoatCounterStats(since, now, {
+            env: { GOATCOUNTER_API_TOKEN: "t" },
+            httpGet: async () => ({ data: { hits: [
+                { path: "/", title: "US BARK Rangers", count: 3 }
+            ] } })
+        });
+        assert.equal(stats.appVisits, 3);
+        assert.equal(stats.appOpens, null);
+        assert.equal(stats.repeatOpens, null);
     });
 
     it("returns null instead of throwing when the API fails", async () => {
@@ -124,7 +152,7 @@ describe("buildMetricsMessage", () => {
         );
         const byName = Object.fromEntries(message.fields.map((f) => [f.name, f.value]));
         assert.equal(byName.Feedback, "n/a");
-        assert.equal(byName.Pageviews, "n/a");
+        assert.equal(byName["App opens"], "n/a");
         assert.equal(byName["Client errors"], "3");
         assert.match(message.description, /unavailable/);
     });
@@ -136,12 +164,19 @@ describe("buildMetricsMessage", () => {
                 feedback: 0,
                 clientErrors: 0,
                 billingEvents: 0,
-                traffic: { pageviews: 10, visitors: 5, topPages: [{ path: "/map", count: 6 }] }
+                traffic: {
+                    appOpens: 10,
+                    appVisits: 6,
+                    repeatOpens: 4,
+                    productionVisits: 5,
+                    betaVisits: 1,
+                    topPages: [{ path: "/", count: 6 }]
+                }
             },
             { channel: "dailyMetrics", title: "t" }
         );
         assert.match(message.description, /Top pages/);
-        assert.match(message.description, /\/map/);
+        assert.match(message.description, /`6` \/$/m);
     });
 });
 
@@ -170,9 +205,11 @@ describe("runOpsMetricsRollup", () => {
             {
                 firestore: fakeFirestore({ feedback: 2, clientErrors: 5, _lemonSqueezyWebhookEvents: 1 }),
                 env: { GOATCOUNTER_API_TOKEN: "t" },
-                httpGet: async (url) => (url.endsWith("/stats/total")
-                    ? { data: { total: 99, total_unique: 40 } }
-                    : { data: { hits: [] } }),
+                httpGet: async () => ({ data: { hits: [
+                    { path: "/", title: "US BARK Rangers", count: 40 },
+                    { path: "event-app-session-production", event: true, count: 31 },
+                    { path: "event-app-open-production", event: true, count: 99 }
+                ] } }),
                 discordConfig: fullConfig(),
                 discordSender: async (url, payload) => { sent.push({ url, payload }); }
             }
@@ -181,7 +218,8 @@ describe("runOpsMetricsRollup", () => {
         assert.equal(summary.feedback, 2);
         assert.equal(summary.clientErrors, 5);
         assert.equal(summary.billingEvents, 1);
-        assert.equal(summary.traffic.pageviews, 99);
+        assert.equal(summary.traffic.appOpens, 99);
+        assert.equal(summary.traffic.appVisits, 31);
         assert.equal(sent.length, 1);
         assert.equal(sent[0].url, `${HOOK}-dailyMetrics`);
         assert.equal(sent[0].payload.embeds[0].color, opsDiscord.TIERS.routine.color);
@@ -205,5 +243,28 @@ describe("runOpsMetricsRollup", () => {
         assert.equal(summary.traffic, null);
         assert.equal(sent.length, 1);
         assert.equal(sent[0].url, `${HOOK}-weeklyReport`);
+    });
+
+    it("reuses one collected summary for a launch-monitoring mirror", async () => {
+        const sent = [];
+        await runOpsMetricsRollup(
+            {
+                windowHours: 24,
+                channel: "dailyMetrics",
+                title: "Daily metrics",
+                mirrors: [{ channel: "launchMonitoring", title: "Daily launch health pulse" }]
+            },
+            {
+                firestore: fakeFirestore({ feedback: 1, clientErrors: 0, _lemonSqueezyWebhookEvents: 1 }),
+                env: {},
+                discordConfig: fullConfig(),
+                discordSender: async (url, payload) => { sent.push({ url, payload }); }
+            }
+        );
+
+        assert.equal(sent.length, 2);
+        assert.equal(sent[0].url, `${HOOK}-dailyMetrics`);
+        assert.equal(sent[1].url, `${HOOK}-launchMonitoring`);
+        assert.equal(sent[1].payload.embeds[0].title, "Daily launch health pulse");
     });
 });

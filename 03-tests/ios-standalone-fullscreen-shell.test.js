@@ -27,7 +27,7 @@ test('CSS owns the full-screen shell and structural bottom clearance excludes tr
     assert.ok(totalHeightDeclaration, 'structural nav height declaration should exist');
     assert.doesNotMatch(totalHeightDeclaration[0], /--bark-nav-content-lift/);
     assert.match(viewportStyles, /\.glass-nav\s*\{[\s\S]*position:\s*fixed/);
-    assert.match(viewportStyles, /#slide-panel\s*\{[\s\S]*bottom:\s*var\(--bark-nav-total-height\)/);
+    assert.match(viewportStyles, /#slide-panel\s*\{[\s\S]*position:\s*fixed[\s\S]*bottom:\s*var\(--bark-nav-total-height\)/);
     assert.match(viewportStyles, /\.leaflet-bottom\s*\{[\s\S]*--bark-map-control-bottom-clearance/);
     assert.match(viewportStyles, /\.filtered-pins-indicator\s*\{[\s\S]*--bark-map-indicator-bottom-clearance/);
 });

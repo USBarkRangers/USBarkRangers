@@ -90,6 +90,12 @@ body,
     }
 
     #slide-panel {
+        /* Safari can report a short documentElement.clientHeight while its
+           visible standalone viewport and fixed nav still fill the screen.
+           Absolute positioning anchors to that stale document boundary and
+           leaves the sheet floating far above the nav. Fixed positioning
+           makes both surfaces use the same viewport coordinate system. */
+        position: fixed;
         bottom: var(--bark-nav-total-height);
         height: min(
             55dvh,

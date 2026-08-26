@@ -176,3 +176,51 @@ test('temporary Safari viewport changes never resize structural UI and clear on 
     expect(Math.abs(restored.navHeight - baseline.navHeight)).toBeLessThanOrEqual(1);
     await context.close();
 });
+
+test('park sheet and nav share fixed viewport coordinates', async ({ browser }) => {
+    const context = await newBarkContext(browser, {
+        viewport: { width: 430, height: 932 },
+        screen: { width: 430, height: 932 },
+        deviceScaleFactor: 3,
+        isMobile: true,
+        hasTouch: true,
+        userAgent: IPHONE_USER_AGENT
+    });
+    await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'standalone', { configurable: true, get: () => true });
+    });
+
+    const page = await context.newPage();
+    await page.goto(`${BASE_URL}?fixedPanelViewport=${Date.now()}`);
+    await waitForShell(page);
+    await page.evaluate(() => {
+        const marker = Array.from(window.BARK.markerManager.markers.values())
+            .find(candidate => candidate && candidate._parkData);
+        window.BARK.markerManager.renderMarkerPanel(marker);
+    });
+    await expect(page.locator('#slide-panel')).toHaveClass(/\bopen\b/);
+    await page.waitForFunction(() => {
+        const panelRect = document.getElementById('slide-panel').getBoundingClientRect();
+        const navRect = document.getElementById('main-nav').getBoundingClientRect();
+        return Math.abs(panelRect.bottom - navRect.top) <= 1;
+    }, undefined, { timeout: 2000 });
+
+    const geometry = await page.evaluate(() => {
+        const panel = document.getElementById('slide-panel');
+        const panelRect = panel.getBoundingClientRect();
+        const navRect = document.getElementById('main-nav').getBoundingClientRect();
+        return {
+            panelPosition: getComputedStyle(panel).position,
+            panelTop: panelRect.top,
+            panelBottom: panelRect.bottom,
+            navTop: navRect.top,
+            innerHeight: window.innerHeight
+        };
+    });
+
+    expect(geometry.panelPosition).toBe('fixed');
+    expect(Math.abs(geometry.panelBottom - geometry.navTop)).toBeLessThanOrEqual(1);
+    expect(geometry.panelTop).toBeGreaterThan(200);
+    expect(geometry.panelBottom).toBeLessThan(geometry.innerHeight);
+    await context.close();
+});

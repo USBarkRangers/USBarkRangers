@@ -1358,6 +1358,14 @@ async function initFirebase() {
                 const offlineStatusContainer = document.getElementById('offline-status-container');
                 const profileName = document.getElementById('user-profile-name');
 
+                // Attach the Firebase Auth UID before emitting the first custom
+                // GA app-open event. Premium status arrives from the user-doc
+                // snapshot below and can refine the plan property afterward.
+                const visitorAnalytics = window.BARK && window.BARK.visitorAnalytics;
+                if (visitorAnalytics && typeof visitorAnalytics.setAudience === 'function') {
+                    visitorAnalytics.setAudience(user ? 'free' : 'logged-out', user);
+                }
+
                 if (user) {
                     const previousAuthenticatedUid = lastAuthenticatedUid;
                     const isAuthenticatedUserChange = Boolean(previousAuthenticatedUid && previousAuthenticatedUid !== user.uid);

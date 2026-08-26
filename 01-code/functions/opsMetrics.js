@@ -75,6 +75,53 @@ function getAppEnvironment(hit) {
     return path.startsWith("usbarkrangers/01-code/app") ? "beta" : "production";
 }
 
+function goatCounterHeaders(token) {
+    return {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+    };
+}
+
+function exactEventCount(response) {
+    const data = response && response.data || {};
+    const events = Number(data.total_events);
+    if (Number.isFinite(events)) return Math.max(0, Math.round(events));
+    const total = Number(data.total);
+    return Number.isFinite(total) ? Math.max(0, Math.round(total)) : null;
+}
+
+// stats/hits.count is GoatCounter's privacy-deduplicated visit count. The
+// stats/total endpoint is required for no_session events because it preserves
+// every occurrence: 100 reloads are 100 app-open events, not one 8-hour visit.
+async function fetchExactEventTotal(site, token, eventName, start, end, options = {}) {
+    const get = options.httpGet || axios.get;
+    const sleep = options.sleep || (ms => new Promise(resolve => setTimeout(resolve, ms)));
+    const url = `${site}/api/v0/stats/total`;
+    const config = {
+        params: {
+            start,
+            end,
+            include_paths: eventName,
+            path_by_name: true
+        },
+        timeout: GOATCOUNTER_TIMEOUT_MS,
+        headers: goatCounterHeaders(token)
+    };
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+            return exactEventCount(await get(url, config));
+        } catch (error) {
+            const status = error && error.response && error.response.status;
+            if (status !== 429 || attempt === 2) throw error;
+            const rawRetryAfter = error.response && error.response.headers && error.response.headers["retry-after"];
+            const retryAfterSeconds = Number(rawRetryAfter);
+            await sleep(Number.isFinite(retryAfterSeconds) ? retryAfterSeconds * 1000 : 500 * (attempt + 1));
+        }
+    }
+    return null;
+}
+
 // Returns null rather than throwing when GoatCounter is unconfigured or down, so
 // the rest of the rollup still posts. A missing traffic section is better than
 // no daily post at all.
@@ -90,10 +137,7 @@ async function fetchGoatCounterStats(sinceMs, nowMs, options = {}) {
     const config = {
         params,
         timeout: GOATCOUNTER_TIMEOUT_MS,
-        headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json"
-        }
+        headers: goatCounterHeaders(token)
     };
 
     try {
@@ -143,14 +187,27 @@ async function fetchGoatCounterStats(sinceMs, nowMs, options = {}) {
             ? sessionCount("beta")
             : betaPageVisits;
         const appVisits = productionVisits + betaVisits;
-        const productionOpens = hits
-            .filter((hit) => normalizeHitPath(getHitPath(hit)) === "event-app-open-production")
-            .reduce((total, hit) => total + (Number(hit.count) || 0), 0);
-        const betaOpens = hits
-            .filter((hit) => normalizeHitPath(getHitPath(hit)) === "event-app-open-beta")
-            .reduce((total, hit) => total + (Number(hit.count) || 0), 0);
-        const appOpens = productionOpens + betaOpens;
-        const hasOpenEvents = hits.some((hit) => /^event-app-open-(production|beta)$/i.test(getHitPath(hit)));
+        const openEventExists = (source, environment) => source.some((hit) =>
+            normalizeHitPath(getHitPath(hit)) === `event-app-open-${environment}`);
+        const periodStart = params.start;
+        const periodEnd = params.end;
+        const lifetimeStart = TRAFFIC_TRACKING_START_ISO;
+        const exactOpenCount = async (environment, start, end, source) => openEventExists(source, environment)
+            ? fetchExactEventTotal(site, token, `event-app-open-${environment}`, start, end, options)
+            : null;
+
+        // Keep these sequential. GoatCounter allows four API requests/second;
+        // the two hits requests above plus four total queries can otherwise
+        // burst into 429s. The helper also honors Retry-After as a safety net.
+        const productionOpens = await exactOpenCount("production", periodStart, periodEnd, hits);
+        const betaOpens = await exactOpenCount("beta", periodStart, periodEnd, hits);
+        const lifetimeProductionOpens = await exactOpenCount("production", lifetimeStart, periodEnd, lifetimeHits);
+        const lifetimeBetaOpens = await exactOpenCount("beta", lifetimeStart, periodEnd, lifetimeHits);
+        const periodOpenCounts = [productionOpens, betaOpens].filter(Number.isFinite);
+        const lifetimeOpenCounts = [lifetimeProductionOpens, lifetimeBetaOpens].filter(Number.isFinite);
+        const appOpens = periodOpenCounts.length
+            ? periodOpenCounts.reduce((total, value) => total + value, 0)
+            : null;
         const audience = { loggedOut: 0, free: 0, premium: 0 };
         hits.forEach((hit) => {
             const match = normalizeHitPath(getHitPath(hit)).match(/^event-audience-(?:production|beta)-(logged-out|free|premium)$/);
@@ -162,7 +219,6 @@ async function fetchGoatCounterStats(sinceMs, nowMs, options = {}) {
         const lifetimeCount = (matcher) => lifetimeHits
             .filter((hit) => matcher(normalizeHitPath(getHitPath(hit)), hit))
             .reduce((total, hit) => total + (Number(hit.count) || 0), 0);
-        const lifetimeHasOpenEvents = lifetimeHits.some((hit) => /^event-app-open-(production|beta)$/i.test(getHitPath(hit)));
         const lifetimeHasSessionEvents = lifetimeHits.some((hit) => /^event-app-session-(production|beta)$/i.test(getHitPath(hit)));
 
         return {
@@ -174,19 +230,21 @@ async function fetchGoatCounterStats(sinceMs, nowMs, options = {}) {
             betaVisits,
             // The client emits app-open with no_session so every actual load is
             // counted. Older windows without that event stay n/a, not a fake 0.
-            appOpens: hasOpenEvents ? appOpens : null,
-            productionOpens: hasOpenEvents ? productionOpens : null,
-            betaOpens: hasOpenEvents ? betaOpens : null,
-            repeatOpens: hasOpenEvents ? Math.max(0, appOpens - appVisits) : null,
+            appOpens,
+            productionOpens,
+            betaOpens,
+            repeatOpens: appOpens === null ? null : Math.max(0, appOpens - appVisits),
             audience: hasAudienceEvents ? audience : null,
             allTime: {
-                appOpens: lifetimeHasOpenEvents
-                    ? lifetimeCount(path => /^event-app-open-(production|beta)$/.test(path))
+                appOpens: lifetimeOpenCounts.length
+                    ? lifetimeOpenCounts.reduce((total, value) => total + value, 0)
                     : null,
                 sessions: lifetimeHasSessionEvents
                     ? lifetimeCount(path => /^event-app-session-(production|beta)$/.test(path))
                     : null,
-                pageVisits: lifetimeCount((_path, hit) => isBarkAppPage(hit)),
+                // A top-100 hits response is not a complete raw page-load
+                // total. Do not persist it under an exact-looking label.
+                pageVisits: null,
                 trackingStartDate: TRAFFIC_TRACKING_START_ISO.slice(0, 10),
                 partial: Boolean(lifetimeHitsRes && lifetimeHitsRes.data && lifetimeHitsRes.data.more)
             },
@@ -280,10 +338,10 @@ function buildMetricsMessage(summary, { channel, title }) {
         { name: "Daily unique visitors (GA4)", value: ga4 ? formatCount(ga4.period.totalUsers) : "n/a" },
         { name: "New / returning (GA4)", value: ga4 ? `${formatCount(ga4.period.newUsers)} / ${formatCount(ga4.period.returningUsers)}` : "n/a" },
         { name: "Sessions / screen views (GA4)", value: ga4 ? `${formatCount(ga4.period.sessions)} / ${formatCount(ga4.period.screenViews)}` : "n/a" },
-        { name: "App opens", value: traffic ? formatCount(traffic.appOpens) : "n/a" },
+        { name: "Raw app loads (reloads count)", value: traffic ? formatCount(traffic.appOpens) : "n/a" },
         { name: "8h app sessions", value: traffic ? formatCount(traffic.appVisits) : "n/a" },
-        { name: "Repeat opens", value: traffic ? formatCount(traffic.repeatOpens) : "n/a" },
-        { name: "Production / Beta", value: traffic ? `${formatCount(traffic.productionVisits)} / ${formatCount(traffic.betaVisits)}` : "n/a" },
+        { name: "Loads beyond 8h visits", value: traffic ? formatCount(traffic.repeatOpens) : "n/a" },
+        { name: "Production / Beta 8h visits", value: traffic ? `${formatCount(traffic.productionVisits)} / ${formatCount(traffic.betaVisits)}` : "n/a" },
         { name: "Feedback", value: formatCount(summary.feedback) },
         { name: "Client errors", value: formatCount(summary.clientErrors) },
         { name: "Billing events", value: formatCount(summary.billingEvents) },
@@ -294,7 +352,7 @@ function buildMetricsMessage(summary, { channel, title }) {
         const goatObserved = summary.cumulative.monotonicObserved && summary.cumulative.monotonicObserved.goatCounter;
         fields.push({
             name: "Cumulative tracked activity",
-            value: `GA4 ${formatCount(gaObserved && gaObserved.screenViews)} screens · ${formatCount(gaObserved && gaObserved.appOpens)} opens · ${formatCount(gaObserved && gaObserved.totalUsers)} visitors\nGoatCounter ${formatCount(goatObserved && goatObserved.sessions)} 8h sessions · ${formatCount(goatObserved && goatObserved.appOpens)} opens`
+            value: `GA4 ${formatCount(gaObserved && gaObserved.screenViews)} screens · ${formatCount(gaObserved && gaObserved.appOpens)} opens · ${formatCount(gaObserved && gaObserved.totalUsers)} visitors\nGoatCounter ${formatCount(goatObserved && goatObserved.sessions)} 8h visits · ${formatCount(goatObserved && goatObserved.appOpens)} raw loads`
         });
         fields.push({
             name: "Independent traffic check",
@@ -338,7 +396,7 @@ function buildMetricsMessage(summary, { channel, title }) {
         title,
         description: topPages ? `**Top pages**\n${topPages}` : (traffic ? null : "Traffic data unavailable."),
         fields,
-        footer: `${summary.periodLabel || `last ${summary.windowHours}h`} · GA4 is identity/session source · GoatCounter is independent 8h cross-check · collected ${summary.collectedAt || "now"}`
+        footer: `${summary.periodLabel || `last ${summary.windowHours}h`} · raw loads count every reload · GoatCounter visits dedupe a browser for 8h · GA4 supplies users/sessions · collected ${summary.collectedAt || "now"}`
     };
 }
 
@@ -375,6 +433,8 @@ module.exports = {
     toIsoHour,
     isBarkAppPage,
     getAppEnvironment,
+    exactEventCount,
+    fetchExactEventTotal,
     GOATCOUNTER_SITE_ENV,
     GOATCOUNTER_TOKEN_ENV,
     DEFAULT_GOATCOUNTER_SITE,

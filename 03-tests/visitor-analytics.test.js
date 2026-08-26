@@ -41,6 +41,8 @@ describe("visitor analytics", () => {
     it("counts one initial screen and only real screen changes", async () => {
         const { api, events } = harness();
         await api.init();
+        assert.equal(events.length, 0, "initial events wait until auth identity is known");
+        api.setAudience("logged-out", null);
         api.trackScreen("map-view");
         api.trackScreen("planner-view");
 
@@ -59,5 +61,15 @@ describe("visitor analytics", () => {
         assert.equal(identities.at(-1), "internal-uid");
         assert.equal(properties.at(-1).plan, "premium");
         assert.doesNotMatch(JSON.stringify(properties), /must-not-send/);
+    });
+
+    it("emits exactly one app open when auth state is refined", async () => {
+        const { api, events } = harness();
+        await api.init();
+        api.setAudience("free", { uid: "u1" });
+        api.setAudience("premium", { uid: "u1" });
+
+        assert.equal(events.filter(event => event.name === "bark_app_opened").length, 1);
+        assert.equal(events.filter(event => event.name === "bark_screen_view").length, 1);
     });
 });

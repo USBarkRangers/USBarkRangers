@@ -74,5 +74,6 @@ describe("GA4 visitor metrics", () => {
         assert.equal(result.allTime.totalUsers, 20);
         assert.equal(result.allTime.screenViews, 90);
         assert.equal(requests[2].dateRanges[0].startDate, ga4Metrics.GA4_TRACKING_START_DATE);
+        assert.deepEqual(requests[0].dimensionFilter.filter.inListFilter.values, [...ga4Metrics.TRACKED_EVENTS]);
     });
 });

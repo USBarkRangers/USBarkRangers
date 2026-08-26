@@ -88,7 +88,16 @@ function audienceRequest(startDate, endDate) {
     return {
         dateRanges: [{ startDate, endDate }],
         metrics: ["totalUsers", "activeUsers", "newUsers", "returningUsers", "sessions"]
-            .map(name => ({ name }))
+            .map(name => ({ name })),
+        // This GA property can contain automatic page_view events and admin
+        // traffic. Restrict identity/session totals to sessions that actually
+        // emitted one of the Bark app's explicit analytics events.
+        dimensionFilter: {
+            filter: {
+                fieldName: "eventName",
+                inListFilter: { values: [...TRACKED_EVENTS], caseSensitive: true }
+            }
+        }
     };
 }
 

@@ -19,6 +19,7 @@ window.BARK = window.BARK || {};
 
     let analytics = null;
     let initialized = false;
+    let initialEventsSent = false;
     let lastScreen = null;
     let pendingAudience = { kind: 'logged-out', user: null };
 
@@ -71,6 +72,7 @@ window.BARK = window.BARK || {};
             user: user && user.uid ? { uid: String(user.uid) } : null
         };
         applyAudience();
+        flushInitialEvents();
     }
 
     function trackScreen(targetId, options = {}) {
@@ -89,6 +91,14 @@ window.BARK = window.BARK || {};
         return active ? active.getAttribute('data-target') : 'map-view';
     }
 
+    function flushInitialEvents() {
+        if (!analytics || initialEventsSent) return false;
+        initialEventsSent = true;
+        safeLogEvent('bark_app_opened', { release_channel: getReleaseChannel() });
+        trackScreen(currentScreenTarget(), { force: true });
+        return true;
+    }
+
     async function init() {
         if (initialized) return Boolean(analytics);
         initialized = true;
@@ -98,9 +108,9 @@ window.BARK = window.BARK || {};
         try {
             analytics = firebase.analytics();
             analytics.setAnalyticsCollectionEnabled(true);
-            applyAudience();
-            safeLogEvent('bark_app_opened', { release_channel: getReleaseChannel() });
-            trackScreen(currentScreenTarget(), { force: true });
+            // Auth restores immediately after initialization. Wait for that
+            // callback before the first custom event so a returning signed-in
+            // user is attributed to the same pseudonymous UID across devices.
             return true;
         } catch (error) {
             analytics = null;

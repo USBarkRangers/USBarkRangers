@@ -65,6 +65,13 @@ describe("fetchGoatCounterStats", () => {
             env: { GOATCOUNTER_API_TOKEN: "t" },
             httpGet: async (url, config) => {
                 calls.push({ url, config });
+                if (url.endsWith("/stats/total")) {
+                    const exact = {
+                        "event-app-open-production": config.params.start === opsMetrics.TRAFFIC_TRACKING_START_ISO ? 31 : 21,
+                        "event-app-open-beta": config.params.start === opsMetrics.TRAFFIC_TRACKING_START_ISO ? 12 : 9
+                    };
+                    return { data: { total: exact[config.params.include_paths], total_events: exact[config.params.include_paths] } };
+                }
                 return { data: { hits: [
                     { path: "/", title: "US BARK Rangers", count: 8 },
                     { path: "/?checkout=success", title: "US BARK Rangers", count: 1 },
@@ -86,8 +93,12 @@ describe("fetchGoatCounterStats", () => {
         assert.equal(stats.appVisits, 10);
         assert.equal(stats.productionVisits, 7);
         assert.equal(stats.betaVisits, 3);
-        assert.equal(stats.appOpens, 19);
-        assert.equal(stats.repeatOpens, 9);
+        assert.equal(stats.appOpens, 30);
+        assert.equal(stats.productionOpens, 21);
+        assert.equal(stats.betaOpens, 9);
+        assert.equal(stats.repeatOpens, 20);
+        assert.equal(stats.allTime.appOpens, 43);
+        assert.equal(stats.allTime.pageVisits, null);
         assert.deepEqual(stats.audience, { loggedOut: 5, free: 3, premium: 2 });
         assert.deepEqual(stats.topPages, [
             { path: "/", count: 8 },
@@ -96,6 +107,7 @@ describe("fetchGoatCounterStats", () => {
         ]);
         assert.equal(stats.paymentFunnel["checkout-clicked"], 4);
         assert.equal(stats.paymentFunnel["premium-confirmation-timeout"], 1);
+        assert.equal(calls.length, 6);
         assert.ok(calls[0].url.startsWith(opsMetrics.DEFAULT_GOATCOUNTER_SITE));
         assert.equal(calls[0].config.headers.Authorization, "Bearer t");
         assert.equal(calls[0].config.params.start, "2026-08-07T00:00:00.000Z");
@@ -162,7 +174,7 @@ describe("buildMetricsMessage", () => {
         );
         const byName = Object.fromEntries(message.fields.map((f) => [f.name, f.value]));
         assert.equal(byName.Feedback, "n/a");
-        assert.equal(byName["App opens"], "n/a");
+        assert.equal(byName["Raw app loads (reloads count)"], "n/a");
         assert.equal(byName["Client errors"], "3");
         assert.match(message.description, /unavailable/);
     });
@@ -215,11 +227,13 @@ describe("runOpsMetricsRollup", () => {
             {
                 firestore: fakeFirestore({ feedback: 2, clientErrors: 5, _lemonSqueezyWebhookEvents: 1 }),
                 env: { GOATCOUNTER_API_TOKEN: "t" },
-                httpGet: async () => ({ data: { hits: [
-                    { path: "/", title: "US BARK Rangers", count: 40 },
-                    { path: "event-app-session-production", event: true, count: 31 },
-                    { path: "event-app-open-production", event: true, count: 99 }
-                ] } }),
+                httpGet: async (url, config) => url.endsWith("/stats/total")
+                    ? ({ data: { total: 99, total_events: 99 } })
+                    : ({ data: { hits: [
+                        { path: "/", title: "US BARK Rangers", count: 40 },
+                        { path: "event-app-session-production", event: true, count: 31 },
+                        { path: "event-app-open-production", event: true, count: 99 }
+                    ] } }),
                 discordConfig: fullConfig(),
                 discordSender: async (url, payload) => { sent.push({ url, payload }); }
             }

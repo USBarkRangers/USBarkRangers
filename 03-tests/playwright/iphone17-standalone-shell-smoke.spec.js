@@ -37,7 +37,7 @@ test('a normal full-height iPhone keeps its original full-screen geometry', asyn
         const bodyRect = document.body.getBoundingClientRect();
         const navRect = document.getElementById('main-nav').getBoundingClientRect();
         const lift = parseFloat(getComputedStyle(document.documentElement)
-            .getPropertyValue('--bark-viewport-bottom-lift')) || 0;
+            .getPropertyValue('--bark-nav-content-lift')) || 0;
         return { mapRect, bodyRect, navRect, lift, innerHeight: window.innerHeight };
     });
 
@@ -76,7 +76,7 @@ test('a persistently shorter visual viewport lifts only bottom UI', async ({ bro
     const page = await context.newPage();
     await page.goto(`${BASE_URL}?obstructedIPhone=${Date.now()}`);
     await waitForShell(page);
-    await page.waitForFunction(() => Number(document.documentElement.dataset.barkViewportLift) > 0);
+    await page.waitForFunction(() => Number(document.documentElement.dataset.barkNavContentLift) > 0);
 
     const geometry = await page.evaluate(() => {
         const mapRect = document.getElementById('map').getBoundingClientRect();
@@ -85,7 +85,7 @@ test('a persistently shorter visual viewport lifts only bottom UI', async ({ bro
             .filter(element => element.id !== 'planner-badge' || element.offsetParent !== null)
             .map(element => element.getBoundingClientRect());
         return {
-            lift: Number(document.documentElement.dataset.barkViewportLift),
+            lift: Number(document.documentElement.dataset.barkNavContentLift),
             mapBottom: mapRect.bottom,
             navBottom: navRect.bottom,
             contentBottom: Math.max(...contentRects.map(rect => rect.bottom)),
@@ -99,21 +99,80 @@ test('a persistently shorter visual viewport lifts only bottom UI', async ({ bro
     expect(geometry.navBottom).toBeGreaterThanOrEqual(geometry.innerHeight - 1);
     expect(geometry.contentBottom).toBeLessThanOrEqual(geometry.visualBottom + 0.5);
 
-    await page.evaluate(() => {
-        const marker = Array.from(window.BARK.markerManager.markers.values())
-            .find(candidate => candidate && candidate._parkData);
-        window.BARK.markerManager.renderMarkerPanel(marker);
+    await context.close();
+});
+
+test('temporary Safari viewport changes never resize structural UI and clear on restore', async ({ browser }) => {
+    const context = await newBarkContext(browser, {
+        viewport: { width: 430, height: 932 },
+        screen: { width: 430, height: 932 },
+        deviceScaleFactor: 3,
+        isMobile: true,
+        hasTouch: true,
+        userAgent: IPHONE_USER_AGENT
     });
-    await expect(page.locator('#slide-panel')).toHaveClass(/\bopen\b/);
-    await page.waitForFunction(() => {
-        const panel = document.getElementById('slide-panel');
-        const nav = document.getElementById('main-nav');
-        return Math.abs(panel.getBoundingClientRect().bottom - nav.getBoundingClientRect().top) <= 1;
-    }, undefined, { timeout: 2000 });
-    const openPanel = await page.evaluate(() => ({
-        panelBottom: document.getElementById('slide-panel').getBoundingClientRect().bottom,
-        navTop: document.getElementById('main-nav').getBoundingClientRect().top
-    }));
-    expect(Math.abs(openPanel.panelBottom - openPanel.navTop)).toBeLessThanOrEqual(1);
+    await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'standalone', { configurable: true, get: () => true });
+        window.__barkTestVisualHeight = 932;
+        const viewport = new EventTarget();
+        Object.defineProperties(viewport, {
+            width: { configurable: true, get: () => 430 },
+            height: { configurable: true, get: () => window.__barkTestVisualHeight },
+            offsetTop: { configurable: true, get: () => 0 },
+            offsetLeft: { configurable: true, get: () => 0 },
+            scale: { configurable: true, get: () => 1 }
+        });
+        Object.defineProperty(window, 'visualViewport', { configurable: true, get: () => viewport });
+        window.__barkTestViewport = viewport;
+    });
+
+    const page = await context.newPage();
+    await page.goto(`${BASE_URL}?viewportTransition=${Date.now()}`);
+    await waitForShell(page);
+
+    const baseline = await page.evaluate(() => {
+        const nav = document.getElementById('main-nav').getBoundingClientRect();
+        const panel = document.getElementById('slide-panel').getBoundingClientRect();
+        return { navTop: nav.top, navHeight: nav.height, panelBottom: panel.bottom };
+    });
+
+    await page.evaluate(() => {
+        window.__barkTestVisualHeight = 760;
+        window.__barkTestViewport.dispatchEvent(new Event('resize'));
+    });
+    await page.waitForFunction(() => Number(document.documentElement.dataset.barkNavContentLift) > 0);
+
+    const obstructed = await page.evaluate(() => {
+        const nav = document.getElementById('main-nav').getBoundingClientRect();
+        const panel = document.getElementById('slide-panel').getBoundingClientRect();
+        return {
+            lift: Number(document.documentElement.dataset.barkNavContentLift),
+            navTop: nav.top,
+            navHeight: nav.height,
+            panelBottom: panel.bottom
+        };
+    });
+    expect(obstructed.lift).toBeGreaterThan(0);
+    expect(Math.abs(obstructed.navTop - baseline.navTop)).toBeLessThanOrEqual(1);
+    expect(Math.abs(obstructed.navHeight - baseline.navHeight)).toBeLessThanOrEqual(1);
+    expect(Math.abs(obstructed.panelBottom - baseline.panelBottom)).toBeLessThanOrEqual(1);
+
+    await page.evaluate(() => {
+        window.__barkTestVisualHeight = 932;
+        window.__barkTestViewport.dispatchEvent(new Event('resize'));
+    });
+    await page.waitForFunction(() => document.documentElement.dataset.barkNavContentLift === '0');
+
+    const restored = await page.evaluate(() => {
+        const nav = document.getElementById('main-nav').getBoundingClientRect();
+        return {
+            lift: Number(document.documentElement.dataset.barkNavContentLift),
+            navTop: nav.top,
+            navHeight: nav.height
+        };
+    });
+    expect(restored.lift).toBe(0);
+    expect(Math.abs(restored.navTop - baseline.navTop)).toBeLessThanOrEqual(1);
+    expect(Math.abs(restored.navHeight - baseline.navHeight)).toBeLessThanOrEqual(1);
     await context.close();
 });

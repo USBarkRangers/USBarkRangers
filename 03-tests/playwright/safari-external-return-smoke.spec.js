@@ -335,6 +335,12 @@ test.describe('Safari installed-app external return', () => {
             if (markers.length < 2) throw new Error('Two park markers are required for the rapid Safari return test.');
 
             window.BARK.markerManager.renderMarkerPanel(markers[0]);
+            window.__barkRapidInvalidateSizeCount = 0;
+            const originalInvalidateSize = window.map.invalidateSize.bind(window.map);
+            window.map.invalidateSize = (...args) => {
+                window.__barkRapidInvalidateSizeCount += 1;
+                return originalInvalidateSize(...args);
+            };
             const externalLink = document.createElement('a');
             externalLink.href = 'https://www.nps.gov/test/';
             externalLink.target = '_blank';
@@ -354,7 +360,27 @@ test.describe('Safari installed-app external return', () => {
             return markers[1]._parkData.name;
         });
 
-        await page.waitForFunction(() => window.__barkRapidReturnSettled === true, { timeout: 3000 });
+        const immediateState = await page.evaluate(() => {
+            const panel = document.getElementById('slide-panel');
+            const style = getComputedStyle(panel);
+            return {
+                settled: window.__barkRapidReturnSettled,
+                bodyPending: document.body.classList.contains('bark-external-handoff-pending'),
+                panelOpen: panel.classList.contains('open'),
+                display: style.display,
+                visibility: style.visibility,
+                pointerEvents: style.pointerEvents,
+                invalidateSizeCount: window.__barkRapidInvalidateSizeCount
+            };
+        });
+        expect(immediateState.settled).toBe(true);
+        expect(immediateState.bodyPending).toBe(false);
+        expect(immediateState.panelOpen).toBe(true);
+        expect(immediateState.display).not.toBe('none');
+        expect(immediateState.visibility).toBe('visible');
+        expect(immediateState.pointerEvents).toBe('auto');
+
+        await page.waitForTimeout(1400);
 
         const state = await page.evaluate(() => ({
             bodyPending: document.body.classList.contains('bark-external-handoff-pending'),
@@ -362,13 +388,15 @@ test.describe('Safari installed-app external return', () => {
             panelTitle: document.getElementById('panel-title').textContent,
             activePinName: window.BARK.activePinMarker &&
                 window.BARK.activePinMarker._parkData &&
-                window.BARK.activePinMarker._parkData.name
+                window.BARK.activePinMarker._parkData.name,
+            invalidateSizeCount: window.__barkRapidInvalidateSizeCount
         }));
 
         expect(state.bodyPending).toBe(false);
         expect(state.panelOpen).toBe(true);
         expect(state.panelTitle).toBe(expectedTitle);
         expect(state.activePinName).toBe(expectedTitle);
+        expect(state.invalidateSizeCount).toBe(immediateState.invalidateSizeCount);
         await context.close();
     });
 });

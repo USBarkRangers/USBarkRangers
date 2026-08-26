@@ -19,22 +19,26 @@ test('the viewport shell is isolated in dedicated files', () => {
     assert.doesNotMatch(indexHtml, /Math\.min\(\.\.\.viewportHeights\)/);
 });
 
-test('CSS owns the full-screen shell and one variable owns bottom clearance', () => {
+test('CSS owns the full-screen shell and structural bottom clearance excludes transient lift', () => {
     assert.match(viewportStyles, /height:\s*100dvh/);
     assert.match(viewportStyles, /--bark-nav-total-height/);
-    assert.match(viewportStyles, /--bark-viewport-bottom-lift/);
+    assert.match(viewportStyles, /--bark-nav-content-lift/);
+    const totalHeightDeclaration = viewportStyles.match(/--bark-nav-total-height:\s*calc\([\s\S]*?\);/);
+    assert.ok(totalHeightDeclaration, 'structural nav height declaration should exist');
+    assert.doesNotMatch(totalHeightDeclaration[0], /--bark-nav-content-lift/);
     assert.match(viewportStyles, /\.glass-nav\s*\{[\s\S]*position:\s*fixed/);
     assert.match(viewportStyles, /#slide-panel\s*\{[\s\S]*bottom:\s*var\(--bark-nav-total-height\)/);
     assert.match(viewportStyles, /\.leaflet-bottom\s*\{[\s\S]*--bark-map-control-bottom-clearance/);
     assert.match(viewportStyles, /\.filtered-pins-indicator\s*\{[\s\S]*--bark-map-indicator-bottom-clearance/);
 });
 
-test('the fallback adjusts only bottom UI and never resizes the app shell', () => {
-    assert.match(viewportCoordinator, /calculateRequiredBottomLift/);
-    assert.match(viewportCoordinator, /--bark-viewport-bottom-lift/);
+test('the fallback adjusts only nav content and follows visual viewport restoration', () => {
+    assert.match(viewportCoordinator, /calculateRequiredContentLift/);
+    assert.match(viewportCoordinator, /--bark-nav-content-lift/);
     assert.doesNotMatch(viewportCoordinator, /style\.height\s*=/);
     assert.doesNotMatch(viewportCoordinator, /--bark-ios-app-height/);
-    assert.doesNotMatch(viewportCoordinator, /visualViewport\.addEventListener/);
+    assert.match(viewportCoordinator, /visualViewport\.addEventListener\('resize'/);
+    assert.match(viewportCoordinator, /visualViewport\.addEventListener\('scroll'/);
     assert.doesNotMatch(styles, /html\.bark-ios-standalone-fullscreen \.glass-nav/);
 });
 

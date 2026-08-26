@@ -3,7 +3,8 @@
  *
  * Keep all screen-edge geometry in this file. Components consume the shared
  * variables below instead of identifying phones or repeating magic offsets.
- * JavaScript may set only --bark-viewport-bottom-lift as a browser-bug guard.
+ * JavaScript may set only --bark-nav-content-lift as a browser-bug guard. It
+ * is visual-only and must never participate in structural component sizes.
  */
 :root {
     --bark-safe-top: env(safe-area-inset-top, 0px);
@@ -11,11 +12,10 @@
     --bark-safe-bottom: env(safe-area-inset-bottom, 0px);
     --bark-safe-left: env(safe-area-inset-left, 0px);
     --bark-nav-content-height: 75px;
-    --bark-viewport-bottom-lift: 0px;
+    --bark-nav-content-lift: 0px;
     --bark-nav-total-height: calc(
         var(--bark-nav-content-height) +
-        var(--bark-safe-bottom) +
-        var(--bark-viewport-bottom-lift)
+        var(--bark-safe-bottom)
     );
     --bark-view-bottom-clearance: calc(var(--bark-nav-total-height) + 15px);
     --bark-filter-bottom-clearance: calc(var(--bark-nav-total-height) + 12px);
@@ -42,14 +42,35 @@ body,
         width: 100%;
         height: var(--bark-nav-total-height);
         min-height: var(--bark-nav-total-height);
-        padding: 0 0 calc(var(--bark-safe-bottom) + var(--bark-viewport-bottom-lift));
+        padding: 0 0 var(--bark-safe-bottom);
         box-sizing: border-box;
         align-items: center;
+        overflow: visible;
     }
 
     .glass-nav .nav-item {
         height: 100%;
         padding-bottom: 0;
+        transform: translate3d(0, calc(0px - var(--bark-nav-content-lift)), 0);
+        transition: color 0.2s;
+    }
+
+    /* A rare WebKit visual-viewport mismatch can place the physical bottom of
+       the screen above the structural nav. Move a matching glass backdrop with
+       the controls without changing any layout geometry. */
+    html[data-bark-nav-content-lift]:not([data-bark-nav-content-lift="0"]) .glass-nav::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        border-radius: inherit;
+        background: rgba(255, 255, 255, 0.85);
+        border-top: 1px solid rgba(0, 0, 0, 0.1);
+        box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        transform: translate3d(0, calc(0px - var(--bark-nav-content-lift)), 0);
+        pointer-events: none;
     }
 
     .ui-view {

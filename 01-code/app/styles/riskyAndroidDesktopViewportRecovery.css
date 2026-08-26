@@ -69,7 +69,7 @@ html.bark-risky-android-desktop-phone-recovery .glass-nav {
     width: var(--bark-risky-phone-width);
     height: var(--bark-nav-total-height);
     min-height: var(--bark-nav-total-height);
-    padding: 0 0 calc(var(--bark-safe-bottom) + var(--bark-viewport-bottom-lift));
+    padding: 0 0 var(--bark-safe-bottom);
     box-sizing: border-box;
     border-radius: 12px 12px 0 0;
     border: none;
@@ -81,6 +81,8 @@ html.bark-risky-android-desktop-phone-recovery .glass-nav {
 html.bark-risky-android-desktop-phone-recovery .nav-item {
     height: 100%;
     padding-bottom: 0;
+    transform: translate3d(0, calc(0px - var(--bark-nav-content-lift)), 0);
+    transition: color 0.2s;
 }
 
 html.bark-risky-android-desktop-phone-recovery .leaflet-bottom {

@@ -3,8 +3,9 @@
  *
  * CSS owns the full-screen shell. This module is deliberately limited to one
  * job: when a browser reports a visual viewport that clips the bottom-nav
- * content, publish the smallest bottom lift that makes the controls visible.
- * It never changes the app, body, map, or view height.
+ * content, publish the smallest visual-only content lift that makes the
+ * controls visible. The structural nav, app, map, panels, and views never
+ * consume this value, so a stale browser measurement cannot resize the UI.
  */
 (function exposeViewportCoordinator(root, factory) {
     const api = factory();
@@ -20,7 +21,7 @@
 }(typeof window !== 'undefined' ? window : null, function createViewportCoordinator() {
     'use strict';
 
-    const BOTTOM_LIFT_PROPERTY = '--bark-viewport-bottom-lift';
+    const CONTENT_LIFT_PROPERTY = '--bark-nav-content-lift';
     const IOS_STANDALONE_CLASS = 'bark-ios-standalone-fullscreen';
     const MAX_LIFT_PX = 260;
     const CONTENT_MARGIN_PX = 3;
@@ -35,7 +36,7 @@
         return Math.min(max, Math.max(min, value));
     }
 
-    function calculateRequiredBottomLift(metrics = {}) {
+    function calculateRequiredContentLift(metrics = {}) {
         const currentLift = Math.max(0, finiteNumber(metrics.currentLift));
         if (metrics.suspended) return currentLift;
 
@@ -60,12 +61,6 @@
             : Math.ceil(target);
     }
 
-    function isTextEntryElement(element) {
-        if (!element || !element.tagName) return false;
-        return /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName)
-            || element.isContentEditable === true;
-    }
-
     function isIOSDevice(targetWindow) {
         const navigator = targetWindow.navigator || {};
         return /iPad|iPhone|iPod/i.test(navigator.userAgent || '')
@@ -80,7 +75,7 @@
 
     function readCurrentLift(targetWindow) {
         const value = targetWindow.getComputedStyle(targetWindow.document.documentElement)
-            .getPropertyValue(BOTTOM_LIFT_PROPERTY);
+            .getPropertyValue(CONTENT_LIFT_PROPERTY);
         return Math.max(0, finiteNumber(parseFloat(value)));
     }
 
@@ -114,10 +109,8 @@
         const visibleBottom = visualScale > 1.05
             ? layoutHeight
             : Math.min(layoutHeight, visualBottom || layoutHeight);
-        const activeElement = document.activeElement;
         const suspended = document.body.classList.contains('keyboard-open')
-            || document.body.classList.contains('bark-external-handoff-pending')
-            || isTextEntryElement(activeElement);
+            || document.body.classList.contains('bark-external-handoff-pending');
 
         return {
             currentLift: readCurrentLift(targetWindow),
@@ -143,12 +136,12 @@
             const metrics = readMetrics(targetWindow);
             if (!metrics) return { applied: false, reason, lift: 0 };
 
-            const lift = calculateRequiredBottomLift(metrics);
+            const lift = calculateRequiredContentLift(metrics);
             const changed = Math.abs(lift - metrics.currentLift) > CHANGE_TOLERANCE_PX;
             if (changed) {
-                rootElement.style.setProperty(BOTTOM_LIFT_PROPERTY, `${lift}px`);
+                rootElement.style.setProperty(CONTENT_LIFT_PROPERTY, `${lift}px`);
             }
-            rootElement.dataset.barkViewportLift = String(lift);
+            rootElement.dataset.barkNavContentLift = String(lift);
             lastReason = reason;
 
             targetWindow.dispatchEvent(new targetWindow.CustomEvent('bark:viewport-layout', {
@@ -178,7 +171,18 @@
         }
 
         function settleExternalReturn() {
-            schedule('external-return', [0, 120]);
+            schedule('external-return', [0, 120, 420]);
+        }
+
+        let viewportFrame = 0;
+        let viewportReason = 'visual-viewport';
+        function scheduleViewportRefresh(reason) {
+            viewportReason = reason || viewportReason;
+            if (viewportFrame) return;
+            viewportFrame = targetWindow.requestAnimationFrame(() => {
+                viewportFrame = 0;
+                refresh(viewportReason);
+            });
         }
 
         if (document.readyState === 'loading') {
@@ -189,6 +193,16 @@
 
         targetWindow.addEventListener('load', () => schedule('load', [0, 120]), { once: true });
         targetWindow.addEventListener('orientationchange', () => schedule('orientation', [120, 420]));
+        targetWindow.addEventListener('resize', () => scheduleViewportRefresh('window-resize'));
+        if (targetWindow.visualViewport
+            && typeof targetWindow.visualViewport.addEventListener === 'function') {
+            targetWindow.visualViewport.addEventListener('resize', () => {
+                scheduleViewportRefresh('visual-viewport-resize');
+            });
+            targetWindow.visualViewport.addEventListener('scroll', () => {
+                scheduleViewportRefresh('visual-viewport-scroll');
+            });
+        }
         targetWindow.addEventListener('pageshow', (event) => {
             if (!event.persisted && lastReason === 'load') return;
             schedule('pageshow', [0, 120]);
@@ -203,9 +217,9 @@
     }
 
     return Object.freeze({
-        BOTTOM_LIFT_PROPERTY,
+        CONTENT_LIFT_PROPERTY,
         IOS_STANDALONE_CLASS,
-        calculateRequiredBottomLift,
+        calculateRequiredContentLift,
         install
     });
 }));

@@ -225,6 +225,10 @@ function renderMarkerClickPanel(context) {
         return;
     }
 
+    if (!refreshOnly && typeof window.BARK.finishExternalReturnForInteraction === 'function') {
+        window.BARK.finishExternalReturnForInteraction('pin-interaction');
+    }
+
     if (!refreshOnly && window.BARK.activePinMarker && window.BARK.activePinMarker._icon) {
         window.BARK.activePinMarker._icon.classList.remove('active-pin');
     }

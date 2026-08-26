@@ -315,6 +315,22 @@ function settleExternalReturnViewport(reason) {
     }, EXTERNAL_RETURN_QUARANTINE_MS);
 }
 
+function finishExternalReturnForInteraction(reason = 'user-interaction') {
+    if (!document.body.classList.contains(EXTERNAL_HANDOFF_CLASS)) return false;
+
+    // A real user interaction takes ownership of the live app. Cancel every
+    // delayed Safari-return pass before revealing new UI so it cannot resize
+    // the map or keep a newly opened park card quarantined for another second.
+    externalReturnSettleGeneration += 1;
+    consumeExternalHandoffCleanupFlag();
+    document.body.classList.remove(EXTERNAL_HANDOFF_CLASS);
+    void document.body.offsetHeight;
+    window.dispatchEvent(new CustomEvent('bark:external-return-settled', {
+        detail: { reason }
+    }));
+    return true;
+}
+
 function handleAppReturn(reason) {
     if (consumeExternalHandoffCleanupFlag()) {
         settleExternalReturnViewport(reason);
@@ -325,6 +341,7 @@ function handleAppReturn(reason) {
 
 window.BARK.prepareExternalHandoff = prepareExternalHandoff;
 window.BARK.openExternalWebsite = openExternalWebsite;
+window.BARK.finishExternalReturnForInteraction = finishExternalReturnForInteraction;
 
 function settleAppViewportAfterKeyboard() {
     requestAnimationFrame(() => {

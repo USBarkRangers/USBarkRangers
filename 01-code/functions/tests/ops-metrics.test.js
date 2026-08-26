@@ -132,6 +132,32 @@ describe("fetchGoatCounterStats", () => {
         });
         assert.equal(stats, null);
     });
+
+    it("waits past a rounded GoatCounter rate-limit window", async () => {
+        let attempts = 0;
+        const waits = [];
+        const result = await opsMetrics.fetchExactEventTotal(
+            opsMetrics.DEFAULT_GOATCOUNTER_SITE,
+            "t",
+            "event-app-open-beta",
+            "2026-08-07T00:00:00.000Z",
+            "2026-08-08T00:00:00.000Z",
+            {
+                httpGet: async () => {
+                    attempts += 1;
+                    if (attempts === 1) {
+                        const error = new Error("429");
+                        error.response = { status: 429, headers: { "x-rate-limit-reset": "0" } };
+                        throw error;
+                    }
+                    return { data: { total_events: 12 } };
+                },
+                sleep: async (ms) => { waits.push(ms); }
+            }
+        );
+        assert.equal(result, 12);
+        assert.deepEqual(waits, [1100]);
+    });
 });
 
 describe("countSince", () => {

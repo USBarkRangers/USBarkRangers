@@ -116,7 +116,12 @@ async function fetchExactEventTotal(site, token, eventName, start, end, options 
             if (status !== 429 || attempt === 2) throw error;
             const rawRetryAfter = error.response && error.response.headers && error.response.headers["retry-after"];
             const retryAfterSeconds = Number(rawRetryAfter);
-            await sleep(Number.isFinite(retryAfterSeconds) ? retryAfterSeconds * 1000 : 500 * (attempt + 1));
+            const rawReset = error.response && error.response.headers && error.response.headers["x-rate-limit-reset"];
+            const resetSeconds = Number(rawReset);
+            const reportedWaitMs = Number.isFinite(retryAfterSeconds)
+                ? retryAfterSeconds * 1000
+                : (Number.isFinite(resetSeconds) ? resetSeconds * 1000 : 0);
+            await sleep(Math.max(1100, reportedWaitMs, 500 * (attempt + 1)));
         }
     }
     return null;

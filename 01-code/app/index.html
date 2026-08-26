@@ -12,17 +12,31 @@
             && navigator.standalone === true) {
             const root = document.documentElement;
             const syncStableAppHeight = () => {
-                const dimensions = [Number(screen.width), Number(screen.height)]
+                // screen.height is the physical display, not necessarily the
+                // viewport Safari gives an installed app. On an iPhone 17 it
+                // can report 874px while only 681px is usable, which places an
+                // absolutely-positioned bottom nav completely off-screen.
+                const viewportHeights = [
+                    Number(window.innerHeight),
+                    Number(root.clientHeight),
+                    Number(window.visualViewport && window.visualViewport.height)
+                ]
                     .filter(value => Number.isFinite(value) && value > 0);
-                if (dimensions.length !== 2) return;
-                const isPortrait = !window.matchMedia('(orientation: landscape)').matches;
-                const stableHeight = isPortrait ? Math.max(...dimensions) : Math.min(...dimensions);
+                if (!viewportHeights.length) return;
+                const stableHeight = Math.floor(Math.min(...viewportHeights));
                 root.style.setProperty('--bark-ios-app-height', `${stableHeight}px`);
             };
 
             root.classList.add('bark-ios-standalone-fullscreen');
             syncStableAppHeight();
-            window.addEventListener('orientationchange', () => setTimeout(syncStableAppHeight, 120));
+            document.addEventListener('DOMContentLoaded', syncStableAppHeight, { once: true });
+            window.addEventListener('orientationchange', () => {
+                // Let WebKit publish the new orientation's layout viewport,
+                // then freeze it. Ordinary visualViewport changes (keyboard
+                // and external Safari sheets) intentionally do not resize it.
+                setTimeout(syncStableAppHeight, 120);
+                setTimeout(syncStableAppHeight, 420);
+            });
         }
     </script>
     <script src="modules/oauthFragmentGuard.js?v=1"></script>

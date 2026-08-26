@@ -18,6 +18,14 @@ test('iOS standalone mode is identified before the first stylesheet paints', () 
     assert.ok(indexHtml.indexOf('--bark-ios-app-height') < mainStylesheet);
 });
 
+test('iOS standalone height follows the usable viewport instead of the physical screen', () => {
+    assert.match(indexHtml, /Number\(window\.innerHeight\)/);
+    assert.match(indexHtml, /Number\(root\.clientHeight\)/);
+    assert.match(indexHtml, /Math\.floor\(Math\.min\(\.\.\.viewportHeights\)\)/);
+    assert.doesNotMatch(indexHtml, /Number\(screen\.(?:width|height)\)/);
+    assert.doesNotMatch(indexHtml, /visualViewport\.addEventListener/);
+});
+
 test('the iOS app shell uses the stable large viewport without changing other phones', () => {
     assert.match(styles, /html\.bark-ios-standalone-fullscreen[\s\S]*height:\s*100lvh/);
     assert.match(styles, /height:\s*var\(--bark-ios-app-height,\s*100lvh\)/);

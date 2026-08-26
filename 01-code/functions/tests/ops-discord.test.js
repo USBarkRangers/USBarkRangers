@@ -340,7 +340,7 @@ describe("deliverPaymentAlert with Discord wired", () => {
 
 describe("postFeedbackToDiscord", () => {
     const cases = [
-        ["bug", "bugs"],
+        ["bug", "userBugs"],
         ["idea", "featureRequests"],
         ["support", "supportInbox"],
         ["general", "customerFeedback"],

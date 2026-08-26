@@ -26,7 +26,7 @@ function discordRecorder() {
     return {
         sent,
         options: {
-            webhookMap: { bugs: "https://discord.com/api/webhooks/1/bugs", customerFeedback: "https://discord.com/api/webhooks/1/cf" },
+            webhookMap: { userBugs: "https://discord.com/api/webhooks/1/user-bugs", customerFeedback: "https://discord.com/api/webhooks/1/cf" },
             discordSender: async (url, payload, meta) => { sent.push({ url, payload, meta }); }
         }
     };
@@ -420,7 +420,7 @@ describe("feedback screenshots", () => {
 
         assert.equal(discord.sent.length, 1);
         const post = discord.sent[0];
-        assert.equal(post.meta.channel, "bugs");
+        assert.equal(post.meta.channel, "userBugs");
         assert.equal(post.meta.files.length, 2);
         assert.ok(Buffer.isBuffer(post.meta.files[0].buffer));
         assert.match(post.payload.embeds[0].title, /Acadia National Park/);

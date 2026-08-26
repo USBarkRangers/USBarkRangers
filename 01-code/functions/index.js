@@ -526,7 +526,7 @@ async function handleSubmitFeedback(requestOrData, context, options = {}) {
 // Feedback lands in the channel that matches what it actually is, so triage
 // happens where the work happens rather than in one undifferentiated firehose.
 const FEEDBACK_DISCORD_CHANNELS = Object.freeze({
-    bug: "bugs",
+    bug: "userBugs",
     idea: "featureRequests",
     support: "supportInbox",
     general: "customerFeedback",
@@ -539,7 +539,7 @@ function postFeedbackToDiscord(record, options = {}) {
     const browser = record.browser && typeof record.browser === "object" ? record.browser : {};
     const files = Array.isArray(record.files) ? record.files : [];
 
-    // #support-inbox is Admin-only, so a support request can carry the address
+    // Admin-only inboxes can carry the address
     // needed to reply. Every other channel is visible to the whole team and gets
     // a masked address; the full record is always in Firestore.
     const address = opsDiscord.isAdminOnlyChannel(channel)

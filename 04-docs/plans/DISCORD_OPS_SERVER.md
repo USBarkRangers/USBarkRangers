@@ -30,7 +30,7 @@ moderation, privacy, and organization.
 | `system-status` | Uptime, Firebase health, API status, errors, unusual activity |
 | `sales-and-billing` 🔒 | Purchases, renewals, cancellations, failed payments, refunds |
 | `incident-response` | Active production incidents only. Track impact, owner, start time, containment, recovery, verification, and follow-up in one thread per incident. Routine bugs and planned tests do not belong here. |
-| `detected-bugs` | Customer-reported and automatically detected software defects. Triage the app's Bug button, freezes, and client errors here; escalate only critical live impact to `incident-response`. |
+| `detected-bugs` | Automatically detected freezes, crashes, browser errors, and backend fault reports. Escalate only critical live impact to `incident-response`. |
 | `launch-monitoring` | Launch-day command view. Record the deployed version, smoke-test status, traffic/signups/Premium activity, payments, Firebase/App Check/cost signals, providers, and any rollback decision. |
 | `costs` 🔒 | Google Cloud/Firebase usage, cost per user, quotas, and cost alerts |
 
@@ -45,8 +45,10 @@ moderation, privacy, and organization.
 | Channel | Purpose |
 | --- | --- |
 | `feature-requests` | Customer ideas from the app's Idea button. Capture the problem and desired outcome, merge duplicates, then record consider/planned/declined/shipped. |
+| `user-bugs` | Bugs deliberately reported by people through the app's Bug form. Reproduce and triage here; automated errors stay in `detected-bugs`. |
 | `map-corrections` | Wrong or missing places and other park-data corrections from the Map Fix button. Verify against authoritative sources before changing map or awards data. |
 | `support-inbox` 🔒 | Private Help-button requests and contact details. Resolve directly, then route confirmed bugs, map fixes, or ideas to their dedicated channels. |
+| `email-bank` 🔒 | Private notifications for mail delivered to `support@usbarkrangersmap.com`. Gmail remains the source of truth and the place to reply. |
 | `customer-feedback` | Useful comments and recurring themes |
 | `early-access` | Onboarding and communication for early-access customers |
 | `facebook-group` | Important group posts, reactions, growth, issues |
@@ -108,8 +110,9 @@ messages, opening threads automatically. Nothing here needs that yet.
 | Any payment-critical function failure | charged-but-not-upgraded risk | `incident-response` | 🔴 pings Admin |
 | Any other server fault | unexpected crash, upstream down | `system-status` | 🟡 |
 | Browser error reports | uncaught errors, freezes | `detected-bugs` | 🟡 |
-| In-app feedback | bug / map fix / idea / help | `detected-bugs`, `map-corrections`, `feature-requests`, `support-inbox` | 🟡 |
+| In-app feedback | bug / map fix / idea / help | `user-bugs`, `map-corrections`, `feature-requests`, `support-inbox` | 🟡 |
 | In-app feedback | unrelated general comments | `customer-feedback` | 🟡 |
+| Support email | every message delivered to `support@usbarkrangersmap.com` | `email-bank` | 🟡 |
 | Lemon Squeezy | subscription and payment events | `sales-and-billing` | 🟡, 🔴 on failed or refunded payment |
 | Daily error digest | 24h client-error rollup | `daily-briefing` | 🟢 |
 | GoatCounter + Firestore | traffic, feedback, errors, billing volume | `daily-metrics`, `weekly-report` | 🟢 |
@@ -126,6 +129,13 @@ behavior.
 `01-code/functions/opsMetrics.js` gathers the routine rollup: GoatCounter traffic plus
 Firestore counts. Every count is an aggregation query, so the daily post costs roughly
 one read per collection rather than one per document.
+
+`05-tools/google-apps-script/support-email-bank/Code.js` is the mailbox bridge. A
+five-minute, mailbox-owned Apps Script trigger reads only messages addressed to the
+public support address and posts a bounded preview into private `#email-bank`. It uses
+read-only Gmail permission, a script lock, and a per-message checkpoint. It does not
+change Cloudflare forwarding, copy attachments, call Firebase, or create a Cloud
+Function execution.
 
 `01-code/functions/costMetrics.js` performs the bounded Google Cloud/Firebase and
 user-count collection. `01-code/functions/costReporting.js` owns thresholds, 24-hour
@@ -145,7 +155,7 @@ Delivery hangs off the alert subsystem that already existed in `index.js`:
   scheduled functions.
 
 Identity is masked (`c***@example.com`) everywhere except the Admin-only channels,
-because `#bugs` and `#customer-feedback` are visible to the whole team. Firestore keeps
+because triage and feedback channels may be visible to the whole team. Firestore keeps
 the full record.
 
 ### Configuration
@@ -172,7 +182,7 @@ Without it the daily post still goes out with traffic shown as `n/a`.
 
 ## Status
 
-**Live as of 2026-08-26.** `DISCORD_WEBHOOKS_JSON` is set (11 channels + `adminRoleId`)
+**Live as of 2026-08-26.** `DISCORD_WEBHOOKS_JSON` is set (14 channels + `adminRoleId`)
 and these functions are deployed with it: `getPremiumRoute`, `getPremiumGeocode`,
 `createCheckoutSession`, `redeemAccessOrPromoCode`, `getCustomerPortalUrl`,
 `restorePremiumPurchase`, `cancelPremiumSubscription`, `lemonSqueezyWebhook`,
@@ -190,6 +200,12 @@ until Google's delayed export table first appears.
 The GitHub repo webhook is live and pinging green: push events go to the
 `developmentUpdates` Discord webhook with `/github` appended, content type
 `application/json`.
+
+The private `#user-bugs` webhook is active and `submitFeedback` routes deliberate Bug
+form submissions there; automated client reports remain in `#detected-bugs`. The
+private `#email-bank` Apps Script trigger is active under the support-mailbox account,
+uses a separate script property for its webhook, and has completed live runs without
+errors.
 
 ## Known gaps
 

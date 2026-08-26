@@ -31,6 +31,8 @@ const KNOWN_CHANNELS = Object.freeze([
     "launchMonitoring",
     "salesAndBilling",
     "supportInbox",
+    "userBugs",
+    "emailBank",
     "bugs",
     "featureRequests",
     "mapCorrections",
@@ -45,7 +47,7 @@ const KNOWN_CHANNELS = Object.freeze([
 // Channels restricted to the Admin role in the ops server. Anything posted
 // outside this set is visible to every member, so identifying detail is masked
 // there. Keep in sync with the private channels in DISCORD_OPS_SERVER.md.
-const ADMIN_ONLY_CHANNELS = Object.freeze(["salesAndBilling", "supportInbox", "adminDashboard", "costs"]);
+const ADMIN_ONLY_CHANNELS = Object.freeze(["salesAndBilling", "supportInbox", "emailBank", "adminDashboard", "costs"]);
 
 function isAdminOnlyChannel(channel) {
     return ADMIN_ONLY_CHANNELS.includes(channel);
@@ -83,9 +85,10 @@ function truncate(value, max) {
     return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
-// Discord channels are readable by more people than the alert inbox is, and
-// #bugs is not Admin-locked. Full identity stays in Firestore and email; the
-// ops server gets enough to recognize a repeat reporter and no more.
+// Discord channels are readable by more people than the private inboxes are,
+// and automated/user bug channels may be shared with the triage team. Full
+// identity stays in Firestore and email; the ops server gets enough to
+// recognize a repeat reporter and no more.
 function maskEmail(value) {
     const text = typeof value === "string" ? value.trim() : "";
     const at = text.indexOf("@");

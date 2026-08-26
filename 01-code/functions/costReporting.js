@@ -313,6 +313,7 @@ function calculateSnapshot({ guard, daily, users, billing, orsUsage }) {
             readsToday: guard.firestore.readsToday,
             writesToday: guard.firestore.writesToday,
             deletesToday: guard.firestore.deletesToday,
+            legacyToday: guard.firestore.legacy,
             readsPerActiveUser: denominator && finite(daily.firestore.readsMonth) !== null
                 ? finite(daily.firestore.readsMonth) / denominator
                 : null,
@@ -348,6 +349,14 @@ function buildDailyCostMessage(snapshot) {
     const dataHealth = snapshot.sourceErrors.length
         ? `${snapshot.sourceErrors.length} optional metric source(s) unavailable`
         : "All metric sources responding";
+    const legacyToday = snapshot.firestore.legacyToday;
+    const legacyMonth = snapshot.firestore.legacy;
+    const reconciliationToday = legacyToday
+        ? `${formatCount(legacyToday.readsToday)} R · ${formatCount(legacyToday.writesToday)} W · ${formatCount(legacyToday.deletesToday)} D`
+        : "n/a";
+    const reconciliationMonth = legacyMonth
+        ? `${formatCount(legacyMonth.readsMonth)} R · ${formatCount(legacyMonth.writesMonth)} W · ${formatCount(legacyMonth.deletesMonth)} D`
+        : "n/a";
 
     return {
         channel: "costs",
@@ -358,9 +367,11 @@ function buildDailyCostMessage(snapshot) {
             { name: "Google Cloud", value: `${actualLabel} MTD · ${formatMoney(snapshot.costs.cloudForecast)} forecast` },
             { name: "All-in run-rate", value: `${formatMoney(snapshot.costs.allInMonthlyRunRate)}/month` },
             { name: `Cost per ${snapshot.costs.denominator}`, value: formatMoney(snapshot.costs.costPerActiveUser) },
-            { name: "Users", value: `${formatCount(snapshot.users.registered)} registered · ${formatCount(snapshot.users.monthlyActive)} active · ${formatCount(snapshot.users.premium)} Premium · ${formatCount(snapshot.users.paid)} Lemon-linked` },
-            { name: "Firestore today", value: `${formatCount(snapshot.firestore.readsToday)} R · ${formatCount(snapshot.firestore.writesToday)} W · ${formatCount(snapshot.firestore.deletesToday)} D` },
-            { name: "Firestore month", value: `${formatCount(snapshot.firestore.readsMonth)} R · ${formatCount(snapshot.firestore.writesMonth)} W · ${formatCount(snapshot.firestore.deletesMonth)} D` },
+            { name: "Users", value: `${formatCount(snapshot.users.registered)} active accounts · ${formatCount(snapshot.users.allDocuments)} raw user docs · ${formatCount(snapshot.users.deleted)} deleted · ${formatCount(snapshot.users.monthlyActive)} monthly active · ${formatCount(snapshot.users.premium)} Premium · ${formatCount(snapshot.users.paid)} Lemon-linked` },
+            { name: "Firestore today — canonical", value: `${formatCount(snapshot.firestore.readsToday)} R · ${formatCount(snapshot.firestore.writesToday)} W · ${formatCount(snapshot.firestore.deletesToday)} D` },
+            { name: "Firestore today — legacy check", value: reconciliationToday },
+            { name: "Firestore month — canonical", value: `${formatCount(snapshot.firestore.readsMonth)} R · ${formatCount(snapshot.firestore.writesMonth)} W · ${formatCount(snapshot.firestore.deletesMonth)} D` },
+            { name: "Firestore month — legacy check", value: reconciliationMonth },
             { name: "Per active user", value: `${formatCount(snapshot.firestore.readsPerActiveUser)} reads · ${formatCount(snapshot.firestore.writesPerActiveUser)} writes` },
             { name: "CAPTCHA / App Check", value: `${formatCount(snapshot.recaptcha.assessmentsMonth)} assessments · ${formatCount(snapshot.appCheck.allowed)} allowed · ${formatCount(snapshot.appCheck.denied)} denied · ${formatCount(snapshot.appCheck.invalid)} invalid (${formatPercent(snapshot.appCheck.invalidRate)})` },
             { name: "Functions", value: `${formatCount(snapshot.functions.total)} executions · ${formatCount(snapshot.functions.errors)} errors · ${formatBytes(snapshot.functions.egressBytes)} egress` },
@@ -371,7 +382,7 @@ function buildDailyCostMessage(snapshot) {
             { name: "Cloud cost by service", value: topServices },
             { name: "Data health", value: dataHealth }
         ],
-        footer: "Hourly guard active · next routine summary tomorrow after 08:00 ET"
+        footer: `Firestore day resets at midnight Pacific · canonical ops counters + legacy cross-check · collected ${snapshot.collectedAt}`
     };
 }
 
@@ -416,20 +427,22 @@ async function runHourlyCostMonitoring(options = {}) {
         console.error("[costs] Alert state could not be read.", { message: error && error.message });
     }
 
+    const reportingBoundaries = costMetrics.getReportingBoundaries(nowMs);
+    const dailyDue = options.forceDaily === true ||
+        (state.lastDailyDate !== reportingBoundaries.dateKey && reportingBoundaries.hour >= 8);
+
     const [guard, orsUsage] = await Promise.all([
-        costMetrics.collectGuardMetrics({ ...options, nowMs }),
+        costMetrics.collectGuardMetrics({ ...options, nowMs, includeLegacy: dailyDue }),
         collectOrsCircuitUsage(db, options)
     ]);
     const boundaries = guard.boundaries;
-    const dailyDue = options.forceDaily === true ||
-        (state.lastDailyDate !== boundaries.dateKey && boundaries.hour >= 8);
 
     let snapshot = null;
     let dailyMessageResult = null;
     let dailyAlerts = [];
     if (dailyDue) {
         const [daily, users, billing] = await Promise.all([
-            costMetrics.collectDailyMetrics({ ...options, nowMs }),
+            costMetrics.collectDailyMetrics({ ...options, nowMs, includeLegacy: true }),
             costMetrics.collectUserCounts(db),
             costMetrics.collectBillingCost({ ...options, nowMs })
         ]);

@@ -23,20 +23,20 @@ function fullConfig() {
 function fakeFirestore(counts, failing = new Set()) {
     return {
         collection(name) {
-            return {
+            const query = {
                 where() {
+                    return query;
+                },
+                count() {
                     return {
-                        count() {
-                            return {
-                                async get() {
-                                    if (failing.has(name)) throw new Error(`${name} exploded`);
-                                    return { data: () => ({ count: counts[name] }) };
-                                }
-                            };
+                        async get() {
+                            if (failing.has(name)) throw new Error(`${name} exploded`);
+                            return { data: () => ({ count: counts[name] }) };
                         }
                     };
                 }
             };
+            return query;
         }
     };
 }
@@ -131,6 +131,16 @@ describe("countSince", () => {
     it("returns null instead of throwing when the query fails", async () => {
         const db = fakeFirestore({ feedback: 7 }, new Set(["feedback"]));
         assert.equal(await opsMetrics.countSince(db, "feedback", "createdAt", new Date()), null);
+    });
+});
+
+describe("countBetween", () => {
+    it("returns the aggregation count for a closed period", async () => {
+        const db = fakeFirestore({ feedback: 9 });
+        assert.equal(
+            await opsMetrics.countBetween(db, "feedback", "createdAt", new Date(0), new Date(1)),
+            9
+        );
     });
 });
 

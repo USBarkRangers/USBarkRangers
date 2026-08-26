@@ -8,6 +8,7 @@ const { createHash, createHmac, randomUUID, timingSafeEqual } = require("crypto"
 const nodemailer = require("nodemailer");
 const opsDiscord = require("./opsDiscord.js");
 const opsMetrics = require("./opsMetrics.js");
+const analyticsReporting = require("./analyticsReporting.js");
 const costReporting = require("./costReporting.js");
 const dataIntegrity = require("./dataIntegrity.js");
 const feedbackAttachments = require("./feedbackAttachments.js");
@@ -4089,6 +4090,7 @@ if (process.env.NODE_ENV === "test") {
         dataIntegrity,
         opsDiscord,
         opsMetrics,
+        analyticsReporting,
         feedbackAttachments
     };
 }
@@ -4104,17 +4106,31 @@ exports.dailyErrorDigest = functions
 // Routine-tier rollup: traffic from GoatCounter plus counts from Firestore, in
 // one post. Counts use aggregation queries, so this stays cheap no matter how
 // much the collections grow.
-async function runOpsMetricsRollup({ windowHours, channel, title, mirrors = [] }, options = {}) {
+async function runOpsMetricsRollup({ windowHours, channel, title, mirrors = [], persistSnapshot = false }, options = {}) {
     const db = options.firestore || admin.firestore();
     const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
-    const sinceMs = nowMs - (windowHours * 60 * 60 * 1000);
+    const periodDays = Math.max(1, Math.round(windowHours / 24));
+    const period = analyticsReporting.getCompletedCalendarPeriod(nowMs, periodDays);
+    const sinceMs = period.startMs;
+    const throughMs = period.endMs;
 
     const summary = await opsMetrics.collectOpsMetrics({
         db,
         sinceDate: Timestamp.fromMillis(sinceMs),
+        throughDate: Timestamp.fromMillis(throughMs),
         sinceMs,
-        nowMs
+        nowMs: throughMs,
+        startDate: period.startDate,
+        endDate: period.endDate
     }, options);
+    summary.collectedAt = new Date(nowMs).toISOString();
+    summary.period = period;
+    summary.periodLabel = period.label;
+
+    if (persistSnapshot) {
+        const snapshot = await analyticsReporting.saveAnalyticsSnapshot(db, summary, period, { nowMs });
+        summary.cumulative = snapshot.cumulative;
+    }
 
     const paymentFunnelAlert = opsMetrics.buildPaymentFunnelAlertMessage(summary.traffic);
     if (paymentFunnelAlert) {
@@ -4141,13 +4157,17 @@ async function runOpsMetricsRollup({ windowHours, channel, title, mirrors = [] }
 // the cheap Firestore aggregation counts in the same scheduled rollup.
 exports.dailyOpsMetrics = functions
     .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON", "GOATCOUNTER_API_TOKEN"] })
-    .pubsub.schedule("0 8 * * *")
+    // GA4's finalized prior-day report is typically ready later in the day.
+    // Posting after 16:00 ET avoids presenting an intraday reprocessing value
+    // as final while still preserving GoatCounter as an immediate cross-check.
+    .pubsub.schedule("15 16 * * *")
     .timeZone("America/New_York")
     .onRun(async () => {
         return runOpsMetricsRollup({
             windowHours: 24,
             channel: "dailyMetrics",
             title: "Daily metrics",
+            persistSnapshot: true,
             // Reuse the same already-collected summary. This gives the launch
             // room a daily health pulse with no additional Firestore reads and
             // no additional scheduler job.
@@ -4157,7 +4177,7 @@ exports.dailyOpsMetrics = functions
 
 exports.weeklyOpsReport = functions
     .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON", "GOATCOUNTER_API_TOKEN"] })
-    .pubsub.schedule("5 8 * * 1")
+    .pubsub.schedule("20 16 * * 1")
     .timeZone("America/New_York")
     .onRun(async () => {
         return runOpsMetricsRollup({

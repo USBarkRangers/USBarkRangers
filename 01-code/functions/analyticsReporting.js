@@ -1,0 +1,191 @@
+"use strict";
+
+// ===== SHARED ANALYTICS SNAPSHOT =====
+// One compact document is the contract shared by Discord and CarterSwarm. Raw
+// provider values remain visible for reconciliation; cumulative observed totals
+// are monotonic so a rolling window or provider reprocessing cannot make an
+// all-time counter move backwards during the day.
+
+const { FieldValue } = require("firebase-admin/firestore");
+
+const ANALYTICS_SNAPSHOT_PATH = "system/analyticsStatus";
+const ANALYTICS_TIME_ZONE = "America/New_York";
+const MAX_FINALIZED_DAYS = 400;
+
+function dateKeyInZone(nowMs, timeZone = ANALYTICS_TIME_ZONE) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+    }).formatToParts(new Date(nowMs));
+    const values = Object.fromEntries(parts.filter(part => part.type !== "literal").map(part => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+}
+
+function shiftDateKey(dateKey, days) {
+    const [year, month, day] = String(dateKey).split("-").map(Number);
+    return new Date(Date.UTC(year, month - 1, day + days, 12)).toISOString().slice(0, 10);
+}
+
+function timeZoneOffsetMs(timestampMs, timeZone) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23"
+    }).formatToParts(new Date(timestampMs));
+    const values = Object.fromEntries(parts.filter(part => part.type !== "literal").map(part => [part.type, part.value]));
+    return Date.UTC(
+        Number(values.year), Number(values.month) - 1, Number(values.day),
+        Number(values.hour), Number(values.minute), Number(values.second)
+    ) - Math.floor(timestampMs / 1000) * 1000;
+}
+
+function startOfDateKeyMs(dateKey, timeZone = ANALYTICS_TIME_ZONE) {
+    const [year, month, day] = String(dateKey).split("-").map(Number);
+    const target = Date.UTC(year, month - 1, day);
+    let guess = target;
+    for (let index = 0; index < 3; index += 1) {
+        guess = target - timeZoneOffsetMs(guess, timeZone);
+    }
+    return guess;
+}
+
+function getCompletedCalendarPeriod(nowMs = Date.now(), days = 1, timeZone = ANALYTICS_TIME_ZONE) {
+    const currentDate = dateKeyInZone(nowMs, timeZone);
+    const endDate = shiftDateKey(currentDate, -1);
+    const startDate = shiftDateKey(endDate, -(Math.max(1, days) - 1));
+    const endExclusiveDate = shiftDateKey(endDate, 1);
+    const startMs = startOfDateKeyMs(startDate, timeZone);
+    const endMs = startOfDateKeyMs(endExclusiveDate, timeZone);
+    return {
+        startDate,
+        endDate,
+        startMs,
+        endMs,
+        days: Math.max(1, days),
+        timeZone,
+        label: days === 1 ? `${endDate} finalized day` : `${startDate} through ${endDate}`
+    };
+}
+
+function finiteOrNull(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.max(0, Math.round(number)) : null;
+}
+
+function maxObserved(previous, reported) {
+    const oldValue = finiteOrNull(previous);
+    const newValue = finiteOrNull(reported);
+    if (oldValue === null) return newValue;
+    if (newValue === null) return oldValue;
+    return Math.max(oldValue, newValue);
+}
+
+function reportedTotals(summary) {
+    const ga = summary && summary.ga4 && summary.ga4.allTime;
+    const goat = summary && summary.traffic && summary.traffic.allTime;
+    return {
+        ga4: ga ? {
+            totalUsers: finiteOrNull(ga.totalUsers),
+            appOpens: finiteOrNull(ga.appOpens),
+            screenViews: finiteOrNull(ga.screenViews)
+        } : null,
+        goatCounter: goat ? {
+            sessions: finiteOrNull(goat.sessions),
+            appOpens: finiteOrNull(goat.appOpens),
+            pageVisits: finiteOrNull(goat.pageVisits),
+            partial: goat.partial === true
+        } : null
+    };
+}
+
+function mergeProvider(previous, reported, fields) {
+    const old = previous && typeof previous === "object" ? previous : {};
+    const fresh = reported && typeof reported === "object" ? reported : {};
+    return Object.fromEntries(fields.map(field => [field, maxObserved(old[field], fresh[field])]));
+}
+
+function buildAnalyticsSnapshot(previous = {}, summary, period, collectedAt) {
+    const providerReported = reportedTotals(summary);
+    const priorObserved = previous.cumulative && previous.cumulative.monotonicObserved || {};
+    const monotonicObserved = {
+        ga4: mergeProvider(priorObserved.ga4, providerReported.ga4, ["totalUsers", "appOpens", "screenViews"]),
+        goatCounter: mergeProvider(priorObserved.goatCounter, providerReported.goatCounter, ["sessions", "appOpens", "pageVisits"])
+    };
+
+    const previousDays = previous.finalizedDays && typeof previous.finalizedDays === "object"
+        ? previous.finalizedDays
+        : {};
+    const finalizedDays = { ...previousDays };
+    if (period.days === 1) {
+        finalizedDays[period.endDate] = {
+            capturedAt: collectedAt,
+            ga4: summary.ga4 ? summary.ga4.period : null,
+            goatCounter: summary.traffic ? {
+                sessions: summary.traffic.appVisits,
+                appOpens: summary.traffic.appOpens,
+                repeatOpens: summary.traffic.repeatOpens
+            } : null
+        };
+    }
+    const retainedDays = Object.fromEntries(Object.entries(finalizedDays)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .slice(-MAX_FINALIZED_DAYS));
+
+    return {
+        version: 1,
+        collectedAt,
+        period,
+        cumulative: {
+            providerReported,
+            monotonicObserved,
+            ga4TrackingStartDate: summary.ga4 && summary.ga4.trackingStartDate || null,
+            goatCounterTrackingStartDate: summary.traffic && summary.traffic.allTime && summary.traffic.allTime.trackingStartDate || null
+        },
+        latest: {
+            ga4: summary.ga4 || null,
+            goatCounter: summary.traffic || null
+        },
+        finalizedDays: retainedDays
+    };
+}
+
+async function saveAnalyticsSnapshot(db, summary, period, options = {}) {
+    const reference = db.doc(ANALYTICS_SNAPSHOT_PATH);
+    let previous = {};
+    try {
+        const snapshot = await reference.get();
+        previous = snapshot && snapshot.exists && typeof snapshot.data === "function" ? snapshot.data() : {};
+    } catch (error) {
+        console.error("[metrics] Previous analytics snapshot could not be read.", { message: error && error.message });
+    }
+    const collectedAt = options.collectedAt || new Date(options.nowMs || Date.now()).toISOString();
+    const next = buildAnalyticsSnapshot(previous, summary, period, collectedAt);
+    try {
+        await reference.set({ ...next, updatedAt: FieldValue.serverTimestamp() }, { merge: false });
+    } catch (error) {
+        console.error("[metrics] Analytics snapshot could not be saved.", { message: error && error.message });
+    }
+    return next;
+}
+
+module.exports = {
+    ANALYTICS_SNAPSHOT_PATH,
+    ANALYTICS_TIME_ZONE,
+    MAX_FINALIZED_DAYS,
+    dateKeyInZone,
+    shiftDateKey,
+    startOfDateKeyMs,
+    getCompletedCalendarPeriod,
+    finiteOrNull,
+    maxObserved,
+    reportedTotals,
+    buildAnalyticsSnapshot,
+    saveAnalyticsSnapshot
+};

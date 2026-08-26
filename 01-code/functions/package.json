@@ -16,6 +16,6 @@
   "main": "index.js",
   "private": true,
   "scripts": {
-    "test": "NODE_ENV=test node --test tests/ors-entitlement.test.js tests/ors-telemetry.test.js tests/route-response-compact.test.js tests/callable-rate-limit.test.js tests/checkout-session.test.js tests/lemonsqueezy-webhook.test.js tests/leaderboard-sync.test.js tests/lemon-coupon.test.js tests/feedback.test.js tests/feedback-attachments.test.js tests/payment-alert.test.js tests/client-error-report.test.js tests/error-digest.test.js tests/ops-discord.test.js tests/ops-metrics.test.js tests/cost-metrics.test.js tests/cost-reporting.test.js tests/data-integrity.test.js"
+    "test": "NODE_ENV=test node --test tests/ors-entitlement.test.js tests/ors-telemetry.test.js tests/route-response-compact.test.js tests/callable-rate-limit.test.js tests/checkout-session.test.js tests/lemonsqueezy-webhook.test.js tests/leaderboard-sync.test.js tests/lemon-coupon.test.js tests/feedback.test.js tests/feedback-attachments.test.js tests/payment-alert.test.js tests/client-error-report.test.js tests/error-digest.test.js tests/ops-discord.test.js tests/ops-metrics.test.js tests/ga4-metrics.test.js tests/analytics-reporting.test.js tests/cost-metrics.test.js tests/cost-reporting.test.js tests/data-integrity.test.js"
   }
 }

@@ -12,13 +12,19 @@ const PROJECT_ID = process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJEC
 const BILLING_DATASET_ID = "bark_cost_export";
 const BILLING_TABLE_PREFIX = "gcp_billing_export_v1_";
 const BIGQUERY_MAX_BYTES_BILLED = 1024 * 1024 * 1024; // 1 GiB hard ceiling per daily query.
-const EASTERN_TIME_ZONE = "America/New_York";
+const FIRESTORE_BILLING_TIME_ZONE = "America/Los_Angeles";
 const GIB = 1024 ** 3;
 
 const METRICS = Object.freeze({
-    firestoreReads: "firestore.googleapis.com/document/read_count",
-    firestoreWrites: "firestore.googleapis.com/document/write_count",
-    firestoreDeletes: "firestore.googleapis.com/document/delete_count",
+    // Database-scoped operation counters are the canonical source used by the
+    // CarterSwarm dashboard. Legacy instance-scoped counters are collected on
+    // the daily run only as an independent reconciliation check.
+    firestoreReads: "firestore.googleapis.com/document/read_ops_count",
+    firestoreWrites: "firestore.googleapis.com/document/write_ops_count",
+    firestoreDeletes: "firestore.googleapis.com/document/delete_ops_count",
+    firestoreReadsLegacy: "firestore.googleapis.com/document/read_count",
+    firestoreWritesLegacy: "firestore.googleapis.com/document/write_count",
+    firestoreDeletesLegacy: "firestore.googleapis.com/document/delete_count",
     functionExecutions: "cloudfunctions.googleapis.com/function/execution_count",
     functionEgress: "cloudfunctions.googleapis.com/function/network_egress",
     // The monthly_sent gauge is duplicated once per mapped domain. Summing it
@@ -64,7 +70,7 @@ function sumLatestGaugeSeries(series = []) {
     }, 0);
 }
 
-function formatDateInZone(nowMs, timeZone = EASTERN_TIME_ZONE) {
+function formatDateInZone(nowMs, timeZone = FIRESTORE_BILLING_TIME_ZONE) {
     const parts = new Intl.DateTimeFormat("en-US", {
         timeZone,
         year: "numeric",
@@ -83,7 +89,7 @@ function formatDateInZone(nowMs, timeZone = EASTERN_TIME_ZONE) {
     };
 }
 
-function timeZoneOffsetMs(timestampMs, timeZone = EASTERN_TIME_ZONE) {
+function timeZoneOffsetMs(timestampMs, timeZone = FIRESTORE_BILLING_TIME_ZONE) {
     const parts = new Intl.DateTimeFormat("en-US", {
         timeZone,
         year: "numeric",
@@ -102,7 +108,7 @@ function timeZoneOffsetMs(timestampMs, timeZone = EASTERN_TIME_ZONE) {
     return representedAsUtc - Math.floor(timestampMs / 1000) * 1000;
 }
 
-function zonedDateTimeToUtcMs({ year, month, day, hour = 0 }, timeZone = EASTERN_TIME_ZONE) {
+function zonedDateTimeToUtcMs({ year, month, day, hour = 0 }, timeZone = FIRESTORE_BILLING_TIME_ZONE) {
     const targetAsUtc = Date.UTC(year, month - 1, day, hour, 0, 0);
     let guess = targetAsUtc;
     for (let i = 0; i < 3; i += 1) {
@@ -111,15 +117,19 @@ function zonedDateTimeToUtcMs({ year, month, day, hour = 0 }, timeZone = EASTERN
     return guess;
 }
 
-function getReportingBoundaries(nowMs = Date.now()) {
-    const eastern = formatDateInZone(nowMs);
-    const dayStartMs = zonedDateTimeToUtcMs({ ...eastern, hour: 0 });
-    const monthStartMs = zonedDateTimeToUtcMs({ ...eastern, day: 1, hour: 0 });
-    const nextMonthYear = eastern.month === 12 ? eastern.year + 1 : eastern.year;
-    const nextMonth = eastern.month === 12 ? 1 : eastern.month + 1;
-    const nextMonthStartMs = zonedDateTimeToUtcMs({ year: nextMonthYear, month: nextMonth, day: 1 });
+function getReportingBoundaries(nowMs = Date.now(), timeZone = FIRESTORE_BILLING_TIME_ZONE) {
+    const local = formatDateInZone(nowMs, timeZone);
+    const dayStartMs = zonedDateTimeToUtcMs({ ...local, hour: 0 }, timeZone);
+    const monthStartMs = zonedDateTimeToUtcMs({ ...local, day: 1, hour: 0 }, timeZone);
+    const nextMonthYear = local.month === 12 ? local.year + 1 : local.year;
+    const nextMonth = local.month === 12 ? 1 : local.month + 1;
+    const nextMonthStartMs = zonedDateTimeToUtcMs(
+        { year: nextMonthYear, month: nextMonth, day: 1 },
+        timeZone
+    );
     return {
-        ...eastern,
+        ...local,
+        timeZone,
         dayStartMs,
         monthStartMs,
         nextMonthStartMs,
@@ -244,13 +254,17 @@ async function collectGuardMetrics(options = {}) {
     const month = { startMs: boundaries.monthStartMs, endMs: nowMs, aligner: "ALIGN_SUM", alignmentPeriod: "3600s" };
     const hour = { startMs: Math.max(boundaries.dayStartMs, nowMs - 60 * 60 * 1000), endMs: nowMs, aligner: "ALIGN_SUM", alignmentPeriod: "3600s" };
 
-    const [reads, writes, deletes, recaptcha, appCheck, functions] = await Promise.all([
+    const includeLegacy = options.includeLegacy === true;
+    const [reads, writes, deletes, recaptcha, appCheck, functions, legacyReads, legacyWrites, legacyDeletes] = await Promise.all([
         safeListTimeSeries(METRICS.firestoreReads, day, options, errors),
         safeListTimeSeries(METRICS.firestoreWrites, day, options, errors),
         safeListTimeSeries(METRICS.firestoreDeletes, day, options, errors),
         safeListTimeSeries(METRICS.recaptchaAssessments, month, options, errors),
         safeListTimeSeries(METRICS.appCheckVerifications, hour, options, errors),
-        safeListTimeSeries(METRICS.functionExecutions, hour, options, errors)
+        safeListTimeSeries(METRICS.functionExecutions, hour, options, errors),
+        includeLegacy ? safeListTimeSeries(METRICS.firestoreReadsLegacy, day, options, errors) : Promise.resolve(null),
+        includeLegacy ? safeListTimeSeries(METRICS.firestoreWritesLegacy, day, options, errors) : Promise.resolve(null),
+        includeLegacy ? safeListTimeSeries(METRICS.firestoreDeletesLegacy, day, options, errors) : Promise.resolve(null)
     ]);
 
     return {
@@ -259,7 +273,12 @@ async function collectGuardMetrics(options = {}) {
         firestore: {
             readsToday: Array.isArray(reads) ? sumDeltaSeries(reads) : null,
             writesToday: Array.isArray(writes) ? sumDeltaSeries(writes) : null,
-            deletesToday: Array.isArray(deletes) ? sumDeltaSeries(deletes) : null
+            deletesToday: Array.isArray(deletes) ? sumDeltaSeries(deletes) : null,
+            legacy: includeLegacy ? {
+                readsToday: Array.isArray(legacyReads) ? sumDeltaSeries(legacyReads) : null,
+                writesToday: Array.isArray(legacyWrites) ? sumDeltaSeries(legacyWrites) : null,
+                deletesToday: Array.isArray(legacyDeletes) ? sumDeltaSeries(legacyDeletes) : null
+            } : null
         },
         recaptcha: { assessmentsMonth: Array.isArray(recaptcha) ? sumDeltaSeries(recaptcha) : null },
         appCheck: buildAppCheckSummary(appCheck),
@@ -275,8 +294,10 @@ async function collectDailyMetrics(options = {}) {
     const month = { startMs: boundaries.monthStartMs, endMs: nowMs, aligner: "ALIGN_SUM", alignmentPeriod: "86400s" };
     const recentGauge = { startMs: nowMs - 3 * 86_400_000, endMs: nowMs, aligner: "ALIGN_MAX", alignmentPeriod: "86400s" };
 
+    const includeLegacy = options.includeLegacy === true;
     const [reads, writes, deletes, executions, egress, hostingSent, hostingStorage, logging,
-        recaptcha, appCheck, monthlyActive, firestoreStorage, firestorePitr, firestoreBackups] = await Promise.all([
+        recaptcha, appCheck, monthlyActive, firestoreStorage, firestorePitr, firestoreBackups,
+        legacyReads, legacyWrites, legacyDeletes] = await Promise.all([
         safeListTimeSeries(METRICS.firestoreReads, month, options, errors),
         safeListTimeSeries(METRICS.firestoreWrites, month, options, errors),
         safeListTimeSeries(METRICS.firestoreDeletes, month, options, errors),
@@ -290,7 +311,10 @@ async function collectDailyMetrics(options = {}) {
         safeListTimeSeries(METRICS.monthlyActiveUsers, month, options, errors),
         safeListTimeSeries(METRICS.firestoreStorage, recentGauge, options, errors),
         safeListTimeSeries(METRICS.firestorePitr, recentGauge, options, errors),
-        safeListTimeSeries(METRICS.firestoreBackups, recentGauge, options, errors)
+        safeListTimeSeries(METRICS.firestoreBackups, recentGauge, options, errors),
+        includeLegacy ? safeListTimeSeries(METRICS.firestoreReadsLegacy, month, options, errors) : Promise.resolve(null),
+        includeLegacy ? safeListTimeSeries(METRICS.firestoreWritesLegacy, month, options, errors) : Promise.resolve(null),
+        includeLegacy ? safeListTimeSeries(METRICS.firestoreDeletesLegacy, month, options, errors) : Promise.resolve(null)
     ]);
 
     return {
@@ -302,7 +326,12 @@ async function collectDailyMetrics(options = {}) {
             deletesMonth: Array.isArray(deletes) ? sumDeltaSeries(deletes) : null,
             storageBytes: Array.isArray(firestoreStorage) ? sumLatestGaugeSeries(firestoreStorage) : null,
             pitrBytes: Array.isArray(firestorePitr) ? sumLatestGaugeSeries(firestorePitr) : null,
-            backupBytes: Array.isArray(firestoreBackups) ? sumLatestGaugeSeries(firestoreBackups) : null
+            backupBytes: Array.isArray(firestoreBackups) ? sumLatestGaugeSeries(firestoreBackups) : null,
+            legacy: includeLegacy ? {
+                readsMonth: Array.isArray(legacyReads) ? sumDeltaSeries(legacyReads) : null,
+                writesMonth: Array.isArray(legacyWrites) ? sumDeltaSeries(legacyWrites) : null,
+                deletesMonth: Array.isArray(legacyDeletes) ? sumDeltaSeries(legacyDeletes) : null
+            } : null
         },
         functions: {
             ...buildFunctionSummary(executions),
@@ -335,12 +364,16 @@ async function collectUserCounts(db) {
             return null;
         }
     };
-    const [registered, premium, paid] = await Promise.all([
-        safeCount("registered", db.collection("users")),
+    const [allDocuments, deleted, premium, paid] = await Promise.all([
+        safeCount("all user documents", db.collection("users")),
+        safeCount("deleted users", db.collection("users").where("accountDeleted", "==", true)),
         safeCount("premium", db.collection("users").where("entitlement.premium", "==", true)),
         safeCount("paid", db.collection("users").where("entitlement.source", "==", "lemon_squeezy"))
     ]);
-    return { registered, premium, paid };
+    const registered = allDocuments === null || deleted === null
+        ? null
+        : Math.max(0, allDocuments - deleted);
+    return { registered, allDocuments, deleted, premium, paid };
 }
 
 async function findBillingExportTable(bigquery, projectId, datasetId) {
@@ -448,7 +481,7 @@ module.exports = {
     BILLING_DATASET_ID,
     BILLING_TABLE_PREFIX,
     BIGQUERY_MAX_BYTES_BILLED,
-    EASTERN_TIME_ZONE,
+    FIRESTORE_BILLING_TIME_ZONE,
     GIB,
     numericPointValue,
     getSeriesLabels,

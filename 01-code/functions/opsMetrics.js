@@ -11,6 +11,7 @@
 // at one read per 1000 matched documents).
 
 const axios = require("axios");
+const ga4Metrics = require("./ga4Metrics.js");
 
 const GOATCOUNTER_SITE_ENV = "GOATCOUNTER_SITE";
 const GOATCOUNTER_TOKEN_ENV = "GOATCOUNTER_API_TOKEN";
@@ -18,6 +19,7 @@ const DEFAULT_GOATCOUNTER_SITE = "https://carterswarm.goatcounter.com";
 const GOATCOUNTER_TIMEOUT_MS = 8000;
 const TOP_PAGE_LIMIT = 5;
 const GOATCOUNTER_HIT_LIMIT = 100;
+const TRAFFIC_TRACKING_START_ISO = "2026-01-01T00:00:00.000Z";
 const PAYMENT_FUNNEL_EVENTS = Object.freeze([
     "paywall-open",
     "checkout-clicked",
@@ -95,11 +97,22 @@ async function fetchGoatCounterStats(sinceMs, nowMs, options = {}) {
     };
 
     try {
-        const hitsRes = await get(`${site}/api/v0/stats/hits`, {
-            ...config,
-            params: { ...params, limit: GOATCOUNTER_HIT_LIMIT }
-        });
+        const [hitsRes, lifetimeHitsRes] = await Promise.all([
+            get(`${site}/api/v0/stats/hits`, {
+                ...config,
+                params: { ...params, limit: GOATCOUNTER_HIT_LIMIT }
+            }),
+            get(`${site}/api/v0/stats/hits`, {
+                ...config,
+                params: {
+                    start: TRAFFIC_TRACKING_START_ISO,
+                    end: toIsoHour(nowMs),
+                    limit: GOATCOUNTER_HIT_LIMIT
+                }
+            })
+        ]);
         const hits = ((hitsRes && hitsRes.data) || {}).hits || [];
+        const lifetimeHits = ((lifetimeHitsRes && lifetimeHitsRes.data) || {}).hits || [];
 
         const funnel = Object.fromEntries(PAYMENT_FUNNEL_EVENTS.map((name) => [name, 0]));
         hits.forEach((hit) => {
@@ -146,6 +159,11 @@ async function fetchGoatCounterStats(sinceMs, nowMs, options = {}) {
             audience[key] += Number(hit.count) || 0;
         });
         const hasAudienceEvents = hits.some((hit) => /^event-audience-(production|beta)-(logged-out|free|premium)$/i.test(getHitPath(hit)));
+        const lifetimeCount = (matcher) => lifetimeHits
+            .filter((hit) => matcher(normalizeHitPath(getHitPath(hit)), hit))
+            .reduce((total, hit) => total + (Number(hit.count) || 0), 0);
+        const lifetimeHasOpenEvents = lifetimeHits.some((hit) => /^event-app-open-(production|beta)$/i.test(getHitPath(hit)));
+        const lifetimeHasSessionEvents = lifetimeHits.some((hit) => /^event-app-session-(production|beta)$/i.test(getHitPath(hit)));
 
         return {
             // GoatCounter calls these "visits": one visit per path for the same
@@ -161,6 +179,17 @@ async function fetchGoatCounterStats(sinceMs, nowMs, options = {}) {
             betaOpens: hasOpenEvents ? betaOpens : null,
             repeatOpens: hasOpenEvents ? Math.max(0, appOpens - appVisits) : null,
             audience: hasAudienceEvents ? audience : null,
+            allTime: {
+                appOpens: lifetimeHasOpenEvents
+                    ? lifetimeCount(path => /^event-app-open-(production|beta)$/.test(path))
+                    : null,
+                sessions: lifetimeHasSessionEvents
+                    ? lifetimeCount(path => /^event-app-session-(production|beta)$/.test(path))
+                    : null,
+                pageVisits: lifetimeCount((_path, hit) => isBarkAppPage(hit)),
+                trackingStartDate: TRAFFIC_TRACKING_START_ISO.slice(0, 10),
+                partial: Boolean(lifetimeHitsRes && lifetimeHitsRes.data && lifetimeHitsRes.data.more)
+            },
             topPages: pageHits.slice(0, TOP_PAGE_LIMIT).map((hit) => ({
                 path: getHitPath(hit) || "(unknown)",
                 count: Number(hit.count) || 0
@@ -192,12 +221,34 @@ async function countSince(db, collection, field, sinceDate) {
     }
 }
 
-async function collectOpsMetrics({ db, sinceDate, sinceMs, nowMs }, options = {}) {
-    const [feedback, clientErrors, billingEvents, traffic] = await Promise.all([
-        countSince(db, "feedback", "createdAt", sinceDate),
-        countSince(db, "clientErrors", "createdAt", sinceDate),
-        countSince(db, "_lemonSqueezyWebhookEvents", "receivedAt", sinceDate),
-        fetchGoatCounterStats(sinceMs, nowMs, options)
+// Count a closed reporting window. Daily/weekly messages report completed
+// calendar periods, so the upper bound prevents current-day activity from
+// leaking into yesterday's totals.
+async function countBetween(db, collection, field, sinceDate, beforeDate) {
+    try {
+        const snapshot = await db.collection(collection)
+            .where(field, ">=", sinceDate)
+            .where(field, "<", beforeDate)
+            .count()
+            .get();
+        const value = snapshot && typeof snapshot.data === "function" ? snapshot.data().count : null;
+        return Number.isFinite(Number(value)) ? Number(value) : null;
+    } catch (err) {
+        console.error(`[metrics] bounded count on ${collection} failed:`, err && err.message);
+        return null;
+    }
+}
+
+async function collectOpsMetrics({ db, sinceDate, throughDate, sinceMs, nowMs, startDate, endDate }, options = {}) {
+    const countPeriod = (collection, field) => throughDate
+        ? countBetween(db, collection, field, sinceDate, throughDate)
+        : countSince(db, collection, field, sinceDate);
+    const [feedback, clientErrors, billingEvents, traffic, ga4] = await Promise.all([
+        countPeriod("feedback", "createdAt"),
+        countPeriod("clientErrors", "createdAt"),
+        countPeriod("_lemonSqueezyWebhookEvents", "receivedAt"),
+        fetchGoatCounterStats(sinceMs, nowMs, options),
+        ga4Metrics.fetchGa4VisitorStats(startDate, endDate, options)
     ]);
 
     return {
@@ -205,7 +256,8 @@ async function collectOpsMetrics({ db, sinceDate, sinceMs, nowMs }, options = {}
         feedback,
         clientErrors,
         billingEvents,
-        traffic
+        traffic,
+        ga4
     };
 }
 
@@ -215,6 +267,7 @@ function formatCount(value) {
 
 function buildMetricsMessage(summary, { channel, title }) {
     const traffic = summary.traffic;
+    const ga4 = summary.ga4;
     const parkData = summary.parkData;
     const parkDataValue = !parkData
         ? null
@@ -224,6 +277,9 @@ function buildMetricsMessage(summary, { channel, title }) {
                 ? `${parkData.validMapRows} map / ${parkData.uniqueAwardSites} Awards ✅`
                 : `${parkData.validMapRows} map / ${parkData.uniqueAwardSites} Awards ⚠️`));
     const fields = [
+        { name: "Daily unique visitors (GA4)", value: ga4 ? formatCount(ga4.period.totalUsers) : "n/a" },
+        { name: "New / returning (GA4)", value: ga4 ? `${formatCount(ga4.period.newUsers)} / ${formatCount(ga4.period.returningUsers)}` : "n/a" },
+        { name: "Sessions / screen views (GA4)", value: ga4 ? `${formatCount(ga4.period.sessions)} / ${formatCount(ga4.period.screenViews)}` : "n/a" },
         { name: "App opens", value: traffic ? formatCount(traffic.appOpens) : "n/a" },
         { name: "8h app sessions", value: traffic ? formatCount(traffic.appVisits) : "n/a" },
         { name: "Repeat opens", value: traffic ? formatCount(traffic.repeatOpens) : "n/a" },
@@ -233,6 +289,20 @@ function buildMetricsMessage(summary, { channel, title }) {
         { name: "Billing events", value: formatCount(summary.billingEvents) },
         { name: "Park data", value: parkDataValue }
     ];
+    if (summary.cumulative) {
+        const gaObserved = summary.cumulative.monotonicObserved && summary.cumulative.monotonicObserved.ga4;
+        const goatObserved = summary.cumulative.monotonicObserved && summary.cumulative.monotonicObserved.goatCounter;
+        fields.push({
+            name: "Cumulative tracked activity",
+            value: `GA4 ${formatCount(gaObserved && gaObserved.screenViews)} screens · ${formatCount(gaObserved && gaObserved.appOpens)} opens · ${formatCount(gaObserved && gaObserved.totalUsers)} visitors\nGoatCounter ${formatCount(goatObserved && goatObserved.sessions)} 8h sessions · ${formatCount(goatObserved && goatObserved.appOpens)} opens`
+        });
+        fields.push({
+            name: "Independent traffic check",
+            value: ga4 && traffic
+                ? `GA4 ${formatCount(ga4.period.totalUsers)} daily visitors · GoatCounter ${formatCount(traffic.appVisits)} 8h sessions (different definitions)`
+                : "One or both traffic sources unavailable"
+        });
+    }
     const funnel = traffic && traffic.paymentFunnel;
     if (funnel) {
         fields.push({
@@ -261,7 +331,7 @@ function buildMetricsMessage(summary, { channel, title }) {
         title,
         description: topPages ? `**Top pages**\n${topPages}` : (traffic ? null : "Traffic data unavailable."),
         fields,
-        footer: `last ${summary.windowHours}h · GoatCounter visit = same browser/IP deduped for 8h · dashboard has detail`
+        footer: `${summary.periodLabel || `last ${summary.windowHours}h`} · GA4 is identity/session source · GoatCounter is independent 8h cross-check · collected ${summary.collectedAt || "now"}`
     };
 }
 
@@ -290,6 +360,7 @@ module.exports = {
     collectOpsMetrics,
     fetchGoatCounterStats,
     countSince,
+    countBetween,
     buildMetricsMessage,
     buildPaymentFunnelAlertMessage,
     getGoatCounterSite,
@@ -300,5 +371,6 @@ module.exports = {
     GOATCOUNTER_SITE_ENV,
     GOATCOUNTER_TOKEN_ENV,
     DEFAULT_GOATCOUNTER_SITE,
+    TRAFFIC_TRACKING_START_ISO,
     PAYMENT_FUNNEL_EVENTS
 };

@@ -951,6 +951,14 @@ function updatePremiumEntitlement(rawEntitlement, user, reason) {
 }
 
 function trackAnalyticsAudience(kind) {
+    const visitorAnalytics = window.BARK && window.BARK.visitorAnalytics;
+    if (visitorAnalytics && typeof visitorAnalytics.setAudience === 'function') {
+        const user = typeof firebase !== 'undefined' && firebase.auth
+            ? firebase.auth().currentUser
+            : null;
+        visitorAnalytics.setAudience(kind, user);
+    }
+
     const monitoring = window.BARK && window.BARK.monitoring;
     if (!monitoring || typeof monitoring.trackSessionEvent !== 'function' ||
         typeof monitoring.getReleaseChannel !== 'function') return;
@@ -1293,6 +1301,9 @@ async function initFirebase() {
 
     try {
         firebase.initializeApp(getEffectiveFirebaseConfig());
+        if (window.BARK.visitorAnalytics && typeof window.BARK.visitorAnalytics.init === 'function') {
+            await window.BARK.visitorAnalytics.init();
+        }
         initializeFirebaseAppCheck();
         await ensureLocalAuthPersistence();
     } catch (error) {

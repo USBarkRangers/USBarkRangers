@@ -167,8 +167,8 @@ describe("hourly cost job read/write ceiling", () => {
             discordConfig: fullConfig(),
             discordSender: async (url, payload) => { sent.push({ url, payload }); }
         });
-        assert.equal(monitoringCalls.length, 20); // 6 guard + 14 daily, fixed regardless of users.
-        assert.equal(db.stats.aggregateReads, 3); // count() aggregations, not document scans.
+        assert.equal(monitoringCalls.length, 26); // 9 guard + 17 daily, including the once-daily legacy check.
+        assert.equal(db.stats.aggregateReads, 4); // active count includes a deleted-account aggregation; no document scan.
         assert.equal(db.stats.writes.length, 2); // one snapshot + one state update.
         assert.equal(sent.length, 1);
         assert.equal(sent[0].url, `${HOOK}-costs`);

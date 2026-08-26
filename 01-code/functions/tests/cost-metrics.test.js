@@ -29,11 +29,12 @@ describe("cost metric primitives", () => {
         }]), 8);
     });
 
-    it("uses Eastern calendar boundaries across daylight saving time", () => {
+    it("uses the Pacific Firebase quota-day boundaries across daylight saving time", () => {
         const summer = costMetrics.getReportingBoundaries(Date.parse("2026-08-26T16:00:00Z"));
-        assert.equal(new Date(summer.dayStartMs).toISOString(), "2026-08-26T04:00:00.000Z");
+        assert.equal(new Date(summer.dayStartMs).toISOString(), "2026-08-26T07:00:00.000Z");
         const winter = costMetrics.getReportingBoundaries(Date.parse("2026-01-26T16:00:00Z"));
-        assert.equal(new Date(winter.dayStartMs).toISOString(), "2026-01-26T05:00:00.000Z");
+        assert.equal(new Date(winter.dayStartMs).toISOString(), "2026-01-26T08:00:00.000Z");
+        assert.equal(summer.timeZone, costMetrics.FIRESTORE_BILLING_TIME_ZONE);
     });
 
     it("matches the published reCAPTCHA tier boundaries", () => {
@@ -82,6 +83,21 @@ describe("collectGuardMetrics", () => {
         assert.equal(result.firestore.readsToday, null);
         assert.equal(result.functionsHour.total, null);
         assert.equal(result.sourceErrors.length, 6);
+    });
+
+    it("keeps legacy counters as a daily-only reconciliation source", async () => {
+        const calls = [];
+        const result = await costMetrics.collectGuardMetrics({
+            nowMs: Date.parse("2026-08-26T16:00:00Z"),
+            includeLegacy: true,
+            listTimeSeries: async metricType => {
+                calls.push(metricType);
+                return series(metricType.endsWith("read_count") ? 119 : 120);
+            }
+        });
+        assert.equal(calls.length, 9);
+        assert.equal(result.firestore.readsToday, 120);
+        assert.equal(result.firestore.legacy.readsToday, 119);
     });
 });
 

@@ -689,6 +689,11 @@ function activateNavItem(btn) {
     const targetId = btn.getAttribute('data-target');
     if (!targetId) return;
 
+    const visitorAnalytics = window.BARK.visitorAnalytics;
+    if (visitorAnalytics && typeof visitorAnalytics.trackScreen === 'function') {
+        visitorAnalytics.trackScreen(targetId);
+    }
+
     if (typeof window.BARK.closeSettingsModal === 'function') {
         window.BARK.closeSettingsModal();
     }

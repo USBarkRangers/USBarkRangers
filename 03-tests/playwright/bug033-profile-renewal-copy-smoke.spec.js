@@ -54,5 +54,8 @@ test('renewal date appears in lower account billing but not the profile premium 
     await expect(page.locator('#profile-premium-copy')).not.toContainText(/renew|2027/i);
     await expect(page.locator('#account-billing-copy')).toContainText('Auto-renews August 1, 2027');
 
+    await page.evaluate(() => window.BARK.paywall.openPaywall({ source: 'active-premium-price-check' }));
+    await expect(page.locator('.paywall-tier-title')).toHaveText('Standard — $20/year');
+
     await context.close();
 });

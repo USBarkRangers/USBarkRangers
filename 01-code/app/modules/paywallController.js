@@ -7,7 +7,7 @@
     window.BARK = window.BARK || {};
     window.BARK.services = window.BARK.services || {};
 
-    const PRICE_COPY = '$15/year';
+    const PRICE_COPY = '$20/year';
     const PREMIUM_TIERS = Object.freeze({
         standard: 'standard',
         supporter: 'supporter'

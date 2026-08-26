@@ -66,6 +66,7 @@ test.describe('Lemon-only coupon checkout flow', () => {
         await page.evaluate(() => window.BARK.paywall.openPaywall({ source: 'manual-upgrade-check' }));
 
         await expect(page.locator('#paywall-overlay')).toHaveClass(/active/);
+        await expect(page.locator('.paywall-tier-title')).toHaveText('Standard — $20/year');
         await expect(page.locator('#paywall-discount-code-input')).toHaveCount(0);
         await expect(page.locator('#paywall-promo-code-input')).toHaveCount(0);
         await expect(page.locator('#paywall-promo-code-btn')).toHaveCount(0);

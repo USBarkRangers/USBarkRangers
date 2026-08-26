@@ -9,7 +9,9 @@ const controllerSource = fs.readFileSync(path.join(repoRoot, '01-code/app/module
 const accountUiSource = fs.readFileSync(path.join(repoRoot, '01-code/app/services/authAccountUi.js'), 'utf8');
 
 test('the annual tier stays visible without a popularity badge in any paywall state', () => {
-    assert.match(indexSource, /Standard (?:—|&mdash;) \$15\/year/);
+    assert.match(indexSource, /Standard (?:—|&mdash;) \$20\/year/);
+    assert.match(controllerSource, /const PRICE_COPY = '\$20\/year';/);
+    assert.doesNotMatch(indexSource, /Standard (?:—|&mdash;) \$15\/year/);
     assert.doesNotMatch(indexSource, /Most popular/i);
     assert.doesNotMatch(controllerSource, /Most popular/i);
 });

@@ -90,6 +90,29 @@
         return candidates.length ? Math.max(...candidates) : 0;
     }
 
+    function chooseStableStandaloneHeight(metrics = {}) {
+        const measuredHeight = calculateStandaloneAppHeight(metrics);
+        const currentHeight = finiteNumber(metrics.currentHeight);
+        if (!measuredHeight) return currentHeight >= 240 ? currentHeight : 0;
+        if (!metrics.allowShrink && currentHeight >= 240) {
+            return Math.max(currentHeight, measuredHeight);
+        }
+        return measuredHeight;
+    }
+
+    function readOrientationKey(targetWindow) {
+        const orientationType = targetWindow.screen
+            && targetWindow.screen.orientation
+            && targetWindow.screen.orientation.type;
+        if (typeof orientationType === 'string' && orientationType) {
+            return orientationType.startsWith('landscape') ? 'landscape' : 'portrait';
+        }
+        return typeof targetWindow.matchMedia === 'function'
+            && targetWindow.matchMedia('(orientation: landscape)').matches
+            ? 'landscape'
+            : 'portrait';
+    }
+
     function readCurrentLift(targetWindow) {
         const value = targetWindow.getComputedStyle(targetWindow.document.documentElement)
             .getPropertyValue(CONTENT_LIFT_PROPERTY);
@@ -151,6 +174,9 @@
         let lastReason = 'install';
         const standaloneApp = isStandalone(targetWindow);
         const stableStandaloneShell = standaloneApp && isIOSDevice(targetWindow);
+        let stableOrientationKey = '';
+        let stableWindowWidth = 0;
+        let allowShellShrinkUntil = 0;
 
         function refresh(reason = 'manual') {
             const metrics = readMetrics(targetWindow);
@@ -194,23 +220,45 @@
             if (!stableStandaloneShell) return { applied: false, reason };
 
             const visualViewport = targetWindow.visualViewport;
-            const height = calculateStandaloneAppHeight({
+            const orientationKey = readOrientationKey(targetWindow);
+            const windowWidth = finiteNumber(targetWindow.outerWidth)
+                || finiteNumber(targetWindow.innerWidth);
+            const frameChanged = (stableOrientationKey && orientationKey !== stableOrientationKey)
+                || (stableWindowWidth > 0 && windowWidth > 0
+                    && Math.abs(windowWidth - stableWindowWidth) > 2);
+            if (!stableOrientationKey || !stableWindowWidth) {
+                stableOrientationKey = orientationKey;
+                stableWindowWidth = windowWidth;
+            } else if (frameChanged) {
+                stableOrientationKey = orientationKey;
+                stableWindowWidth = windowWidth;
+                allowShellShrinkUntil = Date.now() + 1000;
+            }
+
+            const currentHeight = finiteNumber(parseFloat(
+                rootElement.style.getPropertyValue(STABLE_SHELL_HEIGHT_PROPERTY)
+            ));
+            const height = chooseStableStandaloneHeight({
                 outerHeight: targetWindow.outerHeight,
                 innerHeight: targetWindow.innerHeight,
-                visualHeight: visualViewport && visualViewport.height
+                visualHeight: visualViewport && visualViewport.height,
+                currentHeight,
+                allowShrink: frameChanged || Date.now() <= allowShellShrinkUntil
             });
             if (!height) return { applied: false, reason };
 
             const value = `${Math.round(height * 100) / 100}px`;
             const previousValue = rootElement.style.getPropertyValue(STABLE_SHELL_HEIGHT_PROPERTY);
-            rootElement.style.setProperty(STABLE_SHELL_HEIGHT_PROPERTY, value);
-            rootElement.classList.add(STABLE_SHELL_CLASS);
-
-            // Commit the stable body before Leaflet receives its next size pass.
-            void rootElement.offsetHeight;
+            const changed = value !== previousValue || !rootElement.classList.contains(STABLE_SHELL_CLASS);
+            if (changed) {
+                rootElement.style.setProperty(STABLE_SHELL_HEIGHT_PROPERTY, value);
+                rootElement.classList.add(STABLE_SHELL_CLASS);
+                // Commit a changed stable body before Leaflet measures it.
+                void rootElement.offsetHeight;
+            }
             rootElement.dataset.barkStandaloneAppHeight = value;
             return {
-                applied: value !== previousValue,
+                applied: changed,
                 reason,
                 height,
                 value
@@ -260,7 +308,8 @@
 
         targetWindow.addEventListener('load', () => schedule('load', [0, 120]), { once: true });
         targetWindow.addEventListener('orientationchange', () => {
-            scheduleShellRecovery('orientation', [0, 120, 420]);
+            allowShellShrinkUntil = Date.now() + 1000;
+            scheduleShellRecovery('orientation', [0, 120, 420, 900]);
             schedule('orientation', [120, 420]);
         });
         targetWindow.addEventListener('resize', () => {
@@ -270,6 +319,9 @@
         if (targetWindow.visualViewport
             && typeof targetWindow.visualViewport.addEventListener === 'function') {
             targetWindow.visualViewport.addEventListener('resize', () => {
+                if (stableStandaloneShell) {
+                    scheduleShellRecovery('visual-viewport-resize', [0, 120, 420]);
+                }
                 scheduleViewportRefresh('visual-viewport-resize');
             });
             targetWindow.visualViewport.addEventListener('scroll', () => {
@@ -293,6 +345,18 @@
                 scheduleShellRecovery('external-visibility');
             }
         });
+        document.addEventListener('focusin', (event) => {
+            const target = event.target;
+            if (!stableStandaloneShell || !target || !target.matches) return;
+            if (target.matches('input, textarea, [contenteditable="true"]')) {
+                scheduleShellRecovery('keyboard-focus', [0, 120]);
+            }
+        });
+        document.addEventListener('focusout', () => {
+            if (stableStandaloneShell) {
+                scheduleShellRecovery('keyboard-dismiss', [0, 120, 420, 900]);
+            }
+        });
         targetWindow.addEventListener('bark:external-return-started', () => {
             scheduleShellRecovery('external-return-started');
         });
@@ -313,6 +377,7 @@
         STABLE_SHELL_CLASS,
         STABLE_SHELL_HEIGHT_PROPERTY,
         calculateStandaloneAppHeight,
+        chooseStableStandaloneHeight,
         calculateRequiredContentLift,
         install
     });

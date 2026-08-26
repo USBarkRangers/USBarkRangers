@@ -45,6 +45,8 @@ test('the fallback adjusts only nav content and follows visual viewport restorat
     assert.match(viewportCoordinator, /bark:external-return-started/);
     assert.match(viewportCoordinator, /--bark-standalone-app-height/);
     assert.match(viewportCoordinator, /targetWindow\.outerHeight/);
+    assert.match(viewportCoordinator, /chooseStableStandaloneHeight/);
+    assert.match(viewportCoordinator, /keyboard-dismiss/);
     assert.doesNotMatch(viewportCoordinator, /screen\.(?:width|height)/);
     assert.match(viewportCoordinator, /visualViewport\.addEventListener\('resize'/);
     assert.match(viewportCoordinator, /visualViewport\.addEventListener\('scroll'/);

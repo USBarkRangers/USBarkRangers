@@ -177,6 +177,79 @@ test('temporary Safari viewport changes never resize structural UI and clear on 
     await context.close();
 });
 
+test('closing the planner keyboard cannot replace the full standalone app height', async ({ browser }) => {
+    const context = await newBarkContext(browser, {
+        viewport: { width: 430, height: 932 },
+        screen: { width: 430, height: 932 },
+        deviceScaleFactor: 3,
+        isMobile: true,
+        hasTouch: true,
+        userAgent: IPHONE_USER_AGENT
+    });
+    await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'standalone', { configurable: true, get: () => true });
+        window.__barkKeyboardVisualHeight = 932;
+        const viewport = new EventTarget();
+        Object.defineProperties(viewport, {
+            width: { configurable: true, get: () => 430 },
+            height: { configurable: true, get: () => window.__barkKeyboardVisualHeight },
+            offsetTop: { configurable: true, get: () => 0 },
+            offsetLeft: { configurable: true, get: () => 0 },
+            scale: { configurable: true, get: () => 1 }
+        });
+        Object.defineProperty(window, 'visualViewport', { configurable: true, get: () => viewport });
+        window.__barkKeyboardViewport = viewport;
+    });
+
+    const page = await context.newPage();
+    await page.goto(`${BASE_URL}?plannerKeyboardReturn=${Date.now()}`);
+    await waitForShell(page);
+    await page.locator('.nav-item[data-target="planner-view"]').click();
+    await expect(page.locator('#planner-view')).toHaveClass(/\bactive\b/);
+    await page.locator('#tripNameInput').waitFor({ state: 'attached' });
+
+    const baselineHeight = await page.evaluate(() => parseFloat(
+        document.documentElement.dataset.barkStandaloneAppHeight
+    ));
+    await page.locator('#tripNameInput').focus();
+    await page.evaluate(() => {
+        window.__barkKeyboardVisualHeight = 510;
+        window.__barkKeyboardViewport.dispatchEvent(new Event('resize'));
+    });
+    await page.waitForFunction(() => document.body.classList.contains('keyboard-open'));
+    expect(await page.evaluate(() => parseFloat(
+        document.documentElement.dataset.barkStandaloneAppHeight
+    ))).toBe(baselineHeight);
+
+    await page.locator('#tripNameInput').evaluate(input => input.blur());
+    await page.evaluate(() => {
+        window.__barkKeyboardVisualHeight = 932;
+        window.__barkKeyboardViewport.dispatchEvent(new Event('resize'));
+    });
+    await page.waitForFunction(() => !document.body.classList.contains('keyboard-open'));
+    await page.waitForTimeout(1000);
+
+    const restored = await page.evaluate(() => {
+        const map = document.getElementById('map').getBoundingClientRect();
+        const nav = document.getElementById('main-nav').getBoundingClientRect();
+        const planner = document.getElementById('planner-view').getBoundingClientRect();
+        return {
+            stableHeight: parseFloat(document.documentElement.dataset.barkStandaloneAppHeight),
+            mapBottom: map.bottom,
+            navBottom: nav.bottom,
+            plannerBottom: planner.bottom,
+            bodyKeyboardOpen: document.body.classList.contains('keyboard-open')
+        };
+    });
+
+    expect(restored.stableHeight).toBe(baselineHeight);
+    expect(restored.mapBottom).toBeGreaterThanOrEqual(baselineHeight - 1);
+    expect(restored.navBottom).toBeGreaterThanOrEqual(baselineHeight - 1);
+    expect(restored.plannerBottom).toBeGreaterThanOrEqual(baselineHeight - 1);
+    expect(restored.bodyKeyboardOpen).toBe(false);
+    await context.close();
+});
+
 test('closing an external picture refreshes stale viewport units without replacing the app document', async ({ browser }) => {
     const context = await newBarkContext(browser, {
         viewport: { width: 430, height: 932 },

@@ -23,6 +23,26 @@ test('standalone shell ignores invalid dimensions and never invents a phone size
     assert.equal(coordinator.calculateStandaloneAppHeight({ outerHeight: 9000 }), 0);
 });
 
+test('keyboard-sized viewport readings cannot reduce the established app window', () => {
+    assert.equal(coordinator.chooseStableStandaloneHeight({
+        outerHeight: 560,
+        innerHeight: 560,
+        visualHeight: 510,
+        currentHeight: 932,
+        allowShrink: false
+    }), 932);
+});
+
+test('a real rotation or window-width change can establish a smaller app window', () => {
+    assert.equal(coordinator.chooseStableStandaloneHeight({
+        outerHeight: 430,
+        innerHeight: 430,
+        visualHeight: 430,
+        currentHeight: 932,
+        allowShrink: true
+    }), 430);
+});
+
 test('a phone whose navigation already fits receives no correction', () => {
     assert.equal(coordinator.calculateRequiredContentLift({
         currentLift: 0,

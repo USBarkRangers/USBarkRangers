@@ -177,6 +177,55 @@ test('temporary Safari viewport changes never resize structural UI and clear on 
     await context.close();
 });
 
+test('closing an external picture refreshes stale viewport units without replacing the app document', async ({ browser }) => {
+    const context = await newBarkContext(browser, {
+        viewport: { width: 430, height: 932 },
+        screen: { width: 430, height: 932 },
+        deviceScaleFactor: 3,
+        isMobile: true,
+        hasTouch: true,
+        userAgent: IPHONE_USER_AGENT
+    });
+    await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'standalone', { configurable: true, get: () => true });
+    });
+
+    const page = await context.newPage();
+    await page.goto(`${BASE_URL}?externalPictureReturn=${Date.now()}`);
+    await waitForShell(page);
+    const documentToken = await page.evaluate(() => {
+        const token = `${Date.now()}-${Math.random()}`;
+        document.documentElement.dataset.pictureReturnDocument = token;
+        window.BARK.prepareExternalHandoff({ source: 'swag-picture' });
+        window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+        return token;
+    });
+
+    await page.waitForFunction(() => Number(document.documentElement.dataset.barkShellRefresh) > 0);
+    await page.waitForFunction(() => !document.body.classList.contains('bark-external-handoff-pending'), undefined, {
+        timeout: 3000
+    });
+
+    const restored = await page.evaluate(() => {
+        const map = document.getElementById('map').getBoundingClientRect();
+        const nav = document.getElementById('main-nav').getBoundingClientRect();
+        return {
+            token: document.documentElement.dataset.pictureReturnDocument,
+            refreshClass: Array.from(document.documentElement.classList)
+                .find(value => value.startsWith('bark-shell-refresh-')),
+            mapBottom: map.bottom,
+            navBottom: nav.bottom,
+            innerHeight: window.innerHeight
+        };
+    });
+
+    expect(restored.token).toBe(documentToken);
+    expect(restored.refreshClass).toMatch(/^bark-shell-refresh-[ab]$/);
+    expect(restored.mapBottom).toBeGreaterThanOrEqual(restored.innerHeight - 1);
+    expect(restored.navBottom).toBeGreaterThanOrEqual(restored.innerHeight - 1);
+    await context.close();
+});
+
 test('park sheet and nav share fixed viewport coordinates', async ({ browser }) => {
     const context = await newBarkContext(browser, {
         viewport: { width: 430, height: 932 },

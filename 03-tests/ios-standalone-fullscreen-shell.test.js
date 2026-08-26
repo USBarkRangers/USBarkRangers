@@ -30,6 +30,8 @@ test('CSS owns the full-screen shell and structural bottom clearance excludes tr
     assert.match(viewportStyles, /#slide-panel\s*\{[\s\S]*position:\s*fixed[\s\S]*bottom:\s*var\(--bark-nav-total-height\)/);
     assert.match(viewportStyles, /\.leaflet-bottom\s*\{[\s\S]*--bark-map-control-bottom-clearance/);
     assert.match(viewportStyles, /\.filtered-pins-indicator\s*\{[\s\S]*--bark-map-indicator-bottom-clearance/);
+    assert.match(viewportStyles, /html\.bark-shell-refresh-a[\s\S]*height:\s*calc\(100dvh \+ 0px\)/);
+    assert.match(viewportStyles, /html\.bark-shell-refresh-b[\s\S]*height:\s*calc\(100dvh - 0px\)/);
 });
 
 test('the fallback adjusts only nav content and follows visual viewport restoration', () => {
@@ -37,9 +39,27 @@ test('the fallback adjusts only nav content and follows visual viewport restorat
     assert.match(viewportCoordinator, /--bark-nav-content-lift/);
     assert.doesNotMatch(viewportCoordinator, /style\.height\s*=/);
     assert.doesNotMatch(viewportCoordinator, /--bark-ios-app-height/);
+    assert.match(viewportCoordinator, /refreshShellViewportUnits/);
+    assert.match(viewportCoordinator, /scheduleShellRecovery/);
+    assert.match(viewportCoordinator, /bark:external-return-started/);
+    assert.match(viewportCoordinator, /bark-shell-refresh-a/);
+    assert.doesNotMatch(viewportCoordinator, /screen\.(?:width|height)/);
     assert.match(viewportCoordinator, /visualViewport\.addEventListener\('resize'/);
     assert.match(viewportCoordinator, /visualViewport\.addEventListener\('scroll'/);
     assert.doesNotMatch(styles, /html\.bark-ios-standalone-fullscreen \.glass-nav/);
+});
+
+test('external return requests a viewport-unit refresh before delayed map repair', () => {
+    const uiController = fs.readFileSync(path.join(appDir, 'modules', 'uiController.js'), 'utf8');
+    const settleStart = uiController.indexOf('function settleExternalReturnViewport');
+    const settleEnd = uiController.indexOf('function finishExternalReturnForInteraction', settleStart);
+    const settleSource = uiController.slice(settleStart, settleEnd);
+    assert.match(settleSource, /bark:external-return-started/);
+    assert.match(settleSource, /invalidateSize/);
+    assert.ok(
+        settleSource.indexOf('bark:external-return-started') < settleSource.indexOf('invalidateSize'),
+        'viewport units should refresh before Leaflet measures the restored shell'
+    );
 });
 
 test('the park action footer does not apply the bottom safe area twice', () => {

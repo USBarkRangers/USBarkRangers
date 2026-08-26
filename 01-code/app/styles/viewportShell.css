@@ -35,6 +35,29 @@ body,
     height: 100dvh;
 }
 
+/* iOS can return from its external-site/photo sheet with an old computed
+   100dvh value even though the standalone app window is full height again.
+   Re-selecting an equivalent viewport-unit declaration makes WebKit resolve
+   the real app window without guessing a phone model or storing screen sizes.
+   viewportCoordinator alternates these two rules only during app restoration. */
+html.bark-shell-refresh-a,
+html.bark-shell-refresh-a body,
+html.bark-shell-refresh-a #map,
+html.bark-shell-refresh-a .ui-view,
+html.bark-shell-refresh-a .modal-overlay,
+html.bark-shell-refresh-a #bark-loader {
+    height: calc(100dvh + 0px);
+}
+
+html.bark-shell-refresh-b,
+html.bark-shell-refresh-b body,
+html.bark-shell-refresh-b #map,
+html.bark-shell-refresh-b .ui-view,
+html.bark-shell-refresh-b .modal-overlay,
+html.bark-shell-refresh-b #bark-loader {
+    height: calc(100dvh - 0px);
+}
+
 @media (max-width: 767px) {
     .glass-nav {
         position: fixed;

@@ -282,6 +282,9 @@ function settleExternalReturnViewport(reason) {
     const generation = ++externalReturnSettleGeneration;
     closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
     document.body.classList.remove('keyboard-open');
+    window.dispatchEvent(new CustomEvent('bark:external-return-started', {
+        detail: { reason: reason || 'external-return' }
+    }));
 
     const settle = () => {
         if (generation !== externalReturnSettleGeneration) return;

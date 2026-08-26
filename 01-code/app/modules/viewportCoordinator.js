@@ -4,8 +4,11 @@
  * CSS owns the full-screen shell. This module is deliberately limited to one
  * job: when a browser reports a visual viewport that clips the bottom-nav
  * content, publish the smallest visual-only content lift that makes the
- * controls visible. The structural nav, app, map, panels, and views never
- * consume this value, so a stale browser measurement cannot resize the UI.
+ * controls visible. It also owns one narrow WebKit workaround: after an
+ * installed app closes Apple's external-site/photo sheet, Safari can leave
+ * every existing 100dvh declaration resolved against the sheet's shorter
+ * viewport. Alternating two equivalent CSS rules makes WebKit recompute dvh
+ * from the restored app window. No screen dimensions or phone models are used.
  */
 (function exposeViewportCoordinator(root, factory) {
     const api = factory();
@@ -23,6 +26,7 @@
 
     const CONTENT_LIFT_PROPERTY = '--bark-nav-content-lift';
     const IOS_STANDALONE_CLASS = 'bark-ios-standalone-fullscreen';
+    const SHELL_REFRESH_CLASSES = ['bark-shell-refresh-a', 'bark-shell-refresh-b'];
     const MAX_LIFT_PX = 260;
     const CONTENT_MARGIN_PX = 3;
     const CHANGE_TOLERANCE_PX = 1;
@@ -130,7 +134,10 @@
         }
 
         let generation = 0;
+        let shellGeneration = 0;
+        let shellRefreshIndex = -1;
         let lastReason = 'install';
+        const standaloneApp = isStandalone(targetWindow);
 
         function refresh(reason = 'manual') {
             const metrics = readMetrics(targetWindow);
@@ -170,7 +177,41 @@
             });
         }
 
+        function refreshShellViewportUnits(reason = 'manual-shell-refresh') {
+            if (!standaloneApp) return { applied: false, reason };
+
+            shellRefreshIndex = (shellRefreshIndex + 1) % SHELL_REFRESH_CLASSES.length;
+            rootElement.classList.remove(...SHELL_REFRESH_CLASSES);
+            rootElement.classList.add(SHELL_REFRESH_CLASSES[shellRefreshIndex]);
+
+            // Reading layout commits the newly selected declaration before
+            // Leaflet receives its next invalidateSize pass.
+            void rootElement.offsetHeight;
+            rootElement.dataset.barkShellRefresh = String(shellRefreshIndex + 1);
+            return {
+                applied: true,
+                reason,
+                className: SHELL_REFRESH_CLASSES[shellRefreshIndex]
+            };
+        }
+
+        function scheduleShellRecovery(reason = 'shell-recovery', delays = [0, 120, 480, 1200]) {
+            if (!standaloneApp) return false;
+            const scheduledGeneration = ++shellGeneration;
+            delays.forEach((delay) => {
+                targetWindow.setTimeout(() => {
+                    if (scheduledGeneration !== shellGeneration) return;
+                    targetWindow.requestAnimationFrame(() => {
+                        refreshShellViewportUnits(reason);
+                        refresh(reason);
+                    });
+                }, delay);
+            });
+            return true;
+        }
+
         function settleExternalReturn() {
+            scheduleShellRecovery('external-return-settled');
             schedule('external-return', [0, 120, 420]);
         }
 
@@ -205,13 +246,31 @@
         }
         targetWindow.addEventListener('pageshow', (event) => {
             if (!event.persisted && lastReason === 'load') return;
+            if (document.body.classList.contains('bark-external-handoff-pending')) {
+                scheduleShellRecovery('external-pageshow');
+            }
             schedule('pageshow', [0, 120]);
+        });
+        targetWindow.addEventListener('focus', () => {
+            if (document.body.classList.contains('bark-external-handoff-pending')) {
+                scheduleShellRecovery('external-focus');
+            }
+        });
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && document.body.classList.contains('bark-external-handoff-pending')) {
+                scheduleShellRecovery('external-visibility');
+            }
+        });
+        targetWindow.addEventListener('bark:external-return-started', () => {
+            scheduleShellRecovery('external-return-started');
         });
         targetWindow.addEventListener('bark:external-return-settled', settleExternalReturn);
 
         return Object.freeze({
             refresh,
             schedule,
+            refreshShellViewportUnits,
+            scheduleShellRecovery,
             readMetrics: () => readMetrics(targetWindow)
         });
     }
@@ -219,6 +278,7 @@
     return Object.freeze({
         CONTENT_LIFT_PROPERTY,
         IOS_STANDALONE_CLASS,
+        SHELL_REFRESH_CLASSES,
         calculateRequiredContentLift,
         install
     });

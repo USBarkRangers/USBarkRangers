@@ -36,7 +36,6 @@ const KNOWN_CHANNELS = Object.freeze([
     "bugs",
     "featureRequests",
     "mapCorrections",
-    "customerFeedback",
     "dailyBriefing",
     "dailyMetrics",
     "costs",

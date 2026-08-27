@@ -7,6 +7,7 @@ const {
     __test: {
         handleSubmitFeedback,
         getFeedbackConnectionKey,
+        cleanFeedbackType,
         cleanContactEmail
     }
 } = require("../index.js");
@@ -26,7 +27,7 @@ function discordRecorder() {
     return {
         sent,
         options: {
-            webhookMap: { userBugs: "https://discord.com/api/webhooks/1/user-bugs", customerFeedback: "https://discord.com/api/webhooks/1/cf" },
+            webhookMap: { userBugs: "https://discord.com/api/webhooks/1/user-bugs", supportInbox: "https://discord.com/api/webhooks/1/support" },
             discordSender: async (url, payload, meta) => { sent.push({ url, payload, meta }); }
         }
     };
@@ -458,7 +459,7 @@ describe("feedback screenshots", () => {
             authedContext("alice", { email: "alice@example.test" }),
             {
                 firestore,
-                webhookMap: { customerFeedback: "https://discord.com/api/webhooks/1/cf" },
+                webhookMap: { supportInbox: "https://discord.com/api/webhooks/1/support" },
                 discordSender: async () => { throw new Error("discord exploded"); }
             }
         );
@@ -466,5 +467,22 @@ describe("feedback screenshots", () => {
         assert.deepEqual(result, { ok: true, screenshotCount: 1 });
         assert.equal(firestore.state.adds.length, 1);
         assert.equal(firestore.state.adds[0].screenshotCount, 1);
+    });
+});
+
+describe("feedback category normalization", () => {
+    it("stores only the four current categories", () => {
+        assert.equal(cleanFeedbackType("bug"), "bug");
+        assert.equal(cleanFeedbackType("correction"), "correction");
+        assert.equal(cleanFeedbackType("idea"), "idea");
+        assert.equal(cleanFeedbackType("support"), "support");
+    });
+
+    it("keeps old clients inside the same four destinations", () => {
+        assert.equal(cleanFeedbackType("other"), "correction");
+        assert.equal(cleanFeedbackType("missing_location"), "correction");
+        assert.equal(cleanFeedbackType("general"), "support");
+        assert.equal(cleanFeedbackType("unknown"), "support");
+        assert.equal(cleanFeedbackType(null), "support");
     });
 });

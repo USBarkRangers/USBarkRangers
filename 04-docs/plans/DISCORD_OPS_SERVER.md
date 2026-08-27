@@ -49,7 +49,6 @@ moderation, privacy, and organization.
 | `map-corrections` | Wrong or missing places and other park-data corrections from the Map Fix button. Verify against authoritative sources before changing map or awards data. |
 | `support-inbox` 🔒 | Private Help-button requests and contact details. Resolve directly, then route confirmed bugs, map fixes, or ideas to their dedicated channels. |
 | `email-bank` 🔒 | Private notifications for mail delivered to `support@usbarkrangersmap.com`. Gmail remains the source of truth and the place to reply. |
-| `customer-feedback` | Useful comments and recurring themes |
 | `early-access` | Onboarding and communication for early-access customers |
 | `facebook-group` | Important group posts, reactions, growth, issues |
 | `content-and-marketing` | Announcements, tutorials, Zoom walkthroughs, promo plans |
@@ -111,7 +110,6 @@ messages, opening threads automatically. Nothing here needs that yet.
 | Any other server fault | unexpected crash, upstream down | `system-status` | 🟡 |
 | Browser error reports | uncaught errors, freezes | `detected-bugs` | 🟡 |
 | In-app feedback | bug / map fix / idea / help | `user-bugs`, `map-corrections`, `feature-requests`, `support-inbox` | 🟡 |
-| In-app feedback | unrelated general comments | `customer-feedback` | 🟡 |
 | Support email | every message delivered to `support@usbarkrangersmap.com` | `email-bank` | 🟡 |
 | Lemon Squeezy | subscription and payment events | `sales-and-billing` | 🟡, 🔴 on failed or refunded payment |
 | Daily error digest | 24h client-error rollup | `daily-briefing` | 🟢 |

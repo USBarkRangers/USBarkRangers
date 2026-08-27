@@ -27,7 +27,7 @@ window.BARK = window.BARK || {};
     // decides the channel; changing a mapping here reroutes the report.
     const TYPES = Object.freeze([
         { id: 'bug', label: 'Something is broken', short: 'Bug', emoji: '🐛', backendType: 'bug' },
-        { id: 'correction', label: 'A place is wrong or missing', short: 'Map fix', emoji: '📍', backendType: 'other' },
+        { id: 'correction', label: 'A place is wrong or missing', short: 'Map fix', emoji: '📍', backendType: 'correction' },
         { id: 'idea', label: 'I have an idea', short: 'Idea', emoji: '💡', backendType: 'idea' },
         { id: 'support', label: 'I need help', short: 'Help', emoji: '🆘', backendType: 'support' }
     ]);
@@ -38,10 +38,10 @@ window.BARK = window.BARK || {};
         return TYPES.find(type => type.id === typeId) || TYPES.find(type => type.id === DEFAULT_TYPE_ID);
     }
 
-    // "Add a missing location" outranks the type buttons: it is the one report the
-    // backend routes on subject rather than on what the reporter clicked.
+    // A missing location is still one of the same four categories: Map fix.
+    // Keeping one canonical backend type prevents a hidden fifth bucket.
     function resolveBackendType(typeId, subjectKind) {
-        if (subjectKind === 'missing') return 'missing_location';
+        if (subjectKind === 'missing') return 'correction';
         return getType(typeId).backendType;
     }
 

@@ -341,11 +341,9 @@ describe("deliverPaymentAlert with Discord wired", () => {
 describe("postFeedbackToDiscord", () => {
     const cases = [
         ["bug", "userBugs"],
+        ["correction", "mapCorrections"],
         ["idea", "featureRequests"],
-        ["support", "supportInbox"],
-        ["general", "customerFeedback"],
-        ["missing_location", "mapCorrections"],
-        ["other", "mapCorrections"]
+        ["support", "supportInbox"]
     ];
 
     for (const [type, channel] of cases) {
@@ -365,7 +363,7 @@ describe("postFeedbackToDiscord", () => {
         const record = { message: "m", email: "carter@example.com", displayName: "C", browser: {} };
 
         await postFeedbackToDiscord({ ...record, type: "support" }, options);
-        await postFeedbackToDiscord({ ...record, type: "general" }, options);
+        await postFeedbackToDiscord({ ...record, type: "bug" }, options);
 
         const contactOf = (i) => sent[i].payload.embeds[0].fields.find((f) => f.name === "Contact").value;
         assert.equal(contactOf(0), "carter@example.com");

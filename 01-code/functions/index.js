@@ -439,8 +439,16 @@ function cleanContactEmail(value) {
 
 function cleanFeedbackType(value) {
     const text = typeof value === "string" ? value.trim().toLowerCase() : "";
-    const allowed = new Set(["general", "bug", "idea", "support", "missing_location", "other"]);
-    return allowed.has(text) ? text : "general";
+    const legacyAliases = Object.freeze({
+        general: "support",
+        missing_location: "correction",
+        other: "correction"
+    });
+    const canonical = legacyAliases[text] || text;
+    const allowed = new Set(["bug", "correction", "idea", "support"]);
+    // Old cached clients and malformed callers must not resurrect a fifth
+    // Discord bucket. Preserve the report in private support for manual triage.
+    return allowed.has(canonical) ? canonical : "support";
 }
 
 function cleanFeedbackBrowserMetadata(value) {
@@ -527,15 +535,13 @@ async function handleSubmitFeedback(requestOrData, context, options = {}) {
 // happens where the work happens rather than in one undifferentiated firehose.
 const FEEDBACK_DISCORD_CHANNELS = Object.freeze({
     bug: "userBugs",
+    correction: "mapCorrections",
     idea: "featureRequests",
-    support: "supportInbox",
-    general: "customerFeedback",
-    missing_location: "mapCorrections",
-    other: "mapCorrections"
+    support: "supportInbox"
 });
 
 function postFeedbackToDiscord(record, options = {}) {
-    const channel = FEEDBACK_DISCORD_CHANNELS[record.type] || "customerFeedback";
+    const channel = FEEDBACK_DISCORD_CHANNELS[record.type] || "supportInbox";
     const browser = record.browser && typeof record.browser === "object" ? record.browser : {};
     const files = Array.isArray(record.files) ? record.files : [];
 
@@ -4020,6 +4026,7 @@ if (process.env.NODE_ENV === "test") {
         enforceFeedbackRateLimit,
         enforceAnonymousFeedbackRateLimit,
         getFeedbackConnectionKey,
+        cleanFeedbackType,
         cleanContactEmail,
         redactSensitiveDiagnosticText,
         cleanDiagnosticPath,

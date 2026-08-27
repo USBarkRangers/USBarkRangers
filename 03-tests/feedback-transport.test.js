@@ -57,11 +57,11 @@ test('resolveBackendType maps each picker choice to a routable backend type', ()
     assert.equal(transport.resolveBackendType('bug', 'park'), 'bug');
     assert.equal(transport.resolveBackendType('idea', 'general'), 'idea');
     assert.equal(transport.resolveBackendType('support', 'general'), 'support');
-    assert.equal(transport.resolveBackendType('correction', 'park'), 'other');
+    assert.equal(transport.resolveBackendType('correction', 'park'), 'correction');
 
-    // "Add a missing location" wins over whichever type button is lit.
-    assert.equal(transport.resolveBackendType('bug', 'missing'), 'missing_location');
-    assert.equal(transport.resolveBackendType('idea', 'missing'), 'missing_location');
+    // "Add a missing location" is always the Map fix category.
+    assert.equal(transport.resolveBackendType('bug', 'missing'), 'correction');
+    assert.equal(transport.resolveBackendType('idea', 'missing'), 'correction');
 
     // An unknown id falls back rather than sending an unroutable type.
     assert.equal(transport.resolveBackendType('nonsense', 'general'), 'bug');
@@ -70,7 +70,7 @@ test('resolveBackendType maps each picker choice to a routable backend type', ()
 test('every type maps to a backend type the callable accepts', () => {
     const { transport } = loadTransport();
     // Mirrors the allow-list in cleanFeedbackType (functions/index.js).
-    const accepted = new Set(['general', 'bug', 'idea', 'support', 'missing_location', 'other']);
+    const accepted = new Set(['bug', 'correction', 'idea', 'support']);
     transport.TYPES.forEach((type) => {
         assert.ok(accepted.has(type.backendType), `${type.id} -> ${type.backendType}`);
     });
@@ -129,7 +129,7 @@ test('submitToBackend sends the resolved type and never the raw picker id', asyn
     assert.equal(calls[0].name, 'submitFeedback');
 
     const payload = calls[0].payload;
-    assert.equal(payload.type, 'missing_location');
+    assert.equal(payload.type, 'correction');
     assert.equal(payload.subject, 'Acadia National Park, ME');
     assert.equal(payload.parkId, 'park-123');
     assert.equal(payload.screenshots.length, 1);

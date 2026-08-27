@@ -56,8 +56,6 @@ test('the message cap the counter shows is the one the callable enforces', () =>
 test('the browser only sends feedback types the callable will route', () => {
     const clientTypes = [...read('01-code', 'app', 'modules', 'feedbackTransport.js')
         .matchAll(/backendType:\s*'([a-z_]+)'/g)].map(m => m[1]);
-    // resolveBackendType can also return this one, from the pinned subject.
-    clientTypes.push('missing_location');
 
     const allowed = read('01-code', 'functions', 'index.js')
         .match(/const allowed = new Set\(\[([^\]]+)\]\)/)[1]

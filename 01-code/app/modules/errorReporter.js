@@ -23,6 +23,7 @@ window.BARK = window.BARK || {};
     let installed = false;
     const signatureTimes = new Map();
     let lastVisibilityChangeAt = Date.now();
+    let visibilityTransitionSeen = false;
     let hiddenSinceLastBeat = false;
     let pendingRetryAttempts = 0;
 
@@ -154,10 +155,15 @@ window.BARK = window.BARK || {};
         try {
             const durationMs = Number(extra && extra.durationMs);
             const snapshot = getSnapshot(Number.isFinite(durationMs) ? durationMs : null);
+            const secondsSinceVisibilityChange = Math.max(0, Math.round((Date.now() - lastVisibilityChangeAt) / 1000));
             const errorClassification = type === 'freeze'
                 ? null
                 : (monitoring() && typeof monitoring().classifyError === 'function'
-                    ? monitoring().classifyError(message)
+                    ? monitoring().classifyError(message, {
+                        ...snapshot,
+                        secondsSinceVisibilityChange,
+                        visibilityTransitionSeen
+                    })
                     : { likelyArea: 'unknown', severity: 'important' });
             const details = Object.assign({}, snapshot, errorClassification || {}, extra || {});
             const payload = {
@@ -211,6 +217,7 @@ window.BARK = window.BARK || {};
         let last = Date.now();
         const noteTransition = () => {
             lastVisibilityChangeAt = Date.now();
+            visibilityTransitionSeen = true;
             hiddenSinceLastBeat = true;
             last = Date.now();
         };

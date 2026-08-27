@@ -126,3 +126,71 @@ test('error reporter removes fragments and redacts bearer, OAuth, and JWT creden
     assert.match(reports[0].stack, /Bearer \[REDACTED\]/);
     assert.match(reports[0].stack, /\[REDACTED_JWT\]/);
 });
+
+test('error reporter supplies a confirmed foreground transition to narrow error classification', async () => {
+    let now = 100000;
+    const reports = [];
+    const timeouts = [];
+    const windowListeners = new Map();
+    const documentListeners = new Map();
+    let classificationContext = null;
+    class FakeDate extends Date { static now() { return now; } }
+    const window = {
+        BARK: {
+            APP_VERSION: '0.108',
+            monitoring: {
+                snapshot: () => ({ deviceFamily: 'iOS', browserFamily: 'Safari iOS' }),
+                classifyError: (_message, context) => {
+                    classificationContext = context;
+                    return {
+                        likelyArea: 'iOS Safari storage resume warning',
+                        severity: 'routine',
+                        fingerprint: 'ios-safari-storage-resume-warning'
+                    };
+                }
+            }
+        },
+        BARK_ERROR_REPORTER_CONFIG: { watchdogStartDelayMs: 0, pendingRetryDelayMs: 999999 },
+        addEventListener(name, listener) { windowListeners.set(name, listener); }
+    };
+    const firebase = {
+        auth: () => ({ currentUser: { uid: 'user-1' } }),
+        functions: () => ({ httpsCallable: () => async (payload) => { reports.push(payload); } })
+    };
+    window.firebase = firebase;
+    const context = {
+        window,
+        firebase,
+        document: {
+            visibilityState: 'visible',
+            addEventListener(name, listener) { documentListeners.set(name, listener); }
+        },
+        location: { pathname: '/USBarkRangers/01-code/app/', hostname: 'usbarkrangers.github.io' },
+        navigator: { userAgent: 'iPhone Safari' },
+        localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+        setTimeout: (fn, delay) => { timeouts.push({ fn, delay }); return timeouts.length; },
+        setInterval: () => 1,
+        Date: FakeDate,
+        Math,
+        Promise,
+        console
+    };
+    window.window = window;
+    vm.runInNewContext(source, context, { filename: 'modules/errorReporter.js' });
+    timeouts.find((timer) => timer.delay === 0).fn();
+
+    documentListeners.get('visibilitychange')();
+    now += 1000;
+    windowListeners.get('unhandledrejection')({
+        reason: { message: 'Attempt to get records from database without an in-progress transaction', code: 0 }
+    });
+    await Promise.resolve();
+
+    assert.equal(classificationContext.visibilityTransitionSeen, true);
+    assert.equal(classificationContext.secondsSinceVisibilityChange, 1);
+    assert.equal(classificationContext.deviceFamily, 'iOS');
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0].likelyArea, 'iOS Safari storage resume warning');
+    assert.equal(reports[0].severity, 'routine');
+    assert.equal(reports[0].fingerprint, 'ios-safari-storage-resume-warning');
+});

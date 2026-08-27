@@ -55,12 +55,75 @@ test('monitoring context attributes freezes without changing map pins', () => {
     harness.window.BARK.perfOperationEnd(token, 'complete');
 });
 
-test('monitoring context recognizes the recurring storage transaction error', () => {
+test('monitoring context relabels only the known iOS Safari resume transaction warning', () => {
     const harness = makeHarness();
     const result = harness.window.BARK.monitoring.classifyError(
-        'Attempt to get records from database without an in-progress transaction'
+        'Attempt to get records from database without an in-progress transaction',
+        {
+            deviceFamily: 'iOS',
+            browserFamily: 'Safari iOS',
+            visibilityTransitionSeen: true,
+            secondsSinceVisibilityChange: 0
+        }
     );
-    assert.equal(result.likelyArea, 'storage/database');
+    assert.equal(result.likelyArea, 'iOS Safari storage resume warning');
+    assert.equal(result.severity, 'routine');
+    assert.equal(result.fingerprint, 'ios-safari-storage-resume-warning');
+    assert.equal(result.lowInformation, false);
+});
+
+test('the same transaction message remains important without a confirmed Safari resume', () => {
+    const harness = makeHarness();
+    const message = 'Attempt to get records from database without an in-progress transaction';
+    const cases = [
+        {},
+        {
+            deviceFamily: 'iOS', browserFamily: 'Safari iOS',
+            visibilityTransitionSeen: false, secondsSinceVisibilityChange: 0
+        },
+        {
+            deviceFamily: 'iOS', browserFamily: 'Safari iOS',
+            visibilityTransitionSeen: true, secondsSinceVisibilityChange: 30
+        },
+        {
+            deviceFamily: 'Android', browserFamily: 'Chrome',
+            visibilityTransitionSeen: true, secondsSinceVisibilityChange: 0
+        }
+    ];
+
+    cases.forEach((context) => {
+        const result = harness.window.BARK.monitoring.classifyError(message, context);
+        assert.equal(result.likelyArea, 'storage/database');
+        assert.equal(result.severity, 'important');
+    });
+});
+
+test('serious companion storage failures keep their important classification', () => {
+    const harness = makeHarness();
+    const resumeContext = {
+        deviceFamily: 'iOS',
+        browserFamily: 'Safari iOS',
+        visibilityTransitionSeen: true,
+        secondsSinceVisibilityChange: 0
+    };
+    const messages = [
+        'Connection to Indexed Database server lost. Refresh the page to try again',
+        'FIRESTORE (10.12.0) INTERNAL ASSERTION FAILED: Unexpected state',
+        'The transaction was aborted, so the request cannot be fulfilled'
+    ];
+
+    messages.forEach((message) => {
+        const result = harness.window.BARK.monitoring.classifyError(message, resumeContext);
+        assert.equal(result.likelyArea, 'storage/database');
+        assert.equal(result.severity, 'important');
+    });
+});
+
+test('non-storage errors keep their existing classifications', () => {
+    const harness = makeHarness();
+    const result = harness.window.BARK.monitoring.classifyError('Premium checkout failed');
+    assert.equal(result.likelyArea, 'payment/upgrade');
+    assert.equal(result.severity, 'important');
     assert.equal(result.lowInformation, false);
 });
 

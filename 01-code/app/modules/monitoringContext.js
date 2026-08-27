@@ -9,6 +9,8 @@ window.BARK = window.BARK || {};
 (function () {
     const MAX_BREADCRUMBS = 12;
     const MAX_COMPLETED_OPERATIONS = 6;
+    const IOS_SAFARI_RESUME_TRANSACTION_ERROR =
+        /^Attempt to get (?:a record|records|all index records) from database without an in-progress transaction$/i;
     const breadcrumbs = [];
     const activeOperations = new Map();
     const completedOperations = [];
@@ -195,7 +197,25 @@ window.BARK = window.BARK || {};
         };
     }
 
-    function classifyError(message) {
+    function isRecoveredIosSafariStorageResume(message, context = {}) {
+        if (!IOS_SAFARI_RESUME_TRANSACTION_ERROR.test(clean(message, 500))) return false;
+        if (context.deviceFamily !== 'iOS' || context.browserFamily !== 'Safari iOS') return false;
+        if (context.visibilityTransitionSeen !== true) return false;
+
+        const resumeAgeSeconds = Number(context.secondsSinceVisibilityChange);
+        return Number.isFinite(resumeAgeSeconds) && resumeAgeSeconds >= 0 && resumeAgeSeconds <= 5;
+    }
+
+    function classifyError(message, context = {}) {
+        if (isRecoveredIosSafariStorageResume(message, context)) {
+            return {
+                likelyArea: 'iOS Safari storage resume warning',
+                severity: 'routine',
+                lowInformation: false,
+                fingerprint: 'ios-safari-storage-resume-warning'
+            };
+        }
+
         const area = inferArea(message);
         const lowInformation = /^script error\.?$/i.test(clean(message, 100));
         return {

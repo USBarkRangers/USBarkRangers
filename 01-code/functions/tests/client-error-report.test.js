@@ -165,6 +165,31 @@ describe("handleReportClientError", () => {
         assert.equal(sent.length, 0);
     });
 
+    it("stores a routine Safari resume warning without sending an immediate alert", async () => {
+        const firestore = makeFirestore();
+        const sent = [];
+        await handleReportClientError(
+            {
+                type: "unhandledrejection",
+                message: "Attempt to get records from database without an in-progress transaction",
+                likelyArea: "iOS Safari storage resume warning",
+                severity: "routine",
+                fingerprint: "ios-safari-storage-resume-warning",
+                deviceFamily: "iOS",
+                browserFamily: "Safari iOS"
+            },
+            authedContext(),
+            { firestore, emailSender: async (payload) => sent.push(payload) }
+        );
+
+        assert.equal(firestore.state.adds.length, 1);
+        assert.equal(firestore.state.adds[0].likelyArea, "iOS Safari storage resume warning");
+        assert.equal(firestore.state.adds[0].severity, "routine");
+        assert.equal(firestore.state.adds[0].fingerprint, "ios-safari-storage-resume-warning");
+        assert.equal(firestore.state.rateLimitWrites, 0);
+        assert.equal(sent.length, 0);
+    });
+
     it("immediately alerts on a checkout failure reported by the browser", async () => {
         const firestore = makeFirestore();
         const sent = [];

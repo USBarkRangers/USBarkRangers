@@ -24,6 +24,7 @@ function makeHarness(options = {}) {
         location: options.location || { hostname: 'outswarming.github.io', pathname: '/USBarkRangers/01-code/app/', protocol: 'https:' },
         navigator: { userAgent: options.userAgent || 'Mozilla/5.0 (iPhone) AppleWebKit Safari/604.1' },
         document: {
+            getElementById: (id) => id === 'bark-loader' ? { id } : null,
             querySelector: () => ({ id: 'map-view' }),
             querySelectorAll: () => ({ length: 389 })
         },
@@ -181,5 +182,7 @@ test('loading-screen analytics counts once across phone, desktop, and installed 
         assert.equal(harness.analytics[0].no_session, true, device.name);
         assert.equal(harness.analytics[1].path, `event-app-session-${channel}`, device.name);
         assert.equal(harness.analytics[1].no_session, false, device.name);
+        assert.equal(harness.window.BARK.monitoring.trackLoadingScreenOpen(), false, `${device.name} must not double count`);
+        assert.equal(harness.analytics.length, 2, `${device.name} should still have exactly one load event`);
     });
 });

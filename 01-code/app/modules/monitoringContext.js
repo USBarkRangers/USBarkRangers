@@ -19,6 +19,7 @@ window.BARK = window.BARK || {};
     let lastAction = null;
     let analyticsRetryTimer = null;
     let analyticsRetryAttempts = 0;
+    let loadingScreenCounted = false;
 
     function clean(value, max = 80) {
         return String(value === undefined || value === null ? '' : value)
@@ -285,6 +286,23 @@ window.BARK = window.BARK || {};
         } catch (_error) { /* analytics must never affect the app */ }
     }
 
+    function trackLoadingScreenOpen() {
+        try {
+            if (loadingScreenCounted) return false;
+            const loader = document.getElementById && document.getElementById('bark-loader');
+            if (!loader) return false;
+            const releaseChannel = getReleaseChannel();
+            if (releaseChannel !== 'production' && releaseChannel !== 'beta') return false;
+
+            loadingScreenCounted = true;
+            trackEvent(`app-open-${releaseChannel}`, `App opened: ${releaseChannel}`);
+            trackSessionEvent(`app-session-${releaseChannel}`, `App session: ${releaseChannel}`);
+            return true;
+        } catch (_error) {
+            return false;
+        }
+    }
+
     window.BARK.monitoring = {
         addBreadcrumb,
         noteInteraction,
@@ -296,6 +314,7 @@ window.BARK = window.BARK || {};
         inferArea,
         trackEvent,
         trackSessionEvent,
+        trackLoadingScreenOpen,
         getReleaseChannel
     };
     window.BARK.perfBreadcrumb = addBreadcrumb;
@@ -308,9 +327,5 @@ window.BARK = window.BARK || {};
     // Count every real app load separately from GoatCounter's normal
     // privacy-preserving 8-hour visit. Comparing these two measurements tells
     // operations how many opens were repeats without adding a Firebase write.
-    const releaseChannel = getReleaseChannel();
-    if (releaseChannel === 'production' || releaseChannel === 'beta') {
-        trackEvent(`app-open-${releaseChannel}`, `App opened: ${releaseChannel}`);
-        trackSessionEvent(`app-session-${releaseChannel}`, `App session: ${releaseChannel}`);
-    }
+    trackLoadingScreenOpen();
 })();

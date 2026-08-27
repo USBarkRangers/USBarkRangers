@@ -226,10 +226,11 @@ test.describe('representative phone app flows', () => {
                     await assertShellFits(page);
                 }
 
-                await page.evaluate(() => {
+                const selectedPark = await page.evaluate(() => {
                     const marker = Array.from(window.BARK.markerManager.markers.values())
                         .find(candidate => candidate && candidate._parkData);
                     window.BARK.markerManager.renderMarkerPanel(marker);
+                    return { id: String(marker._parkData.id), name: marker._parkData.name };
                 });
                 await expect(page.locator('#slide-panel')).toHaveClass(/\bopen\b/);
                 await page.waitForFunction(() => {
@@ -237,19 +238,28 @@ test.describe('representative phone app flows', () => {
                     const nav = document.getElementById('main-nav').getBoundingClientRect();
                     return panel.top >= -1 && panel.bottom <= nav.top + 1;
                 }, undefined, { timeout: 2000 });
-                await page.locator('#close-slide-panel').click();
-
                 await page.evaluate(() => {
                     window.__viewportReturnSettled = false;
                     window.addEventListener('bark:external-return-settled', () => {
                         window.__viewportReturnSettled = true;
                     }, { once: true });
-                    window.BARK.prepareExternalHandoff({ source: 'viewport-matrix' });
+                    window.BARK.prepareExternalHandoff({
+                        source: 'viewport-matrix',
+                        preservePinPopup: true
+                    });
                     window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
                 });
-                await page.waitForFunction(() => window.__viewportReturnSettled === true, undefined, { timeout: 3000 });
+                await page.waitForFunction(() => Boolean(
+                    window.__viewportReturnSettled
+                    && document.getElementById('slide-panel').classList.contains('open')
+                    && window.BARK.activePinMarker
+                ), undefined, { timeout: 4000 });
                 expect(await page.evaluate(() => document.documentElement.dataset.viewportDocumentToken))
                     .toBe(documentToken);
+                expect(await page.evaluate(() => ({
+                    id: String(window.BARK.activePinMarker._parkData.id),
+                    name: document.getElementById('panel-title').textContent
+                }))).toEqual(selectedPark);
                 await assertShellFits(page);
             } finally {
                 await context.close();

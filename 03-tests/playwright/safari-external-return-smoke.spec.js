@@ -10,6 +10,7 @@ async function openLoadedApp(page) {
         window.map &&
         window.BARK &&
         typeof window.BARK.prepareExternalHandoff === 'function' &&
+        window.BARK.externalPinReturn &&
         window.BARK.markerManager &&
         window.BARK.markerManager.markers &&
         window.BARK.markerManager.markers.size > 0 &&
@@ -266,6 +267,86 @@ test.describe('Safari installed-app external return', () => {
         await context.close();
     });
 
+    test('a park website return rebuilds the same park sheet after viewport recovery', async ({ browser }) => {
+        const context = await newBarkContext(browser, {
+            viewport: { width: 390, height: 844 },
+            isMobile: true,
+            hasTouch: true
+        });
+        const page = await context.newPage();
+        await openLoadedApp(page);
+
+        const selectedPark = await page.evaluate(() => {
+            const marker = Array.from(window.BARK.markerManager.markers.values())
+                .find(candidate => candidate && candidate._parkData && /https?:\/\//.test(candidate._parkData.website || ''));
+            if (!marker) throw new Error('No park website is available for the return restoration test.');
+
+            window.BARK.markerManager.renderMarkerPanel(marker);
+            const websiteLink = document.querySelector('#websites-container a[href]');
+            if (!websiteLink) throw new Error('The selected park did not render a website link.');
+            websiteLink.addEventListener('click', event => event.preventDefault());
+
+            window.__barkWebsiteReturnSettled = false;
+            window.addEventListener('bark:external-return-settled', () => {
+                window.__barkWebsiteReturnSettled = true;
+            }, { once: true });
+
+            return { id: String(marker._parkData.id), name: marker._parkData.name };
+        });
+
+        await page.locator('#websites-container a[href]').first().click();
+
+        const hiddenState = await page.evaluate(() => ({
+            pending: document.body.classList.contains('bark-external-handoff-pending'),
+            panelOpen: document.getElementById('slide-panel').classList.contains('open'),
+            panelTitle: document.getElementById('panel-title').textContent,
+            activePin: window.BARK.activePinMarker
+        }));
+        expect(hiddenState.pending).toBe(true);
+        expect(hiddenState.panelOpen).toBe(false);
+        expect(hiddenState.panelTitle).toBe('');
+        expect(hiddenState.activePin).toBeNull();
+
+        await page.evaluate(() => {
+            window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+        });
+        await page.waitForFunction(() => Boolean(
+            window.__barkWebsiteReturnSettled
+            && document.getElementById('slide-panel').classList.contains('open')
+            && window.BARK.activePinMarker
+        ), undefined, { timeout: 4000 });
+        await page.waitForFunction(() => {
+            const panel = document.getElementById('slide-panel').getBoundingClientRect();
+            const nav = document.querySelector('.glass-nav').getBoundingClientRect();
+            return Math.abs(panel.bottom - nav.top) <= 1;
+        }, undefined, { timeout: 2000 });
+
+        const restoredState = await page.evaluate(() => {
+            const panel = document.getElementById('slide-panel');
+            const nav = document.querySelector('.glass-nav');
+            return {
+                pending: document.body.classList.contains('bark-external-handoff-pending'),
+                panelOpen: panel.classList.contains('open'),
+                panelTitle: document.getElementById('panel-title').textContent,
+                activePinId: String(window.BARK.activePinMarker._parkData.id),
+                activePinName: window.BARK.activePinMarker._parkData.name,
+                panelBottom: panel.getBoundingClientRect().bottom,
+                navTop: nav.getBoundingClientRect().top,
+                websiteButtonCount: document.getElementById('websites-container').childElementCount
+            };
+        });
+
+        expect(restoredState.pending).toBe(false);
+        expect(restoredState.panelOpen).toBe(true);
+        expect(restoredState.panelTitle).toBe(selectedPark.name);
+        expect(restoredState.activePinId).toBe(selectedPark.id);
+        expect(restoredState.activePinName).toBe(selectedPark.name);
+        expect(restoredState.websiteButtonCount).toBeGreaterThan(0);
+        expect(Math.abs(restoredState.panelBottom - restoredState.navTop)).toBeLessThanOrEqual(1);
+
+        await context.close();
+    });
+
     test('community information links use an isolated Safari window', async ({ browser }) => {
         const context = await newBarkContext(browser, { viewport: { width: 390, height: 844 } });
         const page = await context.newPage();
@@ -330,22 +411,24 @@ test.describe('Safari installed-app external return', () => {
         await openLoadedApp(page);
 
         const expectedTitle = await page.evaluate(() => {
-            const markers = Array.from(window.BARK.markerManager.markers.values())
+            const allMarkers = Array.from(window.BARK.markerManager.markers.values())
                 .filter(candidate => candidate && candidate._parkData);
-            if (markers.length < 2) throw new Error('Two park markers are required for the rapid Safari return test.');
+            const firstMarker = allMarkers.find(candidate => /https?:\/\//.test(candidate._parkData.website || ''));
+            const secondMarker = allMarkers.find(candidate => candidate !== firstMarker);
+            if (!firstMarker || !secondMarker) {
+                throw new Error('Two park markers, including one website, are required for the rapid Safari return test.');
+            }
 
-            window.BARK.markerManager.renderMarkerPanel(markers[0]);
+            window.BARK.markerManager.renderMarkerPanel(firstMarker);
             window.__barkRapidInvalidateSizeCount = 0;
             const originalInvalidateSize = window.map.invalidateSize.bind(window.map);
             window.map.invalidateSize = (...args) => {
                 window.__barkRapidInvalidateSizeCount += 1;
                 return originalInvalidateSize(...args);
             };
-            const externalLink = document.createElement('a');
-            externalLink.href = 'https://www.nps.gov/test/';
-            externalLink.target = '_blank';
+            const externalLink = document.querySelector('#websites-container a[href]');
+            if (!externalLink) throw new Error('The first rapid-return marker did not render a website link.');
             externalLink.addEventListener('click', event => event.preventDefault());
-            document.body.appendChild(externalLink);
             externalLink.click();
 
             window.__barkRapidReturnSettled = false;
@@ -356,8 +439,8 @@ test.describe('Safari installed-app external return', () => {
 
             // This is the race from the real iPhone: the user returns to Map
             // and opens a pin before the 1.2-second compositor quarantine ends.
-            window.BARK.markerManager.renderMarkerPanel(markers[1]);
-            return markers[1]._parkData.name;
+            window.BARK.markerManager.renderMarkerPanel(secondMarker);
+            return secondMarker._parkData.name;
         });
 
         const immediateState = await page.evaluate(() => {

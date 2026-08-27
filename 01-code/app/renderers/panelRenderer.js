@@ -212,6 +212,7 @@ function renderMarkerClickPanel(context) {
     const videoEl = context.videoEl;
     const firebaseService = window.BARK.services && window.BARK.services.firebase;
     const refreshOnly = context.refreshOnly === true;
+    const externalReturnRestore = context.externalReturnRestore === true;
     const panelOperation = typeof window.BARK.perfOperationStart === 'function'
         ? window.BARK.perfOperationStart('park-panel-render', refreshOnly ? 'refresh' : 'open')
         : null;
@@ -243,7 +244,7 @@ function renderMarkerClickPanel(context) {
     if (!refreshOnly) document.getElementById('filter-panel').classList.add('collapsed');
 
     const d = marker._parkData;
-    if (!refreshOnly && typeof window.BARK.noteInteraction === 'function') {
+    if (!refreshOnly && !externalReturnRestore && typeof window.BARK.noteInteraction === 'function') {
         window.BARK.noteInteraction('pin-click', d.id || d.name || 'unknown');
     }
     if (titleEl) titleEl.textContent = d.name || 'Unknown Park';
@@ -730,7 +731,7 @@ function renderMarkerClickPanel(context) {
     }
 
     // --- SMART AUTO-PAN ---
-    if (!refreshOnly && !window.stopAutoMovements) {
+    if (!refreshOnly && !externalReturnRestore && !window.stopAutoMovements) {
         const currentZoom = map.getZoom();
         const xOffset = window.innerWidth >= 768 ? -250 : 0;
         const yOffset = window.innerWidth < 768 ? 180 : 0;

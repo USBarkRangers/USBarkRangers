@@ -109,7 +109,8 @@ class MarkerLayerManager {
             websitesContainer: document.getElementById('websites-container'),
             picsEl: document.getElementById('panel-pics'),
             videoEl: document.getElementById('panel-video'),
-            refreshOnly: options.refreshOnly === true
+            refreshOnly: options.refreshOnly === true,
+            externalReturnRestore: options.externalReturnRestore === true
         });
     }
 

@@ -225,7 +225,10 @@ function closeStaleSlidePanel(reason) {
 window.BARK.closeMapOnlySurfaces = closeMapOnlySurfaces;
 
 function prepareExternalHandoff(details = {}) {
-    void details;
+    const pinReturn = window.BARK && window.BARK.externalPinReturn;
+    if (pinReturn && typeof pinReturn.capture === 'function') {
+        pinReturn.capture(details);
+    }
     markExternalHandoffPending();
     document.body.classList.add(EXTERNAL_HANDOFF_CLASS);
     document.body.classList.remove('keyboard-open');
@@ -656,6 +659,12 @@ document.addEventListener('click', (event) => {
         hasFeedbackHandler: Boolean(window.BARK.feedback && typeof window.BARK.feedback.open === 'function')
     })) return;
 
+    const handoffDetails = {
+        destination: link.href,
+        source: 'link',
+        preservePinPopup: Boolean(link.closest('#slide-panel'))
+    };
+
     if (!event.defaultPrevented
         && !link.hasAttribute('download')
         && (!Number.isFinite(event.button) || event.button === 0)
@@ -663,11 +672,11 @@ document.addEventListener('click', (event) => {
         && shouldUseSameContextForExternalWebsite(link.href)) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        openExternalWebsite(link.href, { source: 'link' });
+        openExternalWebsite(link.href, handoffDetails);
         return;
     }
 
-    prepareExternalHandoff({ destination: link.href, source: 'link' });
+    prepareExternalHandoff(handoffDetails);
 }, true);
 
 window.addEventListener('pageshow', () => handleAppReturn('pageshow'));

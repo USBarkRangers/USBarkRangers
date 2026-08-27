@@ -3,12 +3,14 @@
  *
  * The external handoff controller must fully hide and empty the live card while
  * Safari/Chrome owns the screen. This module remembers only the stable park ID
- * and rebuilds the card from the current marker after viewport recovery settles.
+ * and rebuilds the card from the current marker as soon as app return begins.
+ * Viewport recovery can then finish without making the card slide away and back.
  */
 (function initExternalPinReturn() {
     window.BARK = window.BARK || {};
 
     const STORAGE_KEY = 'bark_external_pin_return_v1';
+    const RETURN_VISIBLE_CLASS = 'bark-external-pin-return-visible';
     const MAX_SNAPSHOT_AGE_MS = 4 * 60 * 60 * 1000;
     const RESTORE_RETRY_DELAYS_MS = [0, 120, 420, 900];
 
@@ -70,10 +72,8 @@
         const parkId = parkData && parkData.id != null ? String(parkData.id).trim() : '';
         if (!panel || !panel.classList.contains('open') || !parkId) return false;
 
-        const panelContent = panel.querySelector('.panel-content');
         writeSnapshot({
             parkId,
-            scrollTop: panelContent ? Math.max(0, Number(panelContent.scrollTop) || 0) : 0,
             capturedAt: Date.now()
         });
         return true;
@@ -122,37 +122,51 @@
 
         removeStoredSnapshot();
         manager.renderMarkerPanel(marker, { externalReturnRestore: true });
-
-        requestAnimationFrame(() => {
-            const panelContent = document.querySelector('#slide-panel .panel-content');
-            if (panelContent && window.BARK.activePinMarker === marker) {
-                const maxScroll = Math.max(0, panelContent.scrollHeight - panelContent.clientHeight);
-                panelContent.scrollTop = Math.min(snapshot.scrollTop, maxScroll);
-            }
-        });
+        document.body.classList.add(RETURN_VISIBLE_CLASS);
+        const panelContent = document.querySelector('#slide-panel .panel-content');
+        if (panelContent) {
+            panelContent.scrollTop = 0;
+            requestAnimationFrame(() => {
+                if (window.BARK.activePinMarker === marker) panelContent.scrollTop = 0;
+            });
+        }
     }
 
-    function requestRestore() {
+    function requestRestore(options = {}) {
         const snapshot = readSnapshot();
         if (!snapshot) return false;
 
         const generation = ++restoreGeneration;
-        RESTORE_RETRY_DELAYS_MS.forEach((delay, index) => {
-            setTimeout(() => {
-                tryRestore(snapshot, generation, index === RESTORE_RETRY_DELAYS_MS.length - 1);
-            }, delay);
-        });
+        if (options.immediate === true) {
+            tryRestore(snapshot, generation, false);
+        }
+
+        RESTORE_RETRY_DELAYS_MS
+            .filter(delay => options.immediate !== true || delay > 0)
+            .forEach((delay, index, delays) => {
+                setTimeout(() => {
+                    tryRestore(snapshot, generation, index === delays.length - 1);
+                }, delay);
+            });
         return true;
     }
 
     function cancel() {
         restoreGeneration += 1;
         removeStoredSnapshot();
+        document.body.classList.remove(RETURN_VISIBLE_CLASS);
     }
 
+    window.addEventListener('bark:external-return-started', () => {
+        // Rebuild while the handoff guard still owns the compositor. CSS reveals
+        // the fresh card already in its final position, without a down/up slide.
+        requestRestore({ immediate: true });
+    });
+
     window.addEventListener('bark:external-return-settled', () => {
-        // Defer one task so a pin clicked during Safari's return can win before
-        // the remembered selection is considered for restoration.
+        document.body.classList.remove(RETURN_VISIBLE_CLASS);
+        // Fallback for a return signal that arrived before markers were ready.
+        // Defer one task so a newly clicked pin still wins the race.
         setTimeout(requestRestore, 0);
     });
 

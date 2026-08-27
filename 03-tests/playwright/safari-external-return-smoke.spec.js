@@ -285,8 +285,14 @@ test.describe('Safari installed-app external return', () => {
             const websiteLink = document.querySelector('#websites-container a[href]');
             if (!websiteLink) throw new Error('The selected park did not render a website link.');
             websiteLink.addEventListener('click', event => event.preventDefault());
+            const panelContent = document.querySelector('#slide-panel .panel-content');
+            panelContent.scrollTop = panelContent.scrollHeight;
 
             window.__barkWebsiteReturnSettled = false;
+            window.__barkWebsiteReturnStarted = false;
+            window.addEventListener('bark:external-return-started', () => {
+                window.__barkWebsiteReturnStarted = true;
+            }, { once: true });
             window.addEventListener('bark:external-return-settled', () => {
                 window.__barkWebsiteReturnSettled = true;
             }, { once: true });
@@ -307,8 +313,27 @@ test.describe('Safari installed-app external return', () => {
         expect(hiddenState.panelTitle).toBe('');
         expect(hiddenState.activePin).toBeNull();
 
-        await page.evaluate(() => {
+        const immediateReturnState = await page.evaluate(() => {
             window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+            const panel = document.getElementById('slide-panel');
+            return {
+                started: window.__barkWebsiteReturnStarted,
+                settled: window.__barkWebsiteReturnSettled,
+                pending: document.body.classList.contains('bark-external-handoff-pending'),
+                returnVisible: document.body.classList.contains('bark-external-pin-return-visible'),
+                panelOpen: panel.classList.contains('open'),
+                display: getComputedStyle(panel).display,
+                activePin: Boolean(window.BARK.activePinMarker)
+            };
+        });
+        expect(immediateReturnState).toEqual({
+            started: true,
+            settled: false,
+            pending: true,
+            returnVisible: true,
+            panelOpen: true,
+            display: 'flex',
+            activePin: true
         });
         await page.waitForFunction(() => Boolean(
             window.__barkWebsiteReturnSettled
@@ -330,6 +355,7 @@ test.describe('Safari installed-app external return', () => {
                 panelTitle: document.getElementById('panel-title').textContent,
                 activePinId: String(window.BARK.activePinMarker._parkData.id),
                 activePinName: window.BARK.activePinMarker._parkData.name,
+                panelScrollTop: document.querySelector('#slide-panel .panel-content').scrollTop,
                 panelBottom: panel.getBoundingClientRect().bottom,
                 navTop: nav.getBoundingClientRect().top,
                 websiteButtonCount: document.getElementById('websites-container').childElementCount
@@ -341,6 +367,7 @@ test.describe('Safari installed-app external return', () => {
         expect(restoredState.panelTitle).toBe(selectedPark.name);
         expect(restoredState.activePinId).toBe(selectedPark.id);
         expect(restoredState.activePinName).toBe(selectedPark.name);
+        expect(restoredState.panelScrollTop).toBe(0);
         expect(restoredState.websiteButtonCount).toBeGreaterThan(0);
         expect(Math.abs(restoredState.panelBottom - restoredState.navTop)).toBeLessThanOrEqual(1);
 

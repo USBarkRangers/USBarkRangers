@@ -9,6 +9,10 @@ let userSnapshotUnsubscribe = null;
 let authenticatedSessionSeen = false;
 let lastAuthenticatedUid = null;
 let lastExpeditionSyncKey = null;
+let googlePopupAttempt = 0;
+let lastGooglePopupStartedAt = 0;
+
+const GOOGLE_POPUP_RECLICK_GUARD_MS = 250;
 
 function getAuthIntentState() {
     window.BARK = window.BARK || {};
@@ -53,7 +57,12 @@ async function ensureLocalAuthPersistence(auth = firebase.auth()) {
 
 async function handleGoogleSignInClick(event = null) {
     if (event && typeof event.preventDefault === 'function') event.preventDefault();
-    if (handleGoogleSignInClick.inFlight) return;
+    const now = Date.now();
+    const isUiClick = Boolean(event);
+    if (isUiClick && now - lastGooglePopupStartedAt < GOOGLE_POPUP_RECLICK_GUARD_MS) return;
+
+    if (isUiClick) lastGooglePopupStartedAt = now;
+    const attempt = ++googlePopupAttempt;
     handleGoogleSignInClick.inFlight = true;
     try {
         const forceAccountChooser = consumeGoogleAccountChooserRequest();
@@ -68,7 +77,9 @@ async function handleGoogleSignInClick(event = null) {
         console.error('[authService] Google sign-in failed:', error);
         alert('Login Error: ' + (error && error.message ? error.message : 'unknown error'));
     } finally {
-        handleGoogleSignInClick.inFlight = false;
+        // A newly clicked desktop popup supersedes Firebase's slowly-settling
+        // canceled request. The older promise must not clear the newer state.
+        if (attempt === googlePopupAttempt) handleGoogleSignInClick.inFlight = false;
     }
 }
 

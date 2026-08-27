@@ -1221,6 +1221,21 @@ body.bark-external-handoff-pending #slide-panel {
     transition: none !important;
 }
 
+/* The stale card remains hard-hidden while another website owns the screen.
+   On the first confirmed return signal, the freshly rebuilt card is revealed
+   already at its final position while viewport repair continues in place. */
+body.bark-external-handoff-pending.bark-external-pin-return-visible #slide-panel.open {
+    display: flex !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    transform: translate3d(0, 0, 0) !important;
+    transition: none !important;
+}
+
+body.bark-external-pin-return-visible #slide-panel .panel-content {
+    overflow-anchor: none;
+}
+
 body.app-tab-active #slide-panel {
     visibility: hidden !important;
     pointer-events: none !important;

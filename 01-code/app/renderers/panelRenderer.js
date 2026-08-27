@@ -226,7 +226,8 @@ function renderMarkerClickPanel(context) {
         return;
     }
 
-    if (!refreshOnly && typeof window.BARK.finishExternalReturnForInteraction === 'function') {
+    if (!refreshOnly && !externalReturnRestore
+        && typeof window.BARK.finishExternalReturnForInteraction === 'function') {
         window.BARK.finishExternalReturnForInteraction('pin-interaction');
     }
 

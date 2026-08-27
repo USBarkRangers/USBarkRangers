@@ -39,6 +39,9 @@ test.beforeAll(() => {
 });
 
 async function openApp(page) {
+    await page.addInitScript(() => {
+        try { localStorage.setItem('barkTermsAgreement', '1'); } catch (_error) { /* storage blocked */ }
+    });
     await page.goto(BASE_URL);
     await page.waitForFunction(() => {
         return Boolean(
@@ -211,6 +214,58 @@ test.describe('account auth UI smoke', () => {
             { prompt: 'select_account' },
             null
         ]);
+    });
+
+    test('desktop Google sign-in can reopen before a canceled popup promise settles', async ({ page }) => {
+        await openApp(page);
+        await page.waitForFunction(() => Boolean(
+            window.BARK
+            && window.BARK.services
+            && window.BARK.services.auth
+            && typeof window.BARK.services.auth.handleGoogleSignInClick === 'function'
+        ), { timeout: 30000 });
+
+        const result = await page.evaluate(async () => {
+            const auth = firebase.auth();
+            const authService = window.BARK.services.auth;
+            const originalSignInWithPopup = auth.signInWithPopup;
+            let rejectFirstPopup = null;
+            let popupCount = 0;
+
+            auth.signInWithPopup = async () => {
+                popupCount += 1;
+                if (popupCount === 1) {
+                    return new Promise((_resolve, reject) => {
+                        rejectFirstPopup = reject;
+                    });
+                }
+                return { user: auth.currentUser || null };
+            };
+
+            const clickEvent = { preventDefault() {} };
+            try {
+                const firstAttempt = authService.handleGoogleSignInClick(clickEvent);
+                while (popupCount < 1) await new Promise(resolve => setTimeout(resolve, 10));
+
+                await new Promise(resolve => setTimeout(resolve, 300));
+                const secondAttempt = authService.handleGoogleSignInClick(clickEvent);
+                const startedAt = Date.now();
+                while (popupCount < 2 && Date.now() - startedAt < 1000) {
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+
+                rejectFirstPopup({ code: 'auth/popup-closed-by-user', message: 'Popup closed' });
+                await Promise.all([firstAttempt, secondAttempt]);
+                return {
+                    popupCount,
+                    inFlight: authService.handleGoogleSignInClick.inFlight === true
+                };
+            } finally {
+                auth.signInWithPopup = originalSignInWithPopup;
+            }
+        });
+
+        expect(result).toEqual({ popupCount: 2, inFlight: false });
     });
 
     test('iOS Google sign-in uses the same Firebase popup path as desktop', async ({ browser }) => {

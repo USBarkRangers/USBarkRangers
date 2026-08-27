@@ -3,6 +3,22 @@ const assert = require('node:assert/strict');
 
 const coordinator = require('../01-code/app/modules/viewportCoordinator');
 
+function entryElement(tagName, type = '') {
+    const normalizedTag = String(tagName).toLowerCase();
+    return {
+        matches(selector) {
+            if (selector === 'textarea, [contenteditable="true"]') {
+                return normalizedTag === 'textarea' || normalizedTag === 'contenteditable';
+            }
+            if (selector === 'input') return normalizedTag === 'input';
+            return false;
+        },
+        getAttribute(name) {
+            return name === 'type' ? type : null;
+        }
+    };
+}
+
 test('standalone shell keeps the full app window after Safari reports a shorter return viewport', () => {
     assert.equal(coordinator.calculateStandaloneAppHeight({
         outerHeight: 932,
@@ -96,4 +112,39 @@ test('invalid browser measurements cannot create a correction loop', () => {
         visibleBottom: 0,
         layoutHeight: 844
     }), 0);
+});
+
+test('keyboard recovery waits while Android still reports the short viewport', () => {
+    assert.equal(coordinator.hasKeyboardViewportRecovered({
+        baselineBottom: 915,
+        visibleBottom: 520,
+        textEntryActive: false
+    }), false);
+});
+
+test('keyboard recovery completes when the visual viewport returns to its baseline', () => {
+    assert.equal(coordinator.hasKeyboardViewportRecovered({
+        baselineBottom: 915,
+        visibleBottom: 910,
+        textEntryActive: false
+    }), true);
+});
+
+test('switching directly to another text field keeps the keyboard session active', () => {
+    assert.equal(coordinator.hasKeyboardViewportRecovered({
+        baselineBottom: 915,
+        visibleBottom: 915,
+        textEntryActive: true
+    }), false);
+});
+
+test('the shared keyboard lifecycle covers every app text-entry control type', () => {
+    ['text', 'search', 'email', 'password', 'number', 'tel', 'url'].forEach(type => {
+        assert.equal(coordinator.isTextEntryElement(entryElement('input', type)), true, type);
+    });
+    assert.equal(coordinator.isTextEntryElement(entryElement('textarea')), true);
+    assert.equal(coordinator.isTextEntryElement(entryElement('contenteditable')), true);
+    ['file', 'range', 'checkbox', 'radio', 'button'].forEach(type => {
+        assert.equal(coordinator.isTextEntryElement(entryElement('input', type)), false, type);
+    });
 });

@@ -29,9 +29,12 @@
     const IOS_STANDALONE_CLASS = 'bark-ios-standalone-fullscreen';
     const STABLE_SHELL_CLASS = 'bark-stable-standalone-shell';
     const STABLE_SHELL_HEIGHT_PROPERTY = '--bark-standalone-app-height';
+    const KEYBOARD_SETTLING_CLASS = 'bark-keyboard-settling';
     const MAX_LIFT_PX = 260;
     const CONTENT_MARGIN_PX = 3;
     const CHANGE_TOLERANCE_PX = 1;
+    const KEYBOARD_RECOVERY_TOLERANCE_PX = 8;
+    const KEYBOARD_SETTLE_DELAYS_MS = Object.freeze([0, 80, 180, 360, 700, 1200]);
 
     function finiteNumber(value, fallback = 0) {
         const parsed = Number(value);
@@ -40,6 +43,26 @@
 
     function clamp(value, min, max) {
         return Math.min(max, Math.max(min, value));
+    }
+
+    function isTextEntryElement(element) {
+        if (!element || !element.matches) return false;
+        if (element.matches('textarea, [contenteditable="true"]')) return true;
+        if (!element.matches('input')) return false;
+        const type = String(element.getAttribute('type') || 'text').toLowerCase();
+        return ['email', 'number', 'password', 'search', 'tel', 'text', 'url'].includes(type);
+    }
+
+    function hasKeyboardViewportRecovered(metrics = {}) {
+        if (metrics.textEntryActive) return false;
+        const baselineBottom = finiteNumber(metrics.baselineBottom);
+        const visibleBottom = finiteNumber(metrics.visibleBottom);
+        if (baselineBottom <= 0 || visibleBottom <= 0) return true;
+        const tolerance = Math.max(0, finiteNumber(
+            metrics.tolerance,
+            KEYBOARD_RECOVERY_TOLERANCE_PX
+        ));
+        return visibleBottom >= baselineBottom - tolerance;
     }
 
     function calculateRequiredContentLift(metrics = {}) {
@@ -150,6 +173,7 @@
             ? layoutHeight
             : Math.min(layoutHeight, visualBottom || layoutHeight);
         const suspended = document.body.classList.contains('keyboard-open')
+            || document.body.classList.contains(KEYBOARD_SETTLING_CLASS)
             || document.body.classList.contains('bark-external-handoff-pending');
 
         return {
@@ -177,6 +201,17 @@
         let stableOrientationKey = '';
         let stableWindowWidth = 0;
         let allowShellShrinkUntil = 0;
+        let keyboardGeneration = 0;
+        let keyboardBaselineBottom = 0;
+        let keyboardRestoreLift = 0;
+        let keyboardSessionActive = false;
+
+        function writeContentLift(lift) {
+            const normalized = Math.max(0, finiteNumber(lift));
+            rootElement.style.setProperty(CONTENT_LIFT_PROPERTY, `${normalized}px`);
+            rootElement.dataset.barkNavContentLift = String(normalized);
+            return normalized;
+        }
 
         function refresh(reason = 'manual') {
             const metrics = readMetrics(targetWindow);
@@ -185,7 +220,7 @@
             const lift = calculateRequiredContentLift(metrics);
             const changed = Math.abs(lift - metrics.currentLift) > CHANGE_TOLERANCE_PX;
             if (changed) {
-                rootElement.style.setProperty(CONTENT_LIFT_PROPERTY, `${lift}px`);
+                writeContentLift(lift);
             }
             rootElement.dataset.barkNavContentLift = String(lift);
             lastReason = reason;
@@ -281,8 +316,75 @@
         }
 
         function settleExternalReturn() {
+            keyboardGeneration += 1;
+            keyboardSessionActive = false;
+            keyboardBaselineBottom = 0;
+            document.body.classList.remove(KEYBOARD_SETTLING_CLASS);
             scheduleShellRecovery('external-return-settled');
             schedule('external-return', [0, 120, 420]);
+        }
+
+        function beginKeyboardSession() {
+            keyboardGeneration += 1;
+            document.body.classList.remove(KEYBOARD_SETTLING_CLASS);
+            if (keyboardSessionActive) return;
+            keyboardSessionActive = true;
+            const metrics = readMetrics(targetWindow);
+            keyboardRestoreLift = metrics ? metrics.currentLift : readCurrentLift(targetWindow);
+            keyboardBaselineBottom = metrics ? metrics.visibleBottom : 0;
+        }
+
+        function beginKeyboardSettle() {
+            const scheduledGeneration = ++keyboardGeneration;
+            document.body.classList.add(KEYBOARD_SETTLING_CLASS);
+
+            // The keyboard can blur before Android publishes its restored visual
+            // viewport. Keep the exact pre-keyboard correction during that gap so
+            // a stale short viewport cannot manufacture a large upward nav lift.
+            writeContentLift(keyboardRestoreLift);
+
+            KEYBOARD_SETTLE_DELAYS_MS.forEach((delay, index) => {
+                targetWindow.setTimeout(() => {
+                    if (scheduledGeneration !== keyboardGeneration) return;
+                    const activeElement = document.activeElement;
+                    if (isTextEntryElement(activeElement)) return;
+
+                    const metrics = readMetrics(targetWindow);
+                    const recovered = hasKeyboardViewportRecovered({
+                        baselineBottom: keyboardBaselineBottom,
+                        visibleBottom: metrics && metrics.visibleBottom,
+                        textEntryActive: false
+                    });
+                    const finalAttempt = index === KEYBOARD_SETTLE_DELAYS_MS.length - 1;
+                    if (!recovered && !finalAttempt) return;
+
+                    keyboardSessionActive = false;
+                    if (recovered) {
+                        document.body.classList.remove(KEYBOARD_SETTLING_CLASS);
+                        schedule('keyboard-settled', [0, 80]);
+                    } else {
+                        // Some Android builds never emit a final resize after the
+                        // keyboard X is pressed. Keep geometry frozen until a later
+                        // viewport event proves that the full screen has returned.
+                        writeContentLift(keyboardRestoreLift);
+                    }
+                }, delay);
+            });
+        }
+
+        function completeKeyboardSettleIfRecovered() {
+            if (!document.body.classList.contains(KEYBOARD_SETTLING_CLASS)) return false;
+            if (isTextEntryElement(document.activeElement)) return false;
+            const metrics = readMetrics(targetWindow);
+            if (!hasKeyboardViewportRecovered({
+                baselineBottom: keyboardBaselineBottom,
+                visibleBottom: metrics && metrics.visibleBottom,
+                textEntryActive: false
+            })) return false;
+            keyboardGeneration += 1;
+            keyboardSessionActive = false;
+            document.body.classList.remove(KEYBOARD_SETTLING_CLASS);
+            return true;
         }
 
         let viewportFrame = 0;
@@ -292,6 +394,7 @@
             if (viewportFrame) return;
             viewportFrame = targetWindow.requestAnimationFrame(() => {
                 viewportFrame = 0;
+                completeKeyboardSettleIfRecovered();
                 refresh(viewportReason);
             });
         }
@@ -308,6 +411,10 @@
 
         targetWindow.addEventListener('load', () => schedule('load', [0, 120]), { once: true });
         targetWindow.addEventListener('orientationchange', () => {
+            keyboardGeneration += 1;
+            keyboardSessionActive = false;
+            keyboardBaselineBottom = 0;
+            document.body.classList.remove(KEYBOARD_SETTLING_CLASS);
             allowShellShrinkUntil = Date.now() + 1000;
             scheduleShellRecovery('orientation', [0, 120, 420, 900]);
             schedule('orientation', [120, 420]);
@@ -347,12 +454,15 @@
         });
         document.addEventListener('focusin', (event) => {
             const target = event.target;
-            if (!stableStandaloneShell || !target || !target.matches) return;
-            if (target.matches('input, textarea, [contenteditable="true"]')) {
+            if (!isTextEntryElement(target)) return;
+            beginKeyboardSession();
+            if (stableStandaloneShell) {
                 scheduleShellRecovery('keyboard-focus', [0, 120]);
             }
         });
-        document.addEventListener('focusout', () => {
+        document.addEventListener('focusout', (event) => {
+            if (!isTextEntryElement(event.target)) return;
+            beginKeyboardSettle();
             if (stableStandaloneShell) {
                 scheduleShellRecovery('keyboard-dismiss', [0, 120, 420, 900]);
             }
@@ -376,9 +486,12 @@
         IOS_STANDALONE_CLASS,
         STABLE_SHELL_CLASS,
         STABLE_SHELL_HEIGHT_PROPERTY,
+        KEYBOARD_SETTLING_CLASS,
+        isTextEntryElement,
         calculateStandaloneAppHeight,
         chooseStableStandaloneHeight,
         calculateRequiredContentLift,
+        hasKeyboardViewportRecovered,
         install
     });
 }));

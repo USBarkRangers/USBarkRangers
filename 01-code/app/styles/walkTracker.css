@@ -6,9 +6,13 @@
    one, because tapping "how far am I" and "show me the map" want different places. */
 .live-walk-banner {
     position: fixed;
-    top: 20px;
+    /* Keep the walk controls below notches and Dynamic Islands. Phones without
+       a top inset retain the original 20px position. */
+    top: max(20px, calc(var(--bark-safe-top, 0px) + 12px));
     left: 50%;
     transform: translateX(-50%);
+    max-width: calc(100vw - var(--bark-safe-left, 0px) - var(--bark-safe-right, 0px) - 16px);
+    box-sizing: border-box;
     z-index: 10000;
     display: flex;
     align-items: stretch;

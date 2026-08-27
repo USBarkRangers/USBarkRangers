@@ -9,6 +9,7 @@ const styles = fs.readFileSync(path.join(appDir, 'styles.css'), 'utf8');
 const viewportStyles = fs.readFileSync(path.join(appDir, 'styles', 'viewportShell.css'), 'utf8');
 const viewportCoordinator = fs.readFileSync(path.join(appDir, 'modules', 'viewportCoordinator.js'), 'utf8');
 const trophyStyles = fs.readFileSync(path.join(appDir, 'styles', 'trophyCase.css'), 'utf8');
+const walkTrackerStyles = fs.readFileSync(path.join(appDir, 'styles', 'walkTracker.css'), 'utf8');
 
 test('the viewport shell is isolated in dedicated files', () => {
     assert.match(indexHtml, /viewport-fit=cover/);
@@ -79,6 +80,13 @@ test('profile and refresh controls clear the top safe area', () => {
     assert.match(styles, /\.update-toast\s*\{[\s\S]*top:\s*max\(24px,\s*calc\(env\(safe-area-inset-top,\s*0px\)\s*\+\s*12px\)\)/);
     assert.match(styles, /\.update-toast\s*\{[\s\S]*translateY\(calc\(-100%\s*-\s*env\(safe-area-inset-top,\s*0px\)\s*-\s*32px\)\)/);
     assert.match(styles, /\.update-toast\.show\s*\{\s*transform:\s*translateX\(-50%\)\s*translateY\(0\)/);
+});
+
+test('the live expedition walk bubble clears every phone top safe area', () => {
+    assert.match(indexHtml, /styles\/walkTracker\.css\?v=2/);
+    assert.match(walkTrackerStyles, /\.live-walk-banner\s*\{[\s\S]*top:\s*max\(20px,\s*calc\(var\(--bark-safe-top,\s*0px\)\s*\+\s*12px\)\)/);
+    assert.match(walkTrackerStyles, /max-width:\s*calc\(100vw\s*-\s*var\(--bark-safe-left,\s*0px\)\s*-\s*var\(--bark-safe-right,\s*0px\)\s*-\s*16px\)/);
+    assert.doesNotMatch(walkTrackerStyles, /\.live-walk-banner\s*\{[\s\S]*?top:\s*20px\s*;/);
 });
 
 test('bottom navigation does not install the fixed-surface touchmove canceler', () => {

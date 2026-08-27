@@ -112,6 +112,47 @@ async function assertShellFits(page) {
     expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.innerWidth + 1);
 }
 
+async function assertLiveWalkBannerFits(page, simulatedSafeTop = null) {
+    const geometry = await page.evaluate((safeTop) => {
+        if (Number.isFinite(safeTop)) {
+            document.documentElement.style.setProperty('--bark-safe-top', `${safeTop}px`);
+        }
+        let banner = document.getElementById('live-walk-banner');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'live-walk-banner';
+            banner.className = 'live-walk-banner';
+            banner.innerHTML = '<button type="button" class="live-walk-banner__distance">🟢 <strong>0.00 mi</strong></button>'
+                + '<button type="button" class="live-walk-banner__map">🗺️</button>';
+            document.body.appendChild(banner);
+        }
+        banner.style.display = 'flex';
+        const rect = banner.getBoundingClientRect();
+        const visualTop = visualViewport ? visualViewport.offsetTop : 0;
+        const visualLeft = visualViewport ? visualViewport.offsetLeft : 0;
+        const visualRight = visualViewport
+            ? visualViewport.offsetLeft + visualViewport.width
+            : innerWidth;
+        return {
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            left: rect.left,
+            visualTop,
+            visualRight,
+            visualLeft,
+            expectedTop: Math.max(20, (Number.isFinite(safeTop) ? safeTop : 0) + 12),
+            viewportBottom: visualViewport
+                ? visualViewport.offsetTop + visualViewport.height
+                : innerHeight
+        };
+    }, simulatedSafeTop);
+    expect(geometry.top).toBeGreaterThanOrEqual(geometry.visualTop + geometry.expectedTop - 1);
+    expect(geometry.left).toBeGreaterThanOrEqual(geometry.visualLeft - 1);
+    expect(geometry.right).toBeLessThanOrEqual(geometry.visualRight + 1);
+    expect(geometry.bottom).toBeLessThanOrEqual(geometry.viewportBottom + 1);
+}
+
 function registerMatrix(familyName, phoneNames, requiredBrowser, standalone) {
     test.describe(`${familyName} viewport matrix`, () => {
         for (const deviceName of phoneNames) {
@@ -121,6 +162,10 @@ function registerMatrix(familyName, phoneNames, requiredBrowser, standalone) {
                     const { context, page } = await openShell(browser, deviceName, orientation, standalone);
                     try {
                         await assertShellFits(page);
+                        await assertLiveWalkBannerFits(
+                            page,
+                            requiredBrowser === 'webkit' ? 59 : 0
+                        );
 
                         await page.locator('#toggle-filter-btn').click();
                         await expect(page.locator('#filter-panel')).not.toHaveClass(/\bcollapsed\b/);

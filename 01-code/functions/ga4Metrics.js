@@ -28,6 +28,18 @@ function emptyStats() {
     };
 }
 
+function shiftDateKey(dateKey, days) {
+    const [year, month, day] = String(dateKey).split("-").map(Number);
+    return new Date(Date.UTC(year, month - 1, day + days, 12)).toISOString().slice(0, 10);
+}
+
+function inclusiveDayCount(startDate, endDate) {
+    const start = Date.parse(`${startDate}T12:00:00.000Z`);
+    const end = Date.parse(`${endDate}T12:00:00.000Z`);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 1;
+    return Math.round((end - start) / 86400000) + 1;
+}
+
 function finiteCount(value) {
     const number = Number(value);
     return Number.isFinite(number) ? Math.max(0, Math.round(number)) : 0;
@@ -84,10 +96,20 @@ function eventMap(report) {
     return result;
 }
 
+function visitorTypeMap(report) {
+    const result = { new: 0, returning: 0 };
+    ((report && report.rows) || []).forEach((row) => {
+        const type = String(row.dimensionValues && row.dimensionValues[0] && row.dimensionValues[0].value || "").toLowerCase();
+        if (!Object.prototype.hasOwnProperty.call(result, type)) return;
+        result[type] = finiteCount(row.metricValues && row.metricValues[0] && row.metricValues[0].value);
+    });
+    return result;
+}
+
 function audienceRequest(startDate, endDate) {
     return {
         dateRanges: [{ startDate, endDate }],
-        metrics: ["totalUsers", "activeUsers", "newUsers", "returningUsers", "sessions"]
+        metrics: ["totalUsers", "activeUsers", "sessions"]
             .map(name => ({ name })),
         // This GA property can contain automatic page_view events and admin
         // traffic. Restrict identity/session totals to sessions that actually
@@ -98,6 +120,21 @@ function audienceRequest(startDate, endDate) {
                 inListFilter: { values: [...TRACKED_EVENTS], caseSensitive: true }
             }
         }
+    };
+}
+
+function visitorTypeRequest(startDate, endDate) {
+    return {
+        dateRanges: [{ startDate, endDate }],
+        dimensions: [{ name: "newVsReturning" }],
+        metrics: [{ name: "totalUsers" }],
+        dimensionFilter: {
+            filter: {
+                fieldName: "eventName",
+                inListFilter: { values: [...TRACKED_EVENTS], caseSensitive: true }
+            }
+        },
+        limit: "10"
     };
 }
 
@@ -116,14 +153,15 @@ function eventRequest(startDate, endDate) {
     };
 }
 
-function combineReports(audienceReport, eventsReport) {
+function combineReports(audienceReport, eventsReport, visitorTypesReport) {
     const audience = metricMap(audienceReport);
     const events = eventMap(eventsReport);
+    const visitorTypes = visitorTypeMap(visitorTypesReport);
     return {
         totalUsers: audience.totalUsers || 0,
         activeUsers: audience.activeUsers || 0,
-        newUsers: audience.newUsers || 0,
-        returningUsers: audience.returningUsers || 0,
+        newUsers: visitorTypes.new || 0,
+        returningUsers: visitorTypes.returning || 0,
         sessions: audience.sessions || 0,
         appOpens: events.bark_app_opened.events,
         appOpenUsers: events.bark_app_opened.users,
@@ -145,6 +183,7 @@ async function fetchGa4VisitorStats(startDate, endDate, options = {}) {
             propertyId,
             trackingStartDate: GA4_TRACKING_START_DATE,
             period: emptyStats(),
+            previousPeriod: null,
             allTime: emptyStats()
         };
     }
@@ -152,19 +191,55 @@ async function fetchGa4VisitorStats(startDate, endDate, options = {}) {
     const trackedPeriodStart = String(startDate) < GA4_TRACKING_START_DATE
         ? GA4_TRACKING_START_DATE
         : startDate;
+    const periodDays = inclusiveDayCount(startDate, endDate);
+    const previousEndDate = shiftDateKey(startDate, -1);
+    const previousStartDate = shiftDateKey(previousEndDate, -(periodDays - 1));
+    // Never compare a full period with a truncated pre-tracking fragment; that
+    // would make early weekly growth look much larger than it really is.
+    const comparisonAvailable = previousStartDate >= GA4_TRACKING_START_DATE;
+    const trackedPreviousStart = previousStartDate < GA4_TRACKING_START_DATE
+        ? GA4_TRACKING_START_DATE
+        : previousStartDate;
 
     try {
-        const [periodAudience, periodEvents, allTimeAudience, allTimeEvents] = await Promise.all([
+        const requests = [
             runReport(propertyId, audienceRequest(trackedPeriodStart, endDate), options),
             runReport(propertyId, eventRequest(trackedPeriodStart, endDate), options),
+            runReport(propertyId, visitorTypeRequest(trackedPeriodStart, endDate), options),
             runReport(propertyId, audienceRequest(GA4_TRACKING_START_DATE, endDate), options),
-            runReport(propertyId, eventRequest(GA4_TRACKING_START_DATE, endDate), options)
-        ]);
+            runReport(propertyId, eventRequest(GA4_TRACKING_START_DATE, endDate), options),
+            runReport(propertyId, visitorTypeRequest(GA4_TRACKING_START_DATE, endDate), options)
+        ];
+        if (comparisonAvailable) {
+            requests.push(
+                runReport(propertyId, audienceRequest(trackedPreviousStart, previousEndDate), options),
+                runReport(propertyId, eventRequest(trackedPreviousStart, previousEndDate), options),
+                runReport(propertyId, visitorTypeRequest(trackedPreviousStart, previousEndDate), options)
+            );
+        }
+        const [
+            periodAudience,
+            periodEvents,
+            periodVisitorTypes,
+            allTimeAudience,
+            allTimeEvents,
+            allTimeVisitorTypes,
+            previousAudience,
+            previousEvents,
+            previousVisitorTypes
+        ] = await Promise.all(requests);
         return {
             propertyId,
             trackingStartDate: GA4_TRACKING_START_DATE,
-            period: combineReports(periodAudience, periodEvents),
-            allTime: combineReports(allTimeAudience, allTimeEvents)
+            period: combineReports(periodAudience, periodEvents, periodVisitorTypes),
+            previousPeriod: comparisonAvailable
+                ? combineReports(previousAudience, previousEvents, previousVisitorTypes)
+                : null,
+            previousPeriodDates: comparisonAvailable ? {
+                startDate: trackedPreviousStart,
+                endDate: previousEndDate
+            } : null,
+            allTime: combineReports(allTimeAudience, allTimeEvents, allTimeVisitorTypes)
         };
     } catch (error) {
         console.error("[metrics] GA4 visitor metrics unavailable.", {
@@ -181,12 +256,16 @@ module.exports = {
     GA4_TRACKING_START_DATE,
     TRACKED_EVENTS,
     emptyStats,
+    shiftDateKey,
+    inclusiveDayCount,
     finiteCount,
     getGa4PropertyId,
     metricMap,
     eventMap,
+    visitorTypeMap,
     audienceRequest,
     eventRequest,
+    visitorTypeRequest,
     combineReports,
     fetchGa4VisitorStats
 };

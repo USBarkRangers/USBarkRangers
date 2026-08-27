@@ -16,12 +16,13 @@ function makeHarness(options = {}) {
     const window = {
         BARK: {},
         map: { getZoom: () => 8 },
+        matchMedia: (query) => ({ matches: options.displayMode === 'standalone' && query === '(display-mode: standalone)' }),
         ...(options.withAnalytics ? { goatcounter: { count: (item) => analytics.push(item) } } : {})
     };
     const context = {
         window,
-        location: { hostname: 'outswarming.github.io', pathname: '/USBarkRangers/01-code/app/', protocol: 'https:' },
-        navigator: { userAgent: 'Mozilla/5.0 (iPhone) AppleWebKit Safari/604.1' },
+        location: options.location || { hostname: 'outswarming.github.io', pathname: '/USBarkRangers/01-code/app/', protocol: 'https:' },
+        navigator: { userAgent: options.userAgent || 'Mozilla/5.0 (iPhone) AppleWebKit Safari/604.1' },
         document: {
             querySelector: () => ({ id: 'map-view' }),
             querySelectorAll: () => ({ length: 389 })
@@ -137,4 +138,48 @@ test('analytics separates every app open from deduplicated audience sessions', (
     harness.window.BARK.monitoring.trackSessionEvent('audience-beta-premium', 'Audience: beta premium');
     assert.equal(harness.analytics[2].path, 'event-audience-beta-premium');
     assert.equal(harness.analytics[2].no_session, false);
+});
+
+test('loading-screen analytics counts once across phone, desktop, and installed web-app runtimes', () => {
+    const production = { hostname: 'usbarkrangersmap.com', pathname: '/', protocol: 'https:' };
+    const beta = { hostname: 'usbarkrangers.github.io', pathname: '/USBarkRangers/01-code/app/', protocol: 'https:' };
+    const devices = [
+        {
+            name: 'iPhone Safari',
+            location: production,
+            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1'
+        },
+        {
+            name: 'iPhone installed web app',
+            displayMode: 'standalone',
+            location: production,
+            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1'
+        },
+        {
+            name: 'Android Chrome',
+            location: production,
+            userAgent: 'Mozilla/5.0 (Linux; Android 16; SM-S938U) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
+        },
+        {
+            name: 'Android installed web app',
+            displayMode: 'standalone',
+            location: beta,
+            userAgent: 'Mozilla/5.0 (Linux; Android 16; Pixel 10 Pro) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
+        },
+        {
+            name: 'desktop browser',
+            location: production,
+            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/140.0 Safari/537.36'
+        }
+    ];
+
+    devices.forEach((device) => {
+        const harness = makeHarness({ ...device, withAnalytics: true });
+        const channel = device.location === beta ? 'beta' : 'production';
+        assert.equal(harness.analytics.length, 2, `${device.name} should send one load and one session event`);
+        assert.equal(harness.analytics[0].path, `event-app-open-${channel}`, device.name);
+        assert.equal(harness.analytics[0].no_session, true, device.name);
+        assert.equal(harness.analytics[1].path, `event-app-session-${channel}`, device.name);
+        assert.equal(harness.analytics[1].no_session, false, device.name);
+    });
 });

@@ -35,6 +35,8 @@
     const CHANGE_TOLERANCE_PX = 1;
     const KEYBOARD_RECOVERY_TOLERANCE_PX = 8;
     const KEYBOARD_SETTLE_DELAYS_MS = Object.freeze([0, 80, 180, 360, 700, 1200]);
+    const KEYBOARD_POST_RECOVERY_DELAYS_MS = Object.freeze([80, 180, 360, 700, 1200]);
+    const KEYBOARD_GEOMETRY_HOLD_MS = 160;
 
     function finiteNumber(value, fallback = 0) {
         const parsed = Number(value);
@@ -205,6 +207,7 @@
         let keyboardBaselineBottom = 0;
         let keyboardRestoreLift = 0;
         let keyboardSessionActive = false;
+        let keyboardGeometryHoldUntil = 0;
 
         function writeContentLift(lift) {
             const normalized = Math.max(0, finiteNumber(lift));
@@ -217,7 +220,11 @@
             const metrics = readMetrics(targetWindow);
             if (!metrics) return { applied: false, reason, lift: 0 };
 
-            const lift = calculateRequiredContentLift(metrics);
+            const holdingRecoveredKeyboardGeometry = Date.now() < keyboardGeometryHoldUntil
+                && !isTextEntryElement(document.activeElement);
+            const lift = holdingRecoveredKeyboardGeometry
+                ? Math.max(0, finiteNumber(keyboardRestoreLift))
+                : calculateRequiredContentLift(metrics);
             const changed = Math.abs(lift - metrics.currentLift) > CHANGE_TOLERANCE_PX;
             if (changed) {
                 writeContentLift(lift);
@@ -319,6 +326,7 @@
             keyboardGeneration += 1;
             keyboardSessionActive = false;
             keyboardBaselineBottom = 0;
+            keyboardGeometryHoldUntil = 0;
             document.body.classList.remove(KEYBOARD_SETTLING_CLASS);
             scheduleShellRecovery('external-return-settled');
             schedule('external-return', [0, 120, 420]);
@@ -326,6 +334,7 @@
 
         function beginKeyboardSession() {
             keyboardGeneration += 1;
+            keyboardGeometryHoldUntil = 0;
             document.body.classList.remove(KEYBOARD_SETTLING_CLASS);
             if (keyboardSessionActive) return;
             keyboardSessionActive = true;
@@ -360,8 +369,14 @@
 
                     keyboardSessionActive = false;
                     if (recovered) {
+                        keyboardGeometryHoldUntil = Date.now() + KEYBOARD_GEOMETRY_HOLD_MS;
                         document.body.classList.remove(KEYBOARD_SETTLING_CLASS);
-                        schedule('keyboard-settled', [0, 80]);
+                        // Android can restore visualViewport.height one frame
+                        // before fixed-element rectangles return to the full
+                        // screen. Preserve the pre-keyboard position through
+                        // that transient frame, then remeasure repeatedly.
+                        writeContentLift(keyboardRestoreLift);
+                        schedule('keyboard-settled', KEYBOARD_POST_RECOVERY_DELAYS_MS);
                     } else {
                         // Some Android builds never emit a final resize after the
                         // keyboard X is pressed. Keep geometry frozen until a later
@@ -383,6 +398,7 @@
             })) return false;
             keyboardGeneration += 1;
             keyboardSessionActive = false;
+            keyboardGeometryHoldUntil = Date.now() + KEYBOARD_GEOMETRY_HOLD_MS;
             document.body.classList.remove(KEYBOARD_SETTLING_CLASS);
             return true;
         }
@@ -394,7 +410,15 @@
             if (viewportFrame) return;
             viewportFrame = targetWindow.requestAnimationFrame(() => {
                 viewportFrame = 0;
-                completeKeyboardSettleIfRecovered();
+                if (completeKeyboardSettleIfRecovered()) {
+                    // Do not consume the first restored-viewport frame: on
+                    // some Android builds the nav descendants still report
+                    // keyboard-shifted rectangles during this exact frame.
+                    // Measuring them creates a persistent false content lift.
+                    writeContentLift(keyboardRestoreLift);
+                    schedule('keyboard-recovered', KEYBOARD_POST_RECOVERY_DELAYS_MS);
+                    return;
+                }
                 refresh(viewportReason);
             });
         }
@@ -414,6 +438,7 @@
             keyboardGeneration += 1;
             keyboardSessionActive = false;
             keyboardBaselineBottom = 0;
+            keyboardGeometryHoldUntil = 0;
             document.body.classList.remove(KEYBOARD_SETTLING_CLASS);
             allowShellShrinkUntil = Date.now() + 1000;
             scheduleShellRecovery('orientation', [0, 120, 420, 900]);

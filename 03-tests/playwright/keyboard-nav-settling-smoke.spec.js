@@ -196,6 +196,92 @@ test('Android with no final keyboard resize keeps the known-good nav position fr
     }
 });
 
+test('Android ignores the transient fixed-nav rectangle on the first restored keyboard frame', async ({ browser, browserName }) => {
+    test.skip(browserName !== 'chromium', 'Android keyboard simulation runs in Chromium');
+    const viewport = { width: 412, height: 844 };
+    const { context, page } = await openAndroidKeyboardShell(browser, viewport);
+    try {
+        const fixtures = await installVisibleKeyboardFixtures(page);
+        expect(fixtures.missing).toEqual([]);
+        const fixtureId = fixtures.fixtureIds[0];
+
+        await page.evaluate(({ id, height }) => {
+            const input = document.getElementById(id);
+            input.focus();
+            window.__barkKeyboardVisualHeight = Math.round(height * 0.61);
+            window.__barkKeyboardViewport.dispatchEvent(new Event('resize'));
+        }, { id: fixtureId, height: viewport.height });
+        await page.waitForFunction(() => document.body.classList.contains('keyboard-open'));
+
+        await page.evaluate(({ id, height }) => {
+            const root = document.documentElement;
+            window.__barkTransientLiftMax = Number(root.dataset.barkNavContentLift || 0);
+            window.__barkTransientLiftObserver = new MutationObserver(() => {
+                window.__barkTransientLiftMax = Math.max(
+                    window.__barkTransientLiftMax,
+                    Number(root.dataset.barkNavContentLift || 0)
+                );
+            });
+            window.__barkTransientLiftObserver.observe(root, {
+                attributes: true,
+                attributeFilter: ['data-bark-nav-content-lift']
+            });
+
+            document.getElementById(id).blur();
+            const navContent = [...document.querySelectorAll(
+                '#main-nav .nav-item svg, #main-nav .nav-item > span'
+            )];
+            const originalRects = navContent.map(element => element.getBoundingClientRect);
+            navContent.forEach((element, index) => {
+                const originalRect = originalRects[index];
+                element.getBoundingClientRect = function transientKeyboardRect() {
+                    const rect = originalRect.call(this);
+                    return {
+                        width: rect.width,
+                        height: rect.height,
+                        top: rect.top + 70,
+                        bottom: rect.bottom + 70,
+                        left: rect.left,
+                        right: rect.right,
+                        x: rect.x,
+                        y: rect.y + 70
+                    };
+                };
+            });
+
+            window.__barkKeyboardVisualHeight = height;
+            window.__barkKeyboardViewport.dispatchEvent(new Event('resize'));
+            requestAnimationFrame(() => {
+                navContent.forEach((element, index) => {
+                    element.getBoundingClientRect = originalRects[index];
+                });
+            });
+        }, { id: fixtureId, height: viewport.height });
+
+        await page.waitForFunction(() => (
+            !document.body.classList.contains('bark-keyboard-settling')
+            && document.documentElement.dataset.barkNavContentLift === '0'
+        ));
+        await page.waitForTimeout(240);
+
+        const state = await page.evaluate(() => {
+            if (window.__barkTransientLiftObserver) window.__barkTransientLiftObserver.disconnect();
+            const nav = document.getElementById('main-nav').getBoundingClientRect();
+            return {
+                maximumLift: window.__barkTransientLiftMax,
+                finalLift: Number(document.documentElement.dataset.barkNavContentLift || 0),
+                navBottom: nav.bottom,
+                innerHeight: window.innerHeight
+            };
+        });
+        expect(state.maximumLift).toBe(0);
+        expect(state.finalLift).toBe(0);
+        expect(state.navBottom).toBeGreaterThanOrEqual(state.innerHeight - 1);
+    } finally {
+        await context.close();
+    }
+});
+
 const KEYBOARD_GEOMETRY_PROFILES = [
     { name: 'old-small-portrait', viewport: { width: 320, height: 568 } },
     { name: 'old-small-landscape', viewport: { width: 568, height: 320 } },

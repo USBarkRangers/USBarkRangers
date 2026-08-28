@@ -9,9 +9,12 @@ const nodemailer = require("nodemailer");
 const opsDiscord = require("./opsDiscord.js");
 const opsMetrics = require("./opsMetrics.js");
 const analyticsReporting = require("./analyticsReporting.js");
+const businessReporting = require("./businessReporting.js");
 const costReporting = require("./costReporting.js");
+const healthMonitoring = require("./healthMonitoring.js");
 const dataIntegrity = require("./dataIntegrity.js");
 const feedbackAttachments = require("./feedbackAttachments.js");
+const supportDesk = require("./supportDesk.js");
 const routeRequestStrategy = require("./routeRequestStrategy.js");
 const { ORS_ENDPOINTS } = require("./orsEndpoints.js");
 const orsTelemetry = require("./orsTelemetry.js");
@@ -36,6 +39,8 @@ const {
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
+
+const supportDeskHandlers = supportDesk.createSupportDesk({ admin, axios });
 
 // A resident Gen 1 instance can be alive while its first Firestore transaction
 // still pays for credential and gRPC setup. Warm the exact transaction path on
@@ -3874,11 +3879,15 @@ async function runDailyErrorDigest(options = {}) {
         }
     }
 
-    // Routine tier: a scheduled rollup, never a ping. Swallowed like the email.
-    try {
-        await postDigestToDiscord(summary, options);
-    } catch (err) {
-        console.error("[digest] Discord notify issue:", err && err.message);
+    // The scheduled business snapshot is the single daily Discord report.
+    // Keep this detailed digest available to email and manual callers without
+    // making the team read a second daily Discord post.
+    if (options.postDiscord !== false) {
+        try {
+            await postDigestToDiscord(summary, options);
+        } catch (err) {
+            console.error("[digest] Discord notify issue:", err && err.message);
+        }
     }
 
     if (parkData && !parkData.ok) {
@@ -3999,6 +4008,31 @@ exports.submitFeedback = functions
     .runWith({ secrets: ["ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 5 })
     .https.onCall(wrapCallableWithPaymentAlert("submitFeedback", handleSubmitFeedback));
 
+exports.supportDeskIngest = functions
+    .runWith({
+        secrets: ["SUPPORT_DESK_CONFIG_JSON", "SUPPORT_DESK_SHARED_SECRET"],
+        timeoutSeconds: 30,
+        maxInstances: 1
+    })
+    .https.onRequest(supportDeskHandlers.ingest);
+
+exports.supportDeskInteractions = functions
+    .runWith({
+        secrets: ["SUPPORT_DESK_CONFIG_JSON", "SUPPORT_DESK_SHARED_SECRET"],
+        timeoutSeconds: 30,
+        maxInstances: 3
+    })
+    .https.onRequest(supportDeskHandlers.interactions);
+
+exports.supportDeskStatusJob = functions
+    .runWith({
+        secrets: ["SUPPORT_DESK_CONFIG_JSON", "SUPPORT_DESK_SHARED_SECRET"],
+        timeoutSeconds: 30,
+        maxInstances: 2
+    })
+    .firestore.document("_supportStatusJobs/{jobId}")
+    .onCreate(supportDeskHandlers.processStatusJob);
+
 exports.deleteAccount = functions
     .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 3 })
     .https.onCall(wrapCallableWithPaymentAlert("deleteAccount", handleDeleteAccount));
@@ -4098,6 +4132,7 @@ if (process.env.NODE_ENV === "test") {
         opsDiscord,
         opsMetrics,
         analyticsReporting,
+        businessReporting,
         feedbackAttachments
     };
 }
@@ -4107,17 +4142,19 @@ exports.dailyErrorDigest = functions
     .pubsub.schedule("0 12 * * *")
     .timeZone("America/New_York")
     .onRun(async () => {
-        return runDailyErrorDigest();
+        return runDailyErrorDigest({ postDiscord: false });
     });
 
 // Routine-tier rollup: traffic from GoatCounter plus counts from Firestore, in
 // one post. Counts use aggregation queries, so this stays cheap no matter how
 // much the collections grow.
-async function runOpsMetricsRollup({ windowHours, channel, title, mirrors = [], persistSnapshot = false }, options = {}) {
+async function runOpsMetricsRollup({ windowHours, kind = "daily", persistSnapshot = false, reportMode = "finalized" }, options = {}) {
     const db = options.firestore || admin.firestore();
     const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
     const periodDays = Math.max(1, Math.round(windowHours / 24));
-    const period = analyticsReporting.getCompletedCalendarPeriod(nowMs, periodDays);
+    const period = kind === "daily" && reportMode === "live"
+        ? analyticsReporting.getCurrentCalendarPeriod(nowMs)
+        : analyticsReporting.getCompletedCalendarPeriod(nowMs, periodDays);
     const sinceMs = period.startMs;
     const throughMs = period.endMs;
 
@@ -4133,14 +4170,19 @@ async function runOpsMetricsRollup({ windowHours, channel, title, mirrors = [], 
     summary.collectedAt = new Date(nowMs).toISOString();
     summary.period = period;
     summary.periodLabel = period.label;
+    summary.costSnapshot = await businessReporting.loadCostSnapshot(db, options);
 
-    if (persistSnapshot) {
+    if (persistSnapshot && period.completed !== false) {
         summary.accountReconciliation = await analyticsReporting.collectAccountReconciliation(db, admin.auth());
         const snapshot = await analyticsReporting.saveAnalyticsSnapshot(db, summary, period, { nowMs });
         summary.cumulative = snapshot.cumulative;
     }
 
-    const paymentFunnelAlert = opsMetrics.buildPaymentFunnelAlertMessage(summary.traffic);
+    // Weekly contains the same funnel window as the daily reports it follows.
+    // Alert only from daily so one problem does not create a second warning.
+    const paymentFunnelAlert = kind === "daily"
+        ? opsMetrics.buildPaymentFunnelAlertMessage(summary.traffic)
+        : null;
     if (paymentFunnelAlert) {
         try {
             await opsDiscord.postDiscord(paymentFunnelAlert, options);
@@ -4149,13 +4191,14 @@ async function runOpsMetricsRollup({ windowHours, channel, title, mirrors = [], 
         }
     }
 
-    const destinations = [{ channel, title }, ...mirrors];
-    for (const destination of destinations) {
-        try {
-            await opsDiscord.postDiscord(opsMetrics.buildMetricsMessage(summary, destination), options);
-        } catch (err) {
-            console.error("[metrics] Discord notify issue:", err && err.message);
-        }
+    const delivery = await opsDiscord.postDiscord(
+        businessReporting.buildBusinessReport(summary, { kind, reportMode }),
+        options
+    );
+    if (!delivery || delivery.posted !== true) {
+        const reason = delivery && delivery.reason || "unknown";
+        console.error("[metrics] Discord report delivery failed:", reason);
+        throw new Error(`Scheduled report was not delivered to Discord (${reason}).`);
     }
 
     return summary;
@@ -4165,49 +4208,49 @@ async function runOpsMetricsRollup({ windowHours, channel, title, mirrors = [], 
 // the cheap Firestore aggregation counts in the same scheduled rollup.
 exports.dailyOpsMetrics = functions
     .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON", "GOATCOUNTER_API_TOKEN"] })
-    // GA4's finalized prior-day report is typically ready later in the day.
-    // Posting after 16:00 ET avoids presenting an intraday reprocessing value
-    // as final while still preserving GoatCounter as an immediate cross-check.
-    .pubsub.schedule("15 16 * * *")
+    // One existing Scheduler job serves both reports, so the second daily post
+    // adds no Scheduler subscription. The morning report closes yesterday;
+    // the afternoon report is explicitly labeled as today's live snapshot.
+    .pubsub.schedule("15 9,15 * * *")
     .timeZone("America/New_York")
-    .onRun(async () => {
+    .onRun(async (context) => {
+        const scheduledMs = Date.parse(context && context.timestamp) || Date.now();
+        const reportMode = analyticsReporting.hourInZone(scheduledMs) < 12 ? "finalized" : "live";
         return runOpsMetricsRollup({
             windowHours: 24,
-            channel: "dailyMetrics",
-            title: "Daily metrics",
-            persistSnapshot: true,
-            // Reuse the same already-collected summary. This gives the launch
-            // room a daily health pulse with no additional Firestore reads and
-            // no additional scheduler job.
-            mirrors: [{ channel: "launchMonitoring", title: "Daily launch health pulse" }]
-        });
+            kind: "daily",
+            persistSnapshot: reportMode === "finalized",
+            reportMode
+        }, { nowMs: scheduledMs });
     });
 
 exports.weeklyOpsReport = functions
     .runWith({ secrets: ["DISCORD_WEBHOOKS_JSON", "GOATCOUNTER_API_TOKEN"] })
-    .pubsub.schedule("20 16 * * 1")
+    .pubsub.schedule("25 16 * * 1")
     .timeZone("America/New_York")
     .onRun(async () => {
         return runOpsMetricsRollup({
             windowHours: 24 * 7,
-            channel: "weeklyReport",
-            title: "Weekly report"
+            kind: "weekly"
         });
     });
 
-// One hourly job covers both fast anomaly detection and the once-daily cost
-// summary. Keeping those responsibilities in one single-instance scheduler
-// adds only one Cloud Scheduler job and prevents overlapping state updates.
+// Reuse the existing scheduler for low-cost health checks instead of creating
+// another paid Scheduler job. Cost reporting still runs only at minute 20;
+// authenticated ORS/Lemon checks are capped in the module at every three hours.
 exports.hourlyCostMonitoring = functions
     .runWith({
-        secrets: ["DISCORD_WEBHOOKS_JSON", "DISCORD_COSTS_WEBHOOK"],
+        secrets: ["DISCORD_WEBHOOKS_JSON", "DISCORD_COSTS_WEBHOOK", "ORS_API_KEY", "LEMONSQUEEZY_API_KEY"],
         timeoutSeconds: 120,
         maxInstances: 1
     })
-    .pubsub.schedule("20 * * * *")
+    .pubsub.schedule("5,20,35,50 * * * *")
     .timeZone("America/New_York")
     .onRun(async () => {
-        return costReporting.runHourlyCostMonitoring();
+        const health = healthMonitoring.runHealthMonitoring({ db: admin.firestore() });
+        if (new Date().getUTCMinutes() !== 20) return health;
+        const [healthResult, costResult] = await Promise.all([health, costReporting.runHourlyCostMonitoring()]);
+        return { health: healthResult, costs: costResult };
     });
 
 // REMOVED 2026-08-07: generateHourlyLeaderboard.

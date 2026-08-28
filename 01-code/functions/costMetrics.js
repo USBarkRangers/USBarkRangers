@@ -138,6 +138,42 @@ function getReportingBoundaries(nowMs = Date.now(), timeZone = FIRESTORE_BILLING
     };
 }
 
+function previousCalendarDate({ year, month, day }) {
+    const previous = new Date(Date.UTC(year, month - 1, day) - 86_400_000);
+    return {
+        year: previous.getUTCFullYear(),
+        month: previous.getUTCMonth() + 1,
+        day: previous.getUTCDate(),
+        dateKey: previous.toISOString().slice(0, 10)
+    };
+}
+
+// Firestore's free quota resets at midnight Pacific. Morning reports therefore
+// use the last completed Pacific quota day, while the late-evening report uses
+// the current quota day through collection time.
+function getFirestoreReportWindow(nowMs = Date.now(), kind = "evening") {
+    const current = getReportingBoundaries(nowMs);
+    if (kind === "morning") {
+        const previous = previousCalendarDate(current);
+        return {
+            kind,
+            dateKey: previous.dateKey,
+            startMs: zonedDateTimeToUtcMs({ ...previous, hour: 0 }),
+            endMs: current.dayStartMs,
+            complete: true,
+            timeZone: FIRESTORE_BILLING_TIME_ZONE
+        };
+    }
+    return {
+        kind: "evening",
+        dateKey: current.dateKey,
+        startMs: current.dayStartMs,
+        endMs: nowMs,
+        complete: false,
+        timeZone: FIRESTORE_BILLING_TIME_ZONE
+    };
+}
+
 async function getGoogleAuthClient(options = {}) {
     if (options.authClient) return options.authClient;
     const auth = new google.auth.GoogleAuth({
@@ -190,6 +226,36 @@ async function safeListTimeSeries(metricType, interval, options, errors) {
         errors.push({ source: metricType, message: message.slice(0, 200) });
         return null;
     }
+}
+
+async function collectFirestoreOperations(window, options = {}) {
+    const errors = [];
+    const interval = {
+        startMs: window.startMs,
+        endMs: window.endMs,
+        aligner: "ALIGN_SUM",
+        alignmentPeriod: "3600s"
+    };
+    const includeLegacy = options.includeLegacy === true;
+    const [reads, writes, deletes, legacyReads, legacyWrites, legacyDeletes] = await Promise.all([
+        safeListTimeSeries(METRICS.firestoreReads, interval, options, errors),
+        safeListTimeSeries(METRICS.firestoreWrites, interval, options, errors),
+        safeListTimeSeries(METRICS.firestoreDeletes, interval, options, errors),
+        includeLegacy ? safeListTimeSeries(METRICS.firestoreReadsLegacy, interval, options, errors) : Promise.resolve(null),
+        includeLegacy ? safeListTimeSeries(METRICS.firestoreWritesLegacy, interval, options, errors) : Promise.resolve(null),
+        includeLegacy ? safeListTimeSeries(METRICS.firestoreDeletesLegacy, interval, options, errors) : Promise.resolve(null)
+    ]);
+    return {
+        reads: Array.isArray(reads) ? sumDeltaSeries(reads) : null,
+        writes: Array.isArray(writes) ? sumDeltaSeries(writes) : null,
+        deletes: Array.isArray(deletes) ? sumDeltaSeries(deletes) : null,
+        legacy: includeLegacy ? {
+            reads: Array.isArray(legacyReads) ? sumDeltaSeries(legacyReads) : null,
+            writes: Array.isArray(legacyWrites) ? sumDeltaSeries(legacyWrites) : null,
+            deletes: Array.isArray(legacyDeletes) ? sumDeltaSeries(legacyDeletes) : null
+        } : null,
+        sourceErrors: errors
+    };
 }
 
 function buildFunctionSummary(series) {
@@ -489,7 +555,9 @@ module.exports = {
     sumLatestGaugeSeries,
     formatDateInZone,
     getReportingBoundaries,
+    getFirestoreReportWindow,
     listTimeSeries,
+    collectFirestoreOperations,
     collectGuardMetrics,
     collectDailyMetrics,
     collectUserCounts,

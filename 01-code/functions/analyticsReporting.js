@@ -69,8 +69,41 @@ function getCompletedCalendarPeriod(nowMs = Date.now(), days = 1, timeZone = ANA
         startMs,
         endMs,
         days: Math.max(1, days),
+        completed: true,
         timeZone,
         label: days === 1 ? `${endDate} finalized day` : `${startDate} through ${endDate}`
+    };
+}
+
+function timeLabelInZone(nowMs, timeZone = ANALYTICS_TIME_ZONE) {
+    return new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short"
+    }).format(new Date(nowMs));
+}
+
+function hourInZone(nowMs, timeZone = ANALYTICS_TIME_ZONE) {
+    const hour = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        hour: "2-digit",
+        hourCycle: "h23"
+    }).format(new Date(nowMs));
+    return Number(hour);
+}
+
+function getCurrentCalendarPeriod(nowMs = Date.now(), timeZone = ANALYTICS_TIME_ZONE) {
+    const currentDate = dateKeyInZone(nowMs, timeZone);
+    return {
+        startDate: currentDate,
+        endDate: currentDate,
+        startMs: startOfDateKeyMs(currentDate, timeZone),
+        endMs: nowMs,
+        days: 1,
+        completed: false,
+        timeZone,
+        label: `${currentDate} through ${timeLabelInZone(nowMs, timeZone)} (live)`
     };
 }
 
@@ -123,7 +156,7 @@ function buildAnalyticsSnapshot(previous = {}, summary, period, collectedAt) {
         ? previous.finalizedDays
         : {};
     const finalizedDays = { ...previousDays };
-    if (period.days === 1) {
+    if (period.days === 1 && period.completed !== false) {
         finalizedDays[period.endDate] = {
             capturedAt: collectedAt,
             ga4: summary.ga4 ? summary.ga4.period : null,
@@ -218,6 +251,9 @@ module.exports = {
     shiftDateKey,
     startOfDateKeyMs,
     getCompletedCalendarPeriod,
+    getCurrentCalendarPeriod,
+    timeLabelInZone,
+    hourInZone,
     finiteOrNull,
     maxObserved,
     reportedTotals,

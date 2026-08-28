@@ -182,52 +182,6 @@ describe("countBetween", () => {
     });
 });
 
-describe("buildMetricsMessage", () => {
-    it("posts at routine tier to the named channel", () => {
-        const message = opsMetrics.buildMetricsMessage(
-            { windowHours: 24, feedback: 2, clientErrors: 0, billingEvents: 1, traffic: null },
-            { channel: "dailyMetrics", title: "Daily metrics" }
-        );
-        assert.equal(message.channel, "dailyMetrics");
-        assert.equal(message.tier, "routine");
-        assert.equal(message.title, "Daily metrics");
-    });
-
-    it("shows n/a rather than a wrong zero when a source is unavailable", () => {
-        const message = opsMetrics.buildMetricsMessage(
-            { windowHours: 24, feedback: null, clientErrors: 3, billingEvents: null, traffic: null },
-            { channel: "dailyMetrics", title: "t" }
-        );
-        const byName = Object.fromEntries(message.fields.map((f) => [f.name, f.value]));
-        assert.equal(byName.Feedback, "n/a");
-        assert.equal(byName["Raw app loads (reloads count)"], "n/a");
-        assert.equal(byName["Client errors"], "3");
-        assert.match(message.description, /unavailable/);
-    });
-
-    it("lists top pages when traffic is available", () => {
-        const message = opsMetrics.buildMetricsMessage(
-            {
-                windowHours: 24,
-                feedback: 0,
-                clientErrors: 0,
-                billingEvents: 0,
-                traffic: {
-                    appOpens: 10,
-                    appVisits: 6,
-                    repeatOpens: 4,
-                    productionVisits: 5,
-                    betaVisits: 1,
-                    topPages: [{ path: "/", count: 6 }]
-                }
-            },
-            { channel: "dailyMetrics", title: "t" }
-        );
-        assert.match(message.description, /Top pages/);
-        assert.match(message.description, /`6` \/$/m);
-    });
-});
-
 describe("buildPaymentFunnelAlertMessage", () => {
     it("alerts only when checkout starts fail or confirmation is delayed", () => {
         assert.equal(opsMetrics.buildPaymentFunnelAlertMessage({ paymentFunnel: {} }), null);
@@ -249,7 +203,7 @@ describe("runOpsMetricsRollup", () => {
     it("collects counts and posts one routine message", async () => {
         const sent = [];
         const summary = await runOpsMetricsRollup(
-            { windowHours: 24, channel: "dailyMetrics", title: "Daily metrics" },
+            { windowHours: 24, kind: "daily" },
             {
                 firestore: fakeFirestore({ feedback: 2, clientErrors: 5, _lemonSqueezyWebhookEvents: 1 }),
                 env: { GOATCOUNTER_API_TOKEN: "t" },
@@ -280,7 +234,7 @@ describe("runOpsMetricsRollup", () => {
     it("still posts when every data source fails", async () => {
         const sent = [];
         const summary = await runOpsMetricsRollup(
-            { windowHours: 168, channel: "weeklyReport", title: "Weekly report" },
+            { windowHours: 168, kind: "weekly" },
             {
                 firestore: fakeFirestore({}, new Set(["feedback", "clientErrors", "_lemonSqueezyWebhookEvents"])),
                 env: {},
@@ -295,14 +249,31 @@ describe("runOpsMetricsRollup", () => {
         assert.equal(sent[0].url, `${HOOK}-weeklyReport`);
     });
 
-    it("reuses one collected summary for a launch-monitoring mirror", async () => {
+    it("does not repeat daily payment warnings in the weekly report", async () => {
+        const sent = [];
+        await runOpsMetricsRollup(
+            { windowHours: 168, kind: "weekly" },
+            {
+                firestore: fakeFirestore({ feedback: 0, clientErrors: 0, _lemonSqueezyWebhookEvents: 0 }),
+                env: { GOATCOUNTER_API_TOKEN: "t" },
+                httpGet: async (url) => url.endsWith("/stats/total")
+                    ? ({ data: { total_events: 0 } })
+                    : ({ data: { hits: [{ path: "event-checkout-start-failed", event: true, count: 2 }] } }),
+                discordConfig: fullConfig(),
+                discordSender: async (url, payload) => { sent.push({ url, payload }); }
+            }
+        );
+
+        assert.equal(sent.length, 1);
+        assert.equal(sent[0].url, `${HOOK}-weeklyReport`);
+    });
+
+    it("posts the daily report only once without a launch-monitoring duplicate", async () => {
         const sent = [];
         await runOpsMetricsRollup(
             {
                 windowHours: 24,
-                channel: "dailyMetrics",
-                title: "Daily metrics",
-                mirrors: [{ channel: "launchMonitoring", title: "Daily launch health pulse" }]
+                kind: "daily"
             },
             {
                 firestore: fakeFirestore({ feedback: 1, clientErrors: 0, _lemonSqueezyWebhookEvents: 1 }),
@@ -312,9 +283,22 @@ describe("runOpsMetricsRollup", () => {
             }
         );
 
-        assert.equal(sent.length, 2);
+        assert.equal(sent.length, 1);
         assert.equal(sent[0].url, `${HOOK}-dailyMetrics`);
-        assert.equal(sent[1].url, `${HOOK}-launchMonitoring`);
-        assert.equal(sent[1].payload.embeds[0].title, "Daily launch health pulse");
+        assert.match(sent[0].payload.embeds[0].title, /Yesterday finalized/);
+    });
+
+    it("fails visibly when the scheduled Discord destination is missing", async () => {
+        await assert.rejects(
+            runOpsMetricsRollup(
+                { windowHours: 24, kind: "daily" },
+                {
+                    firestore: fakeFirestore({ feedback: 0, clientErrors: 0, _lemonSqueezyWebhookEvents: 0 }),
+                    env: {},
+                    discordConfig: { channels: {}, adminRoleId: null }
+                }
+            ),
+            /not delivered to Discord \(not_configured\)/
+        );
     });
 });

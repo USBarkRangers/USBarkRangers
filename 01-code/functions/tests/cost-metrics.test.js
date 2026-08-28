@@ -37,6 +37,21 @@ describe("cost metric primitives", () => {
         assert.equal(summer.timeZone, costMetrics.FIRESTORE_BILLING_TIME_ZONE);
     });
 
+    it("builds exact completed-day and current-day Firestore report windows", () => {
+        const nowMs = Date.parse("2026-08-26T16:00:00Z");
+        const morning = costMetrics.getFirestoreReportWindow(nowMs, "morning");
+        assert.equal(morning.dateKey, "2026-08-25");
+        assert.equal(new Date(morning.startMs).toISOString(), "2026-08-25T07:00:00.000Z");
+        assert.equal(new Date(morning.endMs).toISOString(), "2026-08-26T07:00:00.000Z");
+        assert.equal(morning.complete, true);
+
+        const evening = costMetrics.getFirestoreReportWindow(nowMs, "evening");
+        assert.equal(evening.dateKey, "2026-08-26");
+        assert.equal(new Date(evening.startMs).toISOString(), "2026-08-26T07:00:00.000Z");
+        assert.equal(evening.endMs, nowMs);
+        assert.equal(evening.complete, false);
+    });
+
     it("matches the published reCAPTCHA tier boundaries", () => {
         assert.equal(costMetrics.calculateRecaptchaCost(10_000), 0);
         assert.equal(costMetrics.calculateRecaptchaCost(10_001), 8);
@@ -98,6 +113,23 @@ describe("collectGuardMetrics", () => {
         assert.equal(calls.length, 9);
         assert.equal(result.firestore.readsToday, 120);
         assert.equal(result.firestore.legacy.readsToday, 119);
+    });
+});
+
+describe("collectFirestoreOperations", () => {
+    it("uses canonical billing-oriented counters and keeps legacy metrics diagnostic-only", async () => {
+        const calls = [];
+        const result = await costMetrics.collectFirestoreOperations({ startMs: 1, endMs: 2 }, {
+            includeLegacy: true,
+            listTimeSeries: async metricType => {
+                calls.push(metricType);
+                return series(metricType.endsWith("read_ops_count") ? 120 : metricType.endsWith("read_count") ? 119 : 5);
+            }
+        });
+        assert.equal(calls.length, 6);
+        assert.equal(result.reads, 120);
+        assert.equal(result.legacy.reads, 119);
+        assert.equal(result.sourceErrors.length, 0);
     });
 });
 

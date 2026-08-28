@@ -25,9 +25,9 @@ function pointSeries(value, metric = {}, resource = {}) {
     }];
 }
 
-function fakeFirestore({ lastDailyDate = "2026-08-26" } = {}) {
+function fakeFirestore({ lastMorningReportDate = "2026-08-26", lastEveningReportDate = "2026-08-26" } = {}) {
     const stats = { stateReads: 0, orsReads: 0, aggregateReads: 0, writes: [] };
-    const state = { lastDailyDate, alerts: {} };
+    const state = { lastMorningReportDate, lastEveningReportDate, alerts: {} };
     const db = {
         stats,
         doc(path) {
@@ -125,18 +125,47 @@ describe("cost alert thresholds and deduplication", () => {
         assert.equal(transitions.notify.length, 0);
     });
 
-    it("reports a recovery exactly once", () => {
+    it("clears recovered state without turning recovery into another alert", () => {
         const transitions = costReporting.getAlertTransitions([], {
             reads: { severity: "important", lastNotifiedAtMs: 1_000 }
         }, 2_000);
         assert.equal(transitions.resolved.length, 1);
         assert.deepEqual(transitions.next, {});
     });
+
+    it("does not repeat a still-active alert after 24 hours", () => {
+        const alert = { id: "reads", severity: "important", details: "x" };
+        const transitions = costReporting.getAlertTransitions([alert], {
+            reads: { severity: "important", lastNotifiedAtMs: 1_000, details: "x" }
+        }, 1_000 + 48 * 60 * 60 * 1000);
+        assert.equal(transitions.notify.length, 0);
+    });
+
+    it("routes function errors to detected bugs instead of the costs channel", () => {
+        const alerts = costReporting.evaluateGuardAlerts({
+            firestore: { readsToday: 0, writesToday: 0 },
+            recaptcha: { assessmentsMonth: 0 },
+            appCheck: { total: 0, denyRate: 0 },
+            functionsHour: { total: 100, errors: 10, errorRate: 0.10 }
+        }, {
+            directions: { requestsToday: 0 }, snap: { requestsToday: 0 }, geocoding: { requestsToday: 0 }
+        });
+        assert.equal(alerts.find(alert => alert.id === "function_error_rate").channel, "detectedBugs");
+    });
+});
+
+describe("cost report schedule", () => {
+    it("posts the completed prior day after 9 AM and today-so-far after 11 PM Eastern", () => {
+        const morning = costReporting.getDueCostReports({}, Date.parse("2026-08-26T13:20:00Z"));
+        assert.deepEqual(morning.map(item => item.kind), ["morning"]);
+        const evening = costReporting.getDueCostReports({ lastMorningReportDate: "2026-08-26" }, Date.parse("2026-08-27T03:20:00Z"));
+        assert.deepEqual(evening.map(item => item.kind), ["evening"]);
+    });
 });
 
 describe("hourly cost job read/write ceiling", () => {
     it("uses six Monitoring queries, four Firestore reads, and zero writes in a healthy non-daily hour", async () => {
-        const db = fakeFirestore({ lastDailyDate: "2026-08-26" });
+        const db = fakeFirestore();
         const monitoringCalls = [];
         const sent = [];
         const result = await costReporting.runHourlyCostMonitoring({
@@ -156,7 +185,7 @@ describe("hourly cost job read/write ceiling", () => {
     });
 
     it("posts and caches one daily snapshot without scanning users", async () => {
-        const db = fakeFirestore({ lastDailyDate: "2026-08-25" });
+        const db = fakeFirestore({ lastMorningReportDate: "2026-08-25" });
         const monitoringCalls = [];
         const sent = [];
         const result = await costReporting.runHourlyCostMonitoring({
@@ -167,12 +196,12 @@ describe("hourly cost job read/write ceiling", () => {
             discordConfig: fullConfig(),
             discordSender: async (url, payload) => { sent.push({ url, payload }); }
         });
-        assert.equal(monitoringCalls.length, 26); // 9 guard + 17 daily, including the once-daily legacy check.
+        assert.equal(monitoringCalls.length, 29); // 6 guard + 17 monthly + 6 exact report-window counters.
         assert.equal(db.stats.aggregateReads, 4); // active count includes a deleted-account aggregation; no document scan.
         assert.equal(db.stats.writes.length, 2); // one snapshot + one state update.
         assert.equal(sent.length, 1);
         assert.equal(sent[0].url, `${HOOK}-costs`);
-        assert.match(sent[0].payload.embeds[0].title, /Daily cost status/);
+        assert.match(sent[0].payload.embeds[0].title, /Previous-day cost report/);
         assert.equal(result.dailyPosted, true);
     });
 });
@@ -181,9 +210,10 @@ describe("daily cost message", () => {
     it("labels Lemon and delayed billing figures honestly", () => {
         const message = costReporting.buildDailyCostMessage({
             dateKey: "2026-08-26",
+            report: { kind: "morning", complete: true },
             costs: { cloudActualMtd: null, cloudForecast: 7, allInMonthlyRunRate: 15, costPerActiveUser: 0.2, denominator: "monthly active user" },
-            users: { registered: 75, monthlyActive: 60, premium: 63, paid: 63 },
-            firestore: { readsToday: 10, writesToday: 5, deletesToday: 0, readsMonth: 100, writesMonth: 50, deletesMonth: 1, readsPerActiveUser: 2, writesPerActiveUser: 1, storageBytes: 1, pitrBytes: 1, backupBytes: 1 },
+            users: { registered: 75, allDocuments: 76, deleted: 1, monthlyActive: 60, premium: 63, paid: 63 },
+            firestore: { report: { reads: 10, writes: 5, deletes: 0, legacy: { reads: 10, writes: 5, deletes: 0 } }, readsMonth: 100, writesMonth: 50, deletesMonth: 1, legacy: { readsMonth: 100, writesMonth: 50, deletesMonth: 1 }, readsPerActiveUser: 2, writesPerActiveUser: 1, storageBytes: 1, pitrBytes: 1, backupBytes: 1 },
             functions: { total: 20, errors: 0, egressBytes: 0, top: [] },
             hosting: { sentBytesMonth: 1, storageBytes: 1 },
             logging: { ingestedBytesMonth: 1 },
@@ -194,6 +224,7 @@ describe("daily cost message", () => {
             sourceErrors: []
         });
         assert.match(message.description, /conservative base-fee run-rate/);
+        assert.match(message.title, /Previous-day cost report/);
         assert.equal(message.channel, "costs");
         assert.equal(message.tier, "routine");
     });

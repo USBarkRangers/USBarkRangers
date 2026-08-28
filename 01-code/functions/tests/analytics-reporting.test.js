@@ -34,6 +34,18 @@ describe("analytics reporting periods", () => {
         assert.equal(period.endDate, "2026-08-26");
         assert.equal(new Date(period.startMs).toISOString(), "2026-08-26T04:00:00.000Z");
         assert.equal(new Date(period.endMs).toISOString(), "2026-08-27T04:00:00.000Z");
+        assert.equal(period.completed, true);
+    });
+
+    it("uses Eastern midnight through collection time for the live report", () => {
+        const nowMs = Date.parse("2026-08-28T19:15:00Z");
+        const period = reporting.getCurrentCalendarPeriod(nowMs);
+        assert.equal(period.startDate, "2026-08-28");
+        assert.equal(period.endDate, "2026-08-28");
+        assert.equal(new Date(period.startMs).toISOString(), "2026-08-28T04:00:00.000Z");
+        assert.equal(new Date(period.endMs).toISOString(), "2026-08-28T19:15:00.000Z");
+        assert.equal(period.completed, false);
+        assert.match(period.label, /3:15 PM EDT/);
     });
 });
 
@@ -48,6 +60,12 @@ describe("analytics cumulative snapshot", () => {
         assert.equal(second.cumulative.monotonicObserved.ga4.screenViews, 40);
         assert.equal(second.cumulative.monotonicObserved.goatCounter.sessions, 9);
         assert.ok(second.finalizedDays["2026-08-26"]);
+    });
+
+    it("never saves an in-progress day as finalized", () => {
+        const period = reporting.getCurrentCalendarPeriod(Date.parse("2026-08-28T19:15:00Z"));
+        const snapshot = reporting.buildAnalyticsSnapshot({}, summary(), period, "2026-08-28T19:15:00Z");
+        assert.deepEqual(snapshot.finalizedDays, {});
     });
 });
 

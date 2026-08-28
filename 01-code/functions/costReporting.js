@@ -2,8 +2,9 @@
 
 // ===== COST REPORTING ORCHESTRATOR =====
 // One hourly, single-instance job. It performs a small read-only guard every
-// hour and sends the full daily summary once after 08:00 Eastern. Cloud APIs,
-// calculations, Discord formatting, and persistence remain out of index.js.
+// hour and sends two useful summaries: the completed prior Firestore quota day
+// after 09:00 Eastern and the current day-to-date after 23:00 Eastern. Cloud
+// APIs, calculations, Discord formatting, and persistence remain out of index.js.
 
 const admin = require("firebase-admin");
 const { FieldValue } = require("firebase-admin/firestore");
@@ -12,8 +13,8 @@ const opsDiscord = require("./opsDiscord.js");
 
 const COST_STATE_PATH = "system/costMonitoring";
 const COST_SNAPSHOT_PATH = "system/costStatus";
-const ALERT_REPEAT_MS = 24 * 60 * 60 * 1000;
 const LEMON_BASE_ANNUAL_FEE_USD = 1.60;
+const REPORT_TIME_ZONE = "America/New_York";
 
 const ALERT_THRESHOLDS = Object.freeze({
     reads: Object.freeze({ important: 35_000, critical: 45_000 }),
@@ -24,7 +25,7 @@ const ALERT_THRESHOLDS = Object.freeze({
     orsGeocoding: Object.freeze({ important: 700, critical: 900 }),
     functionErrorRate: Object.freeze({ important: 0.05, critical: 0.20, minimumCalls: 20 }),
     appCheckRiskRate: Object.freeze({ important: 0.05, critical: 0.15, minimumChecks: 50 }),
-    cloudForecast: Object.freeze({ important: 10, critical: 25 })
+    totalMonthlyRunRate: Object.freeze({ important: 20, critical: 35 })
 });
 
 const ORS_DAILY_QUOTAS = Object.freeze({ directions: 2_000, snap: 2_000, geocoding: 1_000 });
@@ -66,10 +67,10 @@ function thresholdSeverity(value, thresholds) {
     return null;
 }
 
-function makeThresholdAlert(id, title, value, thresholds, details) {
+function makeThresholdAlert(id, title, value, thresholds, details, channel = "costs") {
     const severity = thresholdSeverity(value, thresholds);
     if (!severity) return null;
-    return { id, title, severity, value: finite(value), details };
+    return { id, title, severity, value: finite(value), details, channel };
 }
 
 async function collectOrsCircuitUsage(db, options = {}) {
@@ -154,7 +155,8 @@ function evaluateGuardAlerts(guard, orsUsage) {
             title: "Cloud Function error rate is elevated",
             severity,
             value: guard.functionsHour.errorRate,
-            details: `${formatCount(guard.functionsHour.errors)} errors in ${formatCount(guard.functionsHour.total)} executions during the last hour`
+            details: `${formatCount(guard.functionsHour.errors)} errors in ${formatCount(guard.functionsHour.total)} executions during the last hour`,
+            channel: "detectedBugs"
         });
     }
 
@@ -166,7 +168,8 @@ function evaluateGuardAlerts(guard, orsUsage) {
             title: "App Check invalid or denied traffic is elevated",
             severity,
             value: riskRate,
-            details: `${formatCount(guard.appCheck.invalid)} invalid and ${formatCount(guard.appCheck.denied)} denied of ${formatCount(guard.appCheck.total)} checks during the last hour`
+            details: `${formatCount(guard.appCheck.invalid)} invalid and ${formatCount(guard.appCheck.denied)} denied of ${formatCount(guard.appCheck.total)} checks during the last hour`,
+            channel: "systemStatus"
         });
     }
 
@@ -176,7 +179,8 @@ function evaluateGuardAlerts(guard, orsUsage) {
             title: "Cost monitoring data is unavailable",
             severity: "important",
             value: null,
-            details: "Cloud Monitoring returned neither Firestore reads nor writes. Customer features are unaffected."
+            details: "Cloud Monitoring returned neither Firestore reads nor writes. Customer features are unaffected.",
+            channel: "systemStatus"
         });
     }
     return alerts;
@@ -184,13 +188,14 @@ function evaluateGuardAlerts(guard, orsUsage) {
 
 function evaluateDailyAlerts(snapshot) {
     const alerts = [];
-    const severity = thresholdSeverity(snapshot.costs.cloudForecast, ALERT_THRESHOLDS.cloudForecast);
+    const severity = thresholdSeverity(snapshot.costs.allInMonthlyRunRate, ALERT_THRESHOLDS.totalMonthlyRunRate);
     if (severity) alerts.push({
-        id: "cloud_cost_forecast",
-        title: "Cloud monthly cost forecast is elevated",
+        id: "total_monthly_run_rate",
+        title: "Total monthly cost run-rate crossed its threshold",
         severity,
-        value: snapshot.costs.cloudForecast,
-        details: `${formatMoney(snapshot.costs.cloudForecast)} projected Google Cloud cost this month`
+        value: snapshot.costs.allInMonthlyRunRate,
+        details: `${formatMoney(snapshot.costs.allInMonthlyRunRate)}/month estimated across Google Cloud and the base Lemon Squeezy renewal fee`,
+        channel: "costs"
     });
     if (snapshot.billing.available && snapshot.billing.freshestExportAt) {
         const ageMs = Date.parse(snapshot.collectedAt) - Date.parse(snapshot.billing.freshestExportAt);
@@ -199,7 +204,8 @@ function evaluateDailyAlerts(snapshot) {
             title: "Cloud Billing export is stale",
             severity: "important",
             value: ageMs,
-            details: `Newest exported cost is ${Math.floor(ageMs / 3_600_000)} hours old`
+            details: `Newest exported cost is ${Math.floor(ageMs / 3_600_000)} hours old`,
+            channel: "systemStatus"
         });
     }
     return alerts;
@@ -224,9 +230,11 @@ function getAlertTransitions(currentAlerts, previousState = {}, nowMs = Date.now
     currentAlerts.forEach(alert => {
         const old = previous[alert.id] || {};
         const severityChanged = Boolean(old.severity && old.severity !== alert.severity);
+        // Notify only when entering an alert or escalating severity. Active
+        // warnings are visible in the scheduled reports; repeating them every
+        // day creates noise without adding information.
         const shouldNotify = !old.severity ||
-            SEVERITY_RANK[alert.severity] > SEVERITY_RANK[old.severity] ||
-            nowMs - (finite(old.lastNotifiedAtMs) || 0) >= ALERT_REPEAT_MS;
+            SEVERITY_RANK[alert.severity] > SEVERITY_RANK[old.severity];
         if (shouldNotify) notify.push(alert);
         next[alert.id] = {
             severity: alert.severity,
@@ -249,25 +257,19 @@ function getAlertTransitions(currentAlerts, previousState = {}, nowMs = Date.now
 }
 
 function buildCostAlertMessage(alert) {
+    const channel = alert.channel || "costs";
+    const isCostAlert = channel === "costs";
     return {
-        channel: "costs",
+        channel,
         tier: alert.severity,
-        title: alert.severity === "critical" ? `CRITICAL COST ALERT: ${alert.title}` : `Cost warning: ${alert.title}`,
+        title: isCostAlert
+            ? (alert.severity === "critical" ? `CRITICAL COST ALERT: ${alert.title}` : `Cost warning: ${alert.title}`)
+            : (alert.severity === "critical" ? `CRITICAL OPERATIONS ALERT: ${alert.title}` : `Operations warning: ${alert.title}`),
         description: alert.details,
         fields: [
             { name: "Response", value: alert.severity === "critical" ? "Check System Status now and use the launch kill switches if growth continues." : "Watch the next hourly check; no feature has been disabled automatically." }
         ],
-        footer: "Hourly cost guard · repeated alerts suppressed for 24h"
-    };
-}
-
-function buildResolvedMessage(item) {
-    return {
-        channel: "costs",
-        tier: "routine",
-        title: "Cost warning resolved",
-        description: `${String(item.id).replace(/_/g, " ")} returned below its alert threshold.`,
-        footer: "Hourly cost guard"
+        footer: "Hourly monitoring · posts only when a threshold is entered or escalated"
     };
 }
 
@@ -281,7 +283,7 @@ function buildSystemStatusCostMessage(alert) {
     };
 }
 
-function calculateSnapshot({ guard, daily, users, billing, orsUsage }) {
+function calculateSnapshot({ guard, daily, users, billing, orsUsage, report }) {
     const estimate = costMetrics.calculateUsageEstimate(daily);
     const billingActual = billing.available ? finite(billing.actualMtd) : null;
     const elapsed = daily.boundaries.elapsedMonthDays;
@@ -296,7 +298,14 @@ function calculateSnapshot({ guard, daily, users, billing, orsUsage }) {
     return {
         version: 1,
         collectedAt: daily.collectedAt,
-        dateKey: daily.boundaries.dateKey,
+        dateKey: report.window.dateKey,
+        report: {
+            kind: report.window.kind,
+            complete: report.window.complete,
+            startAt: new Date(report.window.startMs).toISOString(),
+            endAt: new Date(report.window.endMs).toISOString(),
+            timeZone: report.window.timeZone
+        },
         costs: {
             cloudActualMtd: billingActual,
             cloudEstimatedMtd: estimate.estimatedMtd,
@@ -314,6 +323,7 @@ function calculateSnapshot({ guard, daily, users, billing, orsUsage }) {
             writesToday: guard.firestore.writesToday,
             deletesToday: guard.firestore.deletesToday,
             legacyToday: guard.firestore.legacy,
+            report: report.operations,
             readsPerActiveUser: denominator && finite(daily.firestore.readsMonth) !== null
                 ? finite(daily.firestore.readsMonth) / denominator
                 : null,
@@ -328,7 +338,11 @@ function calculateSnapshot({ guard, daily, users, billing, orsUsage }) {
         appCheck: daily.appCheck,
         ors: orsUsage,
         billing,
-        sourceErrors: [...(guard.sourceErrors || []), ...(daily.sourceErrors || [])]
+        sourceErrors: [
+            ...(guard.sourceErrors || []),
+            ...(daily.sourceErrors || []),
+            ...(report.operations.sourceErrors || [])
+        ]
     };
 }
 
@@ -349,27 +363,35 @@ function buildDailyCostMessage(snapshot) {
     const dataHealth = snapshot.sourceErrors.length
         ? `${snapshot.sourceErrors.length} optional metric source(s) unavailable`
         : "All metric sources responding";
-    const legacyToday = snapshot.firestore.legacyToday;
+    const reportOperations = snapshot.firestore.report || {};
+    const legacyToday = reportOperations.legacy;
     const legacyMonth = snapshot.firestore.legacy;
     const reconciliationToday = legacyToday
-        ? `${formatCount(legacyToday.readsToday)} R · ${formatCount(legacyToday.writesToday)} W · ${formatCount(legacyToday.deletesToday)} D`
+        ? `${formatCount(legacyToday.reads)} R · ${formatCount(legacyToday.writes)} W · ${formatCount(legacyToday.deletes)} D`
         : "n/a";
     const reconciliationMonth = legacyMonth
         ? `${formatCount(legacyMonth.readsMonth)} R · ${formatCount(legacyMonth.writesMonth)} W · ${formatCount(legacyMonth.deletesMonth)} D`
         : "n/a";
 
+    const periodLabel = snapshot.report && snapshot.report.complete
+        ? "Previous completed Firestore day"
+        : "Current Firestore day so far";
+    const titlePrefix = snapshot.report && snapshot.report.complete
+        ? "Previous-day cost report"
+        : "Today’s cost report";
+
     return {
         channel: "costs",
         tier: "routine",
-        title: `Daily cost status — ${snapshot.dateKey}`,
-        description: "Google Cloud actuals can lag by 24+ hours. Lemon Squeezy is a conservative base-fee run-rate, not an invoice total.",
+        title: `${titlePrefix} — ${snapshot.dateKey}`,
+        description: `${periodLabel} uses the official bill-oriented Firestore operation counters. Google Cloud actuals can lag by 24+ hours. Lemon Squeezy is a conservative base-fee run-rate, not an invoice total.`,
         fields: [
             { name: "Google Cloud", value: `${actualLabel} MTD · ${formatMoney(snapshot.costs.cloudForecast)} forecast` },
             { name: "All-in run-rate", value: `${formatMoney(snapshot.costs.allInMonthlyRunRate)}/month` },
             { name: `Cost per ${snapshot.costs.denominator}`, value: formatMoney(snapshot.costs.costPerActiveUser) },
             { name: "Users", value: `${formatCount(snapshot.users.registered)} active accounts · ${formatCount(snapshot.users.allDocuments)} raw user docs · ${formatCount(snapshot.users.deleted)} deleted · ${formatCount(snapshot.users.monthlyActive)} monthly active · ${formatCount(snapshot.users.premium)} Premium · ${formatCount(snapshot.users.paid)} Lemon-linked` },
-            { name: "Firestore today — canonical", value: `${formatCount(snapshot.firestore.readsToday)} R · ${formatCount(snapshot.firestore.writesToday)} W · ${formatCount(snapshot.firestore.deletesToday)} D` },
-            { name: "Firestore today — legacy check", value: reconciliationToday },
+            { name: `${periodLabel} — canonical`, value: `${formatCount(reportOperations.reads)} R · ${formatCount(reportOperations.writes)} W · ${formatCount(reportOperations.deletes)} D` },
+            { name: `${periodLabel} — diagnostic check`, value: reconciliationToday },
             { name: "Firestore month — canonical", value: `${formatCount(snapshot.firestore.readsMonth)} R · ${formatCount(snapshot.firestore.writesMonth)} W · ${formatCount(snapshot.firestore.deletesMonth)} D` },
             { name: "Firestore month — legacy check", value: reconciliationMonth },
             { name: "Per active user", value: `${formatCount(snapshot.firestore.readsPerActiveUser)} reads · ${formatCount(snapshot.firestore.writesPerActiveUser)} writes` },
@@ -382,7 +404,7 @@ function buildDailyCostMessage(snapshot) {
             { name: "Cloud cost by service", value: topServices },
             { name: "Data health", value: dataHealth }
         ],
-        footer: `Firestore day resets at midnight Pacific · canonical ops counters + legacy cross-check · collected ${snapshot.collectedAt}`
+        footer: `Firestore quota day resets at midnight Pacific · canonical counters determine alerts; diagnostic counters never replace them · collected ${snapshot.collectedAt}`
     };
 }
 
@@ -391,14 +413,26 @@ async function postAlertTransitions(transitions, options = {}) {
     for (const alert of transitions.notify) {
         const result = await opsDiscord.postDiscord(buildCostAlertMessage(alert), options);
         if (result && result.posted) posted.add(alert.id);
-        if (alert.severity === "critical") {
+        if (alert.severity === "critical" && (alert.channel || "costs") === "costs") {
             await opsDiscord.postDiscord(buildSystemStatusCostMessage(alert), options);
         }
     }
-    for (const item of transitions.resolved) {
-        await opsDiscord.postDiscord(buildResolvedMessage(item), options);
-    }
     return posted;
+}
+
+function getDueCostReports(state = {}, nowMs = Date.now(), options = {}) {
+    const local = costMetrics.formatDateInZone(nowMs, REPORT_TIME_ZONE);
+    if (options.forceDaily === true) {
+        return [{ kind: options.reportKind === "morning" ? "morning" : "evening", triggerDateKey: local.dateKey }];
+    }
+    const due = [];
+    if (local.hour >= 9 && state.lastMorningReportDate !== local.dateKey) {
+        due.push({ kind: "morning", triggerDateKey: local.dateKey });
+    }
+    if (local.hour >= 23 && state.lastEveningReportDate !== local.dateKey) {
+        due.push({ kind: "evening", triggerDateKey: local.dateKey });
+    }
+    return due;
 }
 
 function applyPostingResults(transitions, posted, previousState, nowMs) {
@@ -427,18 +461,18 @@ async function runHourlyCostMonitoring(options = {}) {
         console.error("[costs] Alert state could not be read.", { message: error && error.message });
     }
 
-    const reportingBoundaries = costMetrics.getReportingBoundaries(nowMs);
-    const dailyDue = options.forceDaily === true ||
-        (state.lastDailyDate !== reportingBoundaries.dateKey && reportingBoundaries.hour >= 8);
+    const dueReports = getDueCostReports(state, nowMs, options);
+    const dailyDue = dueReports.length > 0;
 
     const [guard, orsUsage] = await Promise.all([
-        costMetrics.collectGuardMetrics({ ...options, nowMs, includeLegacy: dailyDue }),
+        costMetrics.collectGuardMetrics({ ...options, nowMs, includeLegacy: false }),
         collectOrsCircuitUsage(db, options)
     ]);
     const boundaries = guard.boundaries;
 
     let snapshot = null;
-    let dailyMessageResult = null;
+    const postedReportState = {};
+    let reportsPosted = 0;
     let dailyAlerts = [];
     if (dailyDue) {
         const [daily, users, billing] = await Promise.all([
@@ -446,13 +480,21 @@ async function runHourlyCostMonitoring(options = {}) {
             costMetrics.collectUserCounts(db),
             costMetrics.collectBillingCost({ ...options, nowMs })
         ]);
-        snapshot = calculateSnapshot({ guard, daily, users, billing, orsUsage });
-        dailyAlerts = evaluateDailyAlerts(snapshot);
-        dailyMessageResult = await opsDiscord.postDiscord(buildDailyCostMessage(snapshot), options);
-        try {
+        for (const dueReport of dueReports) {
+            const window = costMetrics.getFirestoreReportWindow(nowMs, dueReport.kind);
+            const operations = await costMetrics.collectFirestoreOperations(window, { ...options, includeLegacy: true });
+            snapshot = calculateSnapshot({ guard, daily, users, billing, orsUsage, report: { window, operations } });
+            const messageResult = await opsDiscord.postDiscord(buildDailyCostMessage(snapshot), options);
+            if (messageResult && messageResult.posted === true) {
+                reportsPosted += 1;
+                postedReportState[dueReport.kind === "morning" ? "lastMorningReportDate" : "lastEveningReportDate"] = dueReport.triggerDateKey;
+            }
+        }
+        dailyAlerts = snapshot ? evaluateDailyAlerts(snapshot) : [];
+        if (snapshot) try {
             await snapshotRef.set({ ...snapshot, updatedAt: FieldValue.serverTimestamp() }, { merge: false });
         } catch (error) {
-            console.error("[costs] Daily cost snapshot could not be cached.", { message: error && error.message });
+            console.error("[costs] Cost snapshot could not be cached.", { message: error && error.message });
         }
     }
 
@@ -463,12 +505,12 @@ async function runHourlyCostMonitoring(options = {}) {
     const nextAlerts = applyPostingResults(transitions, posted, previousAlerts, nowMs);
 
     const stateChanged = JSON.stringify(nextAlerts) !== JSON.stringify(previousAlerts);
-    const dailyPosted = dailyMessageResult && dailyMessageResult.posted === true;
+    const dailyPosted = reportsPosted > 0;
     if (stateChanged || dailyPosted) {
         try {
             await stateRef.set({
                 alerts: nextAlerts,
-                ...(dailyPosted ? { lastDailyDate: boundaries.dateKey } : {}),
+                ...postedReportState,
                 lastCheckedAt: FieldValue.serverTimestamp(),
                 lastCheckedAtMs: nowMs
             }, { merge: true });
@@ -480,18 +522,17 @@ async function runHourlyCostMonitoring(options = {}) {
     console.info("[costs] Hourly cost guard complete.", {
         dateKey: boundaries.dateKey,
         dailyDue,
-        dailyPosted,
+        reportsPosted,
         alertCount: alerts.length,
         notificationsPosted: posted.size,
         monitoringErrors: guard.sourceErrors.length
     });
-    return { guard, orsUsage, snapshot, alerts, dailyPosted, notificationsPosted: posted.size };
+    return { guard, orsUsage, snapshot, alerts, dailyPosted, reportsPosted, notificationsPosted: posted.size };
 }
 
 module.exports = {
     COST_STATE_PATH,
     COST_SNAPSHOT_PATH,
-    ALERT_REPEAT_MS,
     ALERT_THRESHOLDS,
     ORS_DAILY_QUOTAS,
     LEMON_BASE_ANNUAL_FEE_USD,
@@ -501,10 +542,10 @@ module.exports = {
     mergeAlerts,
     getAlertTransitions,
     buildCostAlertMessage,
-    buildResolvedMessage,
     buildSystemStatusCostMessage,
     calculateSnapshot,
     buildDailyCostMessage,
+    getDueCostReports,
     runHourlyCostMonitoring,
     formatCount,
     formatMoney,

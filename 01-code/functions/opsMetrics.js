@@ -324,87 +324,6 @@ async function collectOpsMetrics({ db, sinceDate, throughDate, sinceMs, nowMs, s
     };
 }
 
-function formatCount(value) {
-    return value === null || value === undefined ? "n/a" : String(value);
-}
-
-function buildMetricsMessage(summary, { channel, title }) {
-    const traffic = summary.traffic;
-    const ga4 = summary.ga4;
-    const parkData = summary.parkData;
-    const parkDataValue = !parkData
-        ? null
-        : (!parkData.available
-            ? "check unavailable"
-            : (parkData.ok
-                ? `${parkData.validMapRows} map / ${parkData.uniqueAwardSites} Awards ✅`
-                : `${parkData.validMapRows} map / ${parkData.uniqueAwardSites} Awards ⚠️`));
-    const fields = [
-        { name: "Daily unique visitors (GA4)", value: ga4 ? formatCount(ga4.period.totalUsers) : "n/a" },
-        { name: "New / returning (GA4)", value: ga4 ? `${formatCount(ga4.period.newUsers)} / ${formatCount(ga4.period.returningUsers)}` : "n/a" },
-        { name: "Sessions / screen views (GA4)", value: ga4 ? `${formatCount(ga4.period.sessions)} / ${formatCount(ga4.period.screenViews)}` : "n/a" },
-        { name: "Raw app loads (reloads count)", value: traffic ? formatCount(traffic.appOpens) : "n/a" },
-        { name: "8h app sessions", value: traffic ? formatCount(traffic.appVisits) : "n/a" },
-        { name: "Loads beyond 8h visits", value: traffic ? formatCount(traffic.repeatOpens) : "n/a" },
-        { name: "Production / Beta 8h visits", value: traffic ? `${formatCount(traffic.productionVisits)} / ${formatCount(traffic.betaVisits)}` : "n/a" },
-        { name: "Feedback", value: formatCount(summary.feedback) },
-        { name: "Client errors", value: formatCount(summary.clientErrors) },
-        { name: "Billing events", value: formatCount(summary.billingEvents) },
-        { name: "Park data", value: parkDataValue }
-    ];
-    if (summary.cumulative) {
-        const gaObserved = summary.cumulative.monotonicObserved && summary.cumulative.monotonicObserved.ga4;
-        const goatObserved = summary.cumulative.monotonicObserved && summary.cumulative.monotonicObserved.goatCounter;
-        fields.push({
-            name: "Cumulative tracked activity",
-            value: `GA4 ${formatCount(gaObserved && gaObserved.screenViews)} screens · ${formatCount(gaObserved && gaObserved.appOpens)} opens · ${formatCount(gaObserved && gaObserved.totalUsers)} visitors\nGoatCounter ${formatCount(goatObserved && goatObserved.sessions)} 8h visits · ${formatCount(goatObserved && goatObserved.appOpens)} raw loads`
-        });
-        fields.push({
-            name: "Independent traffic check",
-            value: ga4 && traffic
-                ? `GA4 ${formatCount(ga4.period.totalUsers)} daily visitors · GoatCounter ${formatCount(traffic.appVisits)} 8h sessions (different definitions)`
-                : "One or both traffic sources unavailable"
-        });
-    }
-    if (summary.accountReconciliation) {
-        const accounts = summary.accountReconciliation;
-        fields.push({
-            name: "Independent account check",
-            value: `Firestore ${formatCount(accounts.firestoreActive)} active (${formatCount(accounts.rawDocuments)} raw − ${formatCount(accounts.deletedDocuments)} deleted) · Firebase Auth ${formatCount(accounts.authActive)} · difference ${formatCount(accounts.difference)}`
-        });
-    }
-    const funnel = traffic && traffic.paymentFunnel;
-    if (funnel) {
-        fields.push({
-            name: "Payment funnel",
-            value: `paywall ${funnel["paywall-open"]} → checkout ${funnel["checkout-clicked"]} → handoff ${funnel["checkout-handoff"]} → returned ${funnel["checkout-return-success"]} → confirmed ${funnel["premium-confirmed"]}`
-        });
-        fields.push({
-            name: "Payment attention",
-            value: `start failed ${funnel["checkout-start-failed"]} · confirmation delayed ${funnel["premium-confirmation-timeout"]} · canceled ${funnel["checkout-return-canceled"]}`
-        });
-    }
-    if (traffic && traffic.audience) {
-        fields.push({
-            name: "8h audience sessions",
-            value: `logged out ${traffic.audience.loggedOut} · free ${traffic.audience.free} · Premium ${traffic.audience.premium}`
-        });
-    }
-
-    const topPages = traffic && traffic.topPages && traffic.topPages.length
-        ? traffic.topPages.map((page) => `\`${page.count}\` ${page.path}`).join("\n")
-        : null;
-
-    return {
-        channel,
-        tier: "routine",
-        title,
-        description: topPages ? `**Top pages**\n${topPages}` : (traffic ? null : "Traffic data unavailable."),
-        fields,
-        footer: `${summary.periodLabel || `last ${summary.windowHours}h`} · raw loads count every reload · GoatCounter visits dedupe a browser for 8h · GA4 supplies users/sessions · collected ${summary.collectedAt || "now"}`
-    };
-}
-
 function buildPaymentFunnelAlertMessage(traffic) {
     const funnel = traffic && traffic.paymentFunnel;
     if (!funnel) return null;
@@ -431,7 +350,6 @@ module.exports = {
     fetchGoatCounterStats,
     countSince,
     countBetween,
-    buildMetricsMessage,
     buildPaymentFunnelAlertMessage,
     getGoatCounterSite,
     getGoatCounterToken,

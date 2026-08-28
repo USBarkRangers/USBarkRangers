@@ -226,9 +226,12 @@ function renderMarkerClickPanel(context) {
         return;
     }
 
-    if (!refreshOnly && !externalReturnRestore
-        && typeof window.BARK.finishExternalReturnForInteraction === 'function') {
-        window.BARK.finishExternalReturnForInteraction('pin-interaction');
+    if (!refreshOnly && !externalReturnRestore) {
+        const pinReturn = window.BARK.externalPinReturn;
+        if (pinReturn && typeof pinReturn.cancel === 'function') pinReturn.cancel();
+        if (typeof window.BARK.finishExternalReturnForInteraction === 'function') {
+            window.BARK.finishExternalReturnForInteraction('pin-interaction');
+        }
     }
 
     if (!refreshOnly && window.BARK.activePinMarker && window.BARK.activePinMarker._icon) {

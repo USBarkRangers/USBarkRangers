@@ -287,6 +287,7 @@ test.describe('Safari installed-app external return', () => {
             websiteLink.addEventListener('click', event => event.preventDefault());
             const panelContent = document.querySelector('#slide-panel .panel-content');
             panelContent.scrollTop = panelContent.scrollHeight;
+            const capturedScrollTop = panelContent.scrollTop;
 
             window.__barkWebsiteReturnSettled = false;
             window.__barkWebsiteReturnStarted = false;
@@ -297,7 +298,7 @@ test.describe('Safari installed-app external return', () => {
                 window.__barkWebsiteReturnSettled = true;
             }, { once: true });
 
-            return { id: String(marker._parkData.id), name: marker._parkData.name };
+            return { id: String(marker._parkData.id), name: marker._parkData.name, capturedScrollTop };
         });
 
         await page.locator('#websites-container a[href]').first().click();
@@ -367,7 +368,8 @@ test.describe('Safari installed-app external return', () => {
         expect(restoredState.panelTitle).toBe(selectedPark.name);
         expect(restoredState.activePinId).toBe(selectedPark.id);
         expect(restoredState.activePinName).toBe(selectedPark.name);
-        expect(restoredState.panelScrollTop).toBe(0);
+        expect(restoredState.panelScrollTop).toBeGreaterThan(0);
+        expect(Math.abs(restoredState.panelScrollTop - selectedPark.capturedScrollTop)).toBeLessThanOrEqual(1);
         expect(restoredState.websiteButtonCount).toBeGreaterThan(0);
         expect(Math.abs(restoredState.panelBottom - restoredState.navTop)).toBeLessThanOrEqual(1);
 
@@ -447,6 +449,9 @@ test.describe('Safari installed-app external return', () => {
             }
 
             window.BARK.markerManager.renderMarkerPanel(firstMarker);
+            const panelContent = document.querySelector('#slide-panel .panel-content');
+            panelContent.scrollTop = panelContent.scrollHeight;
+            if (panelContent.scrollTop <= 0) throw new Error('The first rapid-return card was not scrollable.');
             window.__barkRapidInvalidateSizeCount = 0;
             const originalInvalidateSize = window.map.invalidateSize.bind(window.map);
             window.map.invalidateSize = (...args) => {
@@ -480,6 +485,7 @@ test.describe('Safari installed-app external return', () => {
                 display: style.display,
                 visibility: style.visibility,
                 pointerEvents: style.pointerEvents,
+                panelScrollTop: document.querySelector('#slide-panel .panel-content').scrollTop,
                 invalidateSizeCount: window.__barkRapidInvalidateSizeCount
             };
         });
@@ -489,6 +495,7 @@ test.describe('Safari installed-app external return', () => {
         expect(immediateState.display).not.toBe('none');
         expect(immediateState.visibility).toBe('visible');
         expect(immediateState.pointerEvents).toBe('auto');
+        expect(immediateState.panelScrollTop).toBe(0);
 
         await page.waitForTimeout(1400);
 
@@ -499,6 +506,7 @@ test.describe('Safari installed-app external return', () => {
             activePinName: window.BARK.activePinMarker &&
                 window.BARK.activePinMarker._parkData &&
                 window.BARK.activePinMarker._parkData.name,
+            panelScrollTop: document.querySelector('#slide-panel .panel-content').scrollTop,
             invalidateSizeCount: window.__barkRapidInvalidateSizeCount
         }));
 
@@ -506,6 +514,7 @@ test.describe('Safari installed-app external return', () => {
         expect(state.panelOpen).toBe(true);
         expect(state.panelTitle).toBe(expectedTitle);
         expect(state.activePinName).toBe(expectedTitle);
+        expect(state.panelScrollTop).toBe(0);
         expect(state.invalidateSizeCount).toBe(immediateState.invalidateSizeCount);
         await context.close();
     });

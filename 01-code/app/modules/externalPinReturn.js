@@ -2,9 +2,10 @@
  * externalPinReturn.js — Restores a park card after an external-site return.
  *
  * The external handoff controller must fully hide and empty the live card while
- * Safari/Chrome owns the screen. This module remembers only the stable park ID
- * and rebuilds the card from the current marker as soon as app return begins.
- * Viewport recovery can then finish without making the card slide away and back.
+ * Safari/Chrome owns the screen. This module remembers the stable park ID and the
+ * card's scroll position, then rebuilds the card from the current marker as soon
+ * as app return begins. Viewport recovery can then finish without making the card
+ * slide away and back.
  */
 (function initExternalPinReturn() {
     window.BARK = window.BARK || {};
@@ -13,6 +14,8 @@
     const RETURN_VISIBLE_CLASS = 'bark-external-pin-return-visible';
     const MAX_SNAPSHOT_AGE_MS = 4 * 60 * 60 * 1000;
     const RESTORE_RETRY_DELAYS_MS = [0, 120, 420, 900];
+    const SCROLL_RESTORE_DELAYS_MS = [120, 420, 900, 1400];
+    const MAX_SAVED_SCROLL_TOP = 10_000_000;
 
     let memorySnapshot = null;
     let restoreGeneration = 0;
@@ -61,6 +64,12 @@
         }
     }
 
+    function normalizeScrollTop(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+        return Math.min(numeric, MAX_SAVED_SCROLL_TOP);
+    }
+
     function capture(options = {}) {
         restoreGeneration += 1;
         removeStoredSnapshot();
@@ -71,9 +80,11 @@
         const parkData = marker && marker._parkData;
         const parkId = parkData && parkData.id != null ? String(parkData.id).trim() : '';
         if (!panel || !panel.classList.contains('open') || !parkId) return false;
+        const panelContent = panel.querySelector('.panel-content');
 
         writeSnapshot({
             parkId,
+            scrollTop: normalizeScrollTop(panelContent && panelContent.scrollTop),
             capturedAt: Date.now()
         });
         return true;
@@ -101,6 +112,27 @@
         return null;
     }
 
+    function schedulePanelScrollRestore(marker, savedScrollTop, generation) {
+        const targetScrollTop = normalizeScrollTop(savedScrollTop);
+        const apply = () => {
+            if (generation !== restoreGeneration || window.BARK.activePinMarker !== marker) return;
+
+            const panel = document.getElementById('slide-panel');
+            const panelContent = panel && panel.querySelector('.panel-content');
+            if (!panel || !panel.classList.contains('open') || !panelContent) return;
+
+            const maxScrollTop = Math.max(0, panelContent.scrollHeight - panelContent.clientHeight);
+            panelContent.scrollTop = Math.min(targetScrollTop, maxScrollTop);
+        };
+
+        // Render is synchronous, but mobile browser chrome and image/text layout can
+        // settle over several frames after an external sheet closes. Reapply the
+        // same absolute card position while the exact restored marker still owns it.
+        apply();
+        requestAnimationFrame(() => requestAnimationFrame(apply));
+        SCROLL_RESTORE_DELAYS_MS.forEach(delay => setTimeout(apply, delay));
+    }
+
     function tryRestore(snapshot, generation, isFinalAttempt) {
         if (generation !== restoreGeneration) return;
 
@@ -123,13 +155,7 @@
         removeStoredSnapshot();
         manager.renderMarkerPanel(marker, { externalReturnRestore: true });
         document.body.classList.add(RETURN_VISIBLE_CLASS);
-        const panelContent = document.querySelector('#slide-panel .panel-content');
-        if (panelContent) {
-            panelContent.scrollTop = 0;
-            requestAnimationFrame(() => {
-                if (window.BARK.activePinMarker === marker) panelContent.scrollTop = 0;
-            });
-        }
+        schedulePanelScrollRestore(marker, snapshot.scrollTop, generation);
     }
 
     function requestRestore(options = {}) {

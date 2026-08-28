@@ -10,9 +10,6 @@ let authenticatedSessionSeen = false;
 let lastAuthenticatedUid = null;
 let lastExpeditionSyncKey = null;
 let googlePopupAttempt = 0;
-let lastGooglePopupStartedAt = 0;
-
-const GOOGLE_POPUP_RECLICK_GUARD_MS = 250;
 
 function getAuthIntentState() {
     window.BARK = window.BARK || {};
@@ -57,11 +54,11 @@ async function ensureLocalAuthPersistence(auth = firebase.auth()) {
 
 async function handleGoogleSignInClick(event = null) {
     if (event && typeof event.preventDefault === 'function') event.preventDefault();
-    const now = Date.now();
-    const isUiClick = Boolean(event);
-    if (isUiClick && now - lastGooglePopupStartedAt < GOOGLE_POPUP_RECLICK_GUARD_MS) return;
-
-    if (isUiClick) lastGooglePopupStartedAt = now;
+    // Do not gate this on the previous popup promise. Firebase intentionally
+    // waits several seconds after Chrome closes an OAuth window before it
+    // rejects with popup-closed-by-user. A new genuine click must reach
+    // signInWithPopup immediately; Firebase then cancels/cleans up its stale
+    // PopupOperation and opens a fresh chooser from the current user gesture.
     const attempt = ++googlePopupAttempt;
     handleGoogleSignInClick.inFlight = true;
     try {

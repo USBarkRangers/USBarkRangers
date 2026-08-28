@@ -247,7 +247,9 @@ test.describe('account auth UI smoke', () => {
                 const firstAttempt = authService.handleGoogleSignInClick(clickEvent);
                 while (popupCount < 1) await new Promise(resolve => setTimeout(resolve, 10));
 
-                await new Promise(resolve => setTimeout(resolve, 300));
+                // The user may close the first chooser immediately and click
+                // Google again before Firebase's delayed close poll settles.
+                // No app-side debounce or stale in-flight flag may eat it.
                 const secondAttempt = authService.handleGoogleSignInClick(clickEvent);
                 const startedAt = Date.now();
                 while (popupCount < 2 && Date.now() - startedAt < 1000) {

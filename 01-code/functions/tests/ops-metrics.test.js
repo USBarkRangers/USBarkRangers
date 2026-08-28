@@ -225,7 +225,7 @@ describe("runOpsMetricsRollup", () => {
         assert.equal(summary.traffic.appOpens, 99);
         assert.equal(summary.traffic.appVisits, 31);
         assert.equal(sent.length, 1);
-        assert.equal(sent[0].url, `${HOOK}-dailyMetrics`);
+        assert.equal(sent[0].url, `${HOOK}-dailyBriefing`);
         assert.equal(sent[0].payload.embeds[0].color, opsDiscord.TIERS.routine.color);
         // A routine rollup must never ping.
         assert.equal(sent[0].payload.content, undefined);
@@ -284,8 +284,26 @@ describe("runOpsMetricsRollup", () => {
         );
 
         assert.equal(sent.length, 1);
+        assert.equal(sent[0].url, `${HOOK}-dailyBriefing`);
+        assert.match(sent[0].payload.embeds[0].title, /Morning briefing — yesterday finalized/);
+    });
+
+    it("routes the evening live report to Daily Metrics", async () => {
+        const sent = [];
+        await runOpsMetricsRollup(
+            { windowHours: 24, kind: "daily", reportMode: "live" },
+            {
+                nowMs: Date.parse("2026-08-28T23:15:00Z"),
+                firestore: fakeFirestore({ feedback: 0, clientErrors: 0, _lemonSqueezyWebhookEvents: 0 }),
+                env: {},
+                discordConfig: fullConfig(),
+                discordSender: async (url, payload) => { sent.push({ url, payload }); }
+            }
+        );
+
+        assert.equal(sent.length, 1);
         assert.equal(sent[0].url, `${HOOK}-dailyMetrics`);
-        assert.match(sent[0].payload.embeds[0].title, /Yesterday finalized/);
+        assert.match(sent[0].payload.embeds[0].title, /Today so far/);
     });
 
     it("fails visibly when the scheduled Discord destination is missing", async () => {

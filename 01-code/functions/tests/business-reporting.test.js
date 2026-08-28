@@ -31,11 +31,11 @@ function summary(overrides = {}) {
 }
 
 describe("plain-language business reports", () => {
-    it("builds one concise finalized report in Daily Metrics", () => {
+    it("builds one concise finalized morning report in Daily Briefing", () => {
         const message = reporting.buildBusinessReport(summary(), { kind: "daily" });
         const fields = Object.fromEntries(message.fields.map(field => [field.name, field.value]));
-        assert.equal(message.channel, "dailyMetrics");
-        assert.match(message.title, /Yesterday finalized/);
+        assert.equal(message.channel, "dailyBriefing");
+        assert.match(message.title, /Morning briefing — yesterday finalized/);
         assert.match(fields["Growing or shrinking?"], /Growing 20.0%/);
         assert.match(fields["App activity"], /app loads/);
         assert.match(fields.Premium, /63 of 75/);
@@ -52,10 +52,10 @@ describe("plain-language business reports", () => {
         assert.match(message.footer, /Google may finish processing/);
     });
 
-    it("keeps finalized and live reports in Daily Metrics, never Launch Monitoring", () => {
+    it("routes the morning brief and evening metrics separately, never to Launch Monitoring", () => {
         const finalized = reporting.buildBusinessReport(summary(), { kind: "daily", reportMode: "finalized" });
         const live = reporting.buildBusinessReport(summary(), { kind: "daily", reportMode: "live" });
-        assert.equal(finalized.channel, "dailyMetrics");
+        assert.equal(finalized.channel, "dailyBriefing");
         assert.equal(live.channel, "dailyMetrics");
         assert.notEqual(finalized.channel, "launchMonitoring");
         assert.notEqual(live.channel, "launchMonitoring");

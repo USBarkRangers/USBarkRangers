@@ -160,9 +160,9 @@ function buildBusinessReport(summary, options = {}) {
     }
 
     return {
-        channel: kind === "weekly" ? "weeklyReport" : "dailyMetrics",
+        channel: kind === "weekly" ? "weeklyReport" : (isLive ? "dailyMetrics" : "dailyBriefing"),
         tier: "routine",
-        title: `${kind === "weekly" ? "Weekly business report" : (isLive ? "Today so far" : "Yesterday finalized")} — ${summary.periodLabel || "latest period"}`,
+        title: `${kind === "weekly" ? "Weekly business report" : (isLive ? "Today so far" : "Morning briefing — yesterday finalized")} — ${summary.periodLabel || "latest period"}`,
         description: reportDescription(trend, summary),
         fields,
         footer: kind === "weekly"

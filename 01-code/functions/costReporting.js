@@ -10,6 +10,7 @@ const admin = require("firebase-admin");
 const { FieldValue } = require("firebase-admin/firestore");
 const costMetrics = require("./costMetrics.js");
 const opsDiscord = require("./opsDiscord.js");
+const { ORS_ENDPOINT_QUOTAS } = require("./orsTelemetry.js");
 
 const COST_STATE_PATH = "system/costMonitoring";
 const COST_SNAPSHOT_PATH = "system/costStatus";
@@ -20,15 +21,20 @@ const ALERT_THRESHOLDS = Object.freeze({
     reads: Object.freeze({ important: 35_000, critical: 45_000 }),
     writes: Object.freeze({ important: 14_000, critical: 18_000 }),
     recaptcha: Object.freeze({ important: 8_000, critical: 9_500 }),
-    orsDirections: Object.freeze({ important: 1_400, critical: 1_800 }),
-    orsSnap: Object.freeze({ important: 1_400, critical: 1_800 }),
-    orsGeocoding: Object.freeze({ important: 700, critical: 900 }),
+    // Alert before the app's stricter safety circuits (1,600 / 1,600 / 2,400),
+    // not merely before the provider's larger daily allowance.
+    orsDirections: Object.freeze({ important: 1_200, critical: 1_500 }),
+    orsSnap: Object.freeze({ important: 1_200, critical: 1_500 }),
+    orsGeocoding: Object.freeze({ important: 1_800, critical: 2_250 }),
     functionErrorRate: Object.freeze({ important: 0.05, critical: 0.20, minimumCalls: 20 }),
-    appCheckRiskRate: Object.freeze({ important: 0.05, critical: 0.15, minimumChecks: 50 }),
+    appCheckSecurityRate: Object.freeze({ important: 0.01, critical: 0.05, minimumChecks: 50 }),
+    appCheckCoverageRate: Object.freeze({ important: 0.20, critical: 0.50, minimumChecks: 50 }),
     totalMonthlyRunRate: Object.freeze({ important: 20, critical: 35 })
 });
 
-const ORS_DAILY_QUOTAS = Object.freeze({ directions: 2_000, snap: 2_000, geocoding: 1_000 });
+const ORS_DAILY_QUOTAS = Object.freeze(Object.fromEntries(
+    Object.entries(ORS_ENDPOINT_QUOTAS).map(([endpoint, limits]) => [endpoint, limits.daily])
+));
 const SEVERITY_RANK = Object.freeze({ routine: 0, important: 1, critical: 2 });
 
 function finite(value) {
@@ -71,6 +77,12 @@ function makeThresholdAlert(id, title, value, thresholds, details, channel = "co
     const severity = thresholdSeverity(value, thresholds);
     if (!severity) return null;
     return { id, title, severity, value: finite(value), details, channel };
+}
+
+function formatOrsAlertDetails(endpoint, usage) {
+    const circuit = finite(usage && usage.circuitLimit);
+    const circuitText = circuit === null ? "" : `; app safety circuit stops at ${formatCount(circuit)}`;
+    return `${formatCount(usage && usage.requestsToday)} of ${formatCount(ORS_DAILY_QUOTAS[endpoint])} provider attempts today${circuitText}`;
 }
 
 async function collectOrsCircuitUsage(db, options = {}) {
@@ -130,21 +142,21 @@ function evaluateGuardAlerts(guard, orsUsage) {
             "ORS directions quota is running low",
             orsUsage.directions.requestsToday,
             ALERT_THRESHOLDS.orsDirections,
-            `${formatCount(orsUsage.directions.requestsToday)} of ${formatCount(ORS_DAILY_QUOTAS.directions)} provider attempts today`
+            formatOrsAlertDetails("directions", orsUsage.directions)
         ),
         makeThresholdAlert(
             "ors_snap",
             "ORS snap quota is running low",
             orsUsage.snap.requestsToday,
             ALERT_THRESHOLDS.orsSnap,
-            `${formatCount(orsUsage.snap.requestsToday)} of ${formatCount(ORS_DAILY_QUOTAS.snap)} provider attempts today`
+            formatOrsAlertDetails("snap", orsUsage.snap)
         ),
         makeThresholdAlert(
             "ors_geocoding",
             "ORS geocoding quota is running low",
             orsUsage.geocoding.requestsToday,
             ALERT_THRESHOLDS.orsGeocoding,
-            `${formatCount(orsUsage.geocoding.requestsToday)} of ${formatCount(ORS_DAILY_QUOTAS.geocoding)} provider attempts today`
+            formatOrsAlertDetails("geocoding", orsUsage.geocoding)
         )
     ].filter(Boolean);
 
@@ -156,19 +168,29 @@ function evaluateGuardAlerts(guard, orsUsage) {
             severity,
             value: guard.functionsHour.errorRate,
             details: `${formatCount(guard.functionsHour.errors)} errors in ${formatCount(guard.functionsHour.total)} executions during the last hour`,
-            channel: "detectedBugs"
+            channel: "bugs"
         });
     }
 
-    if (guard.appCheck.total >= ALERT_THRESHOLDS.appCheckRiskRate.minimumChecks) {
-        const riskRate = Math.max(finite(guard.appCheck.denyRate) || 0, finite(guard.appCheck.invalidRate) || 0);
-        const severity = thresholdSeverity(riskRate, ALERT_THRESHOLDS.appCheckRiskRate);
-        if (severity) alerts.push({
-            id: "app_check_risk",
-            title: "App Check invalid or denied traffic is elevated",
-            severity,
-            value: riskRate,
+    if (guard.appCheck.total >= ALERT_THRESHOLDS.appCheckSecurityRate.minimumChecks) {
+        const securityRiskRate = Math.max(finite(guard.appCheck.denyRate) || 0, finite(guard.appCheck.invalidRate) || 0);
+        const securitySeverity = thresholdSeverity(securityRiskRate, ALERT_THRESHOLDS.appCheckSecurityRate);
+        if (securitySeverity) alerts.push({
+            id: "app_check_security",
+            title: "App Check denied or invalid traffic is elevated",
+            severity: securitySeverity,
+            value: securityRiskRate,
             details: `${formatCount(guard.appCheck.invalid)} invalid and ${formatCount(guard.appCheck.denied)} denied of ${formatCount(guard.appCheck.total)} checks during the last hour`,
+            channel: "systemStatus"
+        });
+
+        const coverageSeverity = thresholdSeverity(guard.appCheck.unverifiedRate, ALERT_THRESHOLDS.appCheckCoverageRate);
+        if (coverageSeverity) alerts.push({
+            id: "app_check_coverage",
+            title: "App Check client coverage is incomplete",
+            severity: coverageSeverity,
+            value: finite(guard.appCheck.unverifiedRate),
+            details: `${formatCount(guard.appCheck.missingOutdatedClient)} missing/outdated-client and ${formatCount(guard.appCheck.missingUnknownOrigin)} unknown-origin checks of ${formatCount(guard.appCheck.total)} during the last hour; ${formatCount(guard.appCheck.denied)} were denied`,
             channel: "systemStatus"
         });
     }
@@ -198,7 +220,16 @@ function evaluateDailyAlerts(snapshot) {
         channel: "costs"
     });
     if (snapshot.billing.available && snapshot.billing.freshestExportAt) {
-        const ageMs = Date.parse(snapshot.collectedAt) - Date.parse(snapshot.billing.freshestExportAt);
+        const normalizedExportAt = costMetrics.normalizeBigQueryTimestamp(snapshot.billing.freshestExportAt);
+        if (!normalizedExportAt) alerts.push({
+            id: "billing_export_timestamp_invalid",
+            title: "Cloud Billing export freshness could not be verified",
+            severity: "important",
+            value: null,
+            details: "The billing total was returned, but its newest export timestamp was not valid.",
+            channel: "systemStatus"
+        });
+        const ageMs = Date.parse(snapshot.collectedAt) - Date.parse(normalizedExportAt || "");
         if (Number.isFinite(ageMs) && ageMs > 48 * 60 * 60 * 1000) alerts.push({
             id: "billing_export_stale",
             title: "Cloud Billing export is stale",
@@ -292,8 +323,8 @@ function calculateSnapshot({ guard, daily, users, billing, orsUsage, report }) {
     const cloudForecast = Math.max(estimate.forecast, billingForecast || 0);
     const lemonMonthlyRunRate = (finite(users.paid) || 0) * LEMON_BASE_ANNUAL_FEE_USD / 12;
     const allInMonthlyRunRate = cloudForecast + lemonMonthlyRunRate;
-    const monthlyActive = finite(daily.users.monthlyActive);
-    const denominator = monthlyActive && monthlyActive > 0 ? monthlyActive : finite(users.registered);
+    const monthlyNewSignIns = finite(daily.users.monthlyNewSignIns);
+    const denominator = finite(users.registered);
 
     return {
         version: 1,
@@ -313,10 +344,10 @@ function calculateSnapshot({ guard, daily, users, billing, orsUsage, report }) {
             lemonMonthlyRunRate,
             allInMonthlyRunRate,
             costPerActiveUser: denominator ? allInMonthlyRunRate / denominator : null,
-            denominator: monthlyActive ? "monthly active user" : "registered account",
+            denominator: "active account",
             estimateBreakdown: estimate
         },
-        users: { ...users, monthlyActive },
+        users: { ...users, monthlyNewSignIns },
         firestore: {
             ...daily.firestore,
             readsToday: guard.firestore.readsToday,
@@ -348,7 +379,12 @@ function calculateSnapshot({ guard, daily, users, billing, orsUsage, report }) {
 
 function formatOrs(snapshot) {
     return ["directions", "snap", "geocoding"]
-        .map(endpoint => `${endpoint} ${formatCount(snapshot.ors[endpoint].requestsToday)}/${formatCount(snapshot.ors[endpoint].dailyLimit)}`)
+        .map(endpoint => {
+            const usage = snapshot.ors[endpoint];
+            const circuit = finite(usage.circuitLimit);
+            return `${endpoint} ${formatCount(usage.requestsToday)}/${formatCount(usage.dailyLimit)}` +
+                (circuit === null ? "" : ` · safety stop ${formatCount(circuit)}`);
+        })
         .join(" · ");
 }
 
@@ -389,13 +425,13 @@ function buildDailyCostMessage(snapshot) {
             { name: "Google Cloud", value: `${actualLabel} MTD · ${formatMoney(snapshot.costs.cloudForecast)} forecast` },
             { name: "All-in run-rate", value: `${formatMoney(snapshot.costs.allInMonthlyRunRate)}/month` },
             { name: `Cost per ${snapshot.costs.denominator}`, value: formatMoney(snapshot.costs.costPerActiveUser) },
-            { name: "Users", value: `${formatCount(snapshot.users.registered)} active accounts · ${formatCount(snapshot.users.allDocuments)} raw user docs · ${formatCount(snapshot.users.deleted)} deleted · ${formatCount(snapshot.users.monthlyActive)} monthly active · ${formatCount(snapshot.users.premium)} Premium · ${formatCount(snapshot.users.paid)} Lemon-linked` },
+            { name: "Users", value: `${formatCount(snapshot.users.registered)} active accounts · ${formatCount(snapshot.users.allDocuments)} raw user docs · ${formatCount(snapshot.users.deleted)} deleted · ${formatCount(snapshot.users.monthlyNewSignIns)} new sign-ins this month · ${formatCount(snapshot.users.premium)} Premium · ${formatCount(snapshot.users.paid)} Lemon-linked` },
             { name: `${periodLabel} — canonical`, value: `${formatCount(reportOperations.reads)} R · ${formatCount(reportOperations.writes)} W · ${formatCount(reportOperations.deletes)} D` },
             { name: `${periodLabel} — diagnostic check`, value: reconciliationToday },
             { name: "Firestore month — canonical", value: `${formatCount(snapshot.firestore.readsMonth)} R · ${formatCount(snapshot.firestore.writesMonth)} W · ${formatCount(snapshot.firestore.deletesMonth)} D` },
             { name: "Firestore month — legacy check", value: reconciliationMonth },
             { name: "Per active user", value: `${formatCount(snapshot.firestore.readsPerActiveUser)} reads · ${formatCount(snapshot.firestore.writesPerActiveUser)} writes` },
-            { name: "CAPTCHA / App Check", value: `${formatCount(snapshot.recaptcha.assessmentsMonth)} assessments · ${formatCount(snapshot.appCheck.allowed)} allowed · ${formatCount(snapshot.appCheck.denied)} denied · ${formatCount(snapshot.appCheck.invalid)} invalid (${formatPercent(snapshot.appCheck.invalidRate)})` },
+            { name: "CAPTCHA / App Check", value: `${formatCount(snapshot.recaptcha.assessmentsMonth)} assessments · ${formatCount(snapshot.appCheck.allowed)} allowed · ${formatCount(snapshot.appCheck.denied)} denied · ${formatCount(snapshot.appCheck.invalid)} invalid · ${formatCount(snapshot.appCheck.unverified)} missing/unverified (${formatPercent(snapshot.appCheck.unverifiedRate)})` },
             { name: "Functions", value: `${formatCount(snapshot.functions.total)} executions · ${formatCount(snapshot.functions.errors)} errors · ${formatBytes(snapshot.functions.egressBytes)} egress` },
             { name: "Top functions", value: topFunctions },
             { name: "Hosting / logs", value: `${formatBytes(snapshot.hosting.sentBytesMonth)} transfer · ${formatBytes(snapshot.hosting.storageBytes)} hosted · ${formatBytes(snapshot.logging.ingestedBytesMonth)} logs` },
@@ -446,6 +482,12 @@ function applyPostingResults(transitions, posted, previousState, nowMs) {
         };
     });
     return next;
+}
+
+async function saveCostMonitoringState(stateRef, stateUpdate) {
+    // mergeFields names top-level fields explicitly, so alerts is replaced as
+    // one map. Plain merge:true recursively retains omitted nested alert IDs.
+    return stateRef.set(stateUpdate, { mergeFields: Object.keys(stateUpdate) });
 }
 
 async function runHourlyCostMonitoring(options = {}) {
@@ -508,12 +550,13 @@ async function runHourlyCostMonitoring(options = {}) {
     const dailyPosted = reportsPosted > 0;
     if (stateChanged || dailyPosted) {
         try {
-            await stateRef.set({
+            const stateUpdate = {
                 alerts: nextAlerts,
                 ...postedReportState,
                 lastCheckedAt: FieldValue.serverTimestamp(),
                 lastCheckedAtMs: nowMs
-            }, { merge: true });
+            };
+            await saveCostMonitoringState(stateRef, stateUpdate);
         } catch (error) {
             console.error("[costs] Alert state could not be saved.", { message: error && error.message });
         }
@@ -545,6 +588,7 @@ module.exports = {
     buildSystemStatusCostMessage,
     calculateSnapshot,
     buildDailyCostMessage,
+    saveCostMonitoringState,
     getDueCostReports,
     runHourlyCostMonitoring,
     formatCount,

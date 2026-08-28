@@ -97,6 +97,7 @@ describe("fetchGoatCounterStats", () => {
         assert.equal(stats.productionOpens, 21);
         assert.equal(stats.betaOpens, 9);
         assert.equal(stats.repeatOpens, 20);
+        assert.equal(stats.openCoverage.complete, true);
         assert.equal(stats.allTime.appOpens, 43);
         assert.equal(stats.allTime.pageVisits, null);
         assert.deepEqual(stats.audience, { loggedOut: 5, free: 3, premium: 2 });
@@ -123,6 +124,33 @@ describe("fetchGoatCounterStats", () => {
         assert.equal(stats.appVisits, 3);
         assert.equal(stats.appOpens, null);
         assert.equal(stats.repeatOpens, null);
+    });
+
+    it("does not label a Beta-only open counter as an all-environment total", async () => {
+        const stats = await opsMetrics.fetchGoatCounterStats(since, now, {
+            env: { GOATCOUNTER_API_TOKEN: "t" },
+            httpGet: async (url, config) => {
+                if (url.endsWith("/stats/total")) return { data: { total_events: 12 } };
+                return { data: { hits: [
+                    { path: "/", title: "US BARK Rangers", count: 8 },
+                    { path: "/USBarkRangers/01-code/app", title: "US BARK Rangers", count: 4 },
+                    { path: "event-app-session-production", event: true, count: 7 },
+                    { path: "event-app-session-beta", event: true, count: 3 },
+                    { path: "event-app-open-beta", event: true, count: 6 }
+                ] } };
+            }
+        });
+        assert.equal(stats.appOpens, null);
+        assert.equal(stats.repeatOpens, null);
+        assert.equal(stats.productionOpens, null);
+        assert.equal(stats.betaOpens, 12);
+        assert.deepEqual(stats.openCoverage, {
+            complete: false,
+            production: false,
+            beta: true,
+            knownAppOpens: 12,
+            knownRepeatOpens: 9
+        });
     });
 
     it("returns null instead of throwing when the API fails", async () => {
@@ -208,11 +236,13 @@ describe("runOpsMetricsRollup", () => {
                 firestore: fakeFirestore({ feedback: 2, clientErrors: 5, _lemonSqueezyWebhookEvents: 1 }),
                 env: { GOATCOUNTER_API_TOKEN: "t" },
                 httpGet: async (url, config) => url.endsWith("/stats/total")
-                    ? ({ data: { total: 99, total_events: 99 } })
+                    ? ({ data: { total: config.params.include_paths.endsWith("production") ? 99 : 0, total_events: config.params.include_paths.endsWith("production") ? 99 : 0 } })
                     : ({ data: { hits: [
                         { path: "/", title: "US BARK Rangers", count: 40 },
                         { path: "event-app-session-production", event: true, count: 31 },
-                        { path: "event-app-open-production", event: true, count: 99 }
+                        { path: "event-app-session-beta", event: true, count: 0 },
+                        { path: "event-app-open-production", event: true, count: 99 },
+                        { path: "event-app-open-beta", event: true, count: 0 }
                     ] } }),
                 discordConfig: fullConfig(),
                 discordSender: async (url, payload) => { sent.push({ url, payload }); }

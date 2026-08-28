@@ -136,7 +136,11 @@ function reportedTotals(summary) {
         } : null,
         goatCounter: goat ? {
             sessions: finiteOrNull(goat.sessions),
-            appOpens: finiteOrNull(goat.appOpens),
+            appOpens: goat.openCoverage && goat.openCoverage.complete === true
+                ? finiteOrNull(goat.appOpens)
+                : null,
+            knownAppOpens: finiteOrNull(goat.openCoverage && goat.openCoverage.knownAppOpens),
+            openCoverageComplete: Boolean(goat.openCoverage && goat.openCoverage.complete === true),
             pageVisits: finiteOrNull(goat.pageVisits),
             partial: goat.partial === true
         } : null
@@ -152,9 +156,18 @@ function mergeProvider(previous, reported, fields) {
 function buildAnalyticsSnapshot(previous = {}, summary, period, collectedAt) {
     const providerReported = reportedTotals(summary);
     const priorObserved = previous.cumulative && previous.cumulative.monotonicObserved || {};
+    const goatCounterObserved = mergeProvider(priorObserved.goatCounter, providerReported.goatCounter, ["sessions", "appOpens", "pageVisits"]);
+    goatCounterObserved.knownAppOpens = maxObserved(
+        priorObserved.goatCounter && priorObserved.goatCounter.knownAppOpens,
+        providerReported.goatCounter && providerReported.goatCounter.knownAppOpens
+    );
+    goatCounterObserved.openCoverageComplete = Boolean(
+        providerReported.goatCounter && providerReported.goatCounter.openCoverageComplete
+    );
+    if (!goatCounterObserved.openCoverageComplete) goatCounterObserved.appOpens = null;
     const monotonicObserved = {
         ga4: mergeProvider(priorObserved.ga4, providerReported.ga4, ["totalUsers", "appOpens", "screenViews"]),
-        goatCounter: mergeProvider(priorObserved.goatCounter, providerReported.goatCounter, ["sessions", "appOpens", "pageVisits"])
+        goatCounter: goatCounterObserved
     };
 
     const previousDays = previous.finalizedDays && typeof previous.finalizedDays === "object"
@@ -168,7 +181,8 @@ function buildAnalyticsSnapshot(previous = {}, summary, period, collectedAt) {
             goatCounter: summary.traffic ? {
                 sessions: summary.traffic.appVisits,
                 appOpens: summary.traffic.appOpens,
-                repeatOpens: summary.traffic.repeatOpens
+                repeatOpens: summary.traffic.repeatOpens,
+                openCoverage: summary.traffic.openCoverage || null
             } : null
         };
     }

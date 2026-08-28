@@ -13,8 +13,8 @@
     const MAX_USERNAME_LENGTH = 30;
     const SUPPORT_EMAIL = 'support@usbarkrangersmap.com';
     const VERIFICATION_RESEND_COOLDOWN_MS = 60 * 1000;
-    const BILLING_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
     const BILLING_RETURN_SYNC_MIN_INTERVAL_MS = 5 * 1000;
+    const BILLING_PORTAL_RETURN_PENDING_KEY = 'bark_billing_portal_return_pending';
     const BILLING_FIX_BUILD = 'billing-fix-build: 2026-05-11-1345';
     const LEMON_SQUEEZY_STORE_HOST = 'usbarkrangers.lemonsqueezy.com';
     const TEST_MODE_PORTAL_UNAVAILABLE_MESSAGE = 'This looks like a Lemon Squeezy test subscription, so the customer portal is unavailable. Use Cancel subscription here or manage it from the Lemon Squeezy dashboard.';
@@ -28,9 +28,8 @@
     let unsubscribePremium = null;
     let lastVerificationEmailSentAt = 0;
     let verificationCooldownTimer = null;
-    let lastBillingSyncKey = '';
-    let lastBillingSyncAt = 0;
     let lastBillingReturnSyncAt = 0;
+    let billingPortalReturnPending = false;
     let billingPortalInFlight = false;
     let cancelSubscriptionInFlight = false;
     let deleteAccountInFlight = false;
@@ -520,9 +519,9 @@
         } else {
             delete button.dataset.billingUrl;
         }
-        maybeSyncBillingPanelFromProvider(user, {
-            force: options.forceBillingSync === true
-        });
+        if (options.forceBillingSync === true) {
+            maybeSyncBillingPanelFromProvider(user, { force: true });
+        }
     }
 
     function getCustomerPortalCallable() {
@@ -550,18 +549,16 @@
     }
 
     function maybeSyncBillingPanelFromProvider(user, options = {}) {
+        // Provider access is intentionally lazy. Normal profile renders trust
+        // the webhook-backed Firestore entitlement and never call Lemon. A
+        // refresh is permitted only after returning from the billing portal.
+        if (options.force !== true) return;
         const premiumService = getPremiumService();
         const entitlement = premiumService && typeof premiumService.getEntitlement === 'function'
             ? premiumService.getEntitlement()
             : null;
         if (!user || !entitlement || entitlement.source !== 'lemon_squeezy') return;
         if (!entitlement.providerSubscriptionId) return;
-
-        const now = Date.now();
-        const syncKey = `${user.uid}:${entitlement.providerSubscriptionId}:${entitlement.status}`;
-        if (options.force !== true && syncKey === lastBillingSyncKey && now - lastBillingSyncAt < BILLING_SYNC_COOLDOWN_MS) return;
-        lastBillingSyncKey = syncKey;
-        lastBillingSyncAt = now;
 
         const getCustomerPortalUrl = getCustomerPortalCallable();
         if (!getCustomerPortalUrl) return;
@@ -834,6 +831,12 @@
             // iOS keeps the installed app visible underneath its Safari overlay.
             // Close and clear this modal before the handoff so Back/X cannot
             // reveal stale loading copy or a half-restored management surface.
+            billingPortalReturnPending = true;
+            try {
+                sessionStorage.setItem(BILLING_PORTAL_RETURN_PENDING_KEY, '1');
+            } catch (error) {
+                // In-memory tracking is enough for same-document Safari sheets.
+            }
             closeAccountManagementModal();
             if (window.BARK && typeof window.BARK.prepareExternalHandoff === 'function') {
                 window.BARK.prepareExternalHandoff({ source: 'billing-portal' });
@@ -1022,9 +1025,22 @@
     }
 
     function refreshBillingStateAfterExternalReturn() {
+        let pending = billingPortalReturnPending;
+        try {
+            pending = pending || sessionStorage.getItem(BILLING_PORTAL_RETURN_PENDING_KEY) === '1';
+        } catch (error) {
+            // In-memory tracking still works when storage is unavailable.
+        }
+        if (!pending) return;
         const now = Date.now();
         if (now - lastBillingReturnSyncAt < BILLING_RETURN_SYNC_MIN_INTERVAL_MS) return;
         lastBillingReturnSyncAt = now;
+        billingPortalReturnPending = false;
+        try {
+            sessionStorage.removeItem(BILLING_PORTAL_RETURN_PENDING_KEY);
+        } catch (error) {
+            // Best-effort cleanup only.
+        }
         refreshAccountDisplay({ forceBillingSync: true });
     }
 

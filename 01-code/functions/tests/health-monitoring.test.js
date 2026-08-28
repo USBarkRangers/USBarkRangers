@@ -27,6 +27,37 @@ test("provider canary is due no more than once every three hours", () => {
     assert.equal(health.providerCheckDue({ lastProviderCheckAt: new Date(now - health.PROVIDER_CHECK_INTERVAL_MS).toISOString() }, now), true);
 });
 
+test("app surface check requires both the real app HTML and a valid version asset", async () => {
+    const calls = [];
+    const result = await health.checkAppSurface(
+        health.BETA_APP_URL,
+        health.BETA_VERSION_URL,
+        "Beta app",
+        {
+            async get(url) {
+                calls.push(url);
+                if (url === health.BETA_APP_URL) return { data: "<title>US BARK RANGERS</title>" };
+                return { data: { version: "0.115" } };
+            }
+        }
+    );
+    assert.equal(result.ok, true);
+    assert.match(result.detail, /version 0\.115/);
+    assert.deepEqual(calls, [health.BETA_APP_URL, health.BETA_VERSION_URL]);
+    assert.match(health.BETA_APP_URL, /\/01-code\/app\/$/);
+});
+
+test("app surface check fails when the version asset is missing", async () => {
+    const result = await health.checkAppSurface("https://app/", "https://app/version.json", "App", {
+        async get(url) {
+            if (url.endsWith("version.json")) return { data: {} };
+            return { data: "BARK" };
+        }
+    });
+    assert.equal(result.ok, false);
+    assert.match(result.detail, /version asset/);
+});
+
 test("two failures turn red and recovery requires two successes", () => {
     const at = "2026-08-27T12:00:00.000Z";
     const firstFailure = health.nextServiceState({}, observation(false), at);

@@ -16,10 +16,12 @@ function summary({ users = 5, opens = 8, screens = 20, goatSessions = 4 } = {}) 
             appVisits: goatSessions,
             appOpens: opens,
             repeatOpens: Math.max(0, opens - goatSessions),
+            openCoverage: { complete: true, production: true, beta: true, knownAppOpens: opens },
             allTime: {
-                trackingStartDate: "2026-01-01",
+                trackingStartDate: "2026-08-26",
                 sessions: goatSessions,
                 appOpens: opens,
+                openCoverage: { complete: true, production: true, beta: true, knownAppOpens: opens },
                 pageVisits: screens,
                 partial: false
             }
@@ -72,6 +74,22 @@ describe("analytics cumulative snapshot", () => {
         const period = reporting.getCurrentCalendarPeriod(Date.parse("2026-08-28T19:15:00Z"));
         const snapshot = reporting.buildAnalyticsSnapshot({}, summary(), period, "2026-08-28T19:15:00Z");
         assert.deepEqual(snapshot.finalizedDays, {});
+    });
+
+    it("clears the combined all-time load total while an environment is missing", () => {
+        const period = reporting.getCompletedCalendarPeriod(Date.parse("2026-08-27T16:00:00Z"), 1);
+        const prior = reporting.buildAnalyticsSnapshot({}, summary({ opens: 20 }), period, "2026-08-27T20:00:00Z");
+        const partialSummary = summary({ opens: 12 });
+        partialSummary.traffic.appOpens = null;
+        partialSummary.traffic.repeatOpens = null;
+        partialSummary.traffic.openCoverage = { complete: false, production: false, beta: true, knownAppOpens: 12 };
+        partialSummary.traffic.allTime.appOpens = null;
+        partialSummary.traffic.allTime.openCoverage = { complete: false, production: false, beta: true, knownAppOpens: 12 };
+
+        const current = reporting.buildAnalyticsSnapshot(prior, partialSummary, period, "2026-08-27T21:00:00Z");
+        assert.equal(current.cumulative.monotonicObserved.goatCounter.appOpens, null);
+        assert.equal(current.cumulative.monotonicObserved.goatCounter.knownAppOpens, 20);
+        assert.equal(current.cumulative.monotonicObserved.goatCounter.openCoverageComplete, false);
     });
 });
 

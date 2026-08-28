@@ -79,6 +79,22 @@ describe("plain-language business reports", () => {
         assert.match(trend.value, /No complete earlier day/);
     });
 
+    it("labels partial environment load tracking instead of publishing a false total", () => {
+        const message = reporting.buildBusinessReport(summary({
+            traffic: {
+                appVisits: 18,
+                productionOpens: null,
+                betaOpens: 114,
+                openCoverage: { complete: false, production: false, beta: true, knownAppOpens: 114 },
+                paymentFunnel: {}
+            }
+        }), { kind: "daily" });
+        const activity = message.fields.find(field => field.name === "App activity").value;
+        assert.match(activity, /114 Beta loads/);
+        assert.match(activity, /total withheld/);
+        assert.doesNotMatch(activity, /114 app loads/);
+    });
+
     it("reads only the single cached cost document", async () => {
         let reads = 0;
         const result = await reporting.loadCostSnapshot({

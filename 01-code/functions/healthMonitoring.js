@@ -7,13 +7,16 @@
 const axios = require("axios");
 const opsDiscord = require("./opsDiscord.js");
 const { ORS_ENDPOINTS } = require("./orsEndpoints.js");
+const orsSafety = require("./orsSafety.js");
 
 const HEALTH_DOCUMENT = "system/healthStatus";
 const CHECK_INTERVAL_MS = 15 * 60 * 1000;
 const PROVIDER_CHECK_INTERVAL_MS = 3 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 10000;
 const PRODUCTION_APP_URL = "https://usbarkrangersmap.com/";
-const BETA_APP_URL = "https://usbarkrangers.github.io/USBarkRangers/";
+const PRODUCTION_VERSION_URL = "https://usbarkrangersmap.com/version.json";
+const BETA_APP_URL = "https://usbarkrangers.github.io/USBarkRangers/01-code/app/";
+const BETA_VERSION_URL = "https://usbarkrangers.github.io/USBarkRangers/01-code/app/version.json";
 const LEMON_API_URL = "https://api.lemonsqueezy.com/v1/users/me";
 const SERVICES = Object.freeze(["productionApp", "betaApp", "routing", "payments", "monitoring"]);
 
@@ -55,17 +58,44 @@ async function checkWebPage(url, label, http = axios) {
     }
 }
 
-async function checkOrsRoute(apiKey, http = axios) {
+async function checkAppSurface(appUrl, versionUrl, label, http = axios) {
+    const startedAt = Date.now();
+    const page = await checkWebPage(appUrl, label, http);
+    if (!page.ok) return page;
+    try {
+        const response = await http.get(versionUrl, {
+            timeout: REQUEST_TIMEOUT_MS,
+            maxRedirects: 4,
+            validateStatus: status => status >= 200 && status < 300
+        });
+        const data = typeof response.data === "string" ? JSON.parse(response.data) : response.data;
+        const version = data && typeof data.version === "string" ? data.version.trim() : "";
+        if (!/^\d+\.\d+(?:\.\d+)?$/.test(version)) throw new Error("Version marker was missing.");
+        return { ok: true, latencyMs: Date.now() - startedAt, detail: `${label} loaded with version ${version}.` };
+    } catch (error) {
+        return { ok: false, latencyMs: Date.now() - startedAt, detail: "The app shell loaded, but its version asset did not." };
+    }
+}
+
+async function checkOrsRoute(apiKey, http = axios, options = {}) {
     const startedAt = Date.now();
     if (!apiKey) return { ok: false, latencyMs: 0, detail: "ORS monitoring key is not configured." };
     try {
-        const response = await http.post(ORS_ENDPOINTS.directions, {
-            coordinates: [[-77.03653, 38.89768], [-77.04344, 38.90965]]
-        }, {
-            timeout: REQUEST_TIMEOUT_MS,
-            headers: { Authorization: apiKey, "Content-Type": "application/json" },
-            validateStatus: status => status >= 200 && status < 300
-        });
+        const response = await orsSafety.postOrsWithRetry(
+            (url, body, config) => http.post(url, body, config),
+            ORS_ENDPOINTS.directions,
+            { coordinates: [[-77.03653, 38.89768], [-77.04344, 38.90965]] },
+            {
+                timeout: REQUEST_TIMEOUT_MS,
+                headers: { Authorization: apiKey, "Content-Type": "application/json" },
+                validateStatus: status => status >= 200 && status < 300
+            },
+            {
+                ...options,
+                orsRetryMaxAttempts: 1,
+                orsTelemetryMode: "log-only"
+            }
+        );
         const feature = response && response.data && response.data.features && response.data.features[0];
         if (!feature || !feature.geometry) throw new Error("Route geometry was missing.");
         return { ok: true, latencyMs: Date.now() - startedAt, detail: "A real two-point route completed." };
@@ -148,9 +178,16 @@ async function runHealthMonitoring(options = {}) {
     const checks = options.checks || {};
 
     const [production, beta, routing, payments] = await Promise.all([
-        (checks.productionApp || checkWebPage)(PRODUCTION_APP_URL, "Production app", http),
-        (checks.betaApp || checkWebPage)(BETA_APP_URL, "Beta app", http),
-        due ? (checks.routing || checkOrsRoute)(env.ORS_API_KEY, http) : Promise.resolve(null),
+        checks.productionApp
+            ? checks.productionApp(PRODUCTION_APP_URL, "Production app", http)
+            : checkAppSurface(PRODUCTION_APP_URL, PRODUCTION_VERSION_URL, "Production app", http),
+        checks.betaApp
+            ? checks.betaApp(BETA_APP_URL, "Beta app", http)
+            : checkAppSurface(BETA_APP_URL, BETA_VERSION_URL, "Beta app", http),
+        due ? (checks.routing || checkOrsRoute)(env.ORS_API_KEY, http, {
+            orsCircuitFirestore: db,
+            orsTelemetryFirestore: db
+        }) : Promise.resolve(null),
         due ? (checks.payments || checkLemon)(env.LEMONSQUEEZY_API_KEY, http) : Promise.resolve(null)
     ]);
 
@@ -186,4 +223,4 @@ async function runHealthMonitoring(options = {}) {
     return { overall: snapshot.overall, providerChecksRun: due, discord };
 }
 
-module.exports = { HEALTH_DOCUMENT, CHECK_INTERVAL_MS, PROVIDER_CHECK_INTERVAL_MS, PRODUCTION_APP_URL, BETA_APP_URL, LEMON_API_URL, providerCheckDue, nextServiceState, overallState, changedServices, buildHealthDiscordMessage, checkWebPage, checkOrsRoute, checkLemon, runHealthMonitoring };
+module.exports = { HEALTH_DOCUMENT, CHECK_INTERVAL_MS, PROVIDER_CHECK_INTERVAL_MS, PRODUCTION_APP_URL, PRODUCTION_VERSION_URL, BETA_APP_URL, BETA_VERSION_URL, LEMON_API_URL, providerCheckDue, nextServiceState, overallState, changedServices, buildHealthDiscordMessage, checkWebPage, checkAppSurface, checkOrsRoute, checkLemon, runHealthMonitoring };

@@ -149,11 +149,34 @@ describe("function and App Check summaries", () => {
     it("keeps billing assessments separate from App Check denials", () => {
         const summary = costMetrics.buildAppCheckSummary([
             ...series(90, { metric: { result: "ALLOW", security: "VALID" } }),
-            ...series(10, { metric: { result: "DENY", security: "INVALID" } })
+            ...series(5, { metric: { result: "DENY", security: "INVALID" } }),
+            ...series(3, { metric: { result: "ALLOW", security: "MISSING_OUTDATED_CLIENT" } }),
+            ...series(2, { metric: { result: "ALLOW", security: "MISSING_UNKNOWN_ORIGIN" } })
         ]);
         assert.equal(summary.total, 100);
-        assert.equal(summary.denied, 10);
-        assert.equal(summary.denyRate, 0.1);
-        assert.equal(summary.invalid, 10);
+        assert.equal(summary.denied, 5);
+        assert.equal(summary.denyRate, 0.05);
+        assert.equal(summary.invalid, 5);
+        assert.equal(summary.missingOutdatedClient, 3);
+        assert.equal(summary.missingUnknownOrigin, 2);
+        assert.equal(summary.unverified, 10);
+        assert.equal(summary.unverifiedRate, 0.1);
+    });
+});
+
+describe("Cloud Billing timestamp normalization", () => {
+    it("converts BigQuery numeric TIMESTAMP seconds into ISO time", () => {
+        assert.equal(
+            costMetrics.normalizeBigQueryTimestamp("1.787939693112652E9"),
+            "2026-08-28T17:54:53.112Z"
+        );
+    });
+
+    it("preserves valid ISO timestamps and rejects invalid values", () => {
+        assert.equal(
+            costMetrics.normalizeBigQueryTimestamp("2026-08-28T17:54:53.000Z"),
+            "2026-08-28T17:54:53.000Z"
+        );
+        assert.equal(costMetrics.normalizeBigQueryTimestamp("not-a-time"), null);
     });
 });

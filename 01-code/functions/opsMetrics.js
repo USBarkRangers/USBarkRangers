@@ -19,7 +19,9 @@ const DEFAULT_GOATCOUNTER_SITE = "https://carterswarm.goatcounter.com";
 const GOATCOUNTER_TIMEOUT_MS = 8000;
 const TOP_PAGE_LIMIT = 5;
 const GOATCOUNTER_HIT_LIMIT = 100;
-const TRAFFIC_TRACKING_START_ISO = "2026-01-01T00:00:00.000Z";
+// Exact app-open events were introduced on August 26. Earlier dates cannot be
+// reconstructed from GoatCounter's deduplicated page-visit records.
+const TRAFFIC_TRACKING_START_ISO = "2026-08-26T00:00:00.000Z";
 const PAYMENT_FUNNEL_EVENTS = Object.freeze([
     "paywall-open",
     "checkout-clicked",
@@ -210,9 +212,15 @@ async function fetchGoatCounterStats(sinceMs, nowMs, options = {}) {
         const lifetimeBetaOpens = await exactOpenCount("beta", lifetimeStart, periodEnd, lifetimeHits);
         const periodOpenCounts = [productionOpens, betaOpens].filter(Number.isFinite);
         const lifetimeOpenCounts = [lifetimeProductionOpens, lifetimeBetaOpens].filter(Number.isFinite);
-        const appOpens = periodOpenCounts.length
+        const periodOpenComplete = [productionOpens, betaOpens].every(Number.isFinite);
+        const lifetimeOpenComplete = [lifetimeProductionOpens, lifetimeBetaOpens].every(Number.isFinite);
+        const knownAppOpens = periodOpenCounts.length
             ? periodOpenCounts.reduce((total, value) => total + value, 0)
             : null;
+        const knownRepeatOpens = [
+            Number.isFinite(productionOpens) ? Math.max(0, productionOpens - productionVisits) : null,
+            Number.isFinite(betaOpens) ? Math.max(0, betaOpens - betaVisits) : null
+        ].filter(Number.isFinite);
         const audience = { loggedOut: 0, free: 0, premium: 0 };
         hits.forEach((hit) => {
             const match = normalizeHitPath(getHitPath(hit)).match(/^event-audience-(?:production|beta)-(logged-out|free|premium)$/);
@@ -235,15 +243,34 @@ async function fetchGoatCounterStats(sinceMs, nowMs, options = {}) {
             betaVisits,
             // The client emits app-open with no_session so every actual load is
             // counted. Older windows without that event stay n/a, not a fake 0.
-            appOpens,
+            appOpens: periodOpenComplete ? knownAppOpens : null,
             productionOpens,
             betaOpens,
-            repeatOpens: appOpens === null ? null : Math.max(0, appOpens - appVisits),
+            repeatOpens: periodOpenComplete
+                ? knownRepeatOpens.reduce((total, value) => total + value, 0)
+                : null,
+            openCoverage: {
+                complete: periodOpenComplete,
+                production: Number.isFinite(productionOpens),
+                beta: Number.isFinite(betaOpens),
+                knownAppOpens,
+                knownRepeatOpens: knownRepeatOpens.length
+                    ? knownRepeatOpens.reduce((total, value) => total + value, 0)
+                    : null
+            },
             audience: hasAudienceEvents ? audience : null,
             allTime: {
-                appOpens: lifetimeOpenCounts.length
+                appOpens: lifetimeOpenComplete && lifetimeOpenCounts.length
                     ? lifetimeOpenCounts.reduce((total, value) => total + value, 0)
                     : null,
+                openCoverage: {
+                    complete: lifetimeOpenComplete,
+                    production: Number.isFinite(lifetimeProductionOpens),
+                    beta: Number.isFinite(lifetimeBetaOpens),
+                    knownAppOpens: lifetimeOpenCounts.length
+                        ? lifetimeOpenCounts.reduce((total, value) => total + value, 0)
+                        : null
+                },
                 sessions: lifetimeHasSessionEvents
                     ? lifetimeCount(path => /^event-app-session-(production|beta)$/.test(path))
                     : null,

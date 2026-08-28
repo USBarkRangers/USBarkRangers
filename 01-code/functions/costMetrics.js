@@ -34,7 +34,9 @@ const METRICS = Object.freeze({
     loggingMonthlyIngested: "logging.googleapis.com/billing/monthly_bytes_ingested",
     recaptchaAssessments: "recaptchaenterprise.googleapis.com/assessment_count",
     appCheckVerifications: "firebaseappcheck.googleapis.com/resources/verification_count",
-    monthlyActiveUsers: "identitytoolkit.googleapis.com/usage/monthly_new_signin_count",
+    // This is a count of new sign-in events, not a unique active-user gauge.
+    // Keep the name honest so it is never used as a per-user denominator.
+    monthlyNewSignIns: "identitytoolkit.googleapis.com/usage/monthly_new_signin_count",
     firestoreStorage: "firestore.googleapis.com/storage/data_and_index_storage_bytes",
     firestorePitr: "firestore.googleapis.com/storage/pitr_storage_bytes",
     firestoreBackups: "firestore.googleapis.com/storage/backups_storage_bytes"
@@ -285,13 +287,23 @@ function buildAppCheckSummary(series) {
         allowed: null,
         denied: null,
         denyRate: null,
+        valid: null,
         invalid: null,
-        invalidRate: null
+        invalidRate: null,
+        missingOutdatedClient: null,
+        missingUnknownOrigin: null,
+        otherUnverified: null,
+        unverified: null,
+        unverifiedRate: null
     };
     let total = 0;
     let allowed = 0;
     let denied = 0;
+    let valid = 0;
     let invalid = 0;
+    let missingOutdatedClient = 0;
+    let missingUnknownOrigin = 0;
+    let otherUnverified = 0;
     series.forEach(item => {
         const labels = getSeriesLabels(item).metric;
         const count = sumDeltaSeries([item]);
@@ -300,15 +312,26 @@ function buildAppCheckSummary(series) {
         total += count;
         if (result === "ALLOW") allowed += count;
         else denied += count;
-        if (security && !["VALID", "CONSUMED"].includes(security)) invalid += count;
+        if (["VALID", "CONSUMED"].includes(security)) valid += count;
+        else if (security === "INVALID") invalid += count;
+        else if (security === "MISSING_OUTDATED_CLIENT") missingOutdatedClient += count;
+        else if (security === "MISSING_UNKNOWN_ORIGIN") missingUnknownOrigin += count;
+        else if (security) otherUnverified += count;
     });
+    const unverified = invalid + missingOutdatedClient + missingUnknownOrigin + otherUnverified;
     return {
         total,
         allowed,
         denied,
         denyRate: total ? denied / total : 0,
+        valid,
         invalid,
-        invalidRate: total ? invalid / total : 0
+        invalidRate: total ? invalid / total : 0,
+        missingOutdatedClient,
+        missingUnknownOrigin,
+        otherUnverified,
+        unverified,
+        unverifiedRate: total ? unverified / total : 0
     };
 }
 
@@ -362,7 +385,7 @@ async function collectDailyMetrics(options = {}) {
 
     const includeLegacy = options.includeLegacy === true;
     const [reads, writes, deletes, executions, egress, hostingSent, hostingStorage, logging,
-        recaptcha, appCheck, monthlyActive, firestoreStorage, firestorePitr, firestoreBackups,
+        recaptcha, appCheck, monthlyNewSignIns, firestoreStorage, firestorePitr, firestoreBackups,
         legacyReads, legacyWrites, legacyDeletes] = await Promise.all([
         safeListTimeSeries(METRICS.firestoreReads, month, options, errors),
         safeListTimeSeries(METRICS.firestoreWrites, month, options, errors),
@@ -374,7 +397,7 @@ async function collectDailyMetrics(options = {}) {
         safeListTimeSeries(METRICS.loggingMonthlyIngested, recentGauge, options, errors),
         safeListTimeSeries(METRICS.recaptchaAssessments, month, options, errors),
         safeListTimeSeries(METRICS.appCheckVerifications, month, options, errors),
-        safeListTimeSeries(METRICS.monthlyActiveUsers, month, options, errors),
+        safeListTimeSeries(METRICS.monthlyNewSignIns, month, options, errors),
         safeListTimeSeries(METRICS.firestoreStorage, recentGauge, options, errors),
         safeListTimeSeries(METRICS.firestorePitr, recentGauge, options, errors),
         safeListTimeSeries(METRICS.firestoreBackups, recentGauge, options, errors),
@@ -410,7 +433,7 @@ async function collectDailyMetrics(options = {}) {
         logging: { ingestedBytesMonth: Array.isArray(logging) ? sumLatestGaugeSeries(logging) : null },
         recaptcha: { assessmentsMonth: Array.isArray(recaptcha) ? sumDeltaSeries(recaptcha) : null },
         appCheck: buildAppCheckSummary(appCheck),
-        users: { monthlyActive: Array.isArray(monthlyActive) ? sumDeltaSeries(monthlyActive) : null },
+        users: { monthlyNewSignIns: Array.isArray(monthlyNewSignIns) ? sumDeltaSeries(monthlyNewSignIns) : null },
         sourceErrors: errors
     };
 }
@@ -449,6 +472,19 @@ async function findBillingExportTable(bigquery, projectId, datasetId) {
     return match && match.tableReference ? match.tableReference.tableId : null;
 }
 
+function normalizeBigQueryTimestamp(value) {
+    if (value === null || value === undefined || value === "") return null;
+    const text = String(value).trim();
+    const numeric = Number(text);
+    if (Number.isFinite(numeric)) {
+        const milliseconds = Math.abs(numeric) < 1e12 ? numeric * 1000 : numeric;
+        const date = new Date(milliseconds);
+        return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+    }
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
 function parseBigQueryRows(data) {
     const rows = (data && data.rows) || [];
     return rows.map(row => {
@@ -456,7 +492,7 @@ function parseBigQueryRows(data) {
         return {
             service: fields[0] || "Unknown",
             cost: Number(fields[1]) || 0,
-            freshestExportAt: fields[2] || null
+            freshestExportAt: normalizeBigQueryTimestamp(fields[2])
         };
     });
 }
@@ -512,7 +548,12 @@ async function collectBillingCost(options = {}) {
             available: true,
             actualMtd: rows.reduce((sum, row) => sum + row.cost, 0),
             byService: rows.map(({ service, cost }) => ({ service, cost })),
-            freshestExportAt: rows.reduce((latest, row) => !latest || String(row.freshestExportAt) > String(latest) ? row.freshestExportAt : latest, null),
+            freshestExportAt: rows.reduce((latest, row) => {
+                if (!row.freshestExportAt) return latest;
+                return !latest || Date.parse(row.freshestExportAt) > Date.parse(latest)
+                    ? row.freshestExportAt
+                    : latest;
+            }, null),
             maximumBytesBilled: BIGQUERY_MAX_BYTES_BILLED
         };
     } catch (error) {
@@ -562,6 +603,8 @@ module.exports = {
     collectDailyMetrics,
     collectUserCounts,
     collectBillingCost,
+    normalizeBigQueryTimestamp,
+    parseBigQueryRows,
     calculateRecaptchaCost,
     calculateUsageEstimate,
     buildFunctionSummary,

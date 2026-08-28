@@ -25,9 +25,9 @@ function pointSeries(value, metric = {}, resource = {}) {
     }];
 }
 
-function fakeFirestore({ lastMorningReportDate = "2026-08-26", lastEveningReportDate = "2026-08-26" } = {}) {
+function fakeFirestore({ lastMorningReportDate = "2026-08-26", lastEveningReportDate = "2026-08-26", alerts = {} } = {}) {
     const stats = { stateReads: 0, orsReads: 0, aggregateReads: 0, writes: [] };
-    const state = { lastMorningReportDate, lastEveningReportDate, alerts: {} };
+    const state = { lastMorningReportDate, lastEveningReportDate, alerts };
     const db = {
         stats,
         doc(path) {
@@ -82,7 +82,7 @@ function metricSource(metricType) {
         costMetrics.METRICS.firestorePitr, costMetrics.METRICS.firestoreBackups].includes(metricType)) {
         return pointSeries(1024);
     }
-    if (metricType === costMetrics.METRICS.monthlyActiveUsers) return pointSeries(5);
+    if (metricType === costMetrics.METRICS.monthlyNewSignIns) return pointSeries(5);
     if (metricType === costMetrics.METRICS.recaptchaAssessments) return pointSeries(50);
     return pointSeries(100);
 }
@@ -150,7 +150,50 @@ describe("cost alert thresholds and deduplication", () => {
         }, {
             directions: { requestsToday: 0 }, snap: { requestsToday: 0 }, geocoding: { requestsToday: 0 }
         });
-        assert.equal(alerts.find(alert => alert.id === "function_error_rate").channel, "detectedBugs");
+        assert.equal(alerts.find(alert => alert.id === "function_error_rate").channel, "bugs");
+        assert.ok(opsDiscord.KNOWN_CHANNELS.includes(alerts.find(alert => alert.id === "function_error_rate").channel));
+    });
+
+    it("separates missing client coverage from actually denied or invalid traffic", () => {
+        const alerts = costReporting.evaluateGuardAlerts({
+            firestore: { readsToday: 0, writesToday: 0 },
+            recaptcha: { assessmentsMonth: 0 },
+            appCheck: {
+                total: 100,
+                denied: 0,
+                denyRate: 0,
+                invalid: 0,
+                invalidRate: 0,
+                missingOutdatedClient: 25,
+                missingUnknownOrigin: 5,
+                unverifiedRate: 0.30
+            },
+            functionsHour: { total: 100, errors: 0, errorRate: 0 }
+        }, {
+            directions: { requestsToday: 0 }, snap: { requestsToday: 0 }, geocoding: { requestsToday: 0 }
+        });
+        assert.equal(alerts.some(alert => alert.id === "app_check_security"), false);
+        assert.equal(alerts.find(alert => alert.id === "app_check_coverage").severity, "important");
+    });
+});
+
+describe("daily billing freshness alerts", () => {
+    it("detects a stale numeric BigQuery timestamp", () => {
+        const alerts = costReporting.evaluateDailyAlerts({
+            collectedAt: "2026-08-28T20:00:00.000Z",
+            costs: { allInMonthlyRunRate: 10 },
+            billing: { available: true, freshestExportAt: "1.7877004E9" }
+        });
+        assert.equal(alerts.find(alert => alert.id === "billing_export_stale").severity, "important");
+    });
+
+    it("flags an unparseable freshness timestamp instead of silently accepting it", () => {
+        const alerts = costReporting.evaluateDailyAlerts({
+            collectedAt: "2026-08-28T20:00:00.000Z",
+            costs: { allInMonthlyRunRate: 10 },
+            billing: { available: true, freshestExportAt: "bad-time" }
+        });
+        assert.equal(alerts.find(alert => alert.id === "billing_export_timestamp_invalid").severity, "important");
     });
 });
 
@@ -184,6 +227,23 @@ describe("hourly cost job read/write ceiling", () => {
         assert.equal(result.alerts.length, 0);
     });
 
+    it("replaces the alert map so recovered alerts are actually removed", async () => {
+        const db = fakeFirestore({
+            alerts: { function_error_rate: { severity: "important", lastNotifiedAtMs: 1, details: "old" } }
+        });
+        await costReporting.runHourlyCostMonitoring({
+            nowMs: Date.parse("2026-08-26T16:20:00Z"),
+            firestore: db,
+            listTimeSeries: async metricType => metricSource(metricType),
+            discordConfig: fullConfig(),
+            discordSender: async () => ({})
+        });
+        assert.equal(db.stats.writes.length, 1);
+        assert.deepEqual(db.stats.writes[0].value.alerts, {});
+        assert.ok(db.stats.writes[0].options.mergeFields.includes("alerts"));
+        assert.equal(db.stats.writes[0].options.merge, undefined);
+    });
+
     it("posts and caches one daily snapshot without scanning users", async () => {
         const db = fakeFirestore({ lastMorningReportDate: "2026-08-25" });
         const monitoringCalls = [];
@@ -202,6 +262,9 @@ describe("hourly cost job read/write ceiling", () => {
         assert.equal(sent.length, 1);
         assert.equal(sent[0].url, `${HOOK}-costs`);
         assert.match(sent[0].payload.embeds[0].title, /Previous-day cost report/);
+        assert.equal(result.snapshot.costs.denominator, "active account");
+        assert.equal(result.snapshot.users.registered, 0); // all four fake counts match, so all documents minus deleted is zero.
+        assert.equal(result.snapshot.users.monthlyNewSignIns, 5);
         assert.equal(result.dailyPosted, true);
     });
 });
@@ -211,15 +274,15 @@ describe("daily cost message", () => {
         const message = costReporting.buildDailyCostMessage({
             dateKey: "2026-08-26",
             report: { kind: "morning", complete: true },
-            costs: { cloudActualMtd: null, cloudForecast: 7, allInMonthlyRunRate: 15, costPerActiveUser: 0.2, denominator: "monthly active user" },
-            users: { registered: 75, allDocuments: 76, deleted: 1, monthlyActive: 60, premium: 63, paid: 63 },
+            costs: { cloudActualMtd: null, cloudForecast: 7, allInMonthlyRunRate: 15, costPerActiveUser: 0.2, denominator: "active account" },
+            users: { registered: 75, allDocuments: 76, deleted: 1, monthlyNewSignIns: 60, premium: 63, paid: 63 },
             firestore: { report: { reads: 10, writes: 5, deletes: 0, legacy: { reads: 10, writes: 5, deletes: 0 } }, readsMonth: 100, writesMonth: 50, deletesMonth: 1, legacy: { readsMonth: 100, writesMonth: 50, deletesMonth: 1 }, readsPerActiveUser: 2, writesPerActiveUser: 1, storageBytes: 1, pitrBytes: 1, backupBytes: 1 },
             functions: { total: 20, errors: 0, egressBytes: 0, top: [] },
             hosting: { sentBytesMonth: 1, storageBytes: 1 },
             logging: { ingestedBytesMonth: 1 },
             recaptcha: { assessmentsMonth: 3 },
-            appCheck: { allowed: 3, denied: 0, denyRate: 0, invalid: 0, invalidRate: 0 },
-            ors: { directions: { requestsToday: 0, dailyLimit: 2000 }, snap: { requestsToday: 0, dailyLimit: 2000 }, geocoding: { requestsToday: 0, dailyLimit: 1000 } },
+            appCheck: { allowed: 3, denied: 0, denyRate: 0, invalid: 0, invalidRate: 0, unverified: 0, unverifiedRate: 0 },
+            ors: { directions: { requestsToday: 0, dailyLimit: 2000 }, snap: { requestsToday: 0, dailyLimit: 2000 }, geocoding: { requestsToday: 0, dailyLimit: 3000 } },
             billing: { available: false, byService: [] },
             sourceErrors: []
         });

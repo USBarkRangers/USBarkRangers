@@ -96,7 +96,8 @@ function costSummary(summary) {
     const costs = snapshot.costs;
     const actual = finite(costs.cloudActualMtd);
     const actualText = actual === null ? "cloud bill still processing" : `${money(actual)} cloud cost recorded this month`;
-    return `${money(costs.allInMonthlyRunRate)}/month at the current all-in pace · ${actualText} · ${money(costs.costPerActiveUser)} per active user`;
+    const denominator = costs.denominator || "active account";
+    return `${money(costs.allInMonthlyRunRate)}/month at the current all-in pace · ${actualText} · ${money(costs.costPerActiveUser)} per ${denominator}`;
 }
 
 function issueSummary(summary) {
@@ -109,6 +110,14 @@ function issueSummary(summary) {
 function liveActivitySummary(summary) {
     const traffic = summary.traffic;
     if (!traffic) return "Live load counter unavailable; Google visitor totals above are still reported independently";
+    const coverage = traffic.openCoverage;
+    if (coverage && coverage.complete === false) {
+        const available = [];
+        if (coverage.production) available.push(`${count(traffic.productionOpens)} production loads`);
+        if (coverage.beta) available.push(`${count(traffic.betaOpens)} Beta loads`);
+        const known = available.length ? available.join(" · ") : "Exact load events unavailable";
+        return `${known} · ${count(traffic.appVisits)} visits · combined load/reload total withheld until both environments report`;
+    }
     return `${count(traffic.appOpens)} app loads · ${count(traffic.appVisits)} visits · ${count(traffic.repeatOpens)} additional reloads`;
 }
 

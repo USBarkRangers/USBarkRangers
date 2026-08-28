@@ -48,7 +48,8 @@ function getParkCategory(typeString) {
 function getSwagType(info) {
     if (!info) return 'Other';
     const lower = String(info).toLowerCase();
-    if (lower.includes('tag')) return 'Tag';
+    // Match the complete word only: "Heritage" must not imply tag inventory.
+    if (/\btags?\b/.test(lower)) return 'Tag';
     if (lower.includes('bandana') || lower.includes('vest')) return 'Bandana';
     if (lower.includes('certificate') || lower.includes('pledge')) return 'Certificate';
     return 'Other';

@@ -154,6 +154,18 @@ test('swag link formatter validates URLs and adds noopener rel', () => {
     assert.doesNotMatch(html, /onclick|javascript:/);
 });
 
+test('swag inference does not mistake Heritage for a tag while retaining full tag words', () => {
+    const bark = loadRenderEngineHelpers();
+
+    assert.equal(
+        bark.getSwagType('Pick up the activity sheet at the Heritage Visitor Center. They hope to have badges next year. A certificate is provided.'),
+        'Certificate'
+    );
+    assert.equal(bark.getSwagType('Site-specific metal tags are available for sale.'), 'Tag');
+    assert.equal(bark.getSwagType('A metal tag is available for sale.'), 'Tag');
+    assert.equal(bark.getSwagType('Heritage center offers a bandana.'), 'Bandana');
+});
+
 test('panel renderer no longer assigns sheet fields directly through innerHTML', () => {
     const source = fs.readFileSync(path.join(repoRoot, '01-code', 'app', 'renderers', 'panelRenderer.js'), 'utf8');
 

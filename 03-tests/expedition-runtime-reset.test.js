@@ -121,6 +121,7 @@ function loadExpeditionEngine(options = {}) {
     const document = createDocument(ids);
     const promptQueue = Array.isArray(options.prompts) ? [...options.prompts] : [];
     const walkTrackerResets = [];
+    const paywallCalls = [];
     const context = {
         console,
         document,
@@ -128,6 +129,14 @@ function loadExpeditionEngine(options = {}) {
             BARK: {
                 incrementRequestCount() {},
                 syncScoreToLeaderboard: options.syncScoreToLeaderboard || (async () => {}),
+                services: {
+                    premium: {
+                        isPremium() { return options.premiumActive === true; }
+                    }
+                },
+                paywall: {
+                    openPaywall(payload) { paywallCalls.push(payload); }
+                },
                 // walkTracker.js owns the Live GPS Walk and loads after this module;
                 // expeditionEngine only reaches it to drop a walk on account switch.
                 walkTracker: {
@@ -165,7 +174,8 @@ function loadExpeditionEngine(options = {}) {
             return document.getElementById(id);
         },
         window: context.window,
-        walkTrackerResets
+        walkTrackerResets,
+        paywallCalls
     };
 }
 
@@ -401,6 +411,7 @@ test('manual walk honor entries log miles without adding walk points', async () 
 
     let syncCalls = 0;
     const { bark, element, window } = loadExpeditionEngine({
+        premiumActive: true,
         firebase: {
             auth() {
                 return { currentUser: { uid: 'walk-user' } };
@@ -423,6 +434,50 @@ test('manual walk honor entries log miles without adding walk points', async () 
     assert.equal(window.currentWalkPoints || 0, 0);
     assert.equal(syncCalls, 0);
     assert.equal(element('miles-input').value, '');
+});
+
+test('free accounts cannot add manual Honor System miles through the button or runtime API', async () => {
+    let reads = 0;
+    let writes = 0;
+    function firestore() {
+        return {
+            collection() {
+                return {
+                    doc() {
+                        return {
+                            async get() { reads += 1; return { data: () => ({}) }; },
+                            async set() { writes += 1; }
+                        };
+                    }
+                };
+            }
+        };
+    }
+    firestore.FieldValue = { increment(value) { return value; } };
+
+    const { bark, element, paywallCalls } = loadExpeditionEngine({
+        premiumActive: false,
+        firebase: {
+            auth() { return { currentUser: { uid: 'free-user' } }; },
+            firestore
+        }
+    });
+
+    bark.initManualMiles();
+    element('miles-input').value = '3.2';
+    await element('log-manual-miles-btn').click();
+    const directResult = await bark.processMileageAddition(3.2, 'Manual Entry');
+    const relabeledResult = await bark.processMileageAddition(3.2, 'GPS Active Track');
+
+    assert.equal(directResult, false);
+    assert.equal(relabeledResult, false);
+    assert.equal(reads, 0);
+    assert.equal(writes, 0);
+    assert.deepEqual(paywallCalls, [
+        { source: 'honor-system-miles' },
+        { source: 'honor-system-miles' },
+        { source: 'trail-tracker' }
+    ]);
 });
 
 test('gps walking advances an 11-mile trail without awarding points', async () => {
@@ -467,6 +522,7 @@ test('gps walking advances an 11-mile trail without awarding points', async () =
 
     let syncCalls = 0;
     const { bark, window } = loadExpeditionEngine({
+        premiumActive: true,
         firebase: {
             auth() {
                 return { currentUser: { uid: 'walk-user' } };
@@ -744,6 +800,7 @@ test('editing a gps walk upward does not mint manual score points', async () => 
 
     let syncCalls = 0;
     const { window } = loadExpeditionEngine({
+        premiumActive: true,
         firebase: {
             auth() {
                 return { currentUser: { uid: 'walk-user' } };

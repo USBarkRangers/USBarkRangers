@@ -220,6 +220,26 @@ async function expectTrailButtonsUnlocked(page) {
     }
 }
 
+async function expectManualMilesLocked(page) {
+    const input = page.locator('#miles-input');
+    const button = page.locator('#log-manual-miles-btn');
+    await expect(input).toBeDisabled();
+    await expect(input).toHaveAttribute('aria-disabled', 'true');
+    expect(await button.evaluate(element => element.disabled)).toBe(false);
+    await expect(button).toHaveAttribute('aria-disabled', 'true');
+    await expect(button).toHaveText(/Premium/);
+}
+
+async function expectManualMilesUnlocked(page) {
+    const input = page.locator('#miles-input');
+    const button = page.locator('#log-manual-miles-btn');
+    await expect(input).toBeEnabled();
+    await expect(input).toHaveAttribute('aria-disabled', 'false');
+    await expect(button).toBeEnabled();
+    await expect(button).toHaveAttribute('aria-disabled', 'false');
+    await expect(button).toHaveText('Add');
+}
+
 async function forceTrailButtonClick(page, buttonId) {
     return page.evaluate((id) => {
         const button = document.getElementById(id);
@@ -473,10 +493,21 @@ async function forceAuthUserAndRenderPaywall(page, uid) {
 }
 
 test.describe('Phase 3A premium gating smoke', () => {
+    test('signed-out app locks Honor System manual miles behind the Premium prompt', async ({ page }) => {
+        await waitForSignedOutApp(page);
+        await expectManualMilesLocked(page);
+
+        await page.evaluate(() => document.getElementById('log-manual-miles-btn').click());
+        await expect(page.locator('#paywall-overlay')).toHaveClass(/active/);
+        await expect(page.locator('#paywall-title')).toHaveText('Honor System mileage is a Premium feature');
+        await expect(page.locator('#paywall-body')).toContainText('add trail miles manually');
+    });
+
     test('signed-out app locks premium controls', async ({ page }) => {
         await waitForSignedOutApp(page);
         await expectLowRiskPremiumControlsLocked(page);
         await expectTrailButtonsLocked(page);
+        await expectManualMilesLocked(page);
         await expectPremiumClusteringLocked(page);
         await expectForcedTrailClicksBlocked(page);
         await expectGlobalSearchLocked(page, /Sign in to unlock global search/);
@@ -496,6 +527,7 @@ test.describe('Phase 3A premium gating smoke', () => {
             await waitForSignedOutApp(page);
             await expectLowRiskPremiumControlsLocked(page);
             await expectTrailButtonsLocked(page);
+            await expectManualMilesLocked(page);
             await expectPremiumClusteringLocked(page);
             await page.waitForFunction(() => {
                 const styleEl = document.getElementById('map-style-select');
@@ -757,6 +789,7 @@ test.describe('Phase 3A premium gating smoke', () => {
             await expect(page.evaluate(() => window.BARK.services.premium.isPremium())).resolves.toBe(false);
             await expectLowRiskPremiumControlsLocked(page);
             await expectTrailButtonsLocked(page);
+            await expectManualMilesLocked(page);
             await expectPremiumClusteringLocked(page);
             await expectForcedTrailClicksBlocked(page);
             await expectGlobalSearchLocked(page, /Upgrade to unlock global search/);
@@ -767,6 +800,7 @@ test.describe('Phase 3A premium gating smoke', () => {
             await expect(fakeSuccessPage.evaluate(() => window.BARK.services.premium.isPremium())).resolves.toBe(false);
             await expectLowRiskPremiumControlsLocked(fakeSuccessPage);
             await expectTrailButtonsLocked(fakeSuccessPage);
+            await expectManualMilesLocked(fakeSuccessPage);
             await expectPremiumClusteringLocked(fakeSuccessPage);
             await expectFreePaywallState(fakeSuccessPage, 'verifying');
             await fakeSuccessPage.close();
@@ -789,6 +823,7 @@ test.describe('Phase 3A premium gating smoke', () => {
             await expect(premiumPage.evaluate(() => window.BARK.services.premium.isPremium())).resolves.toBe(true);
             await expectLowRiskPremiumControlsUnlocked(premiumPage);
             await expectTrailButtonsUnlocked(premiumPage);
+            await expectManualMilesUnlocked(premiumPage);
             await expectPremiumClusteringUnlocked(premiumPage);
             await expect(premiumPage.locator('#profile-premium-status')).toHaveText('Premium active');
 
@@ -797,6 +832,7 @@ test.describe('Phase 3A premium gating smoke', () => {
             await premiumPage.waitForFunction(() => window.BARK.services.premium.isPremium() === false, { timeout: 30000 });
             await expectLowRiskPremiumControlsLocked(premiumPage);
             await expectTrailButtonsLocked(premiumPage);
+            await expectManualMilesLocked(premiumPage);
             await expectPremiumClusteringLocked(premiumPage);
         } finally {
             await premiumContext.close();
@@ -812,6 +848,7 @@ test.describe('Phase 3A premium gating smoke', () => {
             await expect(freePage.evaluate(() => window.BARK.services.premium.isPremium())).resolves.toBe(false);
             await expectLowRiskPremiumControlsLocked(freePage);
             await expectTrailButtonsLocked(freePage);
+            await expectManualMilesLocked(freePage);
             await expectPremiumClusteringLocked(freePage);
             await expectFreePaywallState(freePage, 'free');
         } finally {

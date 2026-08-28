@@ -986,17 +986,17 @@
                                         No miles logged yet.</li>
                                 </ul>
 
-                                <div
+                                <div id="manual-miles-premium-control" class="premium-locked"
                                     style="background: #fef2f2; border: 1px dashed #fca5a5; border-radius: 8px; padding: 12px;">
                                     <div
                                         style="font-size: 10px; font-weight: 800; color: #ef4444; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">
-                                        ⚠️ Honor System Override · trail progress only</div>
+                                        ⚠️ Honor System Override · Premium · trail progress only</div>
                                     <div style="display: flex; gap: 8px;">
                                         <input type="number" id="miles-input" placeholder="Miles walked..." min="0.1"
-                                            step="0.1" max="15"
+                                            step="0.1" max="15" disabled aria-disabled="true"
                                             style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid #fca5a5; font-size: 12px; outline: none;">
-                                        <button id="log-manual-miles-btn" class="glass-btn"
-                                            style="background: #ef4444; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 800;">Add</button>
+                                        <button id="log-manual-miles-btn" class="glass-btn" aria-disabled="true"
+                                            style="background: #ef4444; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 800; opacity: 0.72;">🔒 Premium</button>
                                     </div>
                                 </div>
                             </div>
@@ -1607,13 +1607,13 @@
     <script src="services/firebaseService.js?v=14" defer></script>
     <script src="renderers/routeRenderer.js?v=6" defer></script>
     <script src="services/checkinService.js?v=15" defer></script>
-    <script src="services/authPremiumUi.js?v=4" defer></script>
+    <script src="services/authPremiumUi.js?v=5" defer></script>
     <script src="services/premiumService.js?v=2" defer></script>
     <script src="services/authAccountUi.js?v=25" defer></script>
     <!-- feedbackTransport owns the feedback addresses and mailto builder, so it must
          parse before authService and panelRenderer, which build fallback links from it. -->
     <script src="modules/feedbackTransport.js?v=7" defer></script>
-    <script src="modules/paywallController.js?v=23" defer></script>
+    <script src="modules/paywallController.js?v=24" defer></script>
     <script src="services/authService.js?v=78" defer></script>
     <script src="modules/markerLayerPolicy.js?v=2" defer></script>
     <script src="modules/MarkerLayerManager.js?v=17" defer></script>
@@ -1633,7 +1633,7 @@
     <!-- leaderboardEngine loads after profileEngine so the shared visit helpers are
          registered on window.BARK first. Calls in the other direction are late-bound. -->
     <script src="modules/leaderboardEngine.js?v=3" defer></script>
-    <script src="modules/expeditionEngine.js?v=10" defer></script>
+    <script src="modules/expeditionEngine.js?v=11" defer></script>
     <script src="modules/walkTracker.js?v=4" defer></script>
     <script src="engines/tripPlannerCore.js?v=28" defer></script>
     <script src="modules/shareEngine.js?v=10" defer></script>

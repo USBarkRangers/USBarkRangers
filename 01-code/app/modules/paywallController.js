@@ -387,6 +387,8 @@
             'virtual-trails',
             'trail-tracker',
             'walk-tracker',
+            'honor-system-miles',
+            'manual-miles',
             'premium-virtual-trail',
             'premium-trail-controls',
             'toggle-virtual-trail',
@@ -441,6 +443,14 @@
         }
 
         if (normalized === 'virtual-trails') {
+            if (['honor-system-miles', 'manual-miles'].includes(String(source || '').trim())) {
+                return {
+                    title: 'Honor System mileage is a Premium feature',
+                    eyebrow: 'Premium expedition tools',
+                    body: 'Upgrade to add trail miles manually when GPS tracking is not practical.',
+                    primaryText: 'Upgrade Now'
+                };
+            }
             return {
                 title: 'Virtual trail tracking is a Premium feature',
                 eyebrow: 'Premium trail tracking',

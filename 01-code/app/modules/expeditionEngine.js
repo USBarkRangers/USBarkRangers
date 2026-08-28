@@ -99,6 +99,15 @@ function openTrailTrackerPremiumPrompt() {
     }
 }
 
+function openHonorSystemPremiumPrompt() {
+    const paywall = window.BARK && window.BARK.paywall;
+    if (paywall && typeof paywall.openPaywall === 'function') {
+        paywall.openPaywall({ source: 'honor-system-miles' });
+        return;
+    }
+    openTrailTrackerPremiumPrompt();
+}
+
 // The Live GPS Walk sits behind the same account and premium checks the expedition
 // does, so walkTracker.js asks these rather than growing its own copy.
 window.BARK.expeditionGate = {
@@ -580,6 +589,12 @@ function buildWalkPointUpdate(payload, pointDiff) {
 // Keep the third argument for callers on older cached builds, but never use it to
 // derive score. Client-supplied mileage metadata must not mint points.
 async function processMileageAddition(milesToAdd, typeLabel, _options = {}) {
+    if (!isPremiumEntitlementActive()) {
+        if (isHonorWalkType(typeLabel)) openHonorSystemPremiumPrompt();
+        else openTrailTrackerPremiumPrompt();
+        return false;
+    }
+
     if (typeof firebase === 'undefined' || !firebase.auth || !firebase.firestore) {
         alert("Mileage logging is unavailable right now. Please refresh and try again.");
         return false;
@@ -649,6 +664,10 @@ function initManualMiles() {
     const logManualBtn = document.getElementById('log-manual-miles-btn');
     if (logManualBtn) {
         logManualBtn.addEventListener('click', async () => {
+            if (!isPremiumEntitlementActive()) {
+                openHonorSystemPremiumPrompt();
+                return;
+            }
             const inputEl = document.getElementById('miles-input');
             let milesToLog = parseFloat(inputEl.value);
             if (isNaN(milesToLog) || milesToLog <= 0) return;
@@ -783,7 +802,14 @@ function createManageWalkLogItem(log) {
 
     const actions = document.createElement('div');
     actions.style.cssText = 'display: flex; gap: 12px;';
-    actions.appendChild(createWalkActionButton('EDIT', '#3b82f6', () => window.editWalkMiles(log.ts)));
+    actions.appendChild(createWalkActionButton('EDIT', '#3b82f6', () => {
+        if (!isPremiumEntitlementActive()) {
+            if (isHonorWalkType(log.type)) openHonorSystemPremiumPrompt();
+            else openTrailTrackerPremiumPrompt();
+            return;
+        }
+        window.editWalkMiles(log.ts);
+    }));
     actions.appendChild(createWalkActionButton('DELETE', '#ef4444', () => window.deleteWalkLog(log.ts)));
 
     li.appendChild(left);
@@ -858,6 +884,10 @@ window.BARK.renderExpeditionHistory = renderExpeditionHistory;
 window.editWalkMiles = async function (timestamp) {
     const user = getCurrentFirebaseUser();
     if (!user) { openFreeAccountPrompt('expedition'); return; }
+    if (!isPremiumEntitlementActive()) {
+        openHonorSystemPremiumPrompt();
+        return;
+    }
     const userRef = firebase.firestore().collection('users').doc(user.uid);
     try {
         const doc = await userRef.get();

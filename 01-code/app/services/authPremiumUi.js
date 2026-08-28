@@ -94,6 +94,26 @@ window.BARK = window.BARK || {};
         });
     }
 
+    function setManualMilesState(control, input, button, isUnlocked) {
+        if (control) {
+            control.classList.toggle('premium-locked', !isUnlocked);
+            control.classList.toggle('premium-unlocked', isUnlocked);
+        }
+        if (input) {
+            input.disabled = !isUnlocked;
+            input.setAttribute('aria-disabled', isUnlocked ? 'false' : 'true');
+            if (!isUnlocked) input.value = '';
+        }
+        if (button) {
+            // Keep the locked button clickable so it can explain the Premium gate.
+            button.disabled = false;
+            button.setAttribute('aria-disabled', isUnlocked ? 'false' : 'true');
+            button.textContent = isUnlocked ? 'Add' : '🔒 Premium';
+            button.style.opacity = isUnlocked ? '1' : '0.72';
+            button.style.cursor = isUnlocked ? 'pointer' : 'not-allowed';
+        }
+    }
+
     function applyPremiumGating(isPremium, options = {}) {
         try {
             const riskyToolsEnabled = !window.BARK ||
@@ -107,6 +127,9 @@ window.BARK = window.BARK || {};
                 document.getElementById('toggle-virtual-trail'),
                 document.getElementById('toggle-completed-trails')
             ].filter(Boolean);
+            const manualMilesControl = document.getElementById('manual-miles-premium-control');
+            const manualMilesInput = document.getElementById('miles-input');
+            const manualMilesButton = document.getElementById('log-manual-miles-btn');
             const trailsUnlocked = effectivePremium && (options.trailsUnlocked === undefined ? true : options.trailsUnlocked === true);
 
             if (premiumWrap) {
@@ -124,6 +147,7 @@ window.BARK = window.BARK || {};
             }
 
             setTrailButtonState(trailButtons, trailsUnlocked);
+            setManualMilesState(manualMilesControl, manualMilesInput, manualMilesButton, effectivePremium);
             if (
                 premiumWrap &&
                 window.BARK &&

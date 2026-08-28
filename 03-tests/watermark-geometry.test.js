@@ -198,3 +198,13 @@ test('a zero-size logo is laid out without dividing by zero', () => {
     assert.ok(Number.isFinite(layout.logo.x));
     assert.ok(Number.isFinite(layout.logo.y));
 });
+
+test('saved photo filenames include local date and time through the second', () => {
+    const geometry = loadGeometry();
+    const localTime = new Date(2026, 7, 28, 9, 4, 7);
+
+    assert.equal(
+        geometry.getPhotoFilename(localTime),
+        'USBARKRANGERSPHOTO_2026-08-28_09-04-07.png'
+    );
+});

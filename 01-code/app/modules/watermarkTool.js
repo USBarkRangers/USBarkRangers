@@ -130,7 +130,8 @@ window.BARK = window.BARK || {};
         computeLayout: computeLayout,
         cornerFromPoint: cornerFromPoint,
         cornerAfterNudge: cornerAfterNudge,
-        renderedPhotoSize: renderedPhotoSize
+        renderedPhotoSize: renderedPhotoSize,
+        getPhotoFilename: getWatermarkPhotoFilename
     };
 
     /** Photos are only ever downscaled for the preview, never blown up. */
@@ -632,16 +633,19 @@ window.BARK = window.BARK || {};
 
     // ===================== save popup (lossless PNG, share sheet, download) =====================
 
-    function getLocalIsoDateString(date) {
+    function getLocalPhotoTimestamp(date) {
         const when = date || new Date();
         const year = when.getFullYear();
         const month = String(when.getMonth() + 1).padStart(2, '0');
         const day = String(when.getDate()).padStart(2, '0');
-        return year + '-' + month + '-' + day;
+        const hours = String(when.getHours()).padStart(2, '0');
+        const minutes = String(when.getMinutes()).padStart(2, '0');
+        const seconds = String(when.getSeconds()).padStart(2, '0');
+        return year + '-' + month + '-' + day + '_' + hours + '-' + minutes + '-' + seconds;
     }
 
     function getWatermarkPhotoFilename(date) {
-        return 'USBARKRANGERSPHOTO_' + getLocalIsoDateString(date) + '.png';
+        return 'USBARKRANGERSPHOTO_' + getLocalPhotoTimestamp(date) + '.png';
     }
 
     function initSaveModal(deps) {

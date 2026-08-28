@@ -201,6 +201,13 @@ test.describe('watermark corner drag', () => {
         await expect(page.locator('#wm-save-download')).toBeEnabled({ timeout: 15000 });
         await expect(page.locator('#wm-save-status')).toContainText(/ready/i);
 
+        const downloadPromise = page.waitForEvent('download');
+        await page.click('#wm-save-download');
+        const download = await downloadPromise;
+        expect(download.suggestedFilename()).toMatch(
+            /^USBARKRANGERSPHOTO_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.png$/
+        );
+
         // The thumbnail is a real render, not a blank canvas.
         const thumb = await page.evaluate(() => {
             const img = document.getElementById('wm-save-preview');

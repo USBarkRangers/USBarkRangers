@@ -52,6 +52,15 @@ describe("plain-language business reports", () => {
         assert.match(message.footer, /Google may finish processing/);
     });
 
+    it("keeps finalized and live reports in Daily Metrics, never Launch Monitoring", () => {
+        const finalized = reporting.buildBusinessReport(summary(), { kind: "daily", reportMode: "finalized" });
+        const live = reporting.buildBusinessReport(summary(), { kind: "daily", reportMode: "live" });
+        assert.equal(finalized.channel, "dailyMetrics");
+        assert.equal(live.channel, "dailyMetrics");
+        assert.notEqual(finalized.channel, "launchMonitoring");
+        assert.notEqual(live.channel, "launchMonitoring");
+    });
+
     it("puts growth, conversion, engagement, and cost in the weekly report", () => {
         const message = reporting.buildBusinessReport(summary({ periodLabel: "2026-08-20 through 2026-08-26" }), { kind: "weekly" });
         const names = message.fields.map(field => field.name);

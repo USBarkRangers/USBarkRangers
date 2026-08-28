@@ -10,6 +10,7 @@ const { FieldValue } = require("firebase-admin/firestore");
 
 const ANALYTICS_SNAPSHOT_PATH = "system/analyticsStatus";
 const ANALYTICS_TIME_ZONE = "America/New_York";
+const DAILY_REPORT_CRON = "15 9,19 * * *";
 const MAX_FINALIZED_DAYS = 400;
 
 function dateKeyInZone(nowMs, timeZone = ANALYTICS_TIME_ZONE) {
@@ -91,6 +92,10 @@ function hourInZone(nowMs, timeZone = ANALYTICS_TIME_ZONE) {
         hourCycle: "h23"
     }).format(new Date(nowMs));
     return Number(hour);
+}
+
+function getDailyReportMode(nowMs = Date.now(), timeZone = ANALYTICS_TIME_ZONE) {
+    return hourInZone(nowMs, timeZone) < 12 ? "finalized" : "live";
 }
 
 function getCurrentCalendarPeriod(nowMs = Date.now(), timeZone = ANALYTICS_TIME_ZONE) {
@@ -246,6 +251,7 @@ async function saveAnalyticsSnapshot(db, summary, period, options = {}) {
 module.exports = {
     ANALYTICS_SNAPSHOT_PATH,
     ANALYTICS_TIME_ZONE,
+    DAILY_REPORT_CRON,
     MAX_FINALIZED_DAYS,
     dateKeyInZone,
     shiftDateKey,
@@ -254,6 +260,7 @@ module.exports = {
     getCurrentCalendarPeriod,
     timeLabelInZone,
     hourInZone,
+    getDailyReportMode,
     finiteOrNull,
     maxObserved,
     reportedTotals,

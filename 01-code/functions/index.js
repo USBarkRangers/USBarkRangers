@@ -4211,11 +4211,11 @@ exports.dailyOpsMetrics = functions
     // One existing Scheduler job serves both reports, so the second daily post
     // adds no Scheduler subscription. The morning report closes yesterday;
     // the afternoon report is explicitly labeled as today's live snapshot.
-    .pubsub.schedule("15 9,15 * * *")
+    .pubsub.schedule(analyticsReporting.DAILY_REPORT_CRON)
     .timeZone("America/New_York")
     .onRun(async (context) => {
         const scheduledMs = Date.parse(context && context.timestamp) || Date.now();
-        const reportMode = analyticsReporting.hourInZone(scheduledMs) < 12 ? "finalized" : "live";
+        const reportMode = analyticsReporting.getDailyReportMode(scheduledMs);
         return runOpsMetricsRollup({
             windowHours: 24,
             kind: "daily",

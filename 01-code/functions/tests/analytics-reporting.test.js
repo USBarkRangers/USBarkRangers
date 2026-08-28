@@ -28,6 +28,12 @@ function summary({ users = 5, opens = 8, screens = 20, goatSessions = 4 } = {}) 
 }
 
 describe("analytics reporting periods", () => {
+    it("schedules exactly two Eastern reports: 9:15 AM and 7:15 PM", () => {
+        assert.equal(reporting.DAILY_REPORT_CRON, "15 9,19 * * *");
+        assert.equal(reporting.getDailyReportMode(Date.parse("2026-08-28T13:15:00Z")), "finalized");
+        assert.equal(reporting.getDailyReportMode(Date.parse("2026-08-28T23:15:00Z")), "live");
+    });
+
     it("uses the last completed Eastern calendar day across DST", () => {
         const period = reporting.getCompletedCalendarPeriod(Date.parse("2026-08-27T16:00:00Z"), 1);
         assert.equal(period.startDate, "2026-08-26");

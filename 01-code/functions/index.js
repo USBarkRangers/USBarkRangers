@@ -23,6 +23,7 @@ const {
     parsePositiveInteger,
     makeBotRateLimitError,
     enforceConfiguredCallableRateLimit,
+    enforceConfiguredCallableRateLimitInTransaction,
     warmConfiguredCallableRateLimitPath,
     getRateLimitRetrySeconds,
     enforcePremiumCallableRateLimit,
@@ -750,7 +751,6 @@ function calculateServerLeaderboardScore(userData) {
 
 async function handleSyncLeaderboardScore(requestOrData, context, options = {}) {
     const uid = requireAuthCallable(context);
-    await enforceConfiguredCallableRateLimit(uid, "syncLeaderboardScore", options);
     const db = options.firestore || admin.firestore();
     const userRef = db.collection("users").doc(uid);
     const leaderboardRef = db.collection("leaderboard").doc(uid);
@@ -771,8 +771,12 @@ async function handleSyncLeaderboardScore(requestOrData, context, options = {}) 
         }
 
         const userSnap = await transaction.get(userRef);
+        const leaderboardSnap = await transaction.get(leaderboardRef);
         const userData = userSnap && userSnap.exists && typeof userSnap.data === "function"
             ? userSnap.data()
+            : {};
+        const leaderboardData = leaderboardSnap && leaderboardSnap.exists && typeof leaderboardSnap.data === "function"
+            ? leaderboardSnap.data()
             : {};
         const score = calculateServerLeaderboardScore(userData);
         const displayName = cleanLeaderboardString(userData.displayName, cleanLeaderboardString(token.name, "Bark Ranger"));
@@ -787,6 +791,40 @@ async function handleSyncLeaderboardScore(requestOrData, context, options = {}) 
             hasVerified: score.hasVerified,
             lastUpdated: timestamp
         };
+
+        const userMirrorIsCurrent = Boolean(userSnap && userSnap.exists)
+            && Number(userData.totalPoints) === score.totalPoints
+            && Number(userData.totalVisited) === score.totalVisited
+            && userData.hasVerified === score.hasVerified
+            && cleanLeaderboardString(userData.displayName, "") === displayName;
+        const leaderboardIsCurrent = Boolean(leaderboardSnap && leaderboardSnap.exists)
+            && Number(leaderboardData.totalPoints) === score.totalPoints
+            && Number(leaderboardData.totalVisited) === score.totalVisited
+            && leaderboardData.hasVerified === score.hasVerified
+            && cleanLeaderboardString(leaderboardData.displayName, "") === displayName
+            && cleanLeaderboardString(leaderboardData.photoURL, "", 500) === photoURL;
+
+        // Every open PWA receives the same user-document snapshot. Without this
+        // transaction-level no-op gate, several phones/tabs can spend separate
+        // rate-limit slots rewriting the exact same score. A transaction retry
+        // observes the first writer's result, then exits here without consuming
+        // another user or global leaderboard allowance.
+        if (userMirrorIsCurrent && leaderboardIsCurrent) {
+            result = {
+                totalPoints: score.totalPoints,
+                totalVisited: score.totalVisited,
+                hasVerified: score.hasVerified,
+                unchanged: true
+            };
+            return;
+        }
+
+        await enforceConfiguredCallableRateLimitInTransaction(
+            transaction,
+            uid,
+            "syncLeaderboardScore",
+            { ...options, rateLimitFirestore: db }
+        );
 
         transaction.set(userRef, {
             displayName,

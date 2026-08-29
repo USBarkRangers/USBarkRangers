@@ -122,6 +122,14 @@ test('server confirmation retries until a fresh server doc contains the visit', 
         false,
         'server confirmation should clear the local pending mutation'
     );
+
+    const readsAtConfirmation = serverReadCount;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(
+        serverReadCount,
+        readsAtConfirmation,
+        'verification checks must stop immediately after exact server confirmation'
+    );
 });
 
 test('account deletion cleanup removes the entire unconfirmed-visit safety net for that uid', () => {
@@ -265,6 +273,49 @@ test('an exact manual visit can confirm without weakening the GPS proof contract
 
     assert.equal(result.confirmed, true);
     assert.equal(repo.hasPendingMutation(expected.id), false);
+});
+
+test('a resolved Firestore transaction confirms the exact visit without waiting for a later listener snapshot', async () => {
+    const context = loadCheckinService();
+    const uid = 'commit-receipt-user';
+    const repo = context.window.BARK.repos.VaultRepo;
+
+    context.firebase = {
+        auth() {
+            return { currentUser: { uid } };
+        }
+    };
+    context.window.BARK.services.premium = { isPremium: () => true };
+    context.window.BARK.services.firebase = {
+        stageVisitedPlaceUpsert(visit) {
+            repo.stageUpsert(visit);
+        },
+        reconcileVisitedPlacesSnapshot(placeList, metadata) {
+            return repo.reconcileSnapshot(placeList, metadata);
+        },
+        async syncUserProgress() {
+            return repo.getVisits();
+        }
+    };
+
+    const result = await context.window.BARK.services.checkin.markAsVisited({
+        id: 'commit-park',
+        name: 'Commit Park',
+        lat: 35,
+        lng: -84
+    });
+    assert.equal(result.success, true);
+
+    // queueVisitedPlacesWrite observes the transaction on a microtask.
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    assert.equal(repo.hasPendingMutation(result.visitRecord.id), false);
+    assert.equal(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
+    assert.equal(context.window._visitedPlacesServerSnapshotReceived, true);
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(await context.window.BARK.services.checkin.awaitServerConfirmation(result.visitRecord))),
+        { confirmed: true }
+    );
 });
 
 test('authoritative listener path ignores a stale same-ID record and resolves only on the exact mutation', async () => {

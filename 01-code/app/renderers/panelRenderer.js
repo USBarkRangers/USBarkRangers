@@ -499,8 +499,6 @@ function renderMarkerClickPanel(context) {
             // Verified check-in waits indefinitely for real server confirmation:
             //   orange (#f59e0b) "Verified (syncing...)" — local write queued, retrying server confirmation
             //   green  (#4CAF50) "Verified & Secured"   — Firestore confirmed the visit
-            const SERVER_CONFIRMATION_RETRY_MS = 8000;
-
             const setVerifyButtonStateVerifying = (label) => {
                 verifyBtn.style.background = '#facc15';
                 verifyBtn.style.color = '#1f2937';
@@ -586,7 +584,7 @@ function renderMarkerClickPanel(context) {
                 markVisitedBtn.style.opacity = '1';
 
                 const confirmation = typeof checkinService.awaitServerConfirmation === 'function'
-                    ? await checkinService.awaitServerConfirmation(checkinResult.visitRecord, { retryMs: SERVER_CONFIRMATION_RETRY_MS })
+                    ? await checkinService.awaitServerConfirmation(checkinResult.visitRecord)
                     : { confirmed: false, reason: 'confirmation-unavailable' };
 
                 if (confirmation.confirmed) {
@@ -711,7 +709,7 @@ function renderMarkerClickPanel(context) {
 
                 let confirmation;
                 try {
-                    confirmation = await checkinService.awaitServerConfirmation(newVisit, { retryMs: SERVER_CONFIRMATION_RETRY_MS });
+                    confirmation = await checkinService.awaitServerConfirmation(newVisit);
                 } catch (error) {
                     console.warn('[panelRenderer] mark-as-visited confirmation threw:', error);
                     confirmation = { confirmed: false, reason: 'error' };

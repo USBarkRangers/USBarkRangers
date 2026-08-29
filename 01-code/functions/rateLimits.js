@@ -170,9 +170,12 @@ async function warmConfiguredCallableRateLimitPath(action, options = {}) {
     });
 }
 
-async function enforceBoundedCallableRateLimit(uid, action, options = {}) {
+async function enforceBoundedCallableRateLimitInTransaction(transaction, uid, action, options = {}) {
     const userDefaults = BOUNDED_CALLABLE_RATE_LIMITS[action];
     if (!userDefaults) return;
+    if (!transaction || typeof transaction.get !== "function" || typeof transaction.set !== "function") {
+        throw new functions.https.HttpsError("internal", "Rate limit could not be verified.");
+    }
     const userConfig = resolveBoundedRateLimitConfig(action, userDefaults, options);
     const globalScope = CALLABLE_GLOBAL_RATE_LIMIT_SCOPE[action];
     const globalDefaults = globalScope ? GLOBAL_CALLABLE_RATE_LIMITS[globalScope] : null;
@@ -180,37 +183,43 @@ async function enforceBoundedCallableRateLimit(uid, action, options = {}) {
         ? resolveBoundedRateLimitConfig(globalScope, globalDefaults, options, "globalCallableRateLimits")
         : null;
     const db = options.rateLimitFirestore || options.firestore || admin.firestore();
-    if (!db || typeof db.runTransaction !== "function") {
-        throw new functions.https.HttpsError("internal", "Rate limit could not be verified.");
-    }
+    if (!db) throw new functions.https.HttpsError("internal", "Rate limit could not be verified.");
 
     const now = Number.isFinite(options.nowMillis) ? options.nowMillis : Date.now();
     const refs = getBoundedCallableCounterRefs(db, uid, action);
     const userRef = refs.userRef;
     const globalRef = globalConfig ? refs.globalRef : null;
 
-    await db.runTransaction(async transaction => {
-        const userSnapshot = await transaction.get(userRef);
-        const globalSnapshot = globalRef ? await transaction.get(globalRef) : null;
-        const userCounter = buildRateLimitCounterUpdate({
-            stored: userSnapshot && userSnapshot.exists ? userSnapshot.data() : {},
-            config: userConfig,
-            now,
-            identity: { uid, action, scope: "user" }
-        });
-        const globalCounter = globalConfig ? buildRateLimitCounterUpdate({
-            stored: globalSnapshot && globalSnapshot.exists ? globalSnapshot.data() : {},
-            config: globalConfig,
-            now,
-            identity: { actionGroup: globalScope, scope: "global" }
-        }) : null;
-
-        if (userCounter.retryAtMs) throw makeBotRateLimitError(action, userCounter.retryAtMs, "user", now);
-        if (globalCounter && globalCounter.retryAtMs) throw makeBotRateLimitError(action, globalCounter.retryAtMs, "global", now);
-
-        transaction.set(userRef, userCounter.value, { merge: true });
-        if (globalRef && globalCounter) transaction.set(globalRef, globalCounter.value, { merge: true });
+    const userSnapshot = await transaction.get(userRef);
+    const globalSnapshot = globalRef ? await transaction.get(globalRef) : null;
+    const userCounter = buildRateLimitCounterUpdate({
+        stored: userSnapshot && userSnapshot.exists ? userSnapshot.data() : {},
+        config: userConfig,
+        now,
+        identity: { uid, action, scope: "user" }
     });
+    const globalCounter = globalConfig ? buildRateLimitCounterUpdate({
+        stored: globalSnapshot && globalSnapshot.exists ? globalSnapshot.data() : {},
+        config: globalConfig,
+        now,
+        identity: { actionGroup: globalScope, scope: "global" }
+    }) : null;
+
+    if (userCounter.retryAtMs) throw makeBotRateLimitError(action, userCounter.retryAtMs, "user", now);
+    if (globalCounter && globalCounter.retryAtMs) throw makeBotRateLimitError(action, globalCounter.retryAtMs, "global", now);
+
+    transaction.set(userRef, userCounter.value, { merge: true });
+    if (globalRef && globalCounter) transaction.set(globalRef, globalCounter.value, { merge: true });
+}
+
+async function enforceBoundedCallableRateLimit(uid, action, options = {}) {
+    const db = options.rateLimitFirestore || options.firestore || admin.firestore();
+    if (!db || typeof db.runTransaction !== "function") {
+        throw new functions.https.HttpsError("internal", "Rate limit could not be verified.");
+    }
+    await db.runTransaction(transaction => (
+        enforceBoundedCallableRateLimitInTransaction(transaction, uid, action, options)
+    ));
 }
 
 async function enforceConfiguredCallableRateLimit(uid, action, options = {}) {
@@ -218,6 +227,11 @@ async function enforceConfiguredCallableRateLimit(uid, action, options = {}) {
     // limiter itself has dedicated tests; handler tests can opt in explicitly.
     if (process.env.NODE_ENV === "test" && options.enforceCallableRateLimits !== true) return;
     return enforceBoundedCallableRateLimit(uid, action, options);
+}
+
+async function enforceConfiguredCallableRateLimitInTransaction(transaction, uid, action, options = {}) {
+    if (process.env.NODE_ENV === "test" && options.enforceCallableRateLimits !== true) return;
+    return enforceBoundedCallableRateLimitInTransaction(transaction, uid, action, options);
 }
 
 function getPremiumCallableRateLimit(action, options = {}) {
@@ -390,9 +404,11 @@ module.exports = {
     resolveBoundedRateLimitConfig,
     buildRateLimitCounterUpdate,
     makeBotRateLimitError,
+    enforceBoundedCallableRateLimitInTransaction,
     enforceBoundedCallableRateLimit,
     warmConfiguredCallableRateLimitPath,
     enforceConfiguredCallableRateLimit,
+    enforceConfiguredCallableRateLimitInTransaction,
     getPremiumCallableRateLimit,
     getRateLimitRetrySeconds,
     enforcePremiumCallableRateLimit,

@@ -25,13 +25,21 @@ async function assertRejectsCode(promise, code) {
     );
 }
 
-function makeFirestore({ userData = {}, userExists = true, deletedUserExists = false } = {}) {
+function makeFirestore({
+    userData = {},
+    userExists = true,
+    leaderboardData = {},
+    leaderboardExists = false,
+    deletedUserExists = false
+} = {}) {
     const writes = [];
+    const reads = [];
 
     function makeDocRef(collectionName, docId) {
         return {
             path: `${collectionName}/${docId}`,
             async get() {
+                reads.push(`${collectionName}/${docId}`);
                 if (collectionName === "users") {
                     return {
                         exists: userExists,
@@ -43,6 +51,13 @@ function makeFirestore({ userData = {}, userExists = true, deletedUserExists = f
                     return {
                         exists: deletedUserExists,
                         data: () => deletedUserExists ? { uid: docId } : {}
+                    };
+                }
+
+                if (collectionName === "leaderboard") {
+                    return {
+                        exists: leaderboardExists,
+                        data: () => ({ ...leaderboardData })
                     };
                 }
 
@@ -62,6 +77,7 @@ function makeFirestore({ userData = {}, userExists = true, deletedUserExists = f
     }
 
     return {
+        reads,
         writes,
         collection(collectionName) {
             return {
@@ -233,5 +249,59 @@ describe("server-authoritative leaderboard sync", () => {
         assert.equal(leaderboardWrite.value.totalPoints, 1);
         assert.equal(leaderboardWrite.value.totalVisited, 1);
         assert.equal(leaderboardWrite.value.hasVerified, false);
+    });
+
+    it("does not spend a rate-limit slot or rewrite documents when another device already synced the same score", async () => {
+        const current = {
+            displayName: "Alice Ranger",
+            photoURL: "https://example.test/alice.png",
+            visitedPlaces: [
+                { id: "park-a", verified: true },
+                { id: "park-b", verified: false }
+            ],
+            walkPoints: 3,
+            totalPoints: 6,
+            totalVisited: 2,
+            hasVerified: true
+        };
+        const firestore = makeFirestore({
+            userData: current,
+            leaderboardExists: true,
+            leaderboardData: {
+                displayName: current.displayName,
+                photoURL: current.photoURL,
+                totalPoints: 6,
+                totalVisited: 2,
+                hasVerified: true
+            }
+        });
+
+        const result = await handleSyncLeaderboardScore(
+            {},
+            authedContext("alice"),
+            {
+                firestore,
+                enforceCallableRateLimits: true,
+                callableRateLimits: {
+                    syncLeaderboardScore: { shortMax: 1, shortWindowMs: 600000, dailyMax: 1 }
+                },
+                globalCallableRateLimits: {
+                    leaderboardWrites: { shortMax: 1, shortWindowMs: 600000 }
+                }
+            }
+        );
+
+        assert.deepEqual(result, {
+            totalPoints: 6,
+            totalVisited: 2,
+            hasVerified: true,
+            unchanged: true
+        });
+        assert.deepEqual(firestore.writes, []);
+        assert.equal(
+            firestore.reads.some(path => path.startsWith("_callableRateLimits/") || path.startsWith("_globalCallableRateLimits/")),
+            false,
+            "an idempotent multi-device retry must not consume either limiter"
+        );
     });
 });

@@ -726,6 +726,7 @@ async function syncUserProgress() {
         });
 
         if (typeof window.syncState === 'function') window.syncState();
+        return visitedArray;
     } catch (error) {
         console.error("[firebaseService] syncUserProgress failed:", error);
         throw error;
@@ -751,6 +752,7 @@ async function updateCurrentUserVisitedPlaces(visitedArray) {
             source: 'update-current-user-visited-merged-write'
         });
         if (typeof window.syncState === 'function') window.syncState();
+        return nextVisitedArray;
     } catch (error) {
         console.error("[firebaseService] updateCurrentUserVisitedPlaces failed:", error);
         throw error;

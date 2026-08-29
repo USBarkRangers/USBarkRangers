@@ -11,7 +11,7 @@ const FREE_VISIT_LIMIT = 5;
 // The confirmation wait itself does not time out.
 const FIREBASE_WRITE_TIMEOUT_MS = 15000;
 const WRITE_TIMEOUT_SENTINEL = '__BARK_WRITE_TIMEOUT__';
-const SERVER_CONFIRMATION_RETRY_MS = 8000;
+const SERVER_CONFIRMATION_RETRY_MS = 5000;
 const VISIT_SYNC_TOKEN_FIELD = 'syncToken';
 
 function createVisitSyncToken() {
@@ -214,6 +214,7 @@ async function replayUnconfirmedVisitsInternal(uid) {
 
     let replayed = 0;
     let migrated = false;
+    const replayedVisits = [];
     entries.forEach(entry => {
         const originalVisit = entry && entry.visit;
         const visit = ensureVisitSyncToken(originalVisit);
@@ -231,6 +232,7 @@ async function replayUnconfirmedVisitsInternal(uid) {
         if (typeof firebaseService.stageVisitedPlaceUpsert === 'function') {
             firebaseService.stageVisitedPlaceUpsert(visit);
         }
+        replayedVisits.push(visit);
         replayed++;
     });
 
@@ -242,7 +244,10 @@ async function replayUnconfirmedVisitsInternal(uid) {
         refreshVisitedVisuals('checkin-unconfirmed-replay', firebaseService);
         try {
             if (typeof firebaseService.updateCurrentUserVisitedPlaces === 'function') {
-                await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
+                const committedVisits = await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
+                replayedVisits.forEach(visit => {
+                    confirmVisitFromCommittedWrite(visit, committedVisits, 'reopen-replay');
+                });
             }
         } catch (error) {
             // Persistence layer will keep retrying; localStorage stash still protects us.
@@ -321,8 +326,18 @@ function awaitWithTimeout(promise, timeoutMs, timeoutErrorMessage = null) {
     });
 }
 
-function queueVisitedPlacesWrite(label, visitId, writePromiseFactory, onFatalError) {
-    awaitWithFirebaseWriteTimeout(writePromiseFactory)
+function queueVisitedPlacesWrite(label, expectedVisit, writePromiseFactory, onFatalError) {
+    const visitId = getVisitId(expectedVisit);
+    const durableWritePromise = Promise.resolve().then(writePromiseFactory);
+
+    // Observe the underlying transaction independently of the 15-second UI
+    // timeout. A slow transaction may commit after the UI has moved to orange;
+    // its eventual resolution is still authoritative server acknowledgement.
+    durableWritePromise.then(committedVisits => {
+        confirmVisitFromCommittedWrite(expectedVisit, committedVisits, 'transaction-commit');
+    }, () => {});
+
+    awaitWithFirebaseWriteTimeout(() => durableWritePromise)
         .catch(error => {
             if (isNetworkLikeError(error)) {
                 console.warn(`[checkinService] ${label} queued for sync (network unavailable):`, error);
@@ -445,11 +460,63 @@ async function probeServerForVisitConfirmation(expectedVisit, reason = 'confirma
     }
 }
 
+function confirmVisitFromCommittedWrite(expectedVisit, committedVisits, reason = 'transaction-commit') {
+    const visitId = getVisitId(expectedVisit);
+    if (!visitId || !expectedVisit || !Array.isArray(committedVisits)) return false;
+
+    const committedVisit = committedVisits.find(place => visitRecordsMatchForConfirmation(place, expectedVisit));
+    if (!committedVisit) return false;
+
+    const firebaseService = getFirebaseService();
+    const vaultRepo = getVaultRepo();
+    if (!vaultRepo) return false;
+
+    // A Firestore transaction promise resolves only after the backend accepts
+    // the commit. Reconcile that exact server-returned array instead of waiting
+    // for a later metadata-only listener event that some mobile PWAs delay.
+    if (firebaseService && typeof firebaseService.reconcileVisitedPlacesSnapshot === 'function') {
+        firebaseService.reconcileVisitedPlacesSnapshot(committedVisits, {
+            fromCache: false,
+            hasPendingWrites: false
+        });
+    } else if (typeof vaultRepo.reconcileSnapshot === 'function') {
+        vaultRepo.reconcileSnapshot(committedVisits, {
+            fromCache: false,
+            hasPendingWrites: false
+        });
+    }
+
+    if (!isVisitServerConfirmed(vaultRepo, expectedVisit)) return false;
+
+    const uid = getCurrentFirebaseUid();
+    if (uid) clearUnconfirmedVisit(uid, visitId);
+    window._visitedPlacesServerSnapshotReceived = true;
+    notifyAuthoritativeSnapshot();
+    refreshVisitedCache(`checkin-commit-confirmed-${reason}`);
+    refreshVisitedVisuals(`checkin-commit-confirmed-${reason}`, firebaseService);
+    return true;
+}
+
 function clearPendingConfirmationTimers(entry) {
     if (!entry) return;
     if (entry.timeoutHandle) clearTimeout(entry.timeoutHandle);
-    if (entry.retryHandle) clearInterval(entry.retryHandle);
-    if (entry.initialProbeHandle) clearTimeout(entry.initialProbeHandle);
+    if (entry.retryHandle) clearTimeout(entry.retryHandle);
+}
+
+function getServerConfirmationRetryMs(options = {}) {
+    return Number.isFinite(options.retryMs) && options.retryMs > 0
+        ? Math.max(10, Number(options.retryMs))
+        : SERVER_CONFIRMATION_RETRY_MS;
+}
+
+function isConfirmationSurfaceVisible() {
+    return typeof document === 'undefined' || document.visibilityState !== 'hidden';
+}
+
+function triggerPendingServerConfirmationRecovery(reason = 'recovery-signal') {
+    pendingServerConfirmations.forEach(entry => {
+        if (entry && typeof entry.triggerRecovery === 'function') entry.triggerRecovery(reason);
+    });
 }
 
 function awaitServerConfirmation(visitOrId, options = {}) {
@@ -485,19 +552,16 @@ function awaitServerConfirmation(visitOrId, options = {}) {
         const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
             ? options.timeoutMs
             : null;
-        const retryMs = Number.isFinite(options.retryMs) && options.retryMs > 0
-            ? Math.max(options.retryMs, 2000)
-            : SERVER_CONFIRMATION_RETRY_MS;
+        const retryMs = getServerConfirmationRetryMs(options);
 
         let resolved = false;
         let timeoutHandle = null;
         let retryHandle = null;
-        let initialProbeHandle = null;
         let probeInFlight = false;
         const settle = (result) => {
             if (resolved) return;
             resolved = true;
-            clearPendingConfirmationTimers({ timeoutHandle, retryHandle, initialProbeHandle });
+            clearPendingConfirmationTimers({ timeoutHandle, retryHandle });
             pendingServerConfirmations.delete(visitId);
             resolve(result);
         };
@@ -508,20 +572,38 @@ function awaitServerConfirmation(visitOrId, options = {}) {
             }, timeoutMs);
         }
 
-        const runServerProbe = async () => {
-            if (resolved || probeInFlight) return;
+        const runServerProbe = async (reason = 'retry') => {
+            if (resolved || probeInFlight || !isConfirmationSurfaceVisible()) return false;
             probeInFlight = true;
             try {
-                const confirmed = await probeServerForVisitConfirmation(expectedVisit, 'retry');
+                const confirmed = await probeServerForVisitConfirmation(expectedVisit, reason);
                 if (confirmed) settle({ confirmed: true });
+                return confirmed;
             } finally {
                 probeInFlight = false;
             }
         };
 
+        const scheduleNextProbe = () => {
+            if (resolved || retryHandle || !isConfirmationSurfaceVisible()) return;
+            retryHandle = setTimeout(async () => {
+                retryHandle = null;
+                await runServerProbe('scheduled-retry');
+                scheduleNextProbe();
+            }, retryMs);
+        };
+
+        const triggerRecovery = (reason = 'recovery-signal') => {
+            if (resolved) return;
+            if (retryHandle) {
+                clearTimeout(retryHandle);
+                retryHandle = null;
+            }
+            Promise.resolve(runServerProbe(reason)).finally(scheduleNextProbe);
+        };
+
         // Path 1: snapshot listener fires (notifyAuthoritativeSnapshot → matching pending cleared)
-        retryHandle = setInterval(runServerProbe, retryMs);
-        initialProbeHandle = setTimeout(runServerProbe, Math.min(3000, retryMs));
+        scheduleNextProbe();
         const existingEntry = pendingServerConfirmations.get(visitId);
         if (existingEntry && typeof existingEntry.resolve === 'function') {
             existingEntry.resolve({ confirmed: false, reason: 'superseded' });
@@ -530,7 +612,7 @@ function awaitServerConfirmation(visitOrId, options = {}) {
             resolve: settle,
             timeoutHandle,
             retryHandle,
-            initialProbeHandle,
+            triggerRecovery,
             expectedVisit: Object.freeze(cloneVisitRecord(expectedVisit))
         });
 
@@ -658,9 +740,32 @@ async function forceServerSyncRecovery(reason) {
 if (typeof window !== 'undefined' && !window._barkOnlineRecoveryBound) {
     window._barkOnlineRecoveryBound = true;
     window.addEventListener('online', () => {
+        triggerPendingServerConfirmationRecovery('browser-online');
         // Small delay so Firestore's own network detector wakes up first.
         setTimeout(() => forceServerSyncRecovery('browser-online'), 1500);
     });
+
+    window.addEventListener('focus', () => {
+        triggerPendingServerConfirmationRecovery('window-focus');
+    });
+    window.addEventListener('pageshow', () => {
+        triggerPendingServerConfirmationRecovery('page-show');
+    });
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState !== 'hidden') {
+                triggerPendingServerConfirmationRecovery('visible');
+            }
+        });
+    }
+    const connection = typeof navigator !== 'undefined'
+        ? (navigator.connection || navigator.mozConnection || navigator.webkitConnection)
+        : null;
+    if (connection && typeof connection.addEventListener === 'function') {
+        connection.addEventListener('change', () => {
+            triggerPendingServerConfirmationRecovery('connection-change');
+        });
+    }
 }
 
 function getLocationCoords(userLocation) {
@@ -964,7 +1069,7 @@ async function verifyGpsCheckin(parkData) {
 
         queueVisitedPlacesWrite(
             'Verified visit',
-            checkinResult.visitRecord.id,
+            checkinResult.visitRecord,
             () => firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()),
             () => {
                 const currentVaultRepo = getVaultRepo();
@@ -1079,7 +1184,7 @@ async function markAsVisited(parkData) {
 
         queueVisitedPlacesWrite(
             'Visit',
-            visitRecord.id,
+            visitRecord,
             () => canSyncProgress
                 ? firebaseService.syncUserProgress()
                 : firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()),

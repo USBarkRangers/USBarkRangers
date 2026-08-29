@@ -175,6 +175,37 @@ describe("cost alert thresholds and deduplication", () => {
         assert.equal(alerts.some(alert => alert.id === "app_check_security"), false);
         assert.equal(alerts.find(alert => alert.id === "app_check_coverage").severity, "important");
     });
+
+    it("explains App Check alerts with exact percentages, customer impact, and cost context", () => {
+        const alerts = costReporting.evaluateGuardAlerts({
+            firestore: { readsToday: 4_301, writesToday: 959 },
+            recaptcha: { assessmentsMonth: 0 },
+            appCheck: {
+                total: 593,
+                allowed: 593,
+                denied: 0,
+                denyRate: 0,
+                invalid: 30,
+                invalidRate: 30 / 593,
+                missingOutdatedClient: 0,
+                missingUnknownOrigin: 0,
+                unverifiedRate: 30 / 593
+            },
+            functionsHour: { total: 100, errors: 0, errorRate: 0 }
+        }, {
+            directions: { requestsToday: 0 }, snap: { requestsToday: 0 }, geocoding: { requestsToday: 0 }
+        });
+        const alert = alerts.find(item => item.id === "app_check_security");
+        const message = costReporting.buildCostAlertMessage(alert);
+        const fields = Object.fromEntries(message.fields.map(field => [field.name, field.value]));
+        assert.match(fields["What happened"], /30 invalid \(5\.06%\)/);
+        assert.match(fields["What happened"], /0 denied \(0\.00%\)/);
+        assert.match(fields["Customer impact"], /No requests were blocked/);
+        assert.match(fields.Response, /No immediate action is required/);
+        assert.match(fields["Likely cost"], /\$0 likely/);
+        assert.match(fields["Likely cost"], /4,301 reads \(8\.60%/);
+        assert.match(fields["Signs of a real incident"], /payments or routing turning red/);
+    });
 });
 
 describe("daily billing freshness alerts", () => {

@@ -56,6 +56,11 @@ function formatPercent(value) {
     return number === null ? "n/a" : `${(number * 100).toFixed(number < 0.1 ? 1 : 0)}%`;
 }
 
+function formatExactPercent(value) {
+    const number = finite(value);
+    return number === null ? "n/a" : `${(number * 100).toFixed(2)}%`;
+}
+
 function formatBytes(value) {
     const bytes = finite(value);
     if (bytes === null) return "n/a";
@@ -82,7 +87,59 @@ function makeThresholdAlert(id, title, value, thresholds, details, channel = "co
 function formatOrsAlertDetails(endpoint, usage) {
     const circuit = finite(usage && usage.circuitLimit);
     const circuitText = circuit === null ? "" : `; app safety circuit stops at ${formatCount(circuit)}`;
-    return `${formatCount(usage && usage.requestsToday)} of ${formatCount(ORS_DAILY_QUOTAS[endpoint])} provider attempts today${circuitText}`;
+    const quota = finite(ORS_DAILY_QUOTAS[endpoint]);
+    const requests = finite(usage && usage.requestsToday);
+    const percent = quota && requests !== null ? ` (${formatExactPercent(requests / quota)})` : "";
+    return `${formatCount(requests)} of ${formatCount(quota)} provider attempts today${percent}${circuitText}; this affects route availability, not Firebase cost`;
+}
+
+function buildAppCheckContextFields(guard) {
+    const appCheck = guard && guard.appCheck ? guard.appCheck : {};
+    const total = finite(appCheck.total) || 0;
+    const invalid = finite(appCheck.invalid) || 0;
+    const denied = finite(appCheck.denied) || 0;
+    const allowed = finite(appCheck.allowed);
+    const allowedCount = allowed === null ? Math.max(0, total - denied) : allowed;
+    const reads = finite(guard && guard.firestore && guard.firestore.readsToday);
+    const writes = finite(guard && guard.firestore && guard.firestore.writesToday);
+    const readsUnderFree = reads !== null && reads <= 50_000;
+    const writesUnderFree = writes !== null && writes <= 20_000;
+    const likelyCost = readsUnderFree && writesUnderFree
+        ? "$0 likely at the current Firestore usage; allowed checks still count as normal database traffic."
+        : "Possible Firestore usage charges because a daily free allowance has been exceeded.";
+
+    return [
+        {
+            name: "What happened",
+            value: `${formatCount(invalid)} invalid (${formatExactPercent(total ? invalid / total : 0)}) · ${formatCount(denied)} denied (${formatExactPercent(total ? denied / total : 0)}) · ${formatCount(allowedCount)} allowed (${formatExactPercent(total ? allowedCount / total : 0)})`
+        },
+        {
+            name: "Customer impact",
+            value: denied > 0
+                ? `${formatCount(denied)} requests were blocked. Check user reports and the latest #system-status service-health message.`
+                : "No requests were blocked. Invalid and allowed can overlap because App Check observed the token but did not enforce a block. This signal by itself does not mean the app is down."
+        },
+        {
+            name: "Likely explanation",
+            value: "Old or cached web-app sessions, expired App Check tokens, local/testing origins, or automated traffic can create invalid checks. The metric cannot identify a specific person or device."
+        },
+        {
+            name: "Likely cost",
+            value: `${likelyCost} Today: ${formatCount(reads)} reads (${reads === null ? "n/a" : formatExactPercent(reads / 50_000)} of free allowance) · ${formatCount(writes)} writes (${writes === null ? "n/a" : formatExactPercent(writes / 20_000)}).`
+        },
+        {
+            name: "Signs of a real incident",
+            value: "Denied requests; users unable to load data; payments or routing turning red; function failures increasing; or Firestore reads reaching the 35,000–50,000 warning range."
+        }
+    ];
+}
+
+function buildAppCheckResponse(guard) {
+    const denied = finite(guard && guard.appCheck && guard.appCheck.denied) || 0;
+    if (denied > 0) {
+        return "Check user reports and the latest service-health status. Escalate if users cannot load data, a service is red, or function errors are rising.";
+    }
+    return "No immediate action is required because no requests were blocked. Watch the next hourly check and escalate only if user impact, red services, rising function errors, or a Firestore quota warning also appears.";
 }
 
 async function collectOrsCircuitUsage(db, options = {}) {
@@ -121,21 +178,21 @@ function evaluateGuardAlerts(guard, orsUsage) {
             "Firestore reads are near the daily free allowance",
             guard.firestore.readsToday,
             ALERT_THRESHOLDS.reads,
-            `${formatCount(guard.firestore.readsToday)} of 50,000 reads today`
+            `${formatCount(guard.firestore.readsToday)} of 50,000 reads today (${formatExactPercent((finite(guard.firestore.readsToday) || 0) / 50_000)}). Likely Firestore read cost today: $0 while this remains within the free allowance.`
         ),
         makeThresholdAlert(
             "firestore_writes",
             "Firestore writes are near the daily free allowance",
             guard.firestore.writesToday,
             ALERT_THRESHOLDS.writes,
-            `${formatCount(guard.firestore.writesToday)} of 20,000 writes today`
+            `${formatCount(guard.firestore.writesToday)} of 20,000 writes today (${formatExactPercent((finite(guard.firestore.writesToday) || 0) / 20_000)}). Likely Firestore write cost today: $0 while this remains within the free allowance.`
         ),
         makeThresholdAlert(
             "recaptcha",
             "reCAPTCHA is approaching its free monthly allowance",
             guard.recaptcha.assessmentsMonth,
             ALERT_THRESHOLDS.recaptcha,
-            `${formatCount(guard.recaptcha.assessmentsMonth)} of 10,000 assessments this month`
+            `${formatCount(guard.recaptcha.assessmentsMonth)} of 10,000 assessments this month (${formatExactPercent((finite(guard.recaptcha.assessmentsMonth) || 0) / 10_000)}). Cost is $0 through 10,000; the next current tier is $8/month through 100,000.`
         ),
         makeThresholdAlert(
             "ors_directions",
@@ -167,7 +224,7 @@ function evaluateGuardAlerts(guard, orsUsage) {
             title: "Cloud Function error rate is elevated",
             severity,
             value: guard.functionsHour.errorRate,
-            details: `${formatCount(guard.functionsHour.errors)} errors in ${formatCount(guard.functionsHour.total)} executions during the last hour`,
+            details: `${formatCount(guard.functionsHour.errors)} errors in ${formatCount(guard.functionsHour.total)} executions during the last hour (${formatExactPercent(guard.functionsHour.errorRate)}). This is a real function-health signal; check the detected-bugs details for affected functions.`,
             channel: "bugs"
         });
     }
@@ -180,7 +237,9 @@ function evaluateGuardAlerts(guard, orsUsage) {
             title: "App Check denied or invalid traffic is elevated",
             severity: securitySeverity,
             value: securityRiskRate,
-            details: `${formatCount(guard.appCheck.invalid)} invalid and ${formatCount(guard.appCheck.denied)} denied of ${formatCount(guard.appCheck.total)} checks during the last hour`,
+            details: `App Check crossed its ${securitySeverity} percentage threshold during the last hour. See the exact percentages, likely impact, and cost below.`,
+            fields: buildAppCheckContextFields(guard),
+            response: buildAppCheckResponse(guard),
             channel: "systemStatus"
         });
 
@@ -190,7 +249,9 @@ function evaluateGuardAlerts(guard, orsUsage) {
             title: "App Check client coverage is incomplete",
             severity: coverageSeverity,
             value: finite(guard.appCheck.unverifiedRate),
-            details: `${formatCount(guard.appCheck.missingOutdatedClient)} missing/outdated-client and ${formatCount(guard.appCheck.missingUnknownOrigin)} unknown-origin checks of ${formatCount(guard.appCheck.total)} during the last hour; ${formatCount(guard.appCheck.denied)} were denied`,
+            details: `${formatCount(guard.appCheck.missingOutdatedClient)} missing/outdated-client and ${formatCount(guard.appCheck.missingUnknownOrigin)} unknown-origin checks of ${formatCount(guard.appCheck.total)} during the last hour (${formatExactPercent(guard.appCheck.unverifiedRate)} missing/unverified); ${formatCount(guard.appCheck.denied)} were denied (${formatExactPercent(guard.appCheck.denyRate)}).`,
+            fields: buildAppCheckContextFields(guard),
+            response: buildAppCheckResponse(guard),
             channel: "systemStatus"
         });
     }
@@ -298,7 +359,8 @@ function buildCostAlertMessage(alert) {
             : (alert.severity === "critical" ? `CRITICAL OPERATIONS ALERT: ${alert.title}` : `Operations warning: ${alert.title}`),
         description: alert.details,
         fields: [
-            { name: "Response", value: alert.severity === "critical" ? "Check System Status now and use the launch kill switches if growth continues." : "Watch the next hourly check; no feature has been disabled automatically." }
+            ...(Array.isArray(alert.fields) ? alert.fields : []),
+            { name: "Response", value: alert.response || (alert.severity === "critical" ? "Check System Status now and use the launch kill switches if growth continues." : "Watch the next hourly check; no feature has been disabled automatically.") }
         ],
         footer: "Hourly monitoring · posts only when a threshold is entered or escalated"
     };
@@ -594,5 +656,6 @@ module.exports = {
     formatCount,
     formatMoney,
     formatPercent,
+    formatExactPercent,
     formatBytes
 };

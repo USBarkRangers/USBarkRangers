@@ -196,6 +196,7 @@ describe("cost alert thresholds and deduplication", () => {
             directions: { requestsToday: 0 }, snap: { requestsToday: 0 }, geocoding: { requestsToday: 0 }
         });
         const alert = alerts.find(item => item.id === "app_check_security");
+        assert.equal(alert.severity, "important");
         const message = costReporting.buildCostAlertMessage(alert);
         const fields = Object.fromEntries(message.fields.map(field => [field.name, field.value]));
         assert.match(fields["What happened"], /30 invalid \(5\.06%\)/);
@@ -205,6 +206,81 @@ describe("cost alert thresholds and deduplication", () => {
         assert.match(fields["Likely cost"], /\$0 likely/);
         assert.match(fields["Likely cost"], /4,301 reads \(8\.60%/);
         assert.match(fields["Signs of a real incident"], /payments or routing turning red/);
+    });
+
+    it("keeps a stable second App Check sample yellow and turns worsening traffic red", () => {
+        const baseGuard = {
+            firestore: { readsToday: 4_301, writesToday: 959 },
+            recaptcha: { assessmentsMonth: 0 },
+            appCheck: {
+                total: 600,
+                allowed: 600,
+                denied: 0,
+                denyRate: 0,
+                invalid: 30,
+                invalidRate: 0.05,
+                missingOutdatedClient: 0,
+                missingUnknownOrigin: 0,
+                unverifiedRate: 0.05
+            },
+            functionsHour: { total: 100, errors: 0, errorRate: 0 }
+        };
+        const ors = {
+            directions: { requestsToday: 0 }, snap: { requestsToday: 0 }, geocoding: { requestsToday: 0 }
+        };
+        const previous = { app_check_security: { severity: "important", value: 0.05 } };
+        const stable = costReporting.evaluateGuardAlerts(baseGuard, ors, previous)
+            .find(item => item.id === "app_check_security");
+        const worsening = costReporting.evaluateGuardAlerts({
+            ...baseGuard,
+            appCheck: { ...baseGuard.appCheck, invalid: 48, invalidRate: 0.08 }
+        }, ors, previous).find(item => item.id === "app_check_security");
+        assert.equal(stable.severity, "important");
+        assert.equal(worsening.severity, "critical");
+    });
+
+    it("requires a second App Check sample even when the first sample is above ten percent", () => {
+        const guard = {
+            firestore: { readsToday: 0, writesToday: 0 },
+            recaptcha: { assessmentsMonth: 0 },
+            appCheck: {
+                total: 600,
+                allowed: 600,
+                denied: 0,
+                denyRate: 0,
+                invalid: 72,
+                invalidRate: 0.12,
+                missingOutdatedClient: 0,
+                missingUnknownOrigin: 0,
+                unverifiedRate: 0.12
+            },
+            functionsHour: { total: 100, errors: 0, errorRate: 0 }
+        };
+        const ors = {
+            directions: { requestsToday: 0 }, snap: { requestsToday: 0 }, geocoding: { requestsToday: 0 }
+        };
+        assert.equal(costReporting.evaluateGuardAlerts(guard, ors)
+            .find(item => item.id === "app_check_security").severity, "important");
+        assert.equal(costReporting.evaluateGuardAlerts(guard, ors, {
+            app_check_security: { severity: "important", value: 0.12 }
+        }).find(item => item.id === "app_check_security").severity, "critical");
+    });
+
+    it("builds one green reset message with current percentages and a fresh watch cycle", () => {
+        const message = costReporting.buildAppCheckRecoveryMessage([
+            { id: "app_check_security", previous: { severity: "important" } }
+        ], {
+            firestore: { readsToday: 4_000, writesToday: 800 },
+            appCheck: {
+                total: 500,
+                allowed: 500,
+                denied: 0,
+                invalid: 0
+            }
+        }, {});
+        assert.equal(message.tier, "routine");
+        assert.match(message.title, /stable again/);
+        assert.match(message.fields.find(field => field.name === "Reset status").value, /new yellow Watching cycle/);
     });
 });
 

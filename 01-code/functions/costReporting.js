@@ -36,6 +36,8 @@ const ORS_DAILY_QUOTAS = Object.freeze(Object.fromEntries(
     Object.entries(ORS_ENDPOINT_QUOTAS).map(([endpoint, limits]) => [endpoint, limits.daily])
 ));
 const SEVERITY_RANK = Object.freeze({ routine: 0, important: 1, critical: 2 });
+const APP_CHECK_CONFIRMED_CRITICAL_RATE = 0.10;
+const APP_CHECK_MEANINGFUL_GROWTH = 0.02;
 
 function finite(value) {
     return Number.isFinite(Number(value)) ? Number(value) : null;
@@ -134,12 +136,33 @@ function buildAppCheckContextFields(guard) {
     ];
 }
 
-function buildAppCheckResponse(guard) {
+function buildAppCheckResponse(guard, severity = "important") {
     const denied = finite(guard && guard.appCheck && guard.appCheck.denied) || 0;
     if (denied > 0) {
         return "Check user reports and the latest service-health status. Escalate if users cannot load data, a service is red, or function errors are rising.";
     }
+    if (severity === "critical") {
+        return "No requests are currently blocked, but a second hourly check confirmed that the abnormal rate increased or remains unusually high. Review the latest service-health status and user reports.";
+    }
     return "No immediate action is required because no requests were blocked. Watch the next hourly check and escalate only if user impact, red services, rising function errors, or a Firestore quota warning also appears.";
+}
+
+function getConfirmedAppCheckSecuritySeverity(guard, previousAlerts = {}) {
+    const appCheck = guard && guard.appCheck ? guard.appCheck : {};
+    const securityRiskRate = Math.max(finite(appCheck.denyRate) || 0, finite(appCheck.invalidRate) || 0);
+    const baselineSeverity = thresholdSeverity(securityRiskRate, ALERT_THRESHOLDS.appCheckSecurityRate);
+    if (!baselineSeverity) return null;
+
+    const previous = previousAlerts && previousAlerts.app_check_security;
+    // The first abnormal sample is always a yellow watching state. A second
+    // sample becomes red only when requests are denied, the rate is at least
+    // 10%, or it grew by two percentage points from the original warning.
+    if (!previous || !previous.severity) return "important";
+    const previousRate = finite(previous.value);
+    const denied = finite(appCheck.denied) || 0;
+    const materiallyGrowing = previousRate !== null && securityRiskRate >= previousRate + APP_CHECK_MEANINGFUL_GROWTH;
+    const unusuallyHigh = securityRiskRate >= APP_CHECK_CONFIRMED_CRITICAL_RATE;
+    return denied > 0 || materiallyGrowing || unusuallyHigh ? "critical" : "important";
 }
 
 async function collectOrsCircuitUsage(db, options = {}) {
@@ -171,7 +194,7 @@ async function collectOrsCircuitUsage(db, options = {}) {
     }
 }
 
-function evaluateGuardAlerts(guard, orsUsage) {
+function evaluateGuardAlerts(guard, orsUsage, previousAlerts = {}) {
     const alerts = [
         makeThresholdAlert(
             "firestore_reads",
@@ -231,23 +254,31 @@ function evaluateGuardAlerts(guard, orsUsage) {
 
     if (guard.appCheck.total >= ALERT_THRESHOLDS.appCheckSecurityRate.minimumChecks) {
         const securityRiskRate = Math.max(finite(guard.appCheck.denyRate) || 0, finite(guard.appCheck.invalidRate) || 0);
-        const securitySeverity = thresholdSeverity(securityRiskRate, ALERT_THRESHOLDS.appCheckSecurityRate);
+        const securitySeverity = getConfirmedAppCheckSecuritySeverity(guard, previousAlerts);
         if (securitySeverity) alerts.push({
             id: "app_check_security",
-            title: "App Check denied or invalid traffic is elevated",
+            title: securitySeverity === "critical"
+                ? "App Check confirmed — unusual traffic is worsening"
+                : "App Check watching — unusual client traffic detected",
             severity: securitySeverity,
             value: securityRiskRate,
-            details: `App Check crossed its ${securitySeverity} percentage threshold during the last hour. See the exact percentages, likely impact, and cost below.`,
+            eventCount: Math.max(finite(guard.appCheck.invalid) || 0, finite(guard.appCheck.denied) || 0),
+            denied: finite(guard.appCheck.denied) || 0,
+            details: securitySeverity === "critical"
+                ? "A second hourly check confirmed denied, substantially increasing, or unusually high App Check traffic. See the exact percentages, likely impact, and cost below."
+                : "The first abnormal hourly sample is being watched. It will turn red only if the next hourly check confirms denied, substantially increasing, or unusually high traffic.",
             fields: buildAppCheckContextFields(guard),
-            response: buildAppCheckResponse(guard),
+            response: buildAppCheckResponse(guard, securitySeverity),
             channel: "systemStatus"
         });
 
         const coverageSeverity = thresholdSeverity(guard.appCheck.unverifiedRate, ALERT_THRESHOLDS.appCheckCoverageRate);
         if (coverageSeverity) alerts.push({
             id: "app_check_coverage",
-            title: "App Check client coverage is incomplete",
-            severity: coverageSeverity,
+            title: "App Check watching — client coverage is incomplete",
+            // Missing/outdated clients are a coverage observation, not an
+            // outage. Keep the alert yellow even when the percentage is high.
+            severity: "important",
             value: finite(guard.appCheck.unverifiedRate),
             details: `${formatCount(guard.appCheck.missingOutdatedClient)} missing/outdated-client and ${formatCount(guard.appCheck.missingUnknownOrigin)} unknown-origin checks of ${formatCount(guard.appCheck.total)} during the last hour (${formatExactPercent(guard.appCheck.unverifiedRate)} missing/unverified); ${formatCount(guard.appCheck.denied)} were denied (${formatExactPercent(guard.appCheck.denyRate)}).`,
             fields: buildAppCheckContextFields(guard),
@@ -340,6 +371,13 @@ function getAlertTransitions(currentAlerts, previousState = {}, nowMs = Date.now
         } else {
             next[alert.id].details = old.details;
         }
+        ["value", "eventCount", "denied"].forEach(key => {
+            if (shouldNotify || severityChanged || !Object.prototype.hasOwnProperty.call(old, key)) {
+                if (alert[key] !== undefined) next[alert.id][key] = alert[key];
+            } else if (Object.prototype.hasOwnProperty.call(old, key)) {
+                next[alert.id][key] = old[key];
+            }
+        });
     });
 
     Object.keys(previous).forEach(id => {
@@ -373,6 +411,33 @@ function buildSystemStatusCostMessage(alert) {
         title: `Cost guard critical: ${alert.title}`,
         description: alert.details,
         footer: "Full detail and history: #costs"
+    };
+}
+
+function buildAppCheckRecoveryMessage(resolvedAlerts, guard, activeAlerts = {}) {
+    const resolvedIds = new Set((resolvedAlerts || []).map(item => item.id));
+    const securityRecovered = resolvedIds.has("app_check_security");
+    const coverageRecovered = resolvedIds.has("app_check_coverage");
+    const title = securityRecovered && coverageRecovered
+        ? "App Check stable again"
+        : (securityRecovered ? "App Check security rate stable again" : "App Check client coverage stable again");
+    const remaining = ["app_check_security", "app_check_coverage"]
+        .filter(id => activeAlerts && activeAlerts[id]);
+    return {
+        channel: "systemStatus",
+        tier: "routine",
+        title,
+        description: "The latest hourly check returned below the relevant alert threshold. The previous watching/critical incident has been reset.",
+        fields: [
+            ...buildAppCheckContextFields(guard),
+            {
+                name: "Reset status",
+                value: remaining.length
+                    ? `This condition reset; ${remaining.join(" and ")} is still being watched.`
+                    : "All App Check alert conditions are currently clear. A future spike will begin a new yellow Watching cycle."
+            }
+        ],
+        footer: "Hourly monitoring · one recovery message per resolved incident"
     };
 }
 
@@ -506,7 +571,7 @@ function buildDailyCostMessage(snapshot) {
     };
 }
 
-async function postAlertTransitions(transitions, options = {}) {
+async function postAlertTransitions(transitions, options = {}, guard = null) {
     const posted = new Set();
     for (const alert of transitions.notify) {
         const result = await opsDiscord.postDiscord(buildCostAlertMessage(alert), options);
@@ -514,6 +579,14 @@ async function postAlertTransitions(transitions, options = {}) {
         if (alert.severity === "critical" && (alert.channel || "costs") === "costs") {
             await opsDiscord.postDiscord(buildSystemStatusCostMessage(alert), options);
         }
+    }
+    const appCheckResolved = transitions.resolved.filter(item =>
+        item.id === "app_check_security" || item.id === "app_check_coverage");
+    if (guard && appCheckResolved.length) {
+        await opsDiscord.postDiscord(
+            buildAppCheckRecoveryMessage(appCheckResolved, guard, transitions.next),
+            options
+        );
     }
     return posted;
 }
@@ -602,10 +675,10 @@ async function runHourlyCostMonitoring(options = {}) {
         }
     }
 
-    const alerts = mergeAlerts(evaluateGuardAlerts(guard, orsUsage), dailyAlerts);
     const previousAlerts = state.alerts && typeof state.alerts === "object" ? state.alerts : {};
+    const alerts = mergeAlerts(evaluateGuardAlerts(guard, orsUsage, previousAlerts), dailyAlerts);
     const transitions = getAlertTransitions(alerts, previousAlerts, nowMs);
-    const posted = await postAlertTransitions(transitions, options);
+    const posted = await postAlertTransitions(transitions, options, guard);
     const nextAlerts = applyPostingResults(transitions, posted, previousAlerts, nowMs);
 
     const stateChanged = JSON.stringify(nextAlerts) !== JSON.stringify(previousAlerts);
@@ -648,6 +721,7 @@ module.exports = {
     getAlertTransitions,
     buildCostAlertMessage,
     buildSystemStatusCostMessage,
+    buildAppCheckRecoveryMessage,
     calculateSnapshot,
     buildDailyCostMessage,
     saveCostMonitoringState,

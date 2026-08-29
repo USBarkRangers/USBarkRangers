@@ -531,20 +531,7 @@ function hasVisitedPlacesWriteInFlight() {
     return visitedPlacesWriteInFlightCount > 0;
 }
 
-async function mergeServerVisitedPlacesForSafeWrite(userRef, nextVisitedArray) {
-    if (!userRef || typeof userRef.get !== 'function') return nextVisitedArray;
-
-    let serverVisitedArray = [];
-    try {
-        window.BARK.incrementRequestCount();
-        const doc = await userRef.get();
-        const data = doc && doc.exists && typeof doc.data === 'function' ? (doc.data() || {}) : {};
-        serverVisitedArray = Array.isArray(data.visitedPlaces) ? data.visitedPlaces.map(cloneVisitedPlace) : [];
-    } catch (error) {
-        console.warn('[firebaseService] Could not verify server visitedPlaces before write; local destructive guard still applies.', error);
-        return nextVisitedArray;
-    }
-
+function mergeVisitedPlacesForSafeWrite(serverVisitedArray, nextVisitedArray) {
     if (serverVisitedArray.length === 0) return nextVisitedArray;
 
     const nextMap = makeVisitedPlaceMap(nextVisitedArray);
@@ -575,6 +562,46 @@ async function mergeServerVisitedPlacesForSafeWrite(userRef, nextVisitedArray) {
     });
 
     return Array.from(nextMap.values());
+}
+
+async function commitVisitedPlacesAtomically(db, userRef, requestedVisitedArray) {
+    if (!db || typeof db.runTransaction !== 'function') {
+        const error = new Error('Atomic visited-place transactions are unavailable.');
+        error.code = 'failed-precondition';
+        throw error;
+    }
+
+    let committedVisitedArray = [];
+    if (window.BARK && typeof window.BARK.incrementRequestCount === 'function') {
+        // Count the single committed transaction write once. Firestore can
+        // rerun the callback below, but those retries only add document reads.
+        window.BARK.incrementRequestCount();
+    }
+    await db.runTransaction(async transaction => {
+        if (window.BARK && typeof window.BARK.incrementRequestCount === 'function') {
+            window.BARK.incrementRequestCount();
+        }
+        const doc = await transaction.get(userRef);
+        const data = doc && doc.exists && typeof doc.data === 'function' ? (doc.data() || {}) : {};
+        const serverVisitedArray = Array.isArray(data.visitedPlaces)
+            ? data.visitedPlaces.map(cloneVisitedPlace)
+            : [];
+
+        // Firestore retries this callback if another device changes the user
+        // document. Rebuilding from that newest snapshot prevents the last
+        // writer from erasing a visit committed by the other device.
+        committedVisitedArray = mergeVisitedPlacesForSafeWrite(
+            serverVisitedArray,
+            requestedVisitedArray.map(cloneVisitedPlace)
+        );
+        assertVisitedWriteIsNotDestructive(committedVisitedArray);
+
+        // set(..., { merge: true }) preserves syncUserProgress's prior ability
+        // to initialize a missing user document without replacing other fields.
+        transaction.set(userRef, { visitedPlaces: committedVisitedArray }, { merge: true });
+    });
+
+    return committedVisitedArray;
 }
 
 function reconcileVisitedPlacesSnapshot(placeList, metadata = {}) {
@@ -687,24 +714,19 @@ async function syncUserProgress() {
         if (!user) return;
 
         const db = firebase.firestore();
-        window.BARK.incrementRequestCount();
 
         visitedArray = getVisitedPlacesArray();
         // Callers stage the specific visit they changed. Bulk-staging every
         // record here breaks the pending/orange confirmation state.
-        visitedArray = await mergeServerVisitedPlacesForSafeWrite(db.collection('users').doc(user.uid), visitedArray);
-        assertVisitedWriteIsNotDestructive(visitedArray);
+        const userRef = db.collection('users').doc(user.uid);
         endVisitedPlacesWrite = beginVisitedPlacesWrite();
-        await db.collection('users').doc(user.uid).set({
-            visitedPlaces: visitedArray
-        }, { merge: true });
+        visitedArray = await commitVisitedPlacesAtomically(db, userRef, visitedArray);
         replaceLocalVisitedPlaces(makeVisitedPlaceMap(visitedArray), {
             source: 'sync-user-progress-merged-write'
         });
 
         if (typeof window.syncState === 'function') window.syncState();
     } catch (error) {
-        visitedArray.forEach(place => clearVisitedPlacePendingMutation(place && place.id));
         console.error("[firebaseService] syncUserProgress failed:", error);
         throw error;
     } finally {
@@ -720,19 +742,16 @@ async function updateCurrentUserVisitedPlaces(visitedArray) {
         if (!user) return;
 
         nextVisitedArray = Array.isArray(visitedArray) ? visitedArray.map(cloneVisitedPlace) : [];
-        const userRef = firebase.firestore().collection('users').doc(user.uid);
-        nextVisitedArray = await mergeServerVisitedPlacesForSafeWrite(userRef, nextVisitedArray);
-        assertVisitedWriteIsNotDestructive(nextVisitedArray);
+        const db = firebase.firestore();
+        const userRef = db.collection('users').doc(user.uid);
         // Do not bulk-stage here; verify/mark/update callers own pending state.
-        window.BARK.incrementRequestCount();
         endVisitedPlacesWrite = beginVisitedPlacesWrite();
-        await userRef.update({ visitedPlaces: nextVisitedArray });
+        nextVisitedArray = await commitVisitedPlacesAtomically(db, userRef, nextVisitedArray);
         replaceLocalVisitedPlaces(makeVisitedPlaceMap(nextVisitedArray), {
             source: 'update-current-user-visited-merged-write'
         });
         if (typeof window.syncState === 'function') window.syncState();
     } catch (error) {
-        nextVisitedArray.forEach(place => clearVisitedPlacePendingMutation(place && place.id));
         console.error("[firebaseService] updateCurrentUserVisitedPlaces failed:", error);
         throw error;
     } finally {

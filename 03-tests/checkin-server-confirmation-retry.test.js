@@ -373,6 +373,51 @@ test('local safety stash keeps visuals pending if an SDK error clears the in-mem
     assert.equal(context.window.BARK.services.checkin.isVisitAwaitingServerProof(visit.id), true);
 });
 
+test('a visit fails closed and rolls back when its durable recovery copy cannot be stored', async () => {
+    const context = loadCheckinService();
+    const repo = context.window.BARK.repos.VaultRepo;
+    let writeCount = 0;
+
+    context.localStorage.setItem = () => {
+        throw new Error('storage quota unavailable');
+    };
+    context.navigator.geolocation = {
+        getCurrentPosition(resolve) {
+            resolve({ coords: { latitude: 10, longitude: 20, accuracy: 5 } });
+        }
+    };
+    context.window.BARK.config = { CHECKIN_RADIUS_KM: 25 };
+    context.window.BARK.utils = {
+        geo: { haversine: () => 0 }
+    };
+    context.window.BARK.services.firebase = {
+        async updateCurrentUserVisitedPlaces() {
+            writeCount++;
+        },
+        stageVisitedPlaceUpsert(visit) {
+            repo.stageUpsert(visit);
+        }
+    };
+    context.firebase = {
+        auth() {
+            return { currentUser: { uid: 'storage-failure-user' } };
+        }
+    };
+
+    const result = await context.window.BARK.services.checkin.verifyGpsCheckin({
+        id: 'storage-failure-park',
+        name: 'Storage Failure Park',
+        lat: 10,
+        lng: 20
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'LOCAL_SAFETY_STORAGE_UNAVAILABLE');
+    assert.equal(repo.hasVisit('storage-failure-park'), false, 'a local-only visit must not survive the failed safety copy');
+    assert.equal(repo.hasPendingMutation('storage-failure-park'), false);
+    assert.equal(writeCount, 0, 'Firebase must not be called after durable recovery storage fails');
+});
+
 test('online recovery refuses pending-write metadata and accepts the later authoritative snapshot', async () => {
     const context = loadCheckinService();
     const expected = { id: 'online-recovery', verified: true, ts: 720, syncToken: 'online-token' };

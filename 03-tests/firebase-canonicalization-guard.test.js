@@ -108,25 +108,33 @@ test('visitedPlaces writes preserve server visits when local state has not hydra
             return { currentUser: { uid: 'user-1' } };
         },
         firestore() {
+            const userRef = {
+                async get() {
+                    return {
+                        exists: true,
+                        data() {
+                            return { visitedPlaces: serverVisits };
+                        }
+                    };
+                }
+            };
             return {
+                async runTransaction(callback) {
+                    let stagedPayload = null;
+                    await callback({
+                        get: () => userRef.get(),
+                        set(_ref, payload) {
+                            stagedPayload = payload;
+                        }
+                    });
+                    writtenVisitedPlaces = stagedPayload && stagedPayload.visitedPlaces;
+                },
                 collection(collectionName) {
                     assert.equal(collectionName, 'users');
                     return {
                         doc(uid) {
                             assert.equal(uid, 'user-1');
-                            return {
-                                async get() {
-                                    return {
-                                        exists: true,
-                                        data() {
-                                            return { visitedPlaces: serverVisits };
-                                        }
-                                    };
-                                },
-                                async update(payload) {
-                                    writtenVisitedPlaces = payload.visitedPlaces;
-                                }
-                            };
+                            return userRef;
                         }
                     };
                 }

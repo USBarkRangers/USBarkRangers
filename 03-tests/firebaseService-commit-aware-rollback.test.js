@@ -28,9 +28,22 @@ function loadBark({ failWrite = false } = {}) {
         set: async () => { if (failWrite) throw Object.assign(new Error('write failed'), { code: 'unavailable' }); },
         update: async () => { if (failWrite) throw Object.assign(new Error('write failed'), { code: 'unavailable' }); }
     };
+    const db = {
+        collection: () => ({ doc: () => userDoc }),
+        async runTransaction(callback) {
+            let stagedPayload = null;
+            await callback({
+                get: () => userDoc.get(),
+                set(_ref, payload) {
+                    stagedPayload = payload;
+                }
+            });
+            if (stagedPayload) await userDoc.update(stagedPayload);
+        }
+    };
     context.firebase = {
         auth: () => ({ currentUser: { uid: 'user-1' } }),
-        firestore: () => ({ collection: () => ({ doc: () => userDoc }) })
+        firestore: () => db
     };
 
     vm.createContext(context);

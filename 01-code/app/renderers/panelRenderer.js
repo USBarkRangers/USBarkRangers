@@ -567,6 +567,8 @@ function renderMarkerClickPanel(context) {
                         alert("Failed to get location. Try again later.");
                     } else if (err === 'FREE_VISIT_LIMIT') {
                         openFreeVisitLimitPaywall(checkinResult);
+                    } else if (err === 'LOCAL_SAFETY_STORAGE_UNAVAILABLE') {
+                        alert("This device could not create a safe recovery copy, so the check-in was not saved. Free some browser storage or leave private browsing, then try again.");
                     } else {
                         alert("Check-in could not be verified. Try again later.");
                     }
@@ -674,6 +676,8 @@ function renderMarkerClickPanel(context) {
                         alert("🛡️ Data Safety Lock Active\n\nTo prevent you from accidentally losing your 'Date Visited' history, unchecking parks is disabled by default.\n\nYou can turn off this safety feature by opening Settings (⚙️) and enabling 'Allow Uncheck Visited'.");
                     } else if (visitResult.error === 'FREE_VISIT_LIMIT') {
                         openFreeVisitLimitPaywall(visitResult);
+                    } else if (visitResult.error === 'LOCAL_SAFETY_STORAGE_UNAVAILABLE') {
+                        alert("This device could not create a safe recovery copy, so the visit was not saved. Free some browser storage or leave private browsing, then try again.");
                     } else if (visitResult.error !== 'ALREADY_VERIFIED') {
                         alert("Check-in service is unavailable. Try again later.");
                     }

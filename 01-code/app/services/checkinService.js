@@ -101,23 +101,32 @@ function loadUnconfirmedVisitsMap(uid) {
 
 function saveUnconfirmedVisitsMap(uid, map) {
     const key = getUnconfirmedVisitsKey(uid);
-    if (!key) return;
+    if (!key) return false;
     try {
         if (!map || Object.keys(map).length === 0) {
             localStorage.removeItem(key);
         } else {
             localStorage.setItem(key, JSON.stringify(map));
         }
+        return true;
     } catch (error) {
         console.warn('[checkinService] unable to persist unconfirmed visits cache:', error);
+        return false;
     }
 }
 
 function stashUnconfirmedVisit(uid, visit) {
-    if (!uid || !visit || !visit.id) return;
+    if (!uid || !visit || !visit.id) return false;
     const map = loadUnconfirmedVisitsMap(uid);
     map[visit.id] = { visit, stashedAt: Date.now() };
-    saveUnconfirmedVisitsMap(uid, map);
+    if (!saveUnconfirmedVisitsMap(uid, map)) return false;
+
+    // Verify the exact recovery record can be read back before the operation is
+    // allowed to continue. A full/private browser store must fail closed here;
+    // otherwise a later SDK error could clear the in-memory pending marker and
+    // make a local-only visit look durably green.
+    const persistedVisit = getUnconfirmedVisit(uid, visit.id);
+    return visitRecordsMatchForConfirmation(persistedVisit, visit);
 }
 
 function clearUnconfirmedVisit(uid, visitId) {
@@ -912,6 +921,7 @@ async function verifyGpsCheckin(parkData) {
         const vaultRepo = getVaultRepo();
         if (!vaultRepo) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
         tokenUid = getCurrentFirebaseUid();
+        if (!tokenUid) return { success: false, error: 'AUTH_REQUIRED' };
         token = vaultRepo.snapshot();
 
         const visitedEntries = getCheckinVisitedPlaceEntries(parkData);
@@ -929,15 +939,21 @@ async function verifyGpsCheckin(parkData) {
         }
 
         vaultRepo.addVisit(checkinResult.visitRecord);
+        if (typeof vaultRepo.createRollbackToken === 'function') {
+            rollbackToken = vaultRepo.createRollbackToken(token, touchedIds);
+        }
         // Persist the visit to localStorage IMMEDIATELY — before any Firebase
         // call — so that a write which never reaches Google's servers (poor
         // cell signal at a state park) can be replayed on the next app launch.
         if (tokenUid && checkinResult.visitRecord) {
-            stashUnconfirmedVisit(tokenUid, checkinResult.visitRecord);
+            const safetyCopySaved = stashUnconfirmedVisit(tokenUid, checkinResult.visitRecord);
+            if (!safetyCopySaved) {
+                if (typeof vaultRepo.restore === 'function') {
+                    vaultRepo.restore(rollbackToken || token);
+                }
+                return { success: false, error: 'LOCAL_SAFETY_STORAGE_UNAVAILABLE' };
+            }
             stashedVisitId = checkinResult.visitRecord.id;
-        }
-        if (typeof vaultRepo.createRollbackToken === 'function') {
-            rollbackToken = vaultRepo.createRollbackToken(token, touchedIds);
         }
         if (typeof firebaseService.stageVisitedPlaceUpsert === 'function') {
             firebaseService.stageVisitedPlaceUpsert(checkinResult.visitRecord);
@@ -1001,6 +1017,7 @@ async function markAsVisited(parkData) {
         const vaultRepo = getVaultRepo();
         if (!vaultRepo) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
         tokenUid = getCurrentFirebaseUid();
+        if (!tokenUid) return { success: false, error: 'AUTH_REQUIRED' };
         token = vaultRepo.snapshot();
 
         const visitedEntries = getCheckinVisitedPlaceEntries(parkData);
@@ -1040,12 +1057,18 @@ async function markAsVisited(parkData) {
 
         const visitRecord = createVisitRecord(parkData, false);
         vaultRepo.addVisit(visitRecord);
-        if (tokenUid && visitRecord) {
-            stashUnconfirmedVisit(tokenUid, visitRecord);
-            stashedVisitId = visitRecord.id;
-        }
         if (typeof vaultRepo.createRollbackToken === 'function') {
             rollbackToken = vaultRepo.createRollbackToken(token, [parkData.id]);
+        }
+        if (tokenUid && visitRecord) {
+            const safetyCopySaved = stashUnconfirmedVisit(tokenUid, visitRecord);
+            if (!safetyCopySaved) {
+                if (typeof vaultRepo.restore === 'function') {
+                    vaultRepo.restore(rollbackToken || token);
+                }
+                return { success: false, error: 'LOCAL_SAFETY_STORAGE_UNAVAILABLE' };
+            }
+            stashedVisitId = visitRecord.id;
         }
         if (typeof firebaseService.stageVisitedPlaceUpsert === 'function') {
             firebaseService.stageVisitedPlaceUpsert(visitRecord);

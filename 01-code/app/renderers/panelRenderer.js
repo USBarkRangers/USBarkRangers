@@ -423,10 +423,10 @@ function renderMarkerClickPanel(context) {
                 // by an authoritative server snapshot yet, render the button
                 // in the orange "syncing…" state instead of green. The
                 // .visited.pending-sync CSS rule handles the color.
-                const vaultRepoForPending = window.BARK.repos && window.BARK.repos.VaultRepo;
-                const visitIsPendingSync = vaultRepoForPending
-                    && typeof vaultRepoForPending.hasPendingMutation === 'function'
-                    && vaultRepoForPending.hasPendingMutation(d.id);
+                const visitIsPendingSync = checkinService
+                    && typeof checkinService.isVisitAwaitingServerProof === 'function'
+                    ? checkinService.isVisitAwaitingServerProof(d.id)
+                    : true;
 
                 markVisitedBtn.classList.add('visited');
                 markVisitedBtn.classList.toggle('pending-sync', Boolean(visitIsPendingSync));
@@ -458,10 +458,10 @@ function renderMarkerClickPanel(context) {
                     // after an offline verify makes the button look fully
                     // confirmed when in reality the visit is still in the
                     // pending-sync queue.
-                    const vaultRepo = window.BARK.repos && window.BARK.repos.VaultRepo;
-                    const isPendingServerSync = vaultRepo
-                        && typeof vaultRepo.hasPendingMutation === 'function'
-                        && vaultRepo.hasPendingMutation(d.id);
+                    const isPendingServerSync = checkinService
+                        && typeof checkinService.isVisitAwaitingServerProof === 'function'
+                        ? checkinService.isVisitAwaitingServerProof(d.id)
+                        : true;
 
                     if (isPendingServerSync) {
                         verifyBtn.style.background = '#f59e0b';
@@ -583,10 +583,9 @@ function renderMarkerClickPanel(context) {
                 markVisitedBtn.style.cursor = 'progress';
                 markVisitedBtn.style.opacity = '1';
 
-                const visitId = checkinResult.visitRecord && checkinResult.visitRecord.id;
                 const confirmation = typeof checkinService.awaitServerConfirmation === 'function'
-                    ? await checkinService.awaitServerConfirmation(visitId, { retryMs: SERVER_CONFIRMATION_RETRY_MS })
-                    : { confirmed: true };
+                    ? await checkinService.awaitServerConfirmation(checkinResult.visitRecord, { retryMs: SERVER_CONFIRMATION_RETRY_MS })
+                    : { confirmed: false, reason: 'confirmation-unavailable' };
 
                 if (confirmation.confirmed) {
                     setVerifyButtonStateConfirmed();
@@ -699,15 +698,16 @@ function renderMarkerClickPanel(context) {
 
                 const newVisit = visitResult.visitRecord;
                 if (!newVisit || !newVisit.id || typeof checkinService.awaitServerConfirmation !== 'function') {
-                    // Can't await confirmation — best-effort flip to confirmed
-                    // and let any future snapshot correct us.
-                    setMarkVisitedStateConfirmed();
+                    // Fail closed: the local safety copy remains pending and
+                    // will be replayed later, but uncertainty can never be
+                    // presented as a confirmed green visit.
+                    setMarkVisitedStatePending();
                     return;
                 }
 
                 let confirmation;
                 try {
-                    confirmation = await checkinService.awaitServerConfirmation(newVisit.id, { retryMs: SERVER_CONFIRMATION_RETRY_MS });
+                    confirmation = await checkinService.awaitServerConfirmation(newVisit, { retryMs: SERVER_CONFIRMATION_RETRY_MS });
                 } catch (error) {
                     console.warn('[panelRenderer] mark-as-visited confirmation threw:', error);
                     confirmation = { confirmed: false, reason: 'error' };

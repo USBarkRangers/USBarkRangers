@@ -335,7 +335,7 @@ function pickCanonicalParkForVisit(visit) {
 }
 
 function canonicalizeVisitRecord(visit, point) {
-    return {
+    const canonicalRecord = {
         id: point.id,
         name: point.name,
         lat: point.lat,
@@ -344,6 +344,11 @@ function canonicalizeVisitRecord(visit, point) {
         verified: Boolean(visit.verified),
         ts: Number.isFinite(Number(visit.ts)) ? Number(visit.ts) : Date.now()
     };
+
+    // Preserve the per-mutation proof token used by checkinService. Historical
+    // records intentionally remain token-free until they are changed again.
+    if (visit.syncToken) canonicalRecord.syncToken = visit.syncToken;
+    return canonicalRecord;
 }
 
 function mergeCanonicalVisitRecords(existing, incoming) {

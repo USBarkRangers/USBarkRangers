@@ -55,8 +55,11 @@ class MarkerLayerManager {
     // Google's servers.
     isPendingServerSync(parkData) {
         if (!parkData || !parkData.id) return false;
+        if (typeof window.BARK.isVisitAwaitingServerProof === 'function') {
+            return window.BARK.isVisitAwaitingServerProof(parkData.id);
+        }
         const vaultRepo = getVaultRepo();
-        if (!vaultRepo || typeof vaultRepo.hasPendingMutation !== 'function') return false;
+        if (!vaultRepo || typeof vaultRepo.hasPendingMutation !== 'function') return true;
         return vaultRepo.hasPendingMutation(parkData.id);
     }
 

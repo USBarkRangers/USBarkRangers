@@ -423,8 +423,11 @@ function updateMarkers() {
 
     function isRenderVisitPendingServerSync(parkData) {
         if (!parkData || !parkData.id) return false;
+        if (typeof window.BARK.isVisitAwaitingServerProof === 'function') {
+            return window.BARK.isVisitAwaitingServerProof(parkData.id);
+        }
         const vaultRepo = window.BARK.repos && window.BARK.repos.VaultRepo;
-        if (!vaultRepo || typeof vaultRepo.hasPendingMutation !== 'function') return false;
+        if (!vaultRepo || typeof vaultRepo.hasPendingMutation !== 'function') return true;
         return vaultRepo.hasPendingMutation(parkData.id);
     }
 

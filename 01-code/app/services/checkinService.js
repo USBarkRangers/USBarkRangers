@@ -12,6 +12,70 @@ const FREE_VISIT_LIMIT = 5;
 const FIREBASE_WRITE_TIMEOUT_MS = 15000;
 const WRITE_TIMEOUT_SENTINEL = '__BARK_WRITE_TIMEOUT__';
 const SERVER_CONFIRMATION_RETRY_MS = 8000;
+const VISIT_SYNC_TOKEN_FIELD = 'syncToken';
+
+function createVisitSyncToken() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getVisitId(placeOrId) {
+    if (placeOrId && typeof placeOrId === 'object') {
+        return placeOrId.id || placeOrId.placeId || null;
+    }
+    return placeOrId || null;
+}
+
+function cloneVisitRecord(visit) {
+    return visit && typeof visit === 'object' ? { ...visit } : null;
+}
+
+function ensureVisitSyncToken(visit) {
+    const nextVisit = cloneVisitRecord(visit);
+    if (!nextVisit || !getVisitId(nextVisit)) return nextVisit;
+    if (!nextVisit[VISIT_SYNC_TOKEN_FIELD]) {
+        nextVisit[VISIT_SYNC_TOKEN_FIELD] = createVisitSyncToken();
+    }
+    return nextVisit;
+}
+
+function stringifyVisitValue(value) {
+    if (value && typeof value === 'object') {
+        const sorted = {};
+        Object.keys(value).sort().forEach(key => { sorted[key] = value[key]; });
+        return JSON.stringify(sorted);
+    }
+    return JSON.stringify(value);
+}
+
+// A confirmation must prove the exact mutation, not merely the park ID. The
+// sync token distinguishes a new manual/GPS action from an older server record
+// for the same park. Comparing every expected field also keeps legacy stashed
+// visits (created before sync tokens existed) recoverable without weakening the
+// proof for new visits.
+function visitRecordsMatchForConfirmation(serverVisit, expectedVisit) {
+    if (!serverVisit || !expectedVisit) return false;
+    if (getVisitId(serverVisit) !== getVisitId(expectedVisit)) return false;
+
+    const expectedKeys = Object.keys(expectedVisit);
+    if (expectedKeys.length === 0) return false;
+    for (const key of expectedKeys) {
+        if (stringifyVisitValue(serverVisit[key]) !== stringifyVisitValue(expectedVisit[key])) return false;
+    }
+    return true;
+}
+
+function isExplicitAuthoritativeSnapshot(snapshot) {
+    const metadata = snapshot && snapshot.metadata;
+    return Boolean(
+        metadata
+        && metadata.fromCache === false
+        && metadata.hasPendingWrites === false
+    );
+}
 
 // localStorage key holding visits that have been added locally but not yet
 // confirmed by an authoritative Firestore snapshot. Survives PWA close so that
@@ -74,6 +138,28 @@ function clearUnconfirmedVisits(uid) {
     }
 }
 
+function getUnconfirmedVisit(uid, visitId) {
+    if (!uid || !visitId) return null;
+    const entry = loadUnconfirmedVisitsMap(uid)[visitId];
+    return entry && entry.visit ? cloneVisitRecord(entry.visit) : null;
+}
+
+function hasUnconfirmedVisit(uid, visitId) {
+    return Boolean(getUnconfirmedVisit(uid, visitId));
+}
+
+function isVisitAwaitingServerProof(placeOrId) {
+    const visitId = getVisitId(placeOrId);
+    if (!visitId) return true;
+
+    const vaultRepo = getVaultRepo();
+    if (!vaultRepo || typeof vaultRepo.hasPendingMutation !== 'function') return true;
+    if (vaultRepo.hasPendingMutation(visitId)) return true;
+
+    const uid = getCurrentFirebaseUid();
+    return Boolean(uid && hasUnconfirmedVisit(uid, visitId));
+}
+
 // Called from the authoritative Firestore snapshot handler in authService. Any
 // visit that the server now knows about can be safely removed from the local
 // safety net. Visits still missing from the server stay queued for replay.
@@ -88,7 +174,10 @@ function reconcileUnconfirmedVisits(uid) {
 
     let mutated = false;
     ids.forEach(id => {
-        const isServerConfirmed = vaultRepo.hasVisit(id)
+        const expectedVisit = map[id] && map[id].visit;
+        const currentVisit = typeof vaultRepo.getVisit === 'function' ? vaultRepo.getVisit(id) : null;
+        const isServerConfirmed = currentVisit
+            && visitRecordsMatchForConfirmation(currentVisit, expectedVisit)
             && typeof vaultRepo.hasPendingMutation === 'function'
             && !vaultRepo.hasPendingMutation(id);
         if (isServerConfirmed) {
@@ -102,7 +191,9 @@ function reconcileUnconfirmedVisits(uid) {
 // Called from authService once the user's session is restored. Re-adds any
 // visits that weren't confirmed before the PWA last closed, and re-stages the
 // Firebase write so they sync as soon as connectivity allows.
-async function replayUnconfirmedVisits(uid) {
+const replayUnconfirmedVisitsInFlight = new Map();
+
+async function replayUnconfirmedVisitsInternal(uid) {
     if (!uid) return;
     const map = loadUnconfirmedVisitsMap(uid);
     const entries = Object.values(map);
@@ -112,20 +203,32 @@ async function replayUnconfirmedVisits(uid) {
     const firebaseService = getFirebaseService();
     if (!vaultRepo || !firebaseService) return;
 
-    let restored = 0;
+    let replayed = 0;
+    let migrated = false;
     entries.forEach(entry => {
-        const visit = entry && entry.visit;
+        const originalVisit = entry && entry.visit;
+        const visit = ensureVisitSyncToken(originalVisit);
         if (!visit || !visit.id) return;
-        if (vaultRepo.hasVisit(visit.id)) return;
+
+        if (!originalVisit || !originalVisit[VISIT_SYNC_TOKEN_FIELD]) {
+            map[visit.id] = { ...entry, visit };
+            migrated = true;
+        }
+
+        // Always restage a safety-net visit. A same-ID record in the vault can
+        // be an older manual/unverified server value and must never suppress a
+        // later verified mutation during reopen recovery.
         vaultRepo.addVisit(visit);
         if (typeof firebaseService.stageVisitedPlaceUpsert === 'function') {
             firebaseService.stageVisitedPlaceUpsert(visit);
         }
-        restored++;
+        replayed++;
     });
 
-    if (restored > 0) {
-        console.log(`[checkinService] Replayed ${restored} unconfirmed visit(s) from local cache.`);
+    if (migrated) saveUnconfirmedVisitsMap(uid, map);
+
+    if (replayed > 0) {
+        console.log(`[checkinService] Replayed ${replayed} unconfirmed visit(s) from local cache.`);
         refreshVisitedCache('checkin-unconfirmed-replay');
         refreshVisitedVisuals('checkin-unconfirmed-replay', firebaseService);
         try {
@@ -137,6 +240,18 @@ async function replayUnconfirmedVisits(uid) {
             console.warn('[checkinService] replay write deferred (offline/flaky network):', error);
         }
     }
+}
+
+function replayUnconfirmedVisits(uid) {
+    if (!uid) return Promise.resolve();
+    const existingReplay = replayUnconfirmedVisitsInFlight.get(uid);
+    if (existingReplay) return existingReplay;
+
+    const replayPromise = Promise.resolve()
+        .then(() => replayUnconfirmedVisitsInternal(uid))
+        .finally(() => replayUnconfirmedVisitsInFlight.delete(uid));
+    replayUnconfirmedVisitsInFlight.set(uid, replayPromise);
+    return replayPromise;
 }
 
 function isNetworkLikeError(error) {
@@ -175,6 +290,28 @@ function awaitWithFirebaseWriteTimeout(writePromiseFactory) {
     });
 }
 
+function awaitWithTimeout(promise, timeoutMs, timeoutErrorMessage = null) {
+    return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+            if (timeoutErrorMessage) {
+                reject(new Error(timeoutErrorMessage));
+            } else {
+                resolve(undefined);
+            }
+        }, timeoutMs);
+
+        Promise.resolve(promise)
+            .then(value => {
+                clearTimeout(timeoutId);
+                resolve(value);
+            })
+            .catch(error => {
+                clearTimeout(timeoutId);
+                reject(error);
+            });
+    });
+}
+
 function queueVisitedPlacesWrite(label, visitId, writePromiseFactory, onFatalError) {
     awaitWithFirebaseWriteTimeout(writePromiseFactory)
         .catch(error => {
@@ -205,22 +342,48 @@ const pendingServerConfirmations = new Map();
 // has arrived AND the snapshot itself contained the visit (so the reconcile
 // dropped the pending mutation). hasVisit() alone is not enough — it returns
 // true even for purely-local optimistic adds (e.g. airplane-mode taps).
-function isVisitServerConfirmed(vaultRepo, visitId) {
-    if (!vaultRepo || typeof vaultRepo.hasVisit !== 'function') return false;
-    if (!vaultRepo.hasVisit(visitId)) return false;
+function resolveExpectedVisit(visitOrId, options = {}) {
+    if (visitOrId && typeof visitOrId === 'object') return cloneVisitRecord(visitOrId);
+    if (options.expectedVisit && typeof options.expectedVisit === 'object') {
+        return cloneVisitRecord(options.expectedVisit);
+    }
+
+    const visitId = getVisitId(visitOrId);
+    if (!visitId) return null;
+
+    const uid = getCurrentFirebaseUid();
+    const stashedVisit = uid ? getUnconfirmedVisit(uid, visitId) : null;
+    if (stashedVisit) return stashedVisit;
+
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && typeof vaultRepo.snapshot === 'function') {
+        const snapshot = vaultRepo.snapshot();
+        const pendingMutation = snapshot && snapshot.pending instanceof Map
+            ? snapshot.pending.get(visitId)
+            : null;
+        if (pendingMutation && pendingMutation.type === 'upsert' && pendingMutation.place) {
+            return cloneVisitRecord(pendingMutation.place);
+        }
+    }
+
+    return null;
+}
+
+function isVisitServerConfirmed(vaultRepo, expectedVisit) {
+    const visitId = getVisitId(expectedVisit);
+    if (!visitId || !expectedVisit || typeof expectedVisit !== 'object') return false;
+    if (!vaultRepo || typeof vaultRepo.getVisit !== 'function') return false;
+    const currentVisit = vaultRepo.getVisit(visitId);
+    if (!visitRecordsMatchForConfirmation(currentVisit, expectedVisit)) return false;
     // If pending introspection isn't available, fall back to a conservative
     // "not confirmed" so we keep waiting instead of lying green.
     if (typeof vaultRepo.hasPendingMutation !== 'function') return false;
     return !vaultRepo.hasPendingMutation(visitId);
 }
 
-function visitMatchesConfirmationId(place, visitId) {
-    if (!place || !visitId) return false;
-    return place.id === visitId || place.placeId === visitId;
-}
-
-async function probeServerForVisitConfirmation(visitId, reason = 'confirmation-probe') {
-    if (!visitId) return false;
+async function probeServerForVisitConfirmation(expectedVisit, reason = 'confirmation-probe') {
+    const visitId = getVisitId(expectedVisit);
+    if (!visitId || !expectedVisit || typeof expectedVisit !== 'object') return false;
     if (typeof firebase === 'undefined' || !firebase.firestore || !firebase.auth) return false;
 
     const user = firebase.auth().currentUser;
@@ -232,20 +395,36 @@ async function probeServerForVisitConfirmation(visitId, reason = 'confirmation-p
         }
 
         const doc = await firebase.firestore().collection('users').doc(user.uid).get({ source: 'server' });
+        // `source: 'server'` still applies Firestore latency compensation. A
+        // pending local mutation can therefore appear in doc.data(). Only
+        // explicit metadata proving no cache and no pending writes is durable
+        // server confirmation.
+        if (!isExplicitAuthoritativeSnapshot(doc)) return false;
+
         const data = doc && doc.exists && typeof doc.data === 'function' ? (doc.data() || {}) : {};
         const serverVisits = Array.isArray(data.visitedPlaces) ? data.visitedPlaces : [];
-        const confirmed = serverVisits.some(place => visitMatchesConfirmationId(place, visitId));
-        if (!confirmed) return false;
+        const confirmedVisit = serverVisits.find(place => visitRecordsMatchForConfirmation(place, expectedVisit));
+        if (!confirmedVisit) return false;
 
         const firebaseService = getFirebaseService();
-        if (firebaseService && typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
-            firebaseService.clearVisitedPlacePendingMutation(visitId);
-        } else {
-            const vaultRepo = getVaultRepo();
-            if (vaultRepo && typeof vaultRepo.clearPendingMutation === 'function') {
-                vaultRepo.clearPendingMutation(visitId);
-            }
+        const vaultRepo = getVaultRepo();
+        window._visitedPlacesServerSnapshotReceived = true;
+        if (firebaseService && typeof firebaseService.reconcileVisitedPlacesSnapshot === 'function') {
+            firebaseService.reconcileVisitedPlacesSnapshot(serverVisits, {
+                fromCache: false,
+                hasPendingWrites: false
+            });
+        } else if (vaultRepo && typeof vaultRepo.reconcileSnapshot === 'function') {
+            vaultRepo.reconcileSnapshot(serverVisits, {
+                fromCache: false,
+                hasPendingWrites: false
+            });
         }
+
+        // Reconciliation must independently agree that the exact mutation is
+        // no longer pending before the local safety copy or UI can turn green.
+        if (!isVisitServerConfirmed(vaultRepo, expectedVisit)) return false;
+
         clearUnconfirmedVisit(user.uid, visitId);
         refreshVisitedCache(`checkin-server-confirmed-${reason}`);
         refreshVisitedVisuals(`checkin-server-confirmed-${reason}`, firebaseService);
@@ -261,12 +440,19 @@ function clearPendingConfirmationTimers(entry) {
     if (!entry) return;
     if (entry.timeoutHandle) clearTimeout(entry.timeoutHandle);
     if (entry.retryHandle) clearInterval(entry.retryHandle);
+    if (entry.initialProbeHandle) clearTimeout(entry.initialProbeHandle);
 }
 
-function awaitServerConfirmation(visitId, options = {}) {
+function awaitServerConfirmation(visitOrId, options = {}) {
     return new Promise(resolve => {
+        const expectedVisit = resolveExpectedVisit(visitOrId, options);
+        const visitId = getVisitId(expectedVisit || visitOrId);
         if (!visitId) {
             resolve({ confirmed: false, reason: 'no-visit-id' });
+            return;
+        }
+        if (!expectedVisit) {
+            resolve({ confirmed: false, reason: 'no-expected-visit' });
             return;
         }
 
@@ -282,7 +468,7 @@ function awaitServerConfirmation(visitId, options = {}) {
         // Critically, in airplane mode the pending mutation is still set, so
         // this short-circuit will not fire — preventing the false-positive
         // "Verified & Secured" we just hit.
-        if (window._visitedPlacesServerSnapshotReceived && isVisitServerConfirmed(vaultRepo, visitId)) {
+        if (window._visitedPlacesServerSnapshotReceived && isVisitServerConfirmed(vaultRepo, expectedVisit)) {
             resolve({ confirmed: true });
             return;
         }
@@ -297,11 +483,12 @@ function awaitServerConfirmation(visitId, options = {}) {
         let resolved = false;
         let timeoutHandle = null;
         let retryHandle = null;
+        let initialProbeHandle = null;
         let probeInFlight = false;
         const settle = (result) => {
             if (resolved) return;
             resolved = true;
-            clearPendingConfirmationTimers({ timeoutHandle, retryHandle });
+            clearPendingConfirmationTimers({ timeoutHandle, retryHandle, initialProbeHandle });
             pendingServerConfirmations.delete(visitId);
             resolve(result);
         };
@@ -316,7 +503,7 @@ function awaitServerConfirmation(visitId, options = {}) {
             if (resolved || probeInFlight) return;
             probeInFlight = true;
             try {
-                const confirmed = await probeServerForVisitConfirmation(visitId, 'retry');
+                const confirmed = await probeServerForVisitConfirmation(expectedVisit, 'retry');
                 if (confirmed) settle({ confirmed: true });
             } finally {
                 probeInFlight = false;
@@ -325,8 +512,18 @@ function awaitServerConfirmation(visitId, options = {}) {
 
         // Path 1: snapshot listener fires (notifyAuthoritativeSnapshot → matching pending cleared)
         retryHandle = setInterval(runServerProbe, retryMs);
-        setTimeout(runServerProbe, Math.min(3000, retryMs));
-        pendingServerConfirmations.set(visitId, { resolve: settle, timeoutHandle, retryHandle });
+        initialProbeHandle = setTimeout(runServerProbe, Math.min(3000, retryMs));
+        const existingEntry = pendingServerConfirmations.get(visitId);
+        if (existingEntry && typeof existingEntry.resolve === 'function') {
+            existingEntry.resolve({ confirmed: false, reason: 'superseded' });
+        }
+        pendingServerConfirmations.set(visitId, {
+            resolve: settle,
+            timeoutHandle,
+            retryHandle,
+            initialProbeHandle,
+            expectedVisit: Object.freeze(cloneVisitRecord(expectedVisit))
+        });
 
         // Path 2: wait for pending writes, then require a fresh server doc read
         // that contains this visit. This avoids a false green if waitForPendingWrites
@@ -336,7 +533,7 @@ function awaitServerConfirmation(visitId, options = {}) {
             firebase.firestore().waitForPendingWrites()
                 .then(async () => {
                     if (resolved) return;
-                    const confirmed = await probeServerForVisitConfirmation(visitId, 'pending-writes-flushed');
+                    const confirmed = await probeServerForVisitConfirmation(expectedVisit, 'pending-writes-flushed');
                     if (confirmed) settle({ confirmed: true });
                 })
                 .catch(error => {
@@ -356,9 +553,11 @@ function notifyAuthoritativeSnapshot() {
     pendingServerConfirmations.forEach((entry, visitId) => {
         // Same gate as the immediate-check path: server snapshot must have
         // included the visit (pending mutation cleared by reconcile).
-        if (!isVisitServerConfirmed(vaultRepo, visitId)) return;
+        if (!entry || !isVisitServerConfirmed(vaultRepo, entry.expectedVisit)) return;
         clearPendingConfirmationTimers(entry);
         pendingServerConfirmations.delete(visitId);
+        const uid = getCurrentFirebaseUid();
+        if (uid) clearUnconfirmedVisit(uid, visitId);
         entry.resolve({ confirmed: true });
     });
 }
@@ -394,22 +593,31 @@ async function forceServerSyncRecovery(reason) {
         if (typeof firebase === 'undefined' || !firebase.firestore) return;
 
         const firestore = firebase.firestore();
-        if (typeof firestore.waitForPendingWrites === 'function') {
-            await Promise.race([
-                firestore.waitForPendingWrites(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('waitForPendingWrites timeout')), 20000))
-            ]).catch(error => console.warn(`[checkinService] waitForPendingWrites (${reason}) failed:`, error));
+        const user = firebase.auth ? firebase.auth().currentUser : null;
+
+        // Restage the local safety net first. This covers a cold reopen where
+        // the original in-memory Firestore write queue no longer exists.
+        if (user) {
+            await awaitWithTimeout(replayUnconfirmedVisits(user.uid), FIREBASE_WRITE_TIMEOUT_MS);
         }
 
-        if (firebase.auth) {
-            const user = firebase.auth().currentUser;
-            if (user) {
-                const doc = await firestore.collection('users').doc(user.uid)
-                    .get({ source: 'server' })
-                    .catch(error => {
-                        console.warn(`[checkinService] server doc fetch (${reason}) failed:`, error);
-                        return null;
-                    });
+        if (typeof firestore.waitForPendingWrites === 'function') {
+            await awaitWithTimeout(
+                firestore.waitForPendingWrites(),
+                20000,
+                'waitForPendingWrites timeout'
+            ).catch(error => console.warn(`[checkinService] waitForPendingWrites (${reason}) failed:`, error));
+        }
+
+        let authoritativeSnapshotApplied = false;
+        if (user) {
+            const doc = await firestore.collection('users').doc(user.uid)
+                .get({ source: 'server' })
+                .catch(error => {
+                    console.warn(`[checkinService] server doc fetch (${reason}) failed:`, error);
+                    return null;
+                });
+            if (isExplicitAuthoritativeSnapshot(doc)) {
                 const data = doc && doc.exists && typeof doc.data === 'function' ? (doc.data() || {}) : {};
                 const serverVisits = Array.isArray(data.visitedPlaces) ? data.visitedPlaces : [];
                 const firebaseService = getFirebaseService();
@@ -418,6 +626,9 @@ async function forceServerSyncRecovery(reason) {
                         fromCache: false,
                         hasPendingWrites: false
                     });
+                    reconcileUnconfirmedVisits(user.uid);
+                    window._visitedPlacesServerSnapshotReceived = true;
+                    authoritativeSnapshotApplied = true;
                 }
             }
         }
@@ -425,7 +636,7 @@ async function forceServerSyncRecovery(reason) {
         // Wake any in-flight awaitServerConfirmation promises that match
         // visits the server now has, then refresh all visuals so orange
         // pins/buttons flip green.
-        notifyAuthoritativeSnapshot();
+        if (authoritativeSnapshotApplied) notifyAuthoritativeSnapshot();
         refreshVisitedCache(`force-sync-recovery-${reason}`);
         refreshVisitedVisuals(`force-sync-recovery-${reason}`, getFirebaseService());
     } catch (error) {
@@ -590,7 +801,8 @@ function createVisitRecord(parkData, verified) {
         lat: parkData.lat,
         lng: parkData.lng,
         verified,
-        ts: Date.now()
+        ts: Date.now(),
+        [VISIT_SYNC_TOKEN_FIELD]: createVisitSyncToken()
     };
 }
 
@@ -885,8 +1097,13 @@ window.BARK.services.checkin = {
     replayUnconfirmedVisits,
     reconcileUnconfirmedVisits,
     clearUnconfirmedVisits,
+    isVisitAwaitingServerProof,
     awaitServerConfirmation,
     notifyAuthoritativeSnapshot,
     cancelPendingServerConfirmations,
     forceServerSyncRecovery
 };
+
+// Shared visual-state predicate for map pins, trip badges, and account UI.
+// Consumers fail closed if this service is unavailable.
+window.BARK.isVisitAwaitingServerProof = isVisitAwaitingServerProof;

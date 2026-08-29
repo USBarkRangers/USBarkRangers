@@ -725,9 +725,10 @@ function refreshActivePinVisitedButton() {
     const isVisited = typeof window.BARK.isParkVisited === 'function'
         ? window.BARK.isParkVisited(d)
         : hasAuthVisitedPlace(d);
-    const isPendingSync = vaultRepo
-        && typeof vaultRepo.hasPendingMutation === 'function'
-        && vaultRepo.hasPendingMutation(d);
+    const isPendingSync = typeof window.BARK.isVisitAwaitingServerProof === 'function'
+        ? window.BARK.isVisitAwaitingServerProof(d)
+        : !(vaultRepo && typeof vaultRepo.hasPendingMutation === 'function')
+            || vaultRepo.hasPendingMutation(d);
 
     if (isVisited) {
         btn.classList.add('visited');

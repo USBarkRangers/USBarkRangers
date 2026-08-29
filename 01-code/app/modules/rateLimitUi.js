@@ -8,6 +8,27 @@
     let lastWarningKey = '';
     let warningSequence = 0;
 
+    const ACTION_COPY = Object.freeze({
+        syncLeaderboardScore: Object.freeze({
+            title: 'Leaderboard update paused',
+            task: 'leaderboard updates',
+            reassurance: 'Your visited parks are saved. The leaderboard will retry automatically.'
+        }),
+        getPremiumRoute: Object.freeze({ title: 'Route generation paused', task: 'route generation' }),
+        getPremiumRouteBurst: Object.freeze({ title: 'Route generation paused', task: 'route generation' }),
+        getPremiumGeocode: Object.freeze({ title: 'Town search paused', task: 'town search' }),
+        getPremiumGeocodeBurst: Object.freeze({ title: 'Town search paused', task: 'town search' }),
+        createCheckoutSession: Object.freeze({ title: 'Upgrade checkout paused', task: 'upgrade checkout attempts' }),
+        restorePremiumPurchase: Object.freeze({ title: 'Purchase restore paused', task: 'purchase restore attempts' }),
+        getCustomerPortalUrl: Object.freeze({ title: 'Billing portal paused', task: 'billing portal requests' }),
+        cancelPremiumSubscription: Object.freeze({ title: 'Cancellation paused', task: 'subscription cancellation attempts' }),
+        deleteAccount: Object.freeze({ title: 'Account deletion paused', task: 'account deletion attempts' }),
+        reportClientError: Object.freeze({ title: 'Diagnostic reporting paused', task: 'automatic diagnostic reports' }),
+        'ors-directions': Object.freeze({ title: 'Routing provider busy', task: 'route generation' }),
+        'ors-geocoding': Object.freeze({ title: 'Town search provider busy', task: 'town search' }),
+        'ors-provider': Object.freeze({ title: 'Routing provider busy', task: 'routing requests' })
+    });
+
     function isRateLimitError(error) {
         const code = String(error && error.code || '').toLowerCase();
         return code === 'resource-exhausted' || code === 'functions/resource-exhausted';
@@ -40,16 +61,53 @@
         return `${date} at ${time}`;
     }
 
+    function formatWaitDuration(error, resetDate) {
+        const details = getRateLimitDetails(error);
+        let seconds = Number(details.retryAfterSeconds);
+        if ((!Number.isFinite(seconds) || seconds <= 0) && resetDate instanceof Date) {
+            seconds = Math.ceil((resetDate.getTime() - Date.now()) / 1000);
+        }
+        if (!Number.isFinite(seconds) || seconds <= 0) return '';
+        if (seconds < 60) return 'less than a minute';
+        const minutes = Math.ceil(seconds / 60);
+        if (minutes < 90) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+        const hours = Math.floor(minutes / 60);
+        const remainder = minutes % 60;
+        return remainder
+            ? `${hours} hour${hours === 1 ? '' : 's'} ${remainder} minutes`
+            : `${hours} hour${hours === 1 ? '' : 's'}`;
+    }
+
+    function getActionCopy(action) {
+        return ACTION_COPY[action] || Object.freeze({ title: 'Please slow down', task: 'this action' });
+    }
+
+    function getRateLimitPresentation(error) {
+        const details = getRateLimitDetails(error);
+        const actionCopy = getActionCopy(details.action);
+        const resetDate = getResetDate(error);
+        const resetTime = formatResetTime(resetDate);
+        const waitDuration = formatWaitDuration(error, resetDate);
+        const isGlobal = details.scope === 'global';
+        const lead = isGlobal
+            ? `The service temporarily paused ${actionCopy.task}.`
+            : `Are you a bot? Bot protection paused ${actionCopy.task}.`;
+        const retry = waitDuration
+            ? `Try again in about ${waitDuration}${resetTime ? `, at ${resetTime}` : ''}.`
+            : (resetTime ? `Try again at ${resetTime}.` : 'Try again shortly.');
+        const reassurance = actionCopy.reassurance ? ` ${actionCopy.reassurance}` : '';
+        return {
+            title: isGlobal && actionCopy.title === 'Please slow down'
+                ? 'Service temporarily busy'
+                : actionCopy.title,
+            message: `${lead} ${retry}${reassurance}`,
+            details
+        };
+    }
+
     function getRateLimitWarning(error) {
         if (!isRateLimitError(error)) return '';
-        const details = getRateLimitDetails(error);
-        const resetTime = formatResetTime(getResetDate(error));
-        const lead = details.scope === 'global'
-            ? 'This service is unusually busy.'
-            : 'Are you a bot?';
-        return resetTime
-            ? `${lead} Rate limit resets at ${resetTime}.`
-            : `${lead} Rate limit resets shortly.`;
+        return getRateLimitPresentation(error).message;
     }
 
     function ensureWarningPanel() {
@@ -102,7 +160,7 @@
         if (!panel) return false;
         const title = panel.querySelector('.rate-limit-warning__title');
         const messageNode = panel.querySelector('.rate-limit-warning__message');
-        if (title) title.textContent = details.scope === 'global' ? 'Service temporarily busy' : 'Please slow down';
+        if (title) title.textContent = details.title || (details.scope === 'global' ? 'Service temporarily busy' : 'Please slow down');
         if (messageNode) messageNode.textContent = message;
         panel.dataset.scope = details.scope === 'global' ? 'global' : 'user';
         panel.hidden = false;
@@ -118,18 +176,20 @@
         const message = getRateLimitWarning(error);
         if (!message) return false;
         const details = getRateLimitDetails(error);
+        const presentation = getRateLimitPresentation(error);
         const key = `${details.action || 'unknown'}|${details.retryAt || message}`;
         const existing = window.document && window.document.getElementById
             ? window.document.getElementById('rate-limit-warning')
             : null;
         if (key === lastWarningKey && existing && !existing.hidden) return true;
         lastWarningKey = key;
-        return renderRateLimitWarning(message, details);
+        return renderRateLimitWarning(message, { ...details, title: presentation.title });
     }
 
     window.BARK.rateLimitUi = {
         isRateLimitError,
         getResetDate,
+        getRateLimitPresentation,
         getRateLimitWarning,
         showRateLimitWarning,
         ensureWarningPanel

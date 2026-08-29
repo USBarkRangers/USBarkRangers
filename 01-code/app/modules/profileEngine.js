@@ -244,7 +244,20 @@ async function refreshProfile(visitedPlacesMap) {
         // 4. Leaderboard, last, so the screen is already painted before we go to the
         //    network.
         if (userId && typeof window.BARK.syncScoreToLeaderboard === 'function') {
-            await window.BARK.syncScoreToLeaderboard();
+            const profileView = document.getElementById('profile-view');
+            const profileIsActive = Boolean(
+                profileView &&
+                profileView.classList &&
+                typeof profileView.classList.contains === 'function' &&
+                profileView.classList.contains('active')
+            );
+            const canDetectActiveView = Boolean(
+                profileView && profileView.classList && typeof profileView.classList.contains === 'function'
+            );
+            await window.BARK.syncScoreToLeaderboard({
+                adaptive: canDetectActiveView ? !profileIsActive : false,
+                reason: 'profile-refresh'
+            });
 
             // The sync may have discovered a new rank, and "Alpha Dog" unlocks at #1,
             // so the vault we painted in step 3 can be one badge out of date.

@@ -86,6 +86,11 @@ describe("bounded callable rate limits", () => {
             shortWindowMs: 60 * 60 * 1000,
             dailyMax: 60
         });
+        assert.deepEqual(BOUNDED_CALLABLE_RATE_LIMITS.syncLeaderboardScore, {
+            shortMax: 120,
+            shortWindowMs: 10 * 60 * 1000,
+            dailyMax: 500
+        });
         assert.equal(ROUTE_PROVIDER_ATTEMPT_LIMIT, 12);
         assert.deepEqual(ORS_CIRCUIT_LIMITS.directions, {
             shortMax: 32,
@@ -115,6 +120,8 @@ describe("bounded callable rate limits", () => {
             error => errorCode(error) === "resource-exhausted" &&
                 /Are you a bot\?/.test(error.message) &&
                 error.details.retryAt === "2026-08-24T20:15:00.000Z" &&
+                error.details.limitType === "short" &&
+                error.details.shortRetryAt === "2026-08-24T20:15:00.000Z" &&
                 error.details.scope === "user"
         );
     });
@@ -137,7 +144,9 @@ describe("bounded callable rate limits", () => {
         await assert.rejects(
             enforceBoundedCallableRateLimit("ranger-b", "restorePremiumPurchase", { ...base, nowMillis: dayStart + 7_200_000 }),
             error => errorCode(error) === "resource-exhausted" &&
-                error.details.retryAt === "2026-08-25T00:00:00.000Z"
+                error.details.retryAt === "2026-08-25T00:00:00.000Z" &&
+                error.details.limitType === "daily" &&
+                error.details.dailyRetryAt === "2026-08-25T00:00:00.000Z"
         );
     });
 
@@ -160,6 +169,45 @@ describe("bounded callable rate limits", () => {
         await assert.rejects(
             enforceBoundedCallableRateLimit("ranger-c", "createCheckoutSession", options),
             error => errorCode(error) === "resource-exhausted" && error.details.scope === "global"
+        );
+    });
+
+    it("admits 120 leaderboard changes per ten minutes and 500 per day", async () => {
+        const shortFirestore = makeCounterFirestore();
+        const shortStart = Date.parse("2026-08-24T20:00:00.000Z");
+        for (let index = 0; index < 120; index++) {
+            await enforceBoundedCallableRateLimit("history-ranger", "syncLeaderboardScore", {
+                firestore: shortFirestore,
+                nowMillis: shortStart + 1_000
+            });
+        }
+        await assert.rejects(
+            enforceBoundedCallableRateLimit("history-ranger", "syncLeaderboardScore", {
+                firestore: shortFirestore,
+                nowMillis: shortStart + 2_000
+            }),
+            error => errorCode(error) === "resource-exhausted" &&
+                error.details.limitType === "short" &&
+                error.details.retryAt === "2026-08-24T20:10:00.000Z"
+        );
+
+        const dailyFirestore = makeCounterFirestore();
+        const dayStart = Date.parse("2026-08-24T00:00:00.000Z");
+        for (let index = 0; index < 500; index++) {
+            const windowIndex = Math.floor(index / 100);
+            await enforceBoundedCallableRateLimit("history-ranger", "syncLeaderboardScore", {
+                firestore: dailyFirestore,
+                nowMillis: dayStart + windowIndex * 10 * 60 * 1000 + 1_000
+            });
+        }
+        await assert.rejects(
+            enforceBoundedCallableRateLimit("history-ranger", "syncLeaderboardScore", {
+                firestore: dailyFirestore,
+                nowMillis: dayStart + 60 * 60 * 1000
+            }),
+            error => errorCode(error) === "resource-exhausted" &&
+                error.details.limitType === "daily" &&
+                error.details.retryAt === "2026-08-25T00:00:00.000Z"
         );
     });
 

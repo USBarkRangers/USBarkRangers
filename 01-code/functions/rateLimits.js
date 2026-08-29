@@ -32,7 +32,7 @@ const BOUNDED_CALLABLE_RATE_LIMITS = Object.freeze({
     getCustomerPortalUrl: Object.freeze({ shortMax: 30, shortWindowMs: 60 * 60 * 1000, dailyMax: 60 }),
     cancelPremiumSubscription: Object.freeze({ shortMax: 3, shortWindowMs: 60 * 60 * 1000, dailyMax: 5 }),
     deleteAccount: Object.freeze({ shortMax: 2, shortWindowMs: 60 * 60 * 1000, dailyMax: 3 }),
-    syncLeaderboardScore: Object.freeze({ shortMax: 30, shortWindowMs: 10 * 60 * 1000, dailyMax: 120 }),
+    syncLeaderboardScore: Object.freeze({ shortMax: 120, shortWindowMs: 10 * 60 * 1000, dailyMax: 500 }),
     reportClientError: Object.freeze({ shortMax: 20, shortWindowMs: 60 * 60 * 1000, dailyMax: 50 })
 });
 
@@ -109,14 +109,19 @@ function buildRateLimitCounterUpdate({ stored, config, now, identity }) {
     const daily = config.dailyMax
         ? getRateLimitWindowState(stored, "daily", now, RATE_LIMIT_DAY_MS)
         : null;
+    const shortBlocked = short.count >= config.shortMax;
+    const dailyBlocked = Boolean(daily && daily.count >= config.dailyMax);
     const blocked = [];
-    if (short.count >= config.shortMax) blocked.push(short.windowEndsAt);
-    if (daily && daily.count >= config.dailyMax) blocked.push(daily.windowEndsAt);
+    if (shortBlocked) blocked.push(short.windowEndsAt);
+    if (dailyBlocked) blocked.push(daily.windowEndsAt);
     const retryAtMs = blocked.length ? Math.max(...blocked) : null;
     const expiresAtMs = Math.max(short.windowEndsAt, daily ? daily.windowEndsAt : 0) + RATE_LIMIT_DAY_MS;
 
     return {
         retryAtMs,
+        limitType: dailyBlocked ? "daily" : (shortBlocked ? "short" : null),
+        shortRetryAtMs: shortBlocked ? short.windowEndsAt : null,
+        dailyRetryAtMs: dailyBlocked && daily ? daily.windowEndsAt : null,
         value: {
             ...identity,
             shortWindowStartMs: short.windowStart,
@@ -131,13 +136,21 @@ function buildRateLimitCounterUpdate({ stored, config, now, identity }) {
     };
 }
 
-function makeBotRateLimitError(action, retryAtMs, scope = "user", now = Date.now()) {
+function makeBotRateLimitError(action, retryAtMs, scope = "user", now = Date.now(), metadata = {}) {
     const retryAfterSeconds = Math.max(1, Math.ceil((retryAtMs - now) / 1000));
     const retryAt = new Date(retryAtMs).toISOString();
     return new functions.https.HttpsError(
         "resource-exhausted",
         `Are you a bot? Rate limit reached. Rate limit resets at ${retryAt}.`,
-        { action, scope, retryAfterSeconds, retryAt }
+        {
+            action,
+            scope,
+            retryAfterSeconds,
+            retryAt,
+            limitType: metadata.limitType || null,
+            shortRetryAt: metadata.shortRetryAtMs ? new Date(metadata.shortRetryAtMs).toISOString() : null,
+            dailyRetryAt: metadata.dailyRetryAtMs ? new Date(metadata.dailyRetryAtMs).toISOString() : null
+        }
     );
 }
 
@@ -205,8 +218,8 @@ async function enforceBoundedCallableRateLimitInTransaction(transaction, uid, ac
         identity: { actionGroup: globalScope, scope: "global" }
     }) : null;
 
-    if (userCounter.retryAtMs) throw makeBotRateLimitError(action, userCounter.retryAtMs, "user", now);
-    if (globalCounter && globalCounter.retryAtMs) throw makeBotRateLimitError(action, globalCounter.retryAtMs, "global", now);
+    if (userCounter.retryAtMs) throw makeBotRateLimitError(action, userCounter.retryAtMs, "user", now, userCounter);
+    if (globalCounter && globalCounter.retryAtMs) throw makeBotRateLimitError(action, globalCounter.retryAtMs, "global", now, globalCounter);
 
     transaction.set(userRef, userCounter.value, { merge: true });
     if (globalRef && globalCounter) transaction.set(globalRef, globalCounter.value, { merge: true });

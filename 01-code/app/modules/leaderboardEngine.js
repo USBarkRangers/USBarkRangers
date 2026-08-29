@@ -46,6 +46,11 @@ let cachedLeaderboardData = [];
 let _leaderboardSyncInProgress = false;
 let _leaderboardSyncQueued = false;
 let _leaderboardSyncRetryTimer = null;
+let _adaptiveLeaderboardSyncTimer = null;
+let _adaptiveLeaderboardSyncDueAt = 0;
+let _adaptiveLeaderboardPendingFingerprint = null;
+let _leaderboardSyncPolicy = null;
+let _leaderboardRateLimitedUntil = 0;
 
 // Backstop against hammering the callable when a sync keeps failing: the same
 // fingerprint won't be retried more often than LEADERBOARD_SYNC_RETRY_DELAY_MS.
@@ -95,6 +100,16 @@ function resetLeaderboardState() {
         clearTimeout(_leaderboardSyncRetryTimer);
         _leaderboardSyncRetryTimer = null;
     }
+    if (_adaptiveLeaderboardSyncTimer !== null) {
+        clearTimeout(_adaptiveLeaderboardSyncTimer);
+        _adaptiveLeaderboardSyncTimer = null;
+    }
+    _adaptiveLeaderboardSyncDueAt = 0;
+    _adaptiveLeaderboardPendingFingerprint = null;
+    _leaderboardRateLimitedUntil = 0;
+    if (_leaderboardSyncPolicy && typeof _leaderboardSyncPolicy.reset === 'function') {
+        _leaderboardSyncPolicy.reset();
+    }
     _lastLeaderboardSyncAttemptTime = 0;
     _lastLeaderboardSyncAttemptFingerprint = null;
 }
@@ -106,7 +121,12 @@ function getLeaderboardSyncState() {
         lastSyncedFingerprint,
         rank: lastKnownRank,
         hasLoadedOnce,
-        hasMorePages: lastLeaderboardDoc !== null
+        hasMorePages: lastLeaderboardDoc !== null,
+        adaptiveDueAt: _adaptiveLeaderboardSyncDueAt || null,
+        rateLimitedUntil: _leaderboardRateLimitedUntil || null,
+        adaptiveSync: _leaderboardSyncPolicy && typeof _leaderboardSyncPolicy.snapshot === 'function'
+            ? _leaderboardSyncPolicy.snapshot()
+            : null
     };
 }
 
@@ -283,6 +303,108 @@ function getLeaderboardSyncFingerprint(totalScore, totalVisitedCount, hasVerifie
     });
 }
 
+function getCurrentLeaderboardScoreState() {
+    const visitedPlaces = visitedPlacesArray();
+    const scoreSummary = window.BARK.calculateVisitScore(visitedPlaces, window.currentWalkPoints);
+    const totalScore = scoreSummary.totalScore;
+    const totalVisitedCount = totalVisitedCountFor(visitedPlaces, scoreSummary);
+    const hasVerified = hasVerifiedVisit(visitedPlaces);
+    return {
+        visitedPlaces,
+        totalScore,
+        totalVisitedCount,
+        hasVerified,
+        fingerprint: getLeaderboardSyncFingerprint(totalScore, totalVisitedCount, hasVerified)
+    };
+}
+
+function getLeaderboardSyncPolicy() {
+    if (_leaderboardSyncPolicy) return _leaderboardSyncPolicy;
+    if (typeof window.BARK.createLeaderboardSyncPolicy !== 'function') return null;
+    _leaderboardSyncPolicy = window.BARK.createLeaderboardSyncPolicy();
+    return _leaderboardSyncPolicy;
+}
+
+function clearAdaptiveLeaderboardTimer() {
+    if (_adaptiveLeaderboardSyncTimer !== null) clearTimeout(_adaptiveLeaderboardSyncTimer);
+    _adaptiveLeaderboardSyncTimer = null;
+    _adaptiveLeaderboardSyncDueAt = 0;
+}
+
+function scheduleAdaptiveLeaderboardTimer(dueAt) {
+    const safeDueAt = Math.max(Date.now(), Number(dueAt) || Date.now());
+    clearAdaptiveLeaderboardTimer();
+    _adaptiveLeaderboardSyncDueAt = safeDueAt;
+    _adaptiveLeaderboardSyncTimer = setTimeout(() => {
+        _adaptiveLeaderboardSyncTimer = null;
+        _adaptiveLeaderboardSyncDueAt = 0;
+        performLeaderboardSync();
+    }, Math.max(0, safeDueAt - Date.now()));
+}
+
+function scheduleScoreToLeaderboard(reason = 'score-change') {
+    const user = getCurrentFirebaseUser();
+    if (!user) return { scheduled: false, reason: 'signed-out' };
+
+    const scoreState = getCurrentLeaderboardScoreState();
+    if (scoreState.fingerprint === lastSyncedFingerprint) {
+        if (_adaptiveLeaderboardPendingFingerprint === scoreState.fingerprint) {
+            clearAdaptiveLeaderboardTimer();
+            _adaptiveLeaderboardPendingFingerprint = null;
+        }
+        return { scheduled: false, reason: 'unchanged' };
+    }
+
+    const policy = getLeaderboardSyncPolicy();
+    if (!policy) {
+        performLeaderboardSync();
+        return { scheduled: true, reason: 'policy-unavailable', immediate: true };
+    }
+
+    const decision = policy.request(scoreState.fingerprint, Date.now());
+    _adaptiveLeaderboardPendingFingerprint = scoreState.fingerprint;
+
+    // Repeated render/snapshot notifications for the same score must not keep
+    // pushing a valid timer into the future.
+    if (!decision.changed && _adaptiveLeaderboardSyncTimer !== null) {
+        return {
+            scheduled: true,
+            reason,
+            bulkMode: decision.bulkMode,
+            dueAt: _adaptiveLeaderboardSyncDueAt
+        };
+    }
+
+    const dueAt = Math.max(decision.dueAt, _leaderboardRateLimitedUntil);
+    scheduleAdaptiveLeaderboardTimer(dueAt);
+    return {
+        scheduled: true,
+        reason,
+        bulkMode: decision.bulkMode,
+        distinctChanges: decision.distinctChanges,
+        dueAt
+    };
+}
+
+function scheduleLeaderboardRateLimitRetry(error) {
+    const rateLimitUi = window.BARK && window.BARK.rateLimitUi;
+    if (!rateLimitUi || typeof rateLimitUi.isRateLimitError !== 'function' || !rateLimitUi.isRateLimitError(error)) {
+        return false;
+    }
+
+    const details = error && error.details && typeof error.details === 'object' ? error.details : {};
+    const retryAtMs = Date.parse(details.retryAt || '');
+    if (!Number.isFinite(retryAtMs)) return false;
+
+    // Stagger global recovery so a large launch does not create a second surge
+    // on the exact ten-minute boundary. User-only limits need only a small skew.
+    const jitterRangeMs = details.scope === 'global' ? 2 * 60 * 1000 : 15 * 1000;
+    const jitterMs = Math.floor(Math.random() * jitterRangeMs);
+    _leaderboardRateLimitedUntil = retryAtMs + jitterMs;
+    scheduleAdaptiveLeaderboardTimer(_leaderboardRateLimitedUntil);
+    return true;
+}
+
 function scheduleQueuedLeaderboardSync(delayMs = 0) {
     if (!_leaderboardSyncQueued) return;
     if (_leaderboardSyncRetryTimer !== null) return;
@@ -291,7 +413,7 @@ function scheduleQueuedLeaderboardSync(delayMs = 0) {
         _leaderboardSyncRetryTimer = null;
         if (!_leaderboardSyncQueued) return;
         _leaderboardSyncQueued = false;
-        syncScoreToLeaderboard();
+        performLeaderboardSync();
     }, delayMs);
 }
 
@@ -299,18 +421,15 @@ function scheduleQueuedLeaderboardSync(delayMs = 0) {
  * Push this user's score to the public leaderboard, then refresh their rank.
  * Safe to call often — it returns early unless something actually changed.
  */
-async function syncScoreToLeaderboard() {
+async function performLeaderboardSync() {
     const now = Date.now();
 
     const user = getCurrentFirebaseUser();
     if (!user) return;
 
-    const visitedPlaces = visitedPlacesArray();
-    const scoreSummary = window.BARK.calculateVisitScore(visitedPlaces, window.currentWalkPoints);
-    const totalScore = scoreSummary.totalScore;
-    const totalVisitedCount = totalVisitedCountFor(visitedPlaces, scoreSummary);
-    const hasVerified = hasVerifiedVisit(visitedPlaces);
-    const localFingerprint = getLeaderboardSyncFingerprint(totalScore, totalVisitedCount, hasVerified);
+    const scoreState = getCurrentLeaderboardScoreState();
+    const { visitedPlaces, totalScore, totalVisitedCount, hasVerified } = scoreState;
+    const localFingerprint = scoreState.fingerprint;
 
     // Nothing changed since the last successful sync.
     if (localFingerprint === lastSyncedFingerprint) return;
@@ -368,6 +487,18 @@ async function syncScoreToLeaderboard() {
             leaderboardVisitedCount,
             leaderboardHasVerified
         );
+        if (
+            !_adaptiveLeaderboardPendingFingerprint ||
+            _adaptiveLeaderboardPendingFingerprint === lastSyncedFingerprint
+        ) {
+            _adaptiveLeaderboardPendingFingerprint = null;
+            clearAdaptiveLeaderboardTimer();
+        }
+        _leaderboardRateLimitedUntil = 0;
+        const syncPolicy = getLeaderboardSyncPolicy();
+        if (syncPolicy && typeof syncPolicy.markSuccessfulSync === 'function') {
+            syncPolicy.markSuccessfulSync(Date.now(), lastSyncedFingerprint);
+        }
 
         const exactRank = await fetchExactLeaderboardRankForScore(leaderboardScore, 'score-sync');
         setCurrentLeaderboardRank(exactRank);
@@ -395,10 +526,25 @@ async function syncScoreToLeaderboard() {
         if (rateLimitUi && typeof rateLimitUi.showRateLimitWarning === 'function') {
             rateLimitUi.showRateLimitWarning(error);
         }
+        if (scheduleLeaderboardRateLimitRetry(error)) {
+            _leaderboardSyncQueued = false;
+        }
     } finally {
         _leaderboardSyncInProgress = false;
         scheduleQueuedLeaderboardSync();
     }
+}
+
+/**
+ * Immediate by default for explicit user actions and existing callers. Passive
+ * visit/profile refreshes opt into adaptive mode so rapid history entry is
+ * merged without delaying the underlying park saves.
+ */
+async function syncScoreToLeaderboard(options = {}) {
+    if (options && options.adaptive === true) {
+        return scheduleScoreToLeaderboard(options.reason || 'adaptive-request');
+    }
+    return performLeaderboardSync();
 }
 
 // ---------------------------------------------------------------------------

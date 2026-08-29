@@ -768,7 +768,10 @@ function maybeSyncAuthoritativeProfileScore(reason) {
         if (!window._firstServerPayloadReceived || !window._visitedPlacesServerSnapshotReceived) return;
 
         if (typeof window.BARK.syncScoreToLeaderboard === 'function') {
-            Promise.resolve(window.BARK.syncScoreToLeaderboard())
+            Promise.resolve(window.BARK.syncScoreToLeaderboard({
+                adaptive: true,
+                reason: reason || 'visitedPlaces-snapshot'
+            }))
                 .catch(error => console.error(`[authService] authoritative score sync failed (${reason || 'snapshot'}):`, error));
         }
     }, 0);

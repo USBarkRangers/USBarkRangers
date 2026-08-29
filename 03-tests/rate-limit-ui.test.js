@@ -60,14 +60,20 @@ function loadRateLimitUi() {
     return { api: window.BARK.rateLimitUi, document };
 }
 
-test('rate-limit UI formats the server reset in local time with the bot warning', () => {
+test('rate-limit UI names the limited checkout task and gives a useful wait duration', () => {
     const { api } = loadRateLimitUi();
     const message = api.getRateLimitWarning({
         code: 'functions/resource-exhausted',
-        details: { action: 'createCheckoutSession', retryAt: '2026-08-24T21:42:00.000Z' }
+        details: {
+            action: 'createCheckoutSession',
+            retryAt: '2026-08-24T21:42:00.000Z',
+            retryAfterSeconds: 600,
+            limitType: 'short'
+        }
     });
 
-    assert.match(message, /^Are you a bot\? Rate limit resets at /);
+    assert.match(message, /^Are you a bot\? Bot protection paused upgrade checkout attempts\./);
+    assert.match(message, /Try again in about 10 minutes/);
     assert.match(message, /\.$/);
     assert.doesNotMatch(message, /2026-08-24T21:42/);
 });
@@ -97,6 +103,28 @@ test('global provider limits use service-busy copy instead of accusing the user'
         details: { action: 'ors-directions', scope: 'global', retryAfterSeconds: 60 }
     });
 
-    assert.match(message, /^This service is unusually busy\./);
+    assert.match(message, /^The service temporarily paused route generation\./);
     assert.doesNotMatch(message, /Are you a bot\?/);
+});
+
+test('leaderboard warning confirms parks are safe and automatic catch-up is scheduled', () => {
+    const { api, document } = loadRateLimitUi();
+    const error = {
+        code: 'functions/resource-exhausted',
+        details: {
+            action: 'syncLeaderboardScore',
+            scope: 'user',
+            retryAfterSeconds: 420,
+            retryAt: new Date(Date.now() + 420_000).toISOString(),
+            limitType: 'short'
+        }
+    };
+
+    assert.equal(api.showRateLimitWarning(error), true);
+    const panel = document.getElementById('rate-limit-warning');
+    assert.equal(panel.querySelector('.rate-limit-warning__title').textContent, 'Leaderboard update paused');
+    const message = panel.querySelector('.rate-limit-warning__message').textContent;
+    assert.match(message, /7 minutes/);
+    assert.match(message, /visited parks are saved/i);
+    assert.match(message, /retry automatically/i);
 });

@@ -1581,7 +1581,7 @@
     <!-- Lightweight monitoring context and reporter load early to cover boot. -->
     <script src="modules/monitoringContext.js?v=5" defer></script>
     <script src="modules/errorReporter.js?v=7" defer></script>
-    <script src="modules/rateLimitUi.js?v=2" defer></script>
+    <script src="modules/rateLimitUi.js?v=3" defer></script>
     <!-- Core Dependencies (load before modules) -->
     <script src="utils/geoUtils.js?v=2" defer></script>
     <script src="utils/scoringUtils.js?v=2" defer></script>
@@ -1614,7 +1614,7 @@
          parse before authService and panelRenderer, which build fallback links from it. -->
     <script src="modules/feedbackTransport.js?v=7" defer></script>
     <script src="modules/paywallController.js?v=24" defer></script>
-    <script src="services/authService.js?v=79" defer></script>
+    <script src="services/authService.js?v=80" defer></script>
     <script src="modules/markerLayerPolicy.js?v=2" defer></script>
     <script src="modules/MarkerLayerManager.js?v=18" defer></script>
     <script src="engines/tripRoutePlan.js?v=3" defer></script>
@@ -1629,10 +1629,11 @@
     <script src="renderers/leaderboardRenderer.js?v=1" defer></script>
     <script src="modules/achievementsPanel.js?v=1" defer></script>
     <script src="modules/managePortal.js?v=1" defer></script>
-    <script src="modules/profileEngine.js?v=16" defer></script>
+    <script src="modules/profileEngine.js?v=17" defer></script>
     <!-- leaderboardEngine loads after profileEngine so the shared visit helpers are
          registered on window.BARK first. Calls in the other direction are late-bound. -->
-    <script src="modules/leaderboardEngine.js?v=3" defer></script>
+    <script src="modules/leaderboardSyncPolicy.js?v=1" defer></script>
+    <script src="modules/leaderboardEngine.js?v=4" defer></script>
     <script src="modules/expeditionEngine.js?v=11" defer></script>
     <script src="modules/walkTracker.js?v=4" defer></script>
     <script src="engines/tripPlannerCore.js?v=28" defer></script>

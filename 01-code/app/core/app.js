@@ -237,7 +237,23 @@
         // 4. Firebase gets a bounded head start. On fake cellular service the
         //    local park cache continues after 10 seconds instead of waiting on
         //    an unbounded cloud handshake. Firebase itself is not cancelled.
-        await initializeFirebaseForBoot();
+        const firebaseBootResult = await initializeFirebaseForBoot();
+
+        // If cloud auth is the part that stalled, locally durable unconfirmed
+        // visits can still be painted orange before the cached pins render.
+        // Auth later approves or removes that account-scoped hydration.
+        if (firebaseBootResult.status === 'timeout') {
+            const checkinService = window.BARK.services && window.BARK.services.checkin;
+            if (checkinService && typeof checkinService.hydrateRememberedUnconfirmedVisits === 'function') {
+                try {
+                    checkinService.hydrateRememberedUnconfirmedVisits();
+                } catch (error) {
+                    // Pending-visit recovery must never block the cached park
+                    // layer. Auth can retry recovery when connectivity returns.
+                    console.warn('[B.A.R.K. Boot] Pending visit cache hydration failed.', error);
+                }
+            }
+        }
 
         // 5. Data loading — loadData handles cache hydration, immediate fetch, and polling schedule
         try {

@@ -1423,6 +1423,12 @@ async function initFirebase() {
                     }
 
                     const checkinService = window.BARK.services && window.BARK.services.checkin;
+                    if (checkinService && typeof checkinService.reconcilePreAuthVisitHydration === 'function') {
+                        checkinService.reconcilePreAuthVisitHydration(user.uid);
+                    }
+                    if (checkinService && typeof checkinService.rememberAuthenticatedVisitUid === 'function') {
+                        checkinService.rememberAuthenticatedVisitUid(user.uid);
+                    }
                     if (checkinService && typeof checkinService.replayUnconfirmedVisits === 'function') {
                         Promise.resolve(checkinService.replayUnconfirmedVisits(user.uid))
                             .catch(error => console.error('[authService] replayUnconfirmedVisits failed:', error));
@@ -1523,6 +1529,14 @@ async function initFirebase() {
                     stopUserSnapshotSubscription();
                     stopVaultRepoVisitSubscription();
                     resetPremiumEntitlement('auth-signed-out');
+
+                    const checkinService = window.BARK.services && window.BARK.services.checkin;
+                    if (checkinService && typeof checkinService.reconcilePreAuthVisitHydration === 'function') {
+                        checkinService.reconcilePreAuthVisitHydration(null);
+                    }
+                    if (checkinService && typeof checkinService.forgetAuthenticatedVisitUid === 'function') {
+                        checkinService.forgetAuthenticatedVisitUid();
+                    }
 
                     if (loginContainer) loginContainer.style.display = 'block';
                     if (offlineStatusContainer) offlineStatusContainer.style.display = 'none';

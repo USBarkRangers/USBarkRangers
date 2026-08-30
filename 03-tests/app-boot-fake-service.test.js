@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const APP_PATH = path.join(__dirname, '..', '01-code', 'app', 'core', 'app.js');
 const APP_SOURCE = fs.readFileSync(APP_PATH, 'utf8');
 
-function createHarness(initFirebase, calls = []) {
+function createHarness(initFirebase, calls = [], checkinService = null) {
     let domReadyHandler = null;
     const timers = [];
     const clearedTimers = new Set();
@@ -16,7 +16,10 @@ function createHarness(initFirebase, calls = []) {
         window: {
             map: {},
             BARK: {
-                services: { auth: { initFirebase } },
+                services: {
+                    auth: { initFirebase },
+                    ...(checkinService ? { checkin: checkinService } : {})
+                },
                 loadData() { calls.push('loadData'); }
             }
         },
@@ -92,4 +95,19 @@ test('Firebase recovery after the timeout does not reload or replace cached park
     finishFirebase();
     await flushPromises();
     assert.deepEqual(harness.calls, ['loadData']);
+});
+
+test('fake-service timeout hydrates pending orange visits before cached park data', async () => {
+    const calls = [];
+    const harness = createHarness(
+        () => new Promise(() => {}),
+        calls,
+        { hydrateRememberedUnconfirmedVisits() { calls.push('hydrateOrange'); } }
+    );
+    const bootPromise = harness.start();
+    await flushPromises();
+
+    harness.timers.find(timer => timer.delay === 10000).callback();
+    await bootPromise;
+    assert.deepEqual(calls, ['hydrateOrange', 'loadData']);
 });

@@ -1,4 +1,6 @@
 const { test, expect, chromium, webkit, devices } = require('@playwright/test');
+const fs = require('fs');
+const path = require('path');
 
 const BASE_URL = process.env.BARK_E2E_BASE_URL || 'http://localhost:4173/index.html';
 const ANDROID_PWA = {
@@ -17,8 +19,30 @@ for (const profile of [
     test(`${profile.name} releases cached pins after a fake-cell Firebase stall`, async () => {
         const browser = await profile.browserType.launch();
         const context = await browser.newContext({ ...profile.options, serviceWorkers: 'block' });
-        await context.addInitScript(({ ios }) => {
+        const csv = fs.readFileSync(path.join(__dirname, '../../01-code/app/assets/data/bark-fallback.csv'), 'utf8');
+        // Stable first record in the checked-in fallback cache fixture.
+        const pendingVisit = {
+            id: '6b5a8134-6afb-4b93-8065-d10d3696eb5e',
+            name: 'Acadia National Park Hulls Cove Visitor Center',
+            lat: 44.4089658,
+            lng: -68.2472733,
+            verified: false,
+            ts: Date.now(),
+            syncToken: 'fake-cell-orange-test'
+        };
+        const rememberedUid = 'fake-cell-remembered-user';
+
+        // Seed storage before any application script runs. Opening a preliminary
+        // app page here creates an auth/sign-out race that is not part of a cold
+        // installed-PWA launch and can erase the remembered account pointer.
+        await context.addInitScript(({ ios, csv, pendingVisit, rememberedUid }) => {
             localStorage.setItem('barkTermsAgreement', '1');
+            localStorage.setItem('barkCSV', csv);
+            localStorage.setItem('barkCSV_time', String(Date.now()));
+            localStorage.setItem('bark.lastAuthenticatedVisitUid', rememberedUid);
+            localStorage.setItem(`bark.unconfirmedVisits.${rememberedUid}`, JSON.stringify({
+                [pendingVisit.id]: { visit: pendingVisit, stashedAt: Date.now() }
+            }));
             if (ios) {
                 Object.defineProperty(navigator, 'standalone', { configurable: true, get: () => true });
             }
@@ -34,20 +58,9 @@ for (const profile of [
                     }
                 });
             };
-        }, { ios: profile.ios });
+        }, { ios: profile.ios, csv, pendingVisit, rememberedUid });
 
         try {
-            // Seed the exact local cache an installed app already has from a
-            // successful earlier launch. This is independent of the live Sheet.
-            const seedPage = await context.newPage();
-            await seedPage.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
-            await seedPage.evaluate(async () => {
-                const csv = await (await fetch('assets/data/bark-fallback.csv')).text();
-                localStorage.setItem('barkCSV', csv);
-                localStorage.setItem('barkCSV_time', String(Date.now()));
-            });
-            await seedPage.close();
-
             // Preserve the real app and replace only the Firebase initializer
             // with a never-settling fake-cell handshake.
             await context.route('**/services/authService.js*', async route => {
@@ -72,6 +85,21 @@ for (const profile of [
             expect(elapsedMs).toBeGreaterThanOrEqual(9500);
             expect(elapsedMs).toBeLessThan(12500);
             expect(await page.evaluate(() => window.BARK.loadState.getParkState())).toBe('ready');
+            expect(await page.evaluate(visitId => {
+                const repo = window.BARK.repos.VaultRepo;
+                const marker = window.BARK.markerManager?.markers?.get(visitId);
+                return {
+                    hasVisit: repo.hasVisit(visitId),
+                    pending: repo.hasPendingMutation(visitId),
+                    awaitingProof: window.BARK.services.checkin.isVisitAwaitingServerProof(visitId),
+                    orangeClass: Boolean(marker?._icon?.classList?.contains('visited-pin--pending-sync'))
+                };
+            }, pendingVisit.id)).toEqual({
+                hasVisit: true,
+                pending: true,
+                awaitingProof: true,
+                orangeClass: true
+            });
         } finally {
             await context.close();
             await browser.close();

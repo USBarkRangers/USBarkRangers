@@ -85,6 +85,34 @@ function getUnconfirmedVisitsKey(uid) {
     return uid ? `bark.unconfirmedVisits.${uid}` : null;
 }
 
+const LAST_AUTHENTICATED_VISIT_UID_KEY = 'bark.lastAuthenticatedVisitUid';
+let preAuthHydratedUid = null;
+let preAuthHydratedVisitIds = new Set();
+
+function getRememberedAuthenticatedVisitUid() {
+    try {
+        return String(localStorage.getItem(LAST_AUTHENTICATED_VISIT_UID_KEY) || '').trim() || null;
+    } catch (_error) {
+        return null;
+    }
+}
+
+function rememberAuthenticatedVisitUid(uid) {
+    if (!uid) return false;
+    try {
+        localStorage.setItem(LAST_AUTHENTICATED_VISIT_UID_KEY, String(uid));
+        return true;
+    } catch (_error) {
+        return false;
+    }
+}
+
+function forgetAuthenticatedVisitUid() {
+    try {
+        localStorage.removeItem(LAST_AUTHENTICATED_VISIT_UID_KEY);
+    } catch (_error) { /* account isolation remains fail-closed */ }
+}
+
 function loadUnconfirmedVisitsMap(uid) {
     const key = getUnconfirmedVisitsKey(uid);
     if (!key) return {};
@@ -117,6 +145,7 @@ function saveUnconfirmedVisitsMap(uid, map) {
 
 function stashUnconfirmedVisit(uid, visit) {
     if (!uid || !visit || !visit.id) return false;
+    rememberAuthenticatedVisitUid(uid);
     const map = loadUnconfirmedVisitsMap(uid);
     map[visit.id] = { visit, stashedAt: Date.now() };
     if (!saveUnconfirmedVisitsMap(uid, map)) return false;
@@ -127,6 +156,66 @@ function stashUnconfirmedVisit(uid, visit) {
     // make a local-only visit look durably green.
     const persistedVisit = getUnconfirmedVisit(uid, visit.id);
     return visitRecordsMatchForConfirmation(persistedVisit, visit);
+}
+
+// When cloud auth is still unresolved at the ten-second boot fallback, restore
+// only the last authenticated account's durable safety-net visits. This is a
+// visual/local hydration only: it stages the records orange but performs no
+// network write and supplies no server proof. Normal auth replay owns syncing.
+function hydrateRememberedUnconfirmedVisits() {
+    const currentUid = getCurrentFirebaseUid();
+    const uid = currentUid || getRememberedAuthenticatedVisitUid();
+    if (!uid) return 0;
+
+    const entries = Object.values(loadUnconfirmedVisitsMap(uid));
+    if (entries.length === 0) return 0;
+
+    const vaultRepo = getVaultRepo();
+    if (!vaultRepo || typeof vaultRepo.addVisit !== 'function' || typeof vaultRepo.stageUpsert !== 'function') {
+        return 0;
+    }
+
+    const hydratedIds = new Set();
+    entries.forEach(entry => {
+        const visit = entry && entry.visit;
+        if (!visit || !visit.id) return;
+        vaultRepo.addVisit(visit);
+        vaultRepo.stageUpsert(visit);
+        hydratedIds.add(visit.id);
+    });
+    if (hydratedIds.size === 0) return 0;
+
+    preAuthHydratedUid = uid;
+    preAuthHydratedVisitIds = hydratedIds;
+    // Do not refresh map visuals here. This method runs before cached park data
+    // renders and Firebase may not have initialized at all on fake service.
+    // loadData() immediately follows and paints the hydrated orange state in
+    // the same render pass as the cached pins.
+    return hydratedIds.size;
+}
+
+// Auth must approve the account before preloaded state can survive. A mismatch
+// removes only the records introduced by pre-auth hydration, preventing one
+// account's orange pins from flashing in another account or a signed-out view.
+function reconcilePreAuthVisitHydration(authenticatedUid) {
+    if (!preAuthHydratedUid) return false;
+
+    const matches = Boolean(authenticatedUid && authenticatedUid === preAuthHydratedUid);
+    const vaultRepo = getVaultRepo();
+    if (!matches && vaultRepo) {
+        if (typeof vaultRepo.removeVisits === 'function') {
+            vaultRepo.removeVisits(Array.from(preAuthHydratedVisitIds));
+        }
+        if (typeof vaultRepo.clearPendingMutation === 'function') {
+            preAuthHydratedVisitIds.forEach(id => vaultRepo.clearPendingMutation(id));
+        }
+        refreshVisitedCache('checkin-preauth-account-mismatch');
+        refreshVisitedVisuals('checkin-preauth-account-mismatch', getFirebaseService());
+    }
+
+    preAuthHydratedUid = null;
+    preAuthHydratedVisitIds = new Set();
+    return matches;
 }
 
 function clearUnconfirmedVisit(uid, visitId) {
@@ -875,19 +964,25 @@ function getCheckinVisitedPlaceEntries(parkData) {
     return [];
 }
 
-function getCurrentFirebaseUser() {
-    return typeof firebase !== 'undefined' && firebase.auth
-        ? firebase.auth().currentUser
-        : null;
+function getCheckinFirebaseUser() {
+    if (typeof firebase === 'undefined' || !firebase.auth) return null;
+    try {
+        if (Array.isArray(firebase.apps) && firebase.apps.length === 0) return null;
+        return firebase.auth().currentUser;
+    } catch (_error) {
+        // Fake cellular service can leave the SDK script present before a
+        // default app exists. Treat that as unresolved auth, not a boot error.
+        return null;
+    }
 }
 
 function canRestoreVaultSnapshot(token, expectedUid) {
-    const user = getCurrentFirebaseUser();
+    const user = getCheckinFirebaseUser();
     return Boolean(user && token && (!expectedUid || user.uid === expectedUid));
 }
 
 function getCurrentFirebaseUid() {
-    const user = getCurrentFirebaseUser();
+    const user = getCheckinFirebaseUser();
     return user ? user.uid : null;
 }
 
@@ -907,7 +1002,7 @@ function getCurrentVisitCount() {
 }
 
 function getFreeVisitLimitBlock(visitedEntries) {
-    if (!getCurrentFirebaseUser()) return null;
+    if (!getCheckinFirebaseUser()) return null;
     if (isCurrentUserPremium()) return null;
     if (Array.isArray(visitedEntries) && visitedEntries.length > 0) return null;
 
@@ -1233,6 +1328,10 @@ window.BARK.services.checkin = {
     verifyGpsCheckin,
     markAsVisited,
     replayUnconfirmedVisits,
+    hydrateRememberedUnconfirmedVisits,
+    reconcilePreAuthVisitHydration,
+    rememberAuthenticatedVisitUid,
+    forgetAuthenticatedVisitUid,
     reconcileUnconfirmedVisits,
     clearUnconfirmedVisits,
     discardPendingVisitAdditions,

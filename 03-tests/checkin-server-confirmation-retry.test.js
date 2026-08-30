@@ -144,6 +144,65 @@ test('account deletion cleanup removes the entire unconfirmed-visit safety net f
     assert.equal(context.localStorage.getItem(key), null);
 });
 
+test('fake-service boot restores remembered pending visits as orange without server proof', () => {
+    const context = loadCheckinService();
+    const uid = 'remembered-user';
+    const visit = { id: 'orange-park', name: 'Orange Park', verified: false, ts: 1710000000000 };
+    context.localStorage.setItem('bark.lastAuthenticatedVisitUid', uid);
+    context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
+        [visit.id]: { visit, stashedAt: 1710000000100 }
+    }));
+
+    const restored = context.window.BARK.services.checkin.hydrateRememberedUnconfirmedVisits();
+    const repo = context.window.BARK.repos.VaultRepo;
+
+    assert.equal(restored, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(repo.getVisit(visit.id))), visit);
+    assert.equal(repo.hasPendingMutation(visit.id), true);
+    assert.equal(context.window.BARK.services.checkin.isVisitAwaitingServerProof(visit.id), true);
+});
+
+test('pre-auth orange hydration survives only for the matching restored account', () => {
+    const context = loadCheckinService();
+    const uid = 'original-user';
+    const visit = { id: 'private-orange-park', verified: true, ts: 1710000000200 };
+    context.localStorage.setItem('bark.lastAuthenticatedVisitUid', uid);
+    context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
+        [visit.id]: { visit, stashedAt: 1710000000300 }
+    }));
+
+    const checkin = context.window.BARK.services.checkin;
+    const repo = context.window.BARK.repos.VaultRepo;
+    checkin.hydrateRememberedUnconfirmedVisits();
+
+    assert.equal(checkin.reconcilePreAuthVisitHydration('different-user'), false);
+    assert.equal(repo.hasVisit(visit.id), false);
+    assert.equal(repo.hasPendingMutation(visit.id), false);
+    assert.notEqual(
+        context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`),
+        null,
+        'the original account recovery record must remain available for its next real sign-in'
+    );
+});
+
+test('matching auth keeps the hydrated visit pending until normal replay confirms it', () => {
+    const context = loadCheckinService();
+    const uid = 'same-user';
+    const visit = { id: 'same-user-orange', verified: true, ts: 1710000000400 };
+    context.localStorage.setItem('bark.lastAuthenticatedVisitUid', uid);
+    context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
+        [visit.id]: { visit, stashedAt: 1710000000500 }
+    }));
+
+    const checkin = context.window.BARK.services.checkin;
+    const repo = context.window.BARK.repos.VaultRepo;
+    checkin.hydrateRememberedUnconfirmedVisits();
+
+    assert.equal(checkin.reconcilePreAuthVisitHydration(uid), true);
+    assert.equal(repo.hasVisit(visit.id), true);
+    assert.equal(repo.hasPendingMutation(visit.id), true);
+});
+
 function preparePendingVisit(context, visit) {
     const repo = context.window.BARK.repos.VaultRepo;
     repo.addVisit(visit);

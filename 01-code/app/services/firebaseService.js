@@ -665,11 +665,25 @@ function reconcileCommittedVisitedPlaces(uid, committedVisitedArray) {
         hasPendingWrites: false
     });
 
+    // The combined transaction is the authoritative acknowledgement for every
+    // exact visit it returned—not only the click whose promise happened to be
+    // observing the coordinator. Clear all matching durable safety records in
+    // one place so free accounts adding several parks offline do not remain
+    // orange after the batch succeeds.
+    const checkinService = window.BARK.services && window.BARK.services.checkin;
+    if (checkinService && typeof checkinService.reconcileUnconfirmedVisits === 'function') {
+        checkinService.reconcileUnconfirmedVisits(uid);
+    }
+    if (checkinService && typeof checkinService.notifyAuthoritativeSnapshot === 'function') {
+        checkinService.notifyAuthoritativeSnapshot();
+    }
+
     const mutationService = getVisitMutationCoordinatorService();
     if (mutationService && typeof mutationService.reconcileCommittedDeletes === 'function') {
         mutationService.reconcileCommittedDeletes(uid, committedVisitedArray);
     }
 
+    refreshVisitedVisuals('firebase-committed-visits');
     if (typeof window.syncState === 'function') window.syncState();
 }
 

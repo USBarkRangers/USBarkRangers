@@ -20,7 +20,19 @@ function makeServer(initialVisits, options = {}) {
 
     const db = {
         collection() {
-            return { doc: uid => ({ path: `users/${uid}` }) };
+            return {
+                doc: uid => ({
+                    path: `users/${uid}`,
+                    async get() {
+                        state.reads++;
+                        return {
+                            exists: true,
+                            metadata: { fromCache: false, hasPendingWrites: false },
+                            data: () => ({ visitedPlaces: state.visits.map(visit => ({ ...visit })) })
+                        };
+                    }
+                })
+            };
         },
         async runTransaction(callback) {
             if (!available) throw Object.assign(new Error('offline'), { code: 'unavailable' });
@@ -58,7 +70,7 @@ function makeServer(initialVisits, options = {}) {
     };
 }
 
-function loadHarness(server, storage = new Map(), { loadCheckin = false } = {}) {
+function loadHarness(server, storage = new Map(), { loadCheckin = false, premium = true } = {}) {
     const handlers = new Map();
     const alerts = [];
     const context = {
@@ -110,7 +122,7 @@ function loadHarness(server, storage = new Map(), { loadCheckin = false } = {}) 
     });
     context.BARK.incrementRequestCount = () => {};
     context.BARK.invalidateVisitedIdsCache = () => {};
-    context.BARK.services.premium = { isPremium: () => true };
+    context.BARK.services.premium = { isPremium: () => premium };
     context.allowUncheck = true;
     context.BARK.refreshCoordinator = {
         refreshVisitedCache() {},
@@ -311,4 +323,45 @@ test('iOS code-0 IndexedDB resume failure stays queued and retries without resto
     assert.equal(harness.repo.size(), 0);
     assert.equal(harness.storage.has('bark.pendingVisitDeletes.bulk-user'), false);
     assert.deepEqual(harness.alerts, []);
+});
+
+test('free offline additions recover through the fifth park and reject only the sixth', async () => {
+    const originalVisits = makeVisits(2);
+    const offlineServer = makeServer(originalVisits, { available: false });
+    const harness = loadHarness(offlineServer, new Map(), { loadCheckin: true, premium: false });
+    seedRepo(harness.repo, originalVisits);
+    harness.service.attemptDailyStreakIncrement = async () => ({ success: true });
+    const checkin = harness.context.BARK.services.checkin;
+    const additions = Array.from({ length: 4 }, (_, index) => ({
+        id: `free-offline-${index}`,
+        name: `Free Offline ${index}`,
+        lat: 34 + (index / 100),
+        lng: -84 - (index / 100)
+    }));
+
+    const firstThree = [];
+    for (const park of additions.slice(0, 3)) {
+        firstThree.push(await checkin.markAsVisited(park));
+    }
+    const sixthAttempt = await checkin.markAsVisited(additions[3]);
+
+    assert.deepEqual(new Set(firstThree.map(result => result.action)), new Set(['added']));
+    assert.equal(sixthAttempt.success, false);
+    assert.equal(sixthAttempt.error, 'FREE_VISIT_LIMIT');
+    assert.equal(harness.repo.size(), 5);
+    firstThree.forEach(result => {
+        assert.equal(harness.repo.hasPendingMutation(result.visitRecord.id), true);
+    });
+
+    offlineServer.setAvailable(true);
+    harness.context.dispatch('online');
+    await harness.service.syncUserProgress();
+
+    assert.equal(offlineServer.state.visits.length, 5);
+    assert.equal(harness.repo.size(), 5);
+    assert.equal(harness.repo.snapshot().pending.size, 0);
+    assert.equal(harness.storage.has('bark.unconfirmedVisits.bulk-user'), false);
+    firstThree.forEach(result => {
+        assert.equal(checkin.isVisitAwaitingServerProof(result.visitRecord.id), false);
+    });
 });

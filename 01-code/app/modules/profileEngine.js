@@ -121,6 +121,31 @@ window.BARK.getProfileVisitedPlacesArray = getProfileVisitedPlacesArray;
 window.BARK.getProfileTotalVisitedCount = getProfileTotalVisitedCount;
 window.BARK.hasProfileVerifiedVisit = hasProfileVerifiedVisit;
 
+function isProfileDataReady() {
+    const loadState = window.BARK.loadState;
+    return !loadState || typeof loadState.isProfileDataReady !== 'function'
+        ? true
+        : loadState.isProfileDataReady();
+}
+
+function renderProfileLoadingState() {
+    ['stat-score', 'stat-verified', 'stat-regular', 'stat-states'].forEach(id => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = '—';
+    });
+
+    const rankFraction = document.getElementById('rank-progress-fraction');
+    const tierProgress = document.getElementById('tier-progress-fill');
+    const title = document.getElementById('current-title-label');
+    const rewardStatus = document.getElementById('reward-level-status');
+    const rewardProgress = document.getElementById('reward-progress-bar');
+    if (title) title.textContent = 'Loading…';
+    if (rankFraction) rankFraction.textContent = 'Loading saved progress…';
+    if (tierProgress) tierProgress.style.width = '0%';
+    if (rewardStatus) rewardStatus.textContent = 'Loading…';
+    if (rewardProgress) rewardProgress.style.width = '0%';
+}
+
 // ====== PROFILE REFRESH ======
 //
 // refreshProfile() is the one entry point that repaints the Profile screen. The
@@ -217,6 +242,14 @@ function renderVault(achievements) {
  */
 async function refreshProfile(visitedPlacesMap) {
     try {
+        // Never evaluate, store, or sync a signed-in score from cache-only or
+        // pre-auth data. A dash is truthful; a temporary zero can look like lost
+        // progress and could also schedule a needless leaderboard update.
+        if (!isProfileDataReady()) {
+            renderProfileLoadingState();
+            return;
+        }
+
         const visitedArray = buildVisitedArrayWithStates(visitedPlacesMap);
 
         let userId = null;
@@ -300,6 +333,11 @@ function updateStatsUI() {
     const visitedPlaces = getProfileVisitedPlacesArray();
 
     if (!scoreEl || !verifiedEl || !regularEl || !statesEl) return;
+
+    if (!isProfileDataReady()) {
+        renderProfileLoadingState();
+        return;
+    }
 
     const scoreSummary = window.BARK.calculateVisitScore(visitedPlaces, window.currentWalkPoints);
     const totalScore = scoreSummary.totalScore;

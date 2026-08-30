@@ -1307,6 +1307,9 @@ function initializeFirebaseAppCheck() {
 }
 
 async function initFirebase() {
+    // Profile numbers remain placeholders until Firebase has definitively told us
+    // whether this session is signed in or signed out.
+    window._authStateResolved = false;
     if (typeof firebase === 'undefined') return;
 
     const loadSavedRoutes = window.BARK.loadSavedRoutes;
@@ -1350,11 +1353,18 @@ async function initFirebase() {
     try {
         firebase.auth().onAuthStateChanged((user) => {
             try {
+                window._authStateResolved = true;
                 lastExpeditionSyncKey = null;
                 window.isAdmin = false;
                 window._serverPayloadSettled = false;
                 window._firstServerPayloadReceived = false;
                 window._lastKnownRank = null;
+
+                // Clear any previous account's visible score immediately. The
+                // authoritative snapshots later in this callback repaint it.
+                if (user && typeof window.BARK.updateStatsUI === 'function') {
+                    window.BARK.updateStatsUI();
+                }
 
                 // Rank is unknown until the leaderboard is re-read for whoever is now
                 // signed in. leaderboardEngine owns the value; this is the public way

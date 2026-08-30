@@ -197,6 +197,11 @@ function processParsedResults(results) {
     const replaceResult = parkRepo.replaceAll(newAllPoints, { debug: window.BARK.debugDataRefresh === true });
     if (!replaceResult.accepted) return false;
 
+    const loadState = window.BARK.loadState;
+    if (loadState && typeof loadState.markParkDataReady === 'function' && newAllPoints.length > 0) {
+        loadState.markParkDataReady();
+    }
+
     // Hydrate canonical counts for gamification
     if (window.gamificationEngine && newAllPoints.length > 0) {
         window.gamificationEngine.updateCanonicalCountsFromPoints(newAllPoints);
@@ -225,6 +230,27 @@ function hasAcceptedParkData() {
         typeof parkRepo.getAll === 'function' &&
         parkRepo.getAll().length > 0
     );
+}
+
+function beginParkDataLoadStatus() {
+    const loadState = window.BARK && window.BARK.loadState;
+    if (loadState && typeof loadState.beginParkLoad === 'function') {
+        loadState.beginParkLoad();
+    }
+}
+
+function settleParkDataLoadStatus() {
+    // Papa Parse completes synchronously for a CSV string today, but the short
+    // defer keeps this correct if that implementation changes later.
+    setTimeout(() => {
+        const loadState = window.BARK && window.BARK.loadState;
+        if (!loadState) return;
+        if (hasAcceptedParkData() && typeof loadState.markParkDataReady === 'function') {
+            loadState.markParkDataReady();
+        } else if (typeof loadState.markParkDataUnavailable === 'function') {
+            loadState.markParkDataUnavailable();
+        }
+    }, 250);
 }
 
 function parseCSVString(csvString, options = {}) {
@@ -513,9 +539,36 @@ function clearMarkerLayersSafely() {
     }
 }
 
+let parkReconnectHandlerBound = false;
+let lastParkReconnectAttemptAt = 0;
+const PARK_RECONNECT_MIN_INTERVAL_MS = 30000;
+
+function bindParkDataReconnectRecovery() {
+    if (parkReconnectHandlerBound) return;
+    parkReconnectHandlerBound = true;
+
+    window.addEventListener('online', () => {
+        if (hasAcceptedParkData()) return;
+        const now = Date.now();
+        if (now - lastParkReconnectAttemptAt < PARK_RECONNECT_MIN_INTERVAL_MS) return;
+        lastParkReconnectAttemptAt = now;
+
+        beginParkDataLoadStatus();
+        Promise.allSettled([
+            loadStaticFallbackData('connection restored'),
+            runDataPollCycle()
+        ]).then(settleParkDataLoadStatus);
+    });
+}
+
 function loadData() {
     const cachedCsv = localStorage.getItem('barkCSV');
     const cachedTime = localStorage.getItem('barkCSV_time');
+
+    beginParkDataLoadStatus();
+    bindParkDataReconnectRecovery();
+
+    let initialFallbackAttempt = Promise.resolve(false);
 
     if (cachedCsv) {
         lastDataHash = quickHash(cachedCsv);
@@ -526,7 +579,7 @@ function loadData() {
         }
         parseCSVString(cachedCsv);
     } else {
-        loadStaticFallbackData('cold boot without local cache');
+        initialFallbackAttempt = loadStaticFallbackData('cold boot without local cache');
     }
 
     safeDataPoll();
@@ -542,13 +595,17 @@ function loadData() {
             alert('Network disconnected. Log in via the Profile tab to enable Premium Offline Mode.');
             clearMarkerLayersSafely();
         }
+        initialFallbackAttempt.finally(settleParkDataLoadStatus);
         return;
     }
 
-    runDataPollCycle()
-        .then(() => {
-            if (!hasAcceptedParkData()) loadStaticFallbackData('live sheet poll returned no data');
-        });
+    const liveAttempt = runDataPollCycle()
+        .then(() => hasAcceptedParkData()
+            ? false
+            : loadStaticFallbackData('live sheet poll returned no data'));
+
+    Promise.allSettled([initialFallbackAttempt, liveAttempt])
+        .then(settleParkDataLoadStatus);
 }
 
 window.BARK.loadData = loadData;

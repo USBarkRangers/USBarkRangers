@@ -25,16 +25,21 @@ function createElementStub() {
 
 // Loads the three profile modules into one sandbox in index.html order and records
 // the order in which collaborators are called.
-function loadProfileHarness({ achievements } = {}) {
+function loadProfileHarness({ achievements, profileDataReady } = {}) {
     const callOrder = [];
     const renderedGrids = {};
+    const elements = new Map();
+    const getElement = id => {
+        if (!elements.has(id)) elements.set(id, createElementStub());
+        return elements.get(id);
+    };
 
     const sandbox = {
         console: { ...console, error() {}, warn() {} },
         setTimeout,
         map: { getCenter: () => ({ lat: 39.8283, lng: -98.5795 }) },
         document: {
-            getElementById: () => createElementStub(),
+            getElementById: getElement,
             querySelectorAll: () => [],
             createElement: () => createElementStub()
         },
@@ -76,6 +81,12 @@ function loadProfileHarness({ achievements } = {}) {
         }
     };
 
+    if (profileDataReady !== undefined) {
+        sandbox.window.BARK.loadState = {
+            isProfileDataReady: () => profileDataReady
+        };
+    }
+
     vm.createContext(sandbox);
     ['modules/achievementsPanel.js', 'modules/managePortal.js', 'modules/profileEngine.js', 'modules/leaderboardEngine.js']
         .forEach(rel => vm.runInContext(fs.readFileSync(path.join(APP, ...rel.split('/')), 'utf8'), sandbox));
@@ -83,7 +94,7 @@ function loadProfileHarness({ achievements } = {}) {
     // Record the leaderboard sync without doing any network work.
     sandbox.window.BARK.syncScoreToLeaderboard = async () => { callOrder.push('leaderboardSync'); };
 
-    return { sandbox, callOrder, renderedGrids };
+    return { sandbox, callOrder, renderedGrids, elements };
 }
 
 function badge(overrides) {
@@ -148,6 +159,31 @@ test('updateStatsUI runs without a ReferenceError after the module split', () =>
         () => sandbox.window.BARK.updateStatsUI(),
         'updateStatsUI must not reference functions that live in another file'
     );
+});
+
+test('signed-in profile hydration uses dashes and blocks false score evaluation', async () => {
+    const { sandbox, callOrder, elements } = loadProfileHarness({ profileDataReady: false });
+    sandbox.firebase = { auth: () => ({ currentUser: { uid: 'u1' } }) };
+
+    sandbox.window.BARK.updateStatsUI();
+    await sandbox.window.BARK.refreshProfile([]);
+
+    ['stat-score', 'stat-verified', 'stat-regular', 'stat-states'].forEach(id => {
+        assert.equal(elements.get(id).textContent, '—', `${id} must not flash a false zero`);
+    });
+    assert.equal(elements.get('rank-progress-fraction').textContent, 'Loading saved progress…');
+    assert.equal(elements.get('current-title-label').textContent, 'Loading…');
+    assert.ok(!callOrder.includes('brain'), 'achievements must not evaluate empty pre-hydration data');
+    assert.ok(!callOrder.includes('leaderboardSync'), 'leaderboard must not sync a pre-hydration zero');
+});
+
+test('an authoritative empty account displays a real zero after hydration', () => {
+    const { sandbox, elements } = loadProfileHarness({ profileDataReady: true });
+    sandbox.window.BARK.updateStatsUI();
+
+    ['stat-score', 'stat-verified', 'stat-regular', 'stat-states'].forEach(id => {
+        assert.equal(elements.get(id).textContent, 0, `${id} should show a legitimate zero`);
+    });
 });
 
 test('every public profile entry point survives being called cold', () => {

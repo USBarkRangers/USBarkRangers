@@ -23,6 +23,7 @@
     <link rel="stylesheet" href="styles/watermarkTool.css?v=2">
     <link rel="stylesheet" href="styles/walkTracker.css?v=2">
     <link rel="stylesheet" href="styles/viewportShell.css?v=5">
+    <link rel="stylesheet" href="styles/loadState.css?v=1">
     <script src="modules/viewportCoordinator.js?v=7" defer></script>
     <!-- RISKY BETA EXPERIMENT: isolated so it is easy to disable/revert if the
          Android 980px standalone-PWA recovery causes a layout problem. -->
@@ -78,6 +79,13 @@
             <span id="auth-failure-detail">Cloud sync and saved progress are offline for this session.</span>
         </div>
         <button id="auth-failure-dismiss" type="button" aria-label="Dismiss sign-in warning">Dismiss</button>
+    </div>
+    <div id="park-data-status" class="park-data-status" role="status" aria-live="polite" hidden>
+        <div class="park-data-status-icon" aria-hidden="true">🐾</div>
+        <div>
+            <strong id="park-data-status-title">Loading is taking longer than usual</strong>
+            <span id="park-data-status-detail">Park pins will appear automatically when the data arrives.</span>
+        </div>
     </div>
 
     <div id="filter-panel" class="glass-panel collapsed">
@@ -753,7 +761,7 @@
                         style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; text-align: center; margin-top: 16px;">
                         <div
                             style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9;">
-                            <div id="stat-score" style="font-size: 26px; font-weight: 900; color: #10b981;">0</div>
+                            <div id="stat-score" style="font-size: 26px; font-weight: 900; color: #10b981;">—</div>
                             <div
                                 style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">
                                 Total Score</div>
@@ -763,21 +771,21 @@
                             <span
                                 style="position: absolute; right: -5px; bottom: -10px; font-size: 40px; opacity: 0.05; pointer-events: none;">🐾</span>
                             <div id="stat-verified"
-                                style="font-size: 26px; font-weight: 900; color: #f59e0b; position: relative;">0</div>
+                                style="font-size: 26px; font-weight: 900; color: #f59e0b; position: relative;">—</div>
                             <div
                                 style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px; position: relative;">
                                 🐾 Verified</div>
                         </div>
                         <div
                             style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9;">
-                            <div id="stat-regular" style="font-size: 26px; font-weight: 900; color: #3b82f6;">0</div>
+                            <div id="stat-regular" style="font-size: 26px; font-weight: 900; color: #3b82f6;">—</div>
                             <div
                                 style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">
                                 Sites Visited</div>
                         </div>
                         <div
                             style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9;">
-                            <div id="stat-states" style="font-size: 26px; font-weight: 900; color: #a855f7;">0</div>
+                            <div id="stat-states" style="font-size: 26px; font-weight: 900; color: #a855f7;">—</div>
                             <div
                                 style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">
                                 States</div>
@@ -798,8 +806,7 @@
                                             Info</button>
                                     </div>
                                     <h2 id="current-title-label"
-                                        style="font-size: 20px; font-weight: 900; color: #1e293b; margin: 0;">B.A.R.K.
-                                        Trainee</h2>
+                                        style="font-size: 20px; font-weight: 900; color: #1e293b; margin: 0;">Loading…</h2>
                                 </div>
                             </div>
                             <div style="text-align: right; margin-bottom: 6px;">
@@ -1596,6 +1603,7 @@
     <script src="modules/launchFlags.js?v=1" defer></script>
     <script src="modules/barkState.js?v=17" defer></script>
     <script src="modules/barkConfig.js?v=9" defer></script>
+    <script src="modules/loadState.js?v=1" defer></script>
     <script src="modules/visitorAnalytics.js?v=1" defer></script>
     <script src="config/domRefs.js?v=4" defer></script>
     <script src="state/settingsStore.js?v=6" defer></script>
@@ -1614,7 +1622,7 @@
          parse before authService and panelRenderer, which build fallback links from it. -->
     <script src="modules/feedbackTransport.js?v=7" defer></script>
     <script src="modules/paywallController.js?v=24" defer></script>
-    <script src="services/authService.js?v=80" defer></script>
+    <script src="services/authService.js?v=81" defer></script>
     <script src="modules/markerLayerPolicy.js?v=2" defer></script>
     <script src="modules/MarkerLayerManager.js?v=18" defer></script>
     <script src="engines/tripRoutePlan.js?v=3" defer></script>
@@ -1625,11 +1633,11 @@
     <script src="renderers/panelRenderer.js?v=28" defer></script>
     <script src="modules/externalPinReturn.js?v=3" defer></script>
     <script src="modules/searchEngine.js?v=10" defer></script>
-    <script src="modules/dataService.js?v=11" defer></script>
+    <script src="modules/dataService.js?v=12" defer></script>
     <script src="renderers/leaderboardRenderer.js?v=1" defer></script>
     <script src="modules/achievementsPanel.js?v=1" defer></script>
     <script src="modules/managePortal.js?v=1" defer></script>
-    <script src="modules/profileEngine.js?v=17" defer></script>
+    <script src="modules/profileEngine.js?v=18" defer></script>
     <!-- leaderboardEngine loads after profileEngine so the shared visit helpers are
          registered on window.BARK first. Calls in the other direction are late-bound. -->
     <script src="modules/leaderboardSyncPolicy.js?v=1" defer></script>

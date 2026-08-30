@@ -61,12 +61,12 @@ async function flushPromises() {
     for (let index = 0; index < 30; index++) await Promise.resolve();
 }
 
-test('fake-online Firebase stall releases cached park loading after ten seconds', async () => {
+test('fake-online Firebase stall cannot delay cached park loading', async () => {
     const harness = createHarness(() => new Promise(() => {}));
     const bootPromise = harness.start();
     await flushPromises();
 
-    assert.deepEqual(harness.calls, []);
+    assert.deepEqual(harness.calls, ['loadData']);
     const firebaseTimeout = harness.timers.find(timer => timer.delay === 10000);
     assert.ok(firebaseTimeout, 'boot must install the bounded Firebase wait');
 
@@ -75,12 +75,12 @@ test('fake-online Firebase stall releases cached park loading after ten seconds'
     assert.deepEqual(harness.calls, ['loadData']);
 });
 
-test('normal Firebase startup preserves the existing auth-before-data order', async () => {
+test('normal Firebase startup hydrates public park data before cloud auth', async () => {
     const calls = [];
     const harness = createHarness(async () => { calls.push('firebase'); }, calls);
 
     await harness.start();
-    assert.deepEqual(calls, ['firebase', 'loadData']);
+    assert.deepEqual(calls, ['loadData', 'firebase']);
 });
 
 test('Firebase recovery after the timeout does not reload or replace cached park data', async () => {
@@ -98,7 +98,7 @@ test('Firebase recovery after the timeout does not reload or replace cached park
     assert.deepEqual(harness.calls, ['loadData']);
 });
 
-test('fake-service timeout hydrates pending orange visits before cached park data', async () => {
+test('fake-service timeout overlays pending orange visits after cached park data', async () => {
     const calls = [];
     const harness = createHarness(
         () => new Promise(() => {}),
@@ -116,7 +116,7 @@ test('fake-service timeout hydrates pending orange visits before cached park dat
 
     harness.timers.find(timer => timer.delay === 10000).callback();
     await bootPromise;
-    assert.deepEqual(calls, ['hydrateOrange', 'hydrateDelete:remembered-user', 'loadData']);
+    assert.deepEqual(calls, ['loadData', 'hydrateOrange', 'hydrateDelete:remembered-user']);
 });
 
 test('fake-service timeout restores offline Premium identity before pending visits', async () => {
@@ -147,9 +147,9 @@ test('fake-service timeout restores offline Premium identity before pending visi
     await bootPromise;
 
     assert.deepEqual(calls, [
+        'loadData',
         'restorePremium',
         'hydrateOrange',
-        'hydrateDelete:offline-paid-user',
-        'loadData'
+        'hydrateDelete:offline-paid-user'
     ]);
 });

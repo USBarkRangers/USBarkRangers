@@ -1060,9 +1060,10 @@ function replayPendingVisitDeletions(uid) {
 }
 
 // During the bounded fake-service boot fallback, stage the durable deletion
-// journal before park markers render. No server call happens here: the pending
-// class paints these otherwise-unvisited pins orange until normal auth replay
-// can prove the deletion reached Firestore.
+// journal. No server call happens here: the pending class paints these
+// otherwise-unvisited pins orange until normal auth replay can prove the
+// deletion reached Firestore. Offline-first boot may have rendered the public
+// pins already, so refresh the existing marker icons as well.
 function hydrateRememberedPendingVisitDeletions(uid) {
     const mutationService = getVisitMutationCoordinatorService();
     const vaultRepo = getVaultRepo();
@@ -1076,6 +1077,8 @@ function hydrateRememberedPendingVisitDeletions(uid) {
     pendingIds.forEach(stageVisitedPlaceDelete);
     preAuthHydratedDeleteUid = uid;
     preAuthHydratedDeleteIds = new Set(pendingIds);
+    refreshVisitedCache('firebase-preauth-delete-hydration');
+    refreshVisitedVisuals('firebase-preauth-delete-hydration');
     return pendingIds.length;
 }
 

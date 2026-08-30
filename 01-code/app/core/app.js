@@ -234,9 +234,21 @@
         await callInit('initCSVExport', 'Share engine initialized');
         await callInit('initFirstOpenDisclaimer', 'First-open disclaimer initialized');
 
-        // 4. Firebase gets a bounded head start. On fake cellular service the
-        //    local park cache continues after 10 seconds instead of waiting on
-        //    an unbounded cloud handshake. Firebase itself is not cancelled.
+        // 4. Park data is independent of cloud identity. Hydrate the local CSV
+        //    before awaiting Firebase so cached pins and cards never sit behind
+        //    a fake-cell handshake. Profile values remain in their truthful
+        //    loading state until auth supplies an authoritative account.
+        try {
+            if (typeof window.BARK.loadData === 'function') window.BARK.loadData();
+        } catch (err) {
+            _bootErrors.push('loadData');
+            console.error('[B.A.R.K. Boot] "loadData" failed — map may be empty.', err);
+        }
+
+        // 5. Firebase still receives the same bounded ten-second startup wait,
+        //    but it can no longer delay the cached public park catalog. Firebase
+        //    itself is not cancelled and resumes normal auth/sync when usable
+        //    service returns.
         const firebaseBootResult = await initializeFirebaseForBoot();
 
         // If cloud auth is the part that stalled, locally durable unconfirmed
@@ -271,14 +283,6 @@
                     console.warn('[B.A.R.K. Boot] Pending visit deletion hydration failed.', error);
                 }
             }
-        }
-
-        // 5. Data loading — loadData handles cache hydration, immediate fetch, and polling schedule
-        try {
-            if (typeof window.BARK.loadData === 'function') window.BARK.loadData();
-        } catch (err) {
-            _bootErrors.push('loadData');
-            console.error('[B.A.R.K. Boot] "loadData" failed — map may be empty.', err);
         }
 
         // 6. Deferred non-critical initializations

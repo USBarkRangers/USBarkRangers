@@ -103,12 +103,17 @@ for (const profile of [
 
             await expect.poll(async () => page.evaluate(() => (
                 window.BARK?.repos?.ParkRepo?.getAll?.().length || 0
-            )), { timeout: 12500 }).toBeGreaterThan(300);
+            )), { timeout: 4500 }).toBeGreaterThan(300);
 
             const elapsedMs = Date.now() - startedAt;
-            expect(elapsedMs).toBeGreaterThanOrEqual(9500);
-            expect(elapsedMs).toBeLessThan(12500);
+            expect(elapsedMs).toBeLessThan(4500);
             expect(await page.evaluate(() => window.BARK.loadState.getParkState())).toBe('ready');
+
+            // Account-scoped offline Premium and orange mutation hydration still
+            // waits for the bounded auth timeout. Public pins no longer do.
+            await expect.poll(async () => page.evaluate(() => (
+                window.BARK.services.premium.getActiveOfflineSession()?.uid || null
+            )), { timeout: 12500 }).toBe(rememberedUid);
             expect(await page.evaluate(() => ({
                 premium: window.BARK.services.premium.isPremium(),
                 offlineUid: window.BARK.services.premium.getActiveOfflineSession()?.uid || null,

@@ -191,10 +191,11 @@ function hydrateRememberedUnconfirmedVisits() {
 
     preAuthHydratedUid = uid;
     preAuthHydratedVisitIds = hydratedIds;
-    // Do not refresh map visuals here. This method runs before cached park data
-    // renders and Firebase may not have initialized at all on fake service.
-    // loadData() immediately follows and paints the hydrated orange state in
-    // the same render pass as the cached pins.
+    // This can run either before or after cached park data. Refreshing is a
+    // harmless no-op before markers exist and is required when offline-first
+    // boot has already painted the public pins ahead of cloud authentication.
+    refreshVisitedCache('checkin-preauth-hydration');
+    refreshVisitedVisuals('checkin-preauth-hydration', getFirebaseService());
     return hydratedIds.size;
 }
 

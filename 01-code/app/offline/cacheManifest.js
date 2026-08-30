@@ -6,7 +6,7 @@
  * render cached parks, and restore locally journaled visit mutations.
  */
 self.BARK_OFFLINE_CACHE_MANIFEST = Object.freeze({
-    version: '0.133',
+    version: '0.134',
     shell: Object.freeze([
         './',
         './index.html',
@@ -39,7 +39,7 @@ self.BARK_OFFLINE_CACHE_MANIFEST = Object.freeze({
         './MapMarkerConfig.js?v=4',
         './modules/settingsRegistry.js?v=3',
         './repos/ParkRepo.js?v=2',
-        './repos/VaultRepo.js?v=5',
+        './repos/VaultRepo.js?v=6',
         './modules/launchFlags.js?v=1',
         './modules/barkState.js?v=17',
         './modules/barkConfig.js?v=9',
@@ -52,15 +52,15 @@ self.BARK_OFFLINE_CACHE_MANIFEST = Object.freeze({
         './services/orsRouteCache.js?v=2',
         './services/orsService.js?v=8',
         './services/visitMutationCoordinator.js?v=1',
-        './services/firebaseService.js?v=23',
+        './services/firebaseService.js?v=24',
         './renderers/routeRenderer.js?v=6',
-        './services/checkinService.js?v=24',
+        './services/checkinService.js?v=25',
         './services/authPremiumUi.js?v=5',
         './services/premiumService.js?v=3',
         './services/authAccountUi.js?v=26',
         './modules/feedbackTransport.js?v=7',
         './modules/paywallController.js?v=24',
-        './services/authService.js?v=85',
+        './services/authService.js?v=86',
         './modules/markerLayerPolicy.js?v=2',
         './modules/MarkerLayerManager.js?v=19',
         './engines/tripRoutePlan.js?v=3',

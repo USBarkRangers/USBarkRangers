@@ -14,6 +14,7 @@ const WRITE_TIMEOUT_SENTINEL = '__BARK_WRITE_TIMEOUT__';
 const SERVER_CONFIRMATION_RETRY_MS = 5000;
 const FREE_RECOVERY_SIGNAL_DELAY_MS = 1000;
 const VISIT_SYNC_TOKEN_FIELD = 'syncToken';
+const AUTHORITATIVE_VISIT_IDS_KEY_PREFIX = 'bark.authoritativeVisitIds.';
 
 function createVisitSyncToken() {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -84,6 +85,52 @@ function isExplicitAuthoritativeSnapshot(snapshot) {
 // replayed on the next launch.
 function getUnconfirmedVisitsKey(uid) {
     return uid ? `bark.unconfirmedVisits.${uid}` : null;
+}
+
+function getAuthoritativeVisitIdsKey(uid) {
+    return uid ? `${AUTHORITATIVE_VISIT_IDS_KEY_PREFIX}${uid}` : null;
+}
+
+function loadAuthoritativeVisitIds(uid) {
+    const key = getAuthoritativeVisitIdsKey(uid);
+    if (!key) return [];
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed)
+            ? Array.from(new Set(parsed.map(String).filter(Boolean)))
+            : [];
+    } catch (error) {
+        console.warn('[checkinService] unable to read authoritative visit IDs:', error);
+        return [];
+    }
+}
+
+// Keep only opaque park IDs from the latest server-confirmed user document.
+// A free account can then enforce its five-park ceiling during a cold offline
+// restart before Firestore has had a chance to restore the full user snapshot.
+function rememberAuthoritativeVisitIds(uid, visits) {
+    const key = getAuthoritativeVisitIdsKey(uid);
+    if (!key || !Array.isArray(visits)) return false;
+    const ids = Array.from(new Set(visits.map(getVisitId).filter(Boolean).map(String)));
+    try {
+        localStorage.setItem(key, JSON.stringify(ids));
+        return true;
+    } catch (error) {
+        console.warn('[checkinService] unable to persist authoritative visit IDs:', error);
+        return false;
+    }
+}
+
+function clearAuthoritativeVisitIds(uid) {
+    const key = getAuthoritativeVisitIdsKey(uid);
+    if (!key) return;
+    try {
+        localStorage.removeItem(key);
+    } catch (error) {
+        console.warn('[checkinService] unable to clear authoritative visit IDs:', error);
+    }
 }
 
 const LAST_AUTHENTICATED_VISIT_UID_KEY = 'bark.lastAuthenticatedVisitUid';
@@ -1149,12 +1196,32 @@ function getCurrentVisitCount() {
         .length;
 }
 
+function getFreeVisitSlotUsage(uid) {
+    const ids = new Set(loadAuthoritativeVisitIds(uid));
+    getCheckinVisitedPlacesArray().forEach(place => {
+        const id = getVisitId(place);
+        if (id) ids.add(String(id));
+    });
+
+    // An offline deletion reserves a real removal. Excluding it lets a free
+    // user replace that park without temporarily appearing to exceed five.
+    const mutationService = window.BARK && window.BARK.visitMutationCoordinator;
+    if (mutationService && typeof mutationService.getPendingDeleteIds === 'function') {
+        mutationService.getPendingDeleteIds(uid).forEach(id => ids.delete(String(id)));
+    }
+
+    return ids.size;
+}
+
 function getFreeVisitLimitBlock(visitedEntries) {
     if (!getCheckinFirebaseUser()) return null;
     if (isCurrentUserPremium()) return null;
     if (Array.isArray(visitedEntries) && visitedEntries.length > 0) return null;
 
-    const currentCount = getCurrentVisitCount();
+    const currentUser = getCheckinFirebaseUser();
+    const currentCount = currentUser && currentUser.uid
+        ? getFreeVisitSlotUsage(currentUser.uid)
+        : getCurrentVisitCount();
     if (currentCount < FREE_VISIT_LIMIT) return null;
 
     return {
@@ -1505,6 +1572,8 @@ window.BARK.services.checkin = {
     getRememberedAuthenticatedVisitUid,
     getActiveOfflinePremiumVisitSession,
     rememberAuthenticatedVisitUid,
+    rememberAuthoritativeVisitIds,
+    clearAuthoritativeVisitIds,
     forgetAuthenticatedVisitUid,
     reconcileUnconfirmedVisits,
     clearUnconfirmedVisits,

@@ -340,6 +340,36 @@ function testConfirmationRefreshesOnlyPendingState() {
     assert.equal(visualChanges[0].pendingChanged.has(visit.id), true);
 }
 
+function testAuthoritativeVisitMemoryReceivesServerRecordsWithoutPendingOverlay() {
+    const vaultRepo = loadVaultRepo();
+    const fake = createFakeFirebase();
+    let currentUid = 'A';
+    const remembered = [];
+    const pendingVisit = { id: 'pending-local', name: 'Pending Local', ts: 10 };
+    const serverVisit = { id: 'server-confirmed', name: 'Server Confirmed', ts: 9 };
+
+    vaultRepo.addVisit(pendingVisit);
+    vaultRepo.stageUpsert(pendingVisit);
+    vaultRepo.startSubscription('A', subscriptionOptions(fake, () => currentUid, {
+        rememberAuthoritativeVisitIds(uid, visits) {
+            remembered.push({ uid, ids: visits.map(visit => visit.id) });
+        }
+    }));
+
+    fake.listeners[0].onNext(makeDoc(true, { visitedPlaces: [serverVisit] }, {
+        fromCache: true,
+        hasPendingWrites: false
+    }));
+    assert.deepEqual(remembered, [], 'cached data must not replace the last confirmed limit baseline');
+
+    fake.listeners[0].onNext(makeDoc(true, { visitedPlaces: [serverVisit] }, {
+        fromCache: false,
+        hasPendingWrites: false
+    }));
+    assert.deepEqual(remembered, [{ uid: 'A', ids: ['server-confirmed'] }]);
+    assert.equal(vaultRepo.hasVisit(pendingVisit.id), true, 'the local orange overlay remains independent');
+}
+
 function run() {
     testSameUidIdempotency();
     testDifferentUidReplacementAndStaleSnapshot();
@@ -351,6 +381,7 @@ function run() {
     testOnChangeSeesReconciledState();
     testUnchangedSnapshotSkipsDerivedRefreshWork();
     testConfirmationRefreshesOnlyPendingState();
+    testAuthoritativeVisitMemoryReceivesServerRecordsWithoutPendingOverlay();
     console.log('Phase 1C VaultRepo subscription tests passed.');
 }
 

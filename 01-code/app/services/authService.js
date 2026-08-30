@@ -814,6 +814,12 @@ function buildVaultRepoSubscriptionOptions() {
         normalizeLocalVisitedPlacesToCanonical: firebaseService && typeof firebaseService.normalizeLocalVisitedPlacesToCanonical === 'function'
             ? options => firebaseService.normalizeLocalVisitedPlacesToCanonical(options)
             : null,
+        rememberAuthoritativeVisitIds(uid, visits) {
+            const checkinService = window.BARK.services && window.BARK.services.checkin;
+            if (checkinService && typeof checkinService.rememberAuthoritativeVisitIds === 'function') {
+                checkinService.rememberAuthoritativeVisitIds(uid, visits);
+            }
+        },
         onChange(change) {
             if (hasAuthoritativeSnapshotMetadata(change && change.metadata)) {
                 window._visitedPlacesServerSnapshotReceived = true;
@@ -849,6 +855,11 @@ function reconcileVaultRepoFromUserSnapshot(user, data, metadata = {}) {
     };
     const placeList = data && Array.isArray(data.visitedPlaces) ? data.visitedPlaces : [];
     const options = buildVaultRepoSubscriptionOptions();
+
+    if (hasAuthoritativeSnapshotMetadata(normalizedMetadata)
+        && typeof options.rememberAuthoritativeVisitIds === 'function') {
+        options.rememberAuthoritativeVisitIds(user.uid, placeList);
+    }
 
     try {
         const result = vaultRepo.reconcileSnapshot(placeList, normalizedMetadata);
@@ -932,6 +943,9 @@ function prepareForAccountDeletion(uid) {
     const checkinService = window.BARK.services && window.BARK.services.checkin;
     if (checkinService && typeof checkinService.clearUnconfirmedVisits === 'function') {
         checkinService.clearUnconfirmedVisits(uid);
+    }
+    if (checkinService && typeof checkinService.clearAuthoritativeVisitIds === 'function') {
+        checkinService.clearAuthoritativeVisitIds(uid);
     }
     const firebaseService = getFirebaseService();
     if (firebaseService && typeof firebaseService.clearPendingVisitDeletions === 'function') {

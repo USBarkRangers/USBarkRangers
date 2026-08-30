@@ -616,7 +616,70 @@ function mergeVisitedPlacesForSafeWrite(serverVisitedArray, nextVisitedArray) {
     return Array.from(nextMap.values());
 }
 
-async function commitVisitedPlacesAtomically(db, userRef, requestedVisitedArray) {
+function hasServerPremiumVisitedAccess(data) {
+    const entitlement = data && data.entitlement;
+    if (!entitlement || entitlement.premium !== true) return false;
+    if (['active', 'manual_active', 'past_due', 'paused', 'cancelled_active'].includes(entitlement.status)) {
+        return true;
+    }
+    if (entitlement.status !== 'access_code_active' || entitlement.source !== 'access_code') return false;
+
+    const expiresAt = entitlement.expiresAt;
+    const expiresAtMs = expiresAt && typeof expiresAt.toMillis === 'function'
+        ? expiresAt.toMillis()
+        : Number(expiresAt);
+    return Number.isFinite(expiresAtMs) && expiresAtMs > Date.now();
+}
+
+function capFreeVisitedPlaces(serverVisitedArray, mergedVisitedArray) {
+    const FREE_VISIT_LIMIT = 5;
+    const serverIds = new Set(serverVisitedArray.map(getVisitedPlaceId).filter(Boolean).map(String));
+    const existing = [];
+    const additions = [];
+
+    mergedVisitedArray.forEach(visit => {
+        const id = getVisitedPlaceId(visit);
+        if (id && serverIds.has(String(id))) existing.push(visit);
+        else additions.push(visit);
+    });
+
+    additions.sort((left, right) => {
+        const leftTs = Number(left && left.ts);
+        const rightTs = Number(right && right.ts);
+        if (Number.isFinite(leftTs) && Number.isFinite(rightTs) && leftTs !== rightTs) return leftTs - rightTs;
+        return String(getVisitedPlaceId(left) || '').localeCompare(String(getVisitedPlaceId(right) || ''));
+    });
+
+    const availableSlots = Math.max(0, FREE_VISIT_LIMIT - existing.length);
+    const acceptedAdditions = additions.slice(0, availableSlots);
+    const rejectedVisitIds = additions.slice(availableSlots).map(getVisitedPlaceId).filter(Boolean);
+    return {
+        visits: [...existing, ...acceptedAdditions],
+        rejectedVisitIds
+    };
+}
+
+function discardRejectedFreeVisitAdditions(uid, visitIds) {
+    const ids = Array.from(new Set((Array.isArray(visitIds) ? visitIds : []).filter(Boolean).map(String)));
+    if (ids.length === 0) return;
+
+    const checkinService = window.BARK.services && window.BARK.services.checkin;
+    if (checkinService && typeof checkinService.discardPendingVisitAdditions === 'function') {
+        checkinService.discardPendingVisitAdditions(uid, ids);
+    }
+
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo) {
+        if (typeof vaultRepo.removeVisits === 'function') vaultRepo.removeVisits(ids);
+        if (typeof vaultRepo.clearPendingMutation === 'function') {
+            ids.forEach(id => vaultRepo.clearPendingMutation(id));
+        }
+    }
+    refreshVisitedCache('firebase-free-limit-reconcile');
+    refreshVisitedVisuals('firebase-free-limit-reconcile');
+}
+
+async function commitVisitedPlacesAtomically(db, userRef, requestedVisitedArray, uid) {
     if (!db || typeof db.runTransaction !== 'function') {
         const error = new Error('Atomic visited-place transactions are unavailable.');
         error.code = 'failed-precondition';
@@ -624,12 +687,14 @@ async function commitVisitedPlacesAtomically(db, userRef, requestedVisitedArray)
     }
 
     let committedVisitedArray = [];
+    let rejectedFreeVisitIds = [];
     if (window.BARK && typeof window.BARK.incrementRequestCount === 'function') {
         // Count the single committed transaction write once. Firestore can
         // rerun the callback below, but those retries only add document reads.
         window.BARK.incrementRequestCount();
     }
     await db.runTransaction(async transaction => {
+        rejectedFreeVisitIds = [];
         if (window.BARK && typeof window.BARK.incrementRequestCount === 'function') {
             window.BARK.incrementRequestCount();
         }
@@ -646,12 +711,23 @@ async function commitVisitedPlacesAtomically(db, userRef, requestedVisitedArray)
             serverVisitedArray,
             requestedVisitedArray.map(cloneVisitedPlace)
         );
+
+        // Run the destructive-write guard against the complete merge. The
+        // free-plan cap below only rejects new local additions; it never drops
+        // a record already present in the authoritative server document.
         assertVisitedWriteIsNotDestructive(committedVisitedArray);
+        if (!hasServerPremiumVisitedAccess(data) && committedVisitedArray.length > 5) {
+            const capped = capFreeVisitedPlaces(serverVisitedArray, committedVisitedArray);
+            committedVisitedArray = capped.visits;
+            rejectedFreeVisitIds = capped.rejectedVisitIds;
+        }
 
         // set(..., { merge: true }) preserves syncUserProgress's prior ability
         // to initialize a missing user document without replacing other fields.
         transaction.set(userRef, { visitedPlaces: committedVisitedArray }, { merge: true });
     });
+
+    discardRejectedFreeVisitAdditions(uid, rejectedFreeVisitIds);
 
     return committedVisitedArray;
 }
@@ -671,6 +747,9 @@ function reconcileCommittedVisitedPlaces(uid, committedVisitedArray) {
     // one place so free accounts adding several parks offline do not remain
     // orange after the batch succeeds.
     const checkinService = window.BARK.services && window.BARK.services.checkin;
+    if (checkinService && typeof checkinService.rememberAuthoritativeVisitIds === 'function') {
+        checkinService.rememberAuthoritativeVisitIds(uid, committedVisitedArray);
+    }
     if (checkinService && typeof checkinService.reconcileUnconfirmedVisits === 'function') {
         checkinService.reconcileUnconfirmedVisits(uid);
     }
@@ -716,7 +795,7 @@ function getVisitedPlacesWriteCoordinator(uid) {
             }
             const db = firebase.firestore();
             const userRef = db.collection('users').doc(uid);
-            return commitVisitedPlacesAtomically(db, userRef, visitedArray);
+            return commitVisitedPlacesAtomically(db, userRef, visitedArray, uid);
         },
         onCommitted(committedVisitedArray) {
             reconcileCommittedVisitedPlaces(uid, committedVisitedArray);

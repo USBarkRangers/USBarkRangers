@@ -590,6 +590,14 @@
 
         const metadata = normalizeSnapshotMetadata(doc);
         const placeList = getVisitedPlacesFromDoc(doc);
+        if (isAuthoritativeSnapshot(metadata)) {
+            callOptionalCallback(
+                'rememberAuthoritativeVisitIds',
+                options.rememberAuthoritativeVisitIds,
+                uid,
+                placeList
+            );
+        }
         const result = reconcileSnapshot(placeList, metadata);
         const change = result.change;
 

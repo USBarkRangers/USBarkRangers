@@ -14,6 +14,9 @@ function makeServer(initialVisits, options = {}) {
         reads: 0
     };
     let available = options.available !== false;
+    let entitlement = options.entitlement === null
+        ? null
+        : (options.entitlement || { premium: true, status: 'active' });
     let holdNextCommit = false;
     let releaseCommit = null;
     const queuedFailures = [];
@@ -28,7 +31,10 @@ function makeServer(initialVisits, options = {}) {
                         return {
                             exists: true,
                             metadata: { fromCache: false, hasPendingWrites: false },
-                            data: () => ({ visitedPlaces: state.visits.map(visit => ({ ...visit })) })
+                            data: () => ({
+                                visitedPlaces: state.visits.map(visit => ({ ...visit })),
+                                ...(entitlement ? { entitlement: { ...entitlement } } : {})
+                            })
                         };
                     }
                 })
@@ -43,7 +49,10 @@ function makeServer(initialVisits, options = {}) {
                 async get() {
                     return {
                         exists: true,
-                        data: () => ({ visitedPlaces: state.visits.map(visit => ({ ...visit })) })
+                        data: () => ({
+                            visitedPlaces: state.visits.map(visit => ({ ...visit })),
+                            ...(entitlement ? { entitlement: { ...entitlement } } : {})
+                        })
                     };
                 },
                 set(_ref, payload) {
@@ -64,6 +73,7 @@ function makeServer(initialVisits, options = {}) {
         db,
         state,
         setAvailable(value) { available = value; },
+        setEntitlement(value) { entitlement = value; },
         failNext(error) { queuedFailures.push(error); },
         holdOneCommit() { holdNextCommit = true; },
         releaseCommit() { if (releaseCommit) releaseCommit(); }
@@ -108,6 +118,7 @@ function loadHarness(server, storage = new Map(), { loadCheckin = false, premium
         auth: () => ({ currentUser: { uid: 'bulk-user' } }),
         firestore: () => server.db
     };
+    server.setEntitlement(premium ? { premium: true, status: 'active' } : { premium: false, status: 'inactive' });
 
     vm.createContext(context);
     const scripts = [
@@ -364,4 +375,72 @@ test('free offline additions recover through the fifth park and reject only the 
     firstThree.forEach(result => {
         assert.equal(checkin.isVisitAwaitingServerProof(result.visitRecord.id), false);
     });
+});
+
+test('free cold offline restart remembers four confirmed parks and permits only one more', async () => {
+    const originalVisits = makeVisits(4);
+    const storage = new Map();
+    const server = makeServer(originalVisits, { available: false });
+    const priorSession = loadHarness(server, storage, { loadCheckin: true, premium: false });
+    priorSession.context.BARK.services.checkin.rememberAuthoritativeVisitIds('bulk-user', originalVisits);
+
+    const reopened = loadHarness(server, storage, { loadCheckin: true, premium: false });
+    reopened.context.navigator.onLine = false;
+    reopened.service.attemptDailyStreakIncrement = async () => ({ success: true });
+    const checkin = reopened.context.BARK.services.checkin;
+    const fifthPark = { id: 'offline-fifth', name: 'Offline Fifth', lat: 33, lng: -84 };
+    const sixthPark = { id: 'offline-sixth', name: 'Offline Sixth', lat: 33.1, lng: -84.1 };
+
+    const fifth = await checkin.markAsVisited(fifthPark);
+    const sixth = await checkin.markAsVisited(sixthPark);
+
+    assert.equal(fifth.action, 'added');
+    assert.equal(sixth.success, false);
+    assert.equal(sixth.error, 'FREE_VISIT_LIMIT');
+    assert.equal(reopened.repo.size(), 1, 'only the new orange record is hydrated during the cold offline boot');
+
+    server.setAvailable(true);
+    reopened.context.navigator.onLine = true;
+    reopened.context.dispatch('online');
+    await reopened.service.syncUserProgress();
+
+    assert.equal(server.state.visits.length, 5);
+    assert.equal(reopened.repo.size(), 5);
+    assert.equal(reopened.repo.snapshot().pending.size, 0);
+    assert.equal(storage.has('bark.unconfirmedVisits.bulk-user'), false);
+});
+
+test('legacy free overfilled orange queue keeps only the available server slot on reconnect', async () => {
+    const originalVisits = makeVisits(4);
+    const storage = new Map();
+    const server = makeServer(originalVisits, { available: false });
+    const harness = loadHarness(server, storage, { loadCheckin: true, premium: false });
+    harness.context.navigator.onLine = false;
+    harness.service.attemptDailyStreakIncrement = async () => ({ success: true });
+    const checkin = harness.context.BARK.services.checkin;
+    const additions = Array.from({ length: 5 }, (_, index) => ({
+        id: `legacy-orange-${index}`,
+        name: `Legacy Orange ${index}`,
+        lat: 33 + (index / 100),
+        lng: -84 - (index / 100)
+    }));
+
+    for (const park of additions) {
+        const result = await checkin.markAsVisited(park);
+        assert.equal(result.action, 'added');
+    }
+    assert.equal(harness.repo.size(), 5);
+
+    server.setAvailable(true);
+    harness.context.navigator.onLine = true;
+    harness.context.dispatch('online');
+    await harness.service.syncUserProgress();
+
+    const committedIds = new Set(server.state.visits.map(visit => visit.id));
+    assert.equal(server.state.visits.length, 5);
+    assert.equal(originalVisits.every(visit => committedIds.has(visit.id)), true);
+    assert.equal(additions.filter(visit => committedIds.has(visit.id)).length, 1);
+    assert.equal(harness.repo.size(), 5);
+    assert.equal(harness.repo.snapshot().pending.size, 0);
+    assert.equal(storage.has('bark.unconfirmedVisits.bulk-user'), false);
 });

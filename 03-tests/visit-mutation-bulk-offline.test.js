@@ -212,6 +212,66 @@ test('50 rapid removals coalesce into one transaction without resurrecting visit
     assert.equal(harness.storage.has('bark.pendingVisitDeletes.bulk-user'), false);
 });
 
+test('a post-commit callback failure resolves the durable write and does not retry it', async () => {
+    const harness = loadHarness(makeServer([]));
+    const postCommitErrors = [];
+    let commits = 0;
+    const coordinator = harness.context.BARK.visitMutationCoordinator.createCoordinator({
+        debounceMs: 0,
+        capture: () => ['new-state'],
+        async commit(value) {
+            commits++;
+            return value;
+        },
+        onCommitted() {
+            throw new Error('simulated local renderer failure');
+        },
+        onPostCommitError(error) {
+            postCommitErrors.push(error.message);
+        },
+        isRetryable: () => false
+    });
+
+    const committed = await coordinator.request();
+
+    assert.deepEqual(Array.from(committed), ['new-state']);
+    assert.equal(commits, 1);
+    assert.deepEqual(postCommitErrors, ['simulated local renderer failure']);
+    assert.equal(coordinator.snapshot().committedRevision, 1);
+    assert.equal(coordinator.snapshot().waiting, 0);
+    coordinator.dispose('test complete');
+});
+
+test('Premium bulk deletions stay committed when the post-save screen refresh throws', async () => {
+    const visits = makeVisits(40);
+    const server = makeServer(visits, { available: false });
+    const harness = loadHarness(server, new Map(), { premium: true });
+    seedRepo(harness.repo, visits);
+
+    // Optimistic removal refreshes happen before the server commit. Reproduce
+    // the real failure specifically after Firestore has accepted the batch.
+    harness.context.syncState = () => {
+        if (server.state.commits > 0) throw new Error('simulated post-commit screen refresh failure');
+    };
+    harness.context.console = { log() {}, warn() {}, error() {} };
+
+    const removals = visits.map(visit => harness.service.removeVisitedEntries([{ id: visit.id, record: visit }]));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(server.state.commits, 0, 'fake service must leave the deletion batch pending');
+
+    server.setAvailable(true);
+    harness.context.dispatch('online');
+    const results = await Promise.allSettled(removals.map(result => result.syncPromise));
+
+    assert.equal(server.state.commits, 1);
+    assert.equal(server.state.visits.length, 0);
+    assert.equal(results.every(result => result.status === 'fulfilled'), true);
+    assert.equal(harness.repo.size(), 0, 'a display failure must not restore server-deleted parks');
+    assert.equal(harness.repo.snapshot().pending.size, 0);
+    assert.equal(harness.storage.has('bark.pendingVisitDeletes.bulk-user'), false);
+    assert.deepEqual(harness.alerts, []);
+});
+
 test('removals arriving during a write stay deleted and flush in one follow-up transaction', async () => {
     const visits = makeVisits(50);
     const server = makeServer(visits);

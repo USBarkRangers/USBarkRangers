@@ -152,22 +152,43 @@ window.BARK = window.BARK || {};
             running = true;
             const targetRevision = requestedRevision;
             try {
-                const captured = options.capture();
-                const committed = await options.commit(captured, targetRevision);
-                if (typeof options.onCommitted === 'function') {
-                    await options.onCommitted(committed, targetRevision);
+                let committed;
+                try {
+                    const captured = options.capture();
+                    committed = await options.commit(captured, targetRevision);
+                } catch (error) {
+                    const retryable = typeof options.isRetryable === 'function' && options.isRetryable(error);
+                    if (retryable) {
+                        if (typeof options.onDeferred === 'function') options.onDeferred(error, targetRevision);
+                        scheduleRetry();
+                    } else {
+                        committedRevision = Math.max(committedRevision, targetRevision);
+                        settleThrough(targetRevision, 'reject', error);
+                    }
+                    return;
                 }
+
+                // Crossing this line means the provider commit succeeded. A
+                // cache, renderer, or other local acknowledgement failure must
+                // never turn that durable server result into a rejected write
+                // or trigger a destructive client rollback.
                 committedRevision = Math.max(committedRevision, targetRevision);
-                settleThrough(targetRevision, 'resolve', committed);
-            } catch (error) {
-                const retryable = typeof options.isRetryable === 'function' && options.isRetryable(error);
-                if (retryable) {
-                    if (typeof options.onDeferred === 'function') options.onDeferred(error, targetRevision);
-                    scheduleRetry();
-                } else {
-                    committedRevision = Math.max(committedRevision, targetRevision);
-                    settleThrough(targetRevision, 'reject', error);
+                if (typeof options.onCommitted === 'function') {
+                    try {
+                        await options.onCommitted(committed, targetRevision);
+                    } catch (error) {
+                        if (typeof options.onPostCommitError === 'function') {
+                            try {
+                                options.onPostCommitError(error, committed, targetRevision);
+                            } catch (handlerError) {
+                                console.error('[visitMutationCoordinator] post-commit error handler failed:', handlerError);
+                            }
+                        } else {
+                            console.error('[visitMutationCoordinator] post-commit reconciliation failed:', error);
+                        }
+                    }
                 }
+                settleThrough(targetRevision, 'resolve', committed);
             } finally {
                 running = false;
                 if (committedRevision < requestedRevision && retryTimer === null) schedule(0);

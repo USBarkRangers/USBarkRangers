@@ -732,38 +732,62 @@ async function commitVisitedPlacesAtomically(db, userRef, requestedVisitedArray,
     return committedVisitedArray;
 }
 
-function reconcileCommittedVisitedPlaces(uid, committedVisitedArray) {
+async function runPostCommitVisitStep(step, callback) {
+    try {
+        await callback();
+    } catch (error) {
+        console.error(`[firebaseService] post-commit ${step} failed; server data remains authoritative:`, error);
+    }
+}
+
+async function reconcileCommittedVisitedPlaces(uid, committedVisitedArray) {
+    // Clear the durable deletion journal first. This acknowledgement belongs to
+    // the UID whose transaction committed even if the user changes accounts
+    // before the local UI catches up.
+    const mutationService = getVisitMutationCoordinatorService();
+    if (mutationService && typeof mutationService.reconcileCommittedDeletes === 'function') {
+        await runPostCommitVisitStep('deletion acknowledgement', () => (
+            mutationService.reconcileCommittedDeletes(uid, committedVisitedArray)
+        ));
+    }
+
     const currentUser = getCurrentUser();
     if (!currentUser || currentUser.uid !== uid) return;
 
-    reconcileVisitedPlacesSnapshot(committedVisitedArray, {
-        fromCache: false,
-        hasPendingWrites: false
-    });
+    await runPostCommitVisitStep('repository reconciliation', () => (
+        reconcileVisitedPlacesSnapshot(committedVisitedArray, {
+            fromCache: false,
+            hasPendingWrites: false
+        })
+    ));
 
     // The combined transaction is the authoritative acknowledgement for every
     // exact visit it returned—not only the click whose promise happened to be
-    // observing the coordinator. Clear all matching durable safety records in
-    // one place so free accounts adding several parks offline do not remain
-    // orange after the batch succeeds.
+    // observing the coordinator. Each local follow-up is best-effort because
+    // none is allowed to reverse a completed Firestore transaction.
     const checkinService = window.BARK.services && window.BARK.services.checkin;
     if (checkinService && typeof checkinService.rememberAuthoritativeVisitIds === 'function') {
-        checkinService.rememberAuthoritativeVisitIds(uid, committedVisitedArray);
+        await runPostCommitVisitStep('authoritative visit cache', () => (
+            checkinService.rememberAuthoritativeVisitIds(uid, committedVisitedArray)
+        ));
     }
     if (checkinService && typeof checkinService.reconcileUnconfirmedVisits === 'function') {
-        checkinService.reconcileUnconfirmedVisits(uid);
+        await runPostCommitVisitStep('pending addition reconciliation', () => (
+            checkinService.reconcileUnconfirmedVisits(uid)
+        ));
     }
     if (checkinService && typeof checkinService.notifyAuthoritativeSnapshot === 'function') {
-        checkinService.notifyAuthoritativeSnapshot();
+        await runPostCommitVisitStep('confirmation notification', () => (
+            checkinService.notifyAuthoritativeSnapshot()
+        ));
     }
 
-    const mutationService = getVisitMutationCoordinatorService();
-    if (mutationService && typeof mutationService.reconcileCommittedDeletes === 'function') {
-        mutationService.reconcileCommittedDeletes(uid, committedVisitedArray);
+    await runPostCommitVisitStep('visited marker refresh', () => (
+        refreshVisitedVisuals('firebase-committed-visits')
+    ));
+    if (typeof window.syncState === 'function') {
+        await runPostCommitVisitStep('screen refresh', () => window.syncState());
     }
-
-    refreshVisitedVisuals('firebase-committed-visits');
-    if (typeof window.syncState === 'function') window.syncState();
 }
 
 function getVisitedPlacesWriteCoordinator(uid) {
@@ -798,7 +822,10 @@ function getVisitedPlacesWriteCoordinator(uid) {
             return commitVisitedPlacesAtomically(db, userRef, visitedArray, uid);
         },
         onCommitted(committedVisitedArray) {
-            reconcileCommittedVisitedPlaces(uid, committedVisitedArray);
+            return reconcileCommittedVisitedPlaces(uid, committedVisitedArray);
+        },
+        onPostCommitError(error) {
+            console.error('[firebaseService] committed visitedPlaces but could not finish local reconciliation:', error);
         },
         isRetryable: isRetryableVisitedWriteError,
         onDeferred(error) {

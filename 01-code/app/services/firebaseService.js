@@ -502,16 +502,36 @@ function makeVisitedWriteError(code, message) {
     return error;
 }
 
+function isTransientVisitedStorageError(error) {
+    const message = String(error && (error.message || error.name) || '');
+    return /(?:indexed\s*database|indexeddb|object store|database server|in-progress transaction)/i.test(message)
+        || /connection\s+to\s+.+database.+lost/i.test(message);
+}
+
 function isRetryableVisitedWriteError(error) {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
     const code = error && error.code ? String(error.code) : '';
-    return [
+    if ([
         'aborted',
         'cancelled',
         'deadline-exceeded',
+        'internal',
         'network-request-failed',
+        'resource-exhausted',
+        'unknown',
         'unavailable'
-    ].includes(code);
+    ].includes(code)) return true;
+
+    // iOS Safari can report a temporary IndexedDB transaction failure with a
+    // numeric code of 0 while navigator.onLine remains true. The real Carter
+    // Swarm client history contains this exact resume error. It must be queued
+    // like flaky cell service, never interpreted as a rejected deletion.
+    if (isTransientVisitedStorageError(error)) return true;
+
+    // Firestore occasionally wraps an offline transaction as
+    // failed-precondition. Keep real configuration/precondition failures fatal.
+    return code === 'failed-precondition'
+        && /offline|network|connection|transaction|cache/i.test(String(error && error.message || ''));
 }
 
 function stageVisitedPlaceUpsert(place) {

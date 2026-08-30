@@ -16,6 +16,7 @@ function makeServer(initialVisits, options = {}) {
     let available = options.available !== false;
     let holdNextCommit = false;
     let releaseCommit = null;
+    const queuedFailures = [];
 
     const db = {
         collection() {
@@ -23,6 +24,7 @@ function makeServer(initialVisits, options = {}) {
         },
         async runTransaction(callback) {
             if (!available) throw Object.assign(new Error('offline'), { code: 'unavailable' });
+            if (queuedFailures.length > 0) throw queuedFailures.shift();
             state.reads++;
             let staged = null;
             await callback({
@@ -50,6 +52,7 @@ function makeServer(initialVisits, options = {}) {
         db,
         state,
         setAvailable(value) { available = value; },
+        failNext(error) { queuedFailures.push(error); },
         holdOneCommit() { holdNextCommit = true; },
         releaseCommit() { if (releaseCommit) releaseCommit(); }
     };
@@ -57,6 +60,7 @@ function makeServer(initialVisits, options = {}) {
 
 function loadHarness(server, storage = new Map(), { loadCheckin = false } = {}) {
     const handlers = new Map();
+    const alerts = [];
     const context = {
         console,
         Date,
@@ -79,7 +83,7 @@ function loadHarness(server, storage = new Map(), { loadCheckin = false } = {}) 
     context.window = context;
     context.global = context;
     context.navigator = { onLine: true };
-    context.alert = () => {};
+    context.alert = message => alerts.push(String(message));
     context.confirm = () => true;
     context.syncState = () => {};
     context.addEventListener = (name, handler) => handlers.set(name, handler);
@@ -106,6 +110,8 @@ function loadHarness(server, storage = new Map(), { loadCheckin = false } = {}) 
     });
     context.BARK.incrementRequestCount = () => {};
     context.BARK.invalidateVisitedIdsCache = () => {};
+    context.BARK.services.premium = { isPremium: () => true };
+    context.allowUncheck = true;
     context.BARK.refreshCoordinator = {
         refreshVisitedCache() {},
         refreshVisitedVisuals() {}
@@ -115,7 +121,7 @@ function loadHarness(server, storage = new Map(), { loadCheckin = false } = {}) 
         const handler = handlers.get(name);
         if (handler) handler();
     };
-    return { context, storage, repo: context.BARK.repos.VaultRepo, service: context.BARK.services.firebase };
+    return { context, storage, alerts, repo: context.BARK.repos.VaultRepo, service: context.BARK.services.firebase };
 }
 
 function makeVisits(count) {
@@ -213,4 +219,59 @@ test('deleting an orange pending visit clears its add-recovery record before syn
     assert.equal(server.state.visits.length, 0);
     assert.equal(harness.repo.hasVisit(visit.id), false);
     assert.equal(harness.storage.has('bark.pendingVisitDeletes.bulk-user'), false);
+});
+
+test('60 deletes, 70 adds, then 60 deletes stays warning-free and converges to the intended account state', async () => {
+    const originalVisits = makeVisits(100);
+    const addedParks = Array.from({ length: 70 }, (_, index) => ({
+        id: `added-${index}`,
+        name: `Added Park ${index}`,
+        lat: 30 + (index / 1000),
+        lng: -80 - (index / 1000)
+    }));
+    const server = makeServer(originalVisits);
+    const harness = loadHarness(server, new Map(), { loadCheckin: true });
+    seedRepo(harness.repo, originalVisits);
+    harness.service.attemptDailyStreakIncrement = async () => ({ success: true });
+
+    const checkin = harness.context.BARK.services.checkin;
+    const firstDeletes = await Promise.all(originalVisits.slice(0, 60).map(park => checkin.markAsVisited(park)));
+    const additions = await Promise.all(addedParks.map(park => checkin.markAsVisited(park)));
+    const secondDeletes = await Promise.all(addedParks.slice(0, 60).map(park => checkin.markAsVisited(park)));
+    await harness.service.syncUserProgress();
+
+    assert.deepEqual(new Set(firstDeletes.map(result => result.action)), new Set(['removed']));
+    assert.deepEqual(new Set(additions.map(result => result.action)), new Set(['added']));
+    assert.deepEqual(new Set(secondDeletes.map(result => result.action)), new Set(['removed']));
+    assert.equal(server.state.visits.length, 50);
+    assert.deepEqual(
+        new Set(server.state.visits.map(visit => visit.id)),
+        new Set([
+            ...originalVisits.slice(60).map(visit => visit.id),
+            ...addedParks.slice(60).map(park => park.id)
+        ])
+    );
+    assert.equal(harness.repo.snapshot().pending.size, 0);
+    assert.equal(harness.storage.has('bark.pendingVisitDeletes.bulk-user'), false);
+    assert.deepEqual(harness.alerts, []);
+});
+
+test('iOS code-0 IndexedDB resume failure stays queued and retries without restoring deleted parks', async () => {
+    const visits = makeVisits(60);
+    const server = makeServer(visits);
+    server.failNext(Object.assign(
+        new Error('Attempt to get records from database without an in-progress transaction'),
+        { code: 0 }
+    ));
+    const harness = loadHarness(server);
+    seedRepo(harness.repo, visits);
+
+    const removals = visits.map(visit => harness.service.removeVisitedEntries([{ id: visit.id, record: visit }]));
+    await Promise.all(removals.map(result => result.syncPromise));
+
+    assert.equal(server.state.commits, 1, 'the retry should perform one successful combined commit');
+    assert.equal(server.state.visits.length, 0);
+    assert.equal(harness.repo.size(), 0);
+    assert.equal(harness.storage.has('bark.pendingVisitDeletes.bulk-user'), false);
+    assert.deepEqual(harness.alerts, []);
 });

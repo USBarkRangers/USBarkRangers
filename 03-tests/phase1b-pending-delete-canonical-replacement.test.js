@@ -33,6 +33,7 @@ function loadBrowserScripts() {
     [
         '01-code/app/repos/ParkRepo.js',
         '01-code/app/repos/VaultRepo.js',
+        '01-code/app/services/visitMutationCoordinator.js',
         '01-code/app/services/firebaseService.js'
     ].forEach((relativePath) => {
         const absolutePath = path.join(ROOT, relativePath);

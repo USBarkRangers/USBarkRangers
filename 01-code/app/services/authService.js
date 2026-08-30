@@ -811,6 +811,9 @@ function buildVaultRepoSubscriptionOptions() {
                 if (currentUser && checkinService && typeof checkinService.reconcileUnconfirmedVisits === 'function') {
                     checkinService.reconcileUnconfirmedVisits(currentUser.uid);
                 }
+                if (currentUser && firebaseService && typeof firebaseService.reconcilePendingVisitDeletions === 'function') {
+                    firebaseService.reconcilePendingVisitDeletions(currentUser.uid);
+                }
                 if (checkinService && typeof checkinService.notifyAuthoritativeSnapshot === 'function') {
                     checkinService.notifyAuthoritativeSnapshot();
                 }
@@ -918,6 +921,10 @@ function prepareForAccountDeletion(uid) {
     const checkinService = window.BARK.services && window.BARK.services.checkin;
     if (checkinService && typeof checkinService.clearUnconfirmedVisits === 'function') {
         checkinService.clearUnconfirmedVisits(uid);
+    }
+    const firebaseService = getFirebaseService();
+    if (firebaseService && typeof firebaseService.clearPendingVisitDeletions === 'function') {
+        firebaseService.clearPendingVisitDeletions(uid);
     }
 
     resetAccountScopedRuntimeState();
@@ -1419,6 +1426,11 @@ async function initFirebase() {
                     if (checkinService && typeof checkinService.replayUnconfirmedVisits === 'function') {
                         Promise.resolve(checkinService.replayUnconfirmedVisits(user.uid))
                             .catch(error => console.error('[authService] replayUnconfirmedVisits failed:', error));
+                    }
+                    const firebaseService = getFirebaseService();
+                    if (firebaseService && typeof firebaseService.replayPendingVisitDeletions === 'function') {
+                        Promise.resolve(firebaseService.replayPendingVisitDeletions(user.uid))
+                            .catch(error => console.error('[authService] replayPendingVisitDeletions failed:', error));
                     }
 
                     try {

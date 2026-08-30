@@ -147,6 +147,16 @@ function clearUnconfirmedVisits(uid) {
     }
 }
 
+function discardPendingVisitAdditions(uid, visitIds) {
+    const ids = Array.from(new Set((Array.isArray(visitIds) ? visitIds : [visitIds])
+        .map(getVisitId)
+        .filter(Boolean)));
+    ids.forEach(visitId => {
+        clearUnconfirmedVisit(uid, visitId);
+        cancelPendingServerConfirmation(visitId, 'visit-deleted');
+    });
+}
+
 function getUnconfirmedVisit(uid, visitId) {
     if (!uid || !visitId) return null;
     const entry = loadUnconfirmedVisitsMap(uid)[visitId];
@@ -689,6 +699,10 @@ async function forceServerSyncRecovery(reason) {
         // Restage the local safety net first. This covers a cold reopen where
         // the original in-memory Firestore write queue no longer exists.
         if (user) {
+            const firebaseService = getFirebaseService();
+            if (firebaseService && typeof firebaseService.replayPendingVisitDeletions === 'function') {
+                await awaitWithTimeout(firebaseService.replayPendingVisitDeletions(user.uid), FIREBASE_WRITE_TIMEOUT_MS);
+            }
             await awaitWithTimeout(replayUnconfirmedVisits(user.uid), FIREBASE_WRITE_TIMEOUT_MS);
         }
 
@@ -1043,6 +1057,10 @@ async function verifyGpsCheckin(parkData) {
             }
         }
 
+        if (typeof firebaseService.cancelPendingVisitDeletion === 'function') {
+            touchedIds.forEach(id => firebaseService.cancelPendingVisitDeletion(tokenUid, id));
+        }
+
         vaultRepo.addVisit(checkinResult.visitRecord);
         if (typeof vaultRepo.createRollbackToken === 'function') {
             rollbackToken = vaultRepo.createRollbackToken(token, touchedIds);
@@ -1132,23 +1150,12 @@ async function markAsVisited(parkData) {
                 return { success: false, error: 'ALREADY_VERIFIED' };
             }
             if (!window.allowUncheck) return { success: false, error: 'UNCHECK_LOCKED' };
-            if (typeof firebaseService.updateCurrentUserVisitedPlaces !== 'function') {
+            if (typeof firebaseService.removeVisitedEntries !== 'function') {
                 return { success: false, error: 'SERVICE_UNAVAILABLE' };
             }
-
-            const entryIds = visitedEntries.map(entry => entry.id);
-            vaultRepo.removeVisits(entryIds);
-            if (typeof vaultRepo.createRollbackToken === 'function') {
-                rollbackToken = vaultRepo.createRollbackToken(token, entryIds);
-            }
-            if (typeof firebaseService.stageVisitedPlaceDelete === 'function') {
-                entryIds.forEach(firebaseService.stageVisitedPlaceDelete);
-            }
-            refreshVisitedCache('checkin-unmark-remove');
-            refreshVisitedVisuals('checkin-unmark-remove', firebaseService);
+            const removal = firebaseService.removeVisitedEntries(visitedEntries);
             requestVisitStateSync('checkin-unmark-remove');
-            await firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray());
-            return { success: true, action: 'removed' };
+            return removal;
         }
 
         const limitBlock = getFreeVisitLimitBlock(visitedEntries);
@@ -1161,6 +1168,9 @@ async function markAsVisited(parkData) {
         }
 
         const visitRecord = createVisitRecord(parkData, false);
+        if (typeof firebaseService.cancelPendingVisitDeletion === 'function') {
+            firebaseService.cancelPendingVisitDeletion(tokenUid, visitRecord.id);
+        }
         vaultRepo.addVisit(visitRecord);
         if (typeof vaultRepo.createRollbackToken === 'function') {
             rollbackToken = vaultRepo.createRollbackToken(token, [parkData.id]);
@@ -1225,6 +1235,7 @@ window.BARK.services.checkin = {
     replayUnconfirmedVisits,
     reconcileUnconfirmedVisits,
     clearUnconfirmedVisits,
+    discardPendingVisitAdditions,
     isVisitAwaitingServerProof,
     awaitServerConfirmation,
     notifyAuthoritativeSnapshot,

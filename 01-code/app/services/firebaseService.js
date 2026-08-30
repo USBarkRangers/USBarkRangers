@@ -38,6 +38,7 @@ window.BARK = window.BARK || {};
 window.BARK.services = window.BARK.services || {};
 
 let visitedPlacesWriteInFlightCount = 0;
+const visitedPlacesWriteCoordinators = new Map();
 let legacyVisitCoordinateIndex = new Map();
 let legacyVisitCoordinateIndexRevision = null;
 let legacyVisitCoordinateIndexRepo = null;
@@ -491,6 +492,28 @@ function isAuthoritativeSnapshot(metadata = {}) {
     return metadata.fromCache !== true && metadata.hasPendingWrites !== true;
 }
 
+function getVisitMutationCoordinatorService() {
+    return window.BARK && window.BARK.visitMutationCoordinator;
+}
+
+function makeVisitedWriteError(code, message) {
+    const error = new Error(message);
+    error.code = code;
+    return error;
+}
+
+function isRetryableVisitedWriteError(error) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+    const code = error && error.code ? String(error.code) : '';
+    return [
+        'aborted',
+        'cancelled',
+        'deadline-exceeded',
+        'network-request-failed',
+        'unavailable'
+    ].includes(code);
+}
+
 function stageVisitedPlaceUpsert(place) {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.stageUpsert === 'function') vaultRepo.stageUpsert(place);
@@ -604,6 +627,77 @@ async function commitVisitedPlacesAtomically(db, userRef, requestedVisitedArray)
     return committedVisitedArray;
 }
 
+function reconcileCommittedVisitedPlaces(uid, committedVisitedArray) {
+    const currentUser = getCurrentUser();
+    if (!currentUser || currentUser.uid !== uid) return;
+
+    reconcileVisitedPlacesSnapshot(committedVisitedArray, {
+        fromCache: false,
+        hasPendingWrites: false
+    });
+
+    const mutationService = getVisitMutationCoordinatorService();
+    if (mutationService && typeof mutationService.reconcileCommittedDeletes === 'function') {
+        mutationService.reconcileCommittedDeletes(uid, committedVisitedArray);
+    }
+
+    if (typeof window.syncState === 'function') window.syncState();
+}
+
+function getVisitedPlacesWriteCoordinator(uid) {
+    if (visitedPlacesWriteCoordinators.has(uid)) return visitedPlacesWriteCoordinators.get(uid);
+
+    const mutationService = getVisitMutationCoordinatorService();
+    if (!mutationService || typeof mutationService.createCoordinator !== 'function') {
+        throw makeVisitedWriteError('failed-precondition', 'Visit mutation coordinator is unavailable.');
+    }
+
+    const coordinator = mutationService.createCoordinator({
+        debounceMs: 75,
+        retryMs: 5000,
+        capture() {
+            const currentUser = getCurrentUser();
+            if (!currentUser || currentUser.uid !== uid) {
+                throw makeVisitedWriteError('stale-account', 'The signed-in account changed before visit sync completed.');
+            }
+            return getVisitedPlacesArray();
+        },
+        async commit(visitedArray) {
+            const currentUser = getCurrentUser();
+            if (!currentUser || currentUser.uid !== uid) {
+                throw makeVisitedWriteError('stale-account', 'The signed-in account changed before visit sync completed.');
+            }
+            const db = firebase.firestore();
+            const userRef = db.collection('users').doc(uid);
+            return commitVisitedPlacesAtomically(db, userRef, visitedArray);
+        },
+        onCommitted(committedVisitedArray) {
+            reconcileCommittedVisitedPlaces(uid, committedVisitedArray);
+        },
+        isRetryable: isRetryableVisitedWriteError,
+        onDeferred(error) {
+            console.warn('[firebaseService] visited-place write queued until service returns:', error);
+        }
+    });
+    visitedPlacesWriteCoordinators.set(uid, coordinator);
+    return coordinator;
+}
+
+function queueCurrentVisitedPlacesWrite() {
+    const user = getCurrentUser();
+    if (!user) return Promise.reject(makeVisitedWriteError('unauthenticated', 'Cannot sync visits while signed out.'));
+
+    let coordinator;
+    try {
+        coordinator = getVisitedPlacesWriteCoordinator(user.uid);
+    } catch (error) {
+        return Promise.reject(error);
+    }
+
+    const endVisitedPlacesWrite = beginVisitedPlacesWrite();
+    return coordinator.request().finally(endVisitedPlacesWrite);
+}
+
 function reconcileVisitedPlacesSnapshot(placeList, metadata = {}) {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.reconcileSnapshot === 'function') {
@@ -707,57 +801,31 @@ async function attemptDailyStreakIncrement() {
 }
 
 async function syncUserProgress() {
-    let visitedArray = [];
-    let endVisitedPlacesWrite = null;
     try {
         const user = getCurrentUser();
         if (!user) return;
-
-        const db = firebase.firestore();
-
-        visitedArray = getVisitedPlacesArray();
-        // Callers stage the specific visit they changed. Bulk-staging every
-        // record here breaks the pending/orange confirmation state.
-        const userRef = db.collection('users').doc(user.uid);
-        endVisitedPlacesWrite = beginVisitedPlacesWrite();
-        visitedArray = await commitVisitedPlacesAtomically(db, userRef, visitedArray);
-        replaceLocalVisitedPlaces(makeVisitedPlaceMap(visitedArray), {
-            source: 'sync-user-progress-merged-write'
-        });
-
-        if (typeof window.syncState === 'function') window.syncState();
-        return visitedArray;
+        // The coordinator captures the newest VaultRepo state when its turn
+        // begins. Rapid add/remove actions therefore coalesce instead of
+        // launching competing transactions with stale arrays.
+        return await queueCurrentVisitedPlacesWrite();
     } catch (error) {
         console.error("[firebaseService] syncUserProgress failed:", error);
         throw error;
-    } finally {
-        if (endVisitedPlacesWrite) endVisitedPlacesWrite();
     }
 }
 
 async function updateCurrentUserVisitedPlaces(visitedArray) {
-    let nextVisitedArray = [];
-    let endVisitedPlacesWrite = null;
     try {
         const user = getCurrentUser();
         if (!user) return;
-
-        nextVisitedArray = Array.isArray(visitedArray) ? visitedArray.map(cloneVisitedPlace) : [];
-        const db = firebase.firestore();
-        const userRef = db.collection('users').doc(user.uid);
-        // Do not bulk-stage here; verify/mark/update callers own pending state.
-        endVisitedPlacesWrite = beginVisitedPlacesWrite();
-        nextVisitedArray = await commitVisitedPlacesAtomically(db, userRef, nextVisitedArray);
-        replaceLocalVisitedPlaces(makeVisitedPlaceMap(nextVisitedArray), {
-            source: 'update-current-user-visited-merged-write'
-        });
-        if (typeof window.syncState === 'function') window.syncState();
-        return nextVisitedArray;
+        // `visitedArray` remains in the signature for compatibility. All
+        // callers stage their mutation in VaultRepo first, so capture the live
+        // repository at flush time rather than writing a stale caller snapshot.
+        void visitedArray;
+        return await queueCurrentVisitedPlacesWrite();
     } catch (error) {
         console.error("[firebaseService] updateCurrentUserVisitedPlaces failed:", error);
         throw error;
-    } finally {
-        if (endVisitedPlacesWrite) endVisitedPlacesWrite();
     }
 }
 
@@ -809,13 +877,154 @@ function getLatestVisitedPlace(placeId) {
     return getVisitedRecordById(placeId);
 }
 
+function discardPendingVisitAdditions(uid, entryIds) {
+    const checkinService = window.BARK.services && window.BARK.services.checkin;
+    if (!checkinService || typeof checkinService.discardPendingVisitAdditions !== 'function') return;
+    checkinService.discardPendingVisitAdditions(uid, entryIds);
+}
+
+function cancelPendingVisitDeletion(uid, placeId) {
+    const mutationService = getVisitMutationCoordinatorService();
+    if (!mutationService || typeof mutationService.clearDeletes !== 'function') return;
+    mutationService.clearDeletes(uid, [placeId]);
+}
+
+function clearPendingVisitDeletions(uid) {
+    const mutationService = getVisitMutationCoordinatorService();
+    if (!mutationService || typeof mutationService.getPendingDeleteIds !== 'function' || typeof mutationService.clearDeletes !== 'function') return;
+    mutationService.clearDeletes(uid, mutationService.getPendingDeleteIds(uid));
+}
+
+function stageDurableVisitDeletions(uid, entries) {
+    const mutationService = getVisitMutationCoordinatorService();
+    if (!mutationService || typeof mutationService.stageDeletes !== 'function') {
+        throw makeVisitedWriteError('local-safety-unavailable', 'Offline deletion recovery is unavailable.');
+    }
+    if (!mutationService.stageDeletes(uid, entries)) {
+        throw makeVisitedWriteError('local-safety-unavailable', 'Could not save an offline-safe deletion record.');
+    }
+}
+
+function rollbackVisitDeletion(uid, rollbackToken, entryIds, error) {
+    const mutationService = getVisitMutationCoordinatorService();
+    if (mutationService && typeof mutationService.clearDeletes === 'function') {
+        mutationService.clearDeletes(uid, entryIds);
+    }
+
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo && canRestoreVaultSnapshot(rollbackToken, uid) && typeof vaultRepo.restore === 'function') {
+        vaultRepo.restore(rollbackToken);
+    } else {
+        entryIds.forEach(clearVisitedPlacePendingMutation);
+    }
+    refreshVisitedCache('firebase-remove-visit-rollback');
+    refreshVisitedVisuals('firebase-remove-visit-rollback');
+    refreshVisitRemovalUi('rollback');
+    console.error('[firebaseService] visit deletion could not be saved:', error);
+    alert('Those removals could not be saved. Your previous visit data has been restored. Please sign in again and retry.');
+}
+
+function refreshVisitRemovalUi(reason) {
+    try {
+        if (typeof window.syncState === 'function') window.syncState();
+    } catch (error) {
+        console.error(`[firebaseService] visit-removal syncState (${reason}) failed:`, error);
+    }
+    try {
+        if (typeof window.BARK.renderManagePortal === 'function') window.BARK.renderManagePortal();
+    } catch (error) {
+        console.error(`[firebaseService] visit-removal portal render (${reason}) failed:`, error);
+    }
+}
+
+function removeVisitedEntries(entries) {
+    const normalizedEntries = (Array.isArray(entries) ? entries : [])
+        .filter(entry => entry && entry.id)
+        .map(entry => ({ id: String(entry.id), record: cloneVisitedPlace(entry.record) }));
+    if (normalizedEntries.length === 0) {
+        return { success: true, action: 'removed', syncStatus: 'confirmed', removedIds: [] };
+    }
+
+    const user = getCurrentUser();
+    if (!user) throw makeVisitedWriteError('unauthenticated', 'Cannot remove visits while signed out.');
+    const vaultRepo = getVaultRepo();
+    if (!vaultRepo || typeof vaultRepo.snapshot !== 'function' || typeof vaultRepo.removeVisits !== 'function') {
+        throw makeVisitedWriteError('failed-precondition', 'VaultRepo unavailable for visit removal.');
+    }
+
+    const entryIds = normalizedEntries.map(entry => entry.id);
+    const token = vaultRepo.snapshot();
+
+    // Persist the user's intent before changing a pixel. Transactions cannot
+    // run offline, so this journal is what makes a deletion survive a PWA close.
+    stageDurableVisitDeletions(user.uid, normalizedEntries);
+    discardPendingVisitAdditions(user.uid, entryIds);
+
+    vaultRepo.removeVisits(entryIds);
+    const rollbackToken = typeof vaultRepo.createRollbackToken === 'function'
+        ? vaultRepo.createRollbackToken(token, entryIds)
+        : token;
+    entryIds.forEach(stageVisitedPlaceDelete);
+    refreshVisitedCache('firebase-remove-visits');
+    refreshVisitedVisuals('firebase-remove-visits');
+    refreshVisitRemovalUi('optimistic-delete');
+
+    // Match offline additions: return immediately with a durable pending
+    // mutation while the single coordinator keeps retrying until Firestore
+    // confirms the newest combined state.
+    const syncPromise = syncUserProgress();
+    syncPromise.catch(error => {
+        if (isRetryableVisitedWriteError(error)) return;
+        rollbackVisitDeletion(user.uid, rollbackToken, entryIds, error);
+    });
+
+    return {
+        success: true,
+        action: 'removed',
+        syncStatus: 'pending',
+        removedIds: entryIds,
+        syncPromise
+    };
+}
+
+function replayPendingVisitDeletions(uid) {
+    const user = getCurrentUser();
+    if (!uid || !user || user.uid !== uid) return Promise.resolve([]);
+    const mutationService = getVisitMutationCoordinatorService();
+    const vaultRepo = getVaultRepo();
+    if (!mutationService || typeof mutationService.getPendingDeleteIds !== 'function' || !vaultRepo) {
+        return Promise.resolve([]);
+    }
+
+    const pendingIds = Array.from(mutationService.getPendingDeleteIds(uid));
+    if (pendingIds.length === 0) return Promise.resolve([]);
+
+    discardPendingVisitAdditions(uid, pendingIds);
+    vaultRepo.removeVisits(pendingIds);
+    pendingIds.forEach(stageVisitedPlaceDelete);
+    refreshVisitedCache('firebase-replay-pending-deletes');
+    refreshVisitedVisuals('firebase-replay-pending-deletes');
+    if (typeof window.syncState === 'function') window.syncState();
+    return syncUserProgress();
+}
+
+function reconcilePendingVisitDeletions(uid) {
+    const mutationService = getVisitMutationCoordinatorService();
+    const vaultRepo = getVaultRepo();
+    if (!uid || !mutationService || !vaultRepo || typeof mutationService.getPendingDeleteIds !== 'function') return [];
+
+    const confirmedIds = mutationService.getPendingDeleteIds(uid).filter(id => (
+        typeof vaultRepo.hasPendingMutation === 'function' &&
+        !vaultRepo.hasPendingMutation(id) &&
+        typeof vaultRepo.hasVisit === 'function' &&
+        !vaultRepo.hasVisit(id)
+    ));
+    if (typeof mutationService.clearDeletes === 'function') mutationService.clearDeletes(uid, confirmedIds);
+    return confirmedIds;
+}
+
 async function removeVisitedPlace(placeOrId) {
     const placeId = getVisitedPlaceId(placeOrId);
-    const vaultRepo = getVaultRepo();
-    const tokenUid = getCurrentUser() ? getCurrentUser().uid : null;
-    const token = vaultRepo && typeof vaultRepo.snapshot === 'function' ? vaultRepo.snapshot() : null;
-    let rollbackToken = null;
-    let committed = false;
     try {
         const latestPlace = getLatestVisitedPlace(placeId);
         if (!latestPlace) {
@@ -831,32 +1040,9 @@ async function removeVisitedPlace(placeOrId) {
             const entriesToRemove = matchingEntries.length > 0
                 ? matchingEntries
                 : [{ id: placeId, record: latestPlace }];
-            const entryIds = entriesToRemove.map(entry => entry.id);
-
-            if (vaultRepo && typeof vaultRepo.removeVisits === 'function') {
-                vaultRepo.removeVisits(entryIds);
-            } else {
-                throw new Error('VaultRepo unavailable for removeVisitedPlace.');
-            }
-            if (typeof vaultRepo.createRollbackToken === 'function') {
-                rollbackToken = vaultRepo.createRollbackToken(token, entryIds);
-            }
-            entryIds.forEach(stageVisitedPlaceDelete);
-            refreshVisitedCache('firebase-remove-visit');
-            refreshVisitedVisuals('firebase-remove-visit');
-            await syncUserProgress();
-            // Server delete succeeded past this point; a post-write render failure
-            // must NOT roll it back (that was resurrecting deleted visits).
-            committed = true;
-            if (typeof window.syncState === 'function') window.syncState();
-            if (typeof window.BARK.renderManagePortal === 'function') window.BARK.renderManagePortal();
+            return removeVisitedEntries(entriesToRemove);
         }
     } catch (error) {
-        if (!committed && vaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof vaultRepo.restore === 'function') {
-            vaultRepo.restore(rollbackToken || token);
-        } else if (!committed) {
-            clearVisitedPlacePendingMutation(placeId);
-        }
         console.error("[firebaseService] removeVisitedPlace failed:", error);
         throw error;
     }
@@ -971,6 +1157,11 @@ const firebaseService = {
     updateCurrentUserVisitedPlaces,
     updateVisitDate,
     removeVisitedPlace,
+    removeVisitedEntries,
+    replayPendingVisitDeletions,
+    reconcilePendingVisitDeletions,
+    cancelPendingVisitDeletion,
+    clearPendingVisitDeletions,
     reconcileVisitedPlacesSnapshot,
     replaceLocalVisitedPlaces,
     refreshVisitedVisualState,

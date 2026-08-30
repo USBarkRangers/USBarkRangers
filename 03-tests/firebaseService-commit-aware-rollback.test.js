@@ -13,7 +13,9 @@ const ROOT = path.resolve(__dirname, '..');
 // fix guards the syncState calls and makes the rollback commit-aware (only roll
 // back when the server write itself failed).
 
-function loadBark({ failWrite = false } = {}) {
+function loadBark({ failWrite = false, failCode = 'unavailable' } = {}) {
+    let shouldFailWrite = failWrite;
+    const eventHandlers = new Map();
     const context = {
         console, Date, Map, Set, Promise, Math, Number, String, Boolean,
         Object, Array, JSON, RegExp, setTimeout, clearTimeout
@@ -22,11 +24,12 @@ function loadBark({ failWrite = false } = {}) {
     context.global = context;
     context.alert = () => {};
     context.confirm = () => true;
+    context.addEventListener = (name, handler) => eventHandlers.set(name, handler);
 
     const userDoc = {
         get: async () => ({ exists: false, data: () => ({}) }),
         set: async () => { if (failWrite) throw Object.assign(new Error('write failed'), { code: 'unavailable' }); },
-        update: async () => { if (failWrite) throw Object.assign(new Error('write failed'), { code: 'unavailable' }); }
+        update: async () => { if (shouldFailWrite) throw Object.assign(new Error('write failed'), { code: failCode }); }
     };
     const db = {
         collection: () => ({ doc: () => userDoc }),
@@ -47,11 +50,23 @@ function loadBark({ failWrite = false } = {}) {
     };
 
     vm.createContext(context);
-    ['01-code/app/repos/ParkRepo.js', '01-code/app/repos/VaultRepo.js', '01-code/app/services/firebaseService.js']
+    const storage = new Map();
+    context.localStorage = {
+        getItem: key => storage.get(key) || null,
+        setItem: (key, value) => storage.set(key, String(value)),
+        removeItem: key => storage.delete(key)
+    };
+
+    ['01-code/app/repos/ParkRepo.js', '01-code/app/repos/VaultRepo.js', '01-code/app/services/visitMutationCoordinator.js', '01-code/app/services/firebaseService.js']
         .forEach(rel => vm.runInContext(fs.readFileSync(path.join(ROOT, rel), 'utf8'), context, { filename: rel }));
 
     context.window.BARK.incrementRequestCount = () => {};
     context.window.BARK.invalidateVisitedIdsCache = () => {};
+    context.window.__restoreWrites = () => {
+        shouldFailWrite = false;
+        const onlineHandler = eventHandlers.get('online');
+        if (onlineHandler) onlineHandler();
+    };
     return context.window;
 }
 
@@ -70,28 +85,47 @@ test('removeVisitedPlace: undefined syncState (renderEngine missing) does not ro
     const vaultRepo = seed(win);
     win.syncState = undefined; // simulate renderEngine.js not loaded
 
-    await win.BARK.services.firebase.removeVisitedPlace('park-1'); // must not throw
+    const result = await win.BARK.services.firebase.removeVisitedPlace('park-1'); // must not throw
+    await result.syncPromise;
     assert.equal(vaultRepo.hasVisit('park-1'), false,
         'committed delete must survive an undefined syncState');
 });
 
-test('removeVisitedPlace: a post-write render failure does not resurrect the deleted visit', async () => {
+test('removeVisitedPlace: a render failure does not interrupt or resurrect the deletion', async () => {
     const win = loadBark();
     const vaultRepo = seed(win);
     win.syncState = undefined;
     win.BARK.renderManagePortal = () => { throw new Error('render blew up'); };
 
-    await assert.rejects(() => win.BARK.services.firebase.removeVisitedPlace('park-1'));
+    const result = await win.BARK.services.firebase.removeVisitedPlace('park-1');
+    await result.syncPromise;
     assert.equal(vaultRepo.hasVisit('park-1'), false,
         'a post-write render failure must not roll back the committed delete');
 });
 
-test('removeVisitedPlace: a genuine server write failure still rolls the visit back', async () => {
+test('removeVisitedPlace: an offline write remains deleted locally and queued for recovery', async () => {
     const win = loadBark({ failWrite: true });
     const vaultRepo = seed(win);
     win.syncState = undefined;
 
-    await assert.rejects(() => win.BARK.services.firebase.removeVisitedPlace('park-1'));
-    assert.equal(vaultRepo.hasVisit('park-1'), true,
-        'a real write failure must still roll back (recovery preserved)');
+    const result = await win.BARK.services.firebase.removeVisitedPlace('park-1');
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(result.syncStatus, 'pending');
+    assert.equal(vaultRepo.hasVisit('park-1'), false,
+        'offline deletion must remain applied while its durable retry is pending');
+    assert.notEqual(win.localStorage.getItem('bark.pendingVisitDeletes.user-1'), null);
+    win.__restoreWrites();
+    await result.syncPromise;
+    assert.equal(win.localStorage.getItem('bark.pendingVisitDeletes.user-1'), null);
+});
+
+test('removeVisitedPlace: a fatal permission failure restores the prior visit', async () => {
+    const win = loadBark({ failWrite: true, failCode: 'permission-denied' });
+    const vaultRepo = seed(win);
+
+    const result = await win.BARK.services.firebase.removeVisitedPlace('park-1');
+    await assert.rejects(result.syncPromise, /write failed/);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(vaultRepo.hasVisit('park-1'), true);
+    assert.equal(win.localStorage.getItem('bark.pendingVisitDeletes.user-1'), null);
 });

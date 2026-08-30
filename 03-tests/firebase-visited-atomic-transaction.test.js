@@ -87,6 +87,7 @@ function loadDevice(sharedDb, localVisit) {
     [
         '01-code/app/repos/ParkRepo.js',
         '01-code/app/repos/VaultRepo.js',
+        '01-code/app/services/visitMutationCoordinator.js',
         '01-code/app/services/firebaseService.js'
     ].forEach(relativePath => {
         vm.runInContext(fs.readFileSync(path.join(ROOT, relativePath), 'utf8'), context, { filename: relativePath });

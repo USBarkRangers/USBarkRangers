@@ -46,7 +46,19 @@ window.BARK = window.BARK || {};
         removeBtn.innerHTML = '&times;';
         removeBtn.className = 'manage-remove-btn';
         removeBtn.setAttribute('aria-label', `Remove ${place.name}`);
-        removeBtn.onclick = () => window.BARK.removeVisitedPlace(place.id);
+        removeBtn.onclick = async () => {
+            removeBtn.disabled = true;
+            try {
+                await window.BARK.removeVisitedPlace(place.id);
+            } catch (error) {
+                console.error('[managePortal] visit removal failed:', error);
+                removeBtn.disabled = false;
+                const message = error && error.code === 'local-safety-unavailable'
+                    ? 'This device could not create a safe offline copy of that removal. Free some browser storage or leave private browsing, then try again.'
+                    : `Could not remove ${place.name}. Please try again.`;
+                alert(message);
+            }
+        };
         return removeBtn;
     }
 

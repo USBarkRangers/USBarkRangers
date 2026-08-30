@@ -243,11 +243,17 @@
         // visits can still be painted orange before the cached pins render.
         // Auth later approves or removes that account-scoped hydration.
         if (firebaseBootResult.status === 'timeout') {
+            const authService = window.BARK.services && window.BARK.services.auth;
+            const offlinePremiumSession = authService && typeof authService.activateOfflinePremiumSession === 'function'
+                ? authService.activateOfflinePremiumSession()
+                : null;
             const checkinService = window.BARK.services && window.BARK.services.checkin;
-            let rememberedVisitUid = null;
+            let rememberedVisitUid = offlinePremiumSession && offlinePremiumSession.uid
+                ? offlinePremiumSession.uid
+                : null;
             if (checkinService && typeof checkinService.hydrateRememberedUnconfirmedVisits === 'function') {
                 try {
-                    if (typeof checkinService.getRememberedAuthenticatedVisitUid === 'function') {
+                    if (!rememberedVisitUid && typeof checkinService.getRememberedAuthenticatedVisitUid === 'function') {
                         rememberedVisitUid = checkinService.getRememberedAuthenticatedVisitUid();
                     }
                     checkinService.hydrateRememberedUnconfirmedVisits();

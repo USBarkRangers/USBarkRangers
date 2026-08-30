@@ -17,7 +17,7 @@ function createHarness(initFirebase, calls = [], checkinService = null, firebase
             map: {},
             BARK: {
                 services: {
-                    auth: { initFirebase },
+                    auth: typeof initFirebase === 'function' ? { initFirebase } : initFirebase,
                     ...(checkinService ? { checkin: checkinService } : {}),
                     ...(firebaseService ? { firebase: firebaseService } : {})
                 },
@@ -117,4 +117,39 @@ test('fake-service timeout hydrates pending orange visits before cached park dat
     harness.timers.find(timer => timer.delay === 10000).callback();
     await bootPromise;
     assert.deepEqual(calls, ['hydrateOrange', 'hydrateDelete:remembered-user', 'loadData']);
+});
+
+test('fake-service timeout restores offline Premium identity before pending visits', async () => {
+    const calls = [];
+    const harness = createHarness(
+        {
+            initFirebase() { return new Promise(() => {}); },
+            activateOfflinePremiumSession() {
+                calls.push('restorePremium');
+                return { uid: 'offline-paid-user' };
+            }
+        },
+        calls,
+        {
+            getRememberedAuthenticatedVisitUid() {
+                throw new Error('offline Premium UID should be authoritative for local hydration');
+            },
+            hydrateRememberedUnconfirmedVisits() { calls.push('hydrateOrange'); }
+        },
+        {
+            hydrateRememberedPendingVisitDeletions(uid) { calls.push(`hydrateDelete:${uid}`); }
+        }
+    );
+
+    const bootPromise = harness.start();
+    await flushPromises();
+    harness.timers.find(timer => timer.delay === 10000).callback();
+    await bootPromise;
+
+    assert.deepEqual(calls, [
+        'restorePremium',
+        'hydrateOrange',
+        'hydrateDelete:offline-paid-user',
+        'loadData'
+    ]);
 });

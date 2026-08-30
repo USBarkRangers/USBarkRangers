@@ -689,7 +689,11 @@ function getVisitedPlacesWriteCoordinator(uid) {
             if (!currentUser || currentUser.uid !== uid) {
                 throw makeVisitedWriteError('stale-account', 'The signed-in account changed before visit sync completed.');
             }
-            return getVisitedPlacesArray();
+            const visits = getVisitedPlacesArray();
+            const checkinService = window.BARK.services && window.BARK.services.checkin;
+            return checkinService && typeof checkinService.filterSyncableVisitedPlaces === 'function'
+                ? checkinService.filterSyncableVisitedPlaces(uid, visits)
+                : visits;
         },
         async commit(visitedArray) {
             const currentUser = getCurrentUser();

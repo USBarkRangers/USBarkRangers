@@ -24,8 +24,11 @@ window.BARK.services = window.BARK.services || {};
     });
 
     const PREMIUM_STATUSES = new Set(['active', 'manual_active', 'past_due', 'paused', 'cancelled_active']);
+    const OFFLINE_SESSION_KEY = 'bark.offlinePremiumSession.v1';
+    const OFFLINE_SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
     let entitlement = { ...DEFAULT_ENTITLEMENT };
+    let offlineSessionActive = false;
     let debugMeta = {
         uid: null,
         reason: 'initial',
@@ -68,9 +71,131 @@ window.BARK.services = window.BARK.services || {};
         }
     }
 
+    function readStoredOfflineSession() {
+        try {
+            const raw = localStorage.getItem(OFFLINE_SESSION_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object') return null;
+
+            const uid = normalizeString(parsed.uid, null);
+            const cachedAt = Number(parsed.cachedAt);
+            const normalizedEntitlement = normalizeEntitlement(parsed.entitlement);
+            const entitlementEnd = normalizePeriodEnd(
+                normalizedEntitlement.currentPeriodEnd
+                || normalizedEntitlement.endsAt
+                || normalizedEntitlement.expiresAt
+            );
+            const entitlementEndMs = typeof entitlementEnd === 'number'
+                ? entitlementEnd
+                : typeof entitlementEnd === 'string'
+                    ? Date.parse(entitlementEnd)
+                    : null;
+            const fresh = Number.isFinite(cachedAt)
+                && cachedAt > 0
+                && Date.now() - cachedAt <= OFFLINE_SESSION_MAX_AGE_MS;
+            const notExpired = !Number.isFinite(entitlementEndMs) || entitlementEndMs > Date.now();
+
+            if (!uid || !fresh || !notExpired || normalizedEntitlement.premium !== true) return null;
+            return {
+                uid,
+                displayName: normalizeString(parsed.displayName, null),
+                email: normalizeString(parsed.email, null),
+                cachedAt,
+                entitlement: normalizedEntitlement
+            };
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    function removeStoredOfflineSession(uid = null) {
+        try {
+            if (uid) {
+                const current = readStoredOfflineSession();
+                if (current && current.uid !== uid) return false;
+            }
+            localStorage.removeItem(OFFLINE_SESSION_KEY);
+            return true;
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    function rememberAuthoritativeOfflineSession(raw, user) {
+        const uid = user && normalizeString(user.uid, null);
+        if (!uid) return false;
+
+        const normalizedEntitlement = normalizeEntitlement(raw);
+        if (!normalizedEntitlement.premium) {
+            removeStoredOfflineSession(uid);
+            return false;
+        }
+
+        try {
+            localStorage.setItem(OFFLINE_SESSION_KEY, JSON.stringify({
+                uid,
+                displayName: normalizeString(user.displayName, null),
+                email: normalizeString(user.email, null),
+                cachedAt: Date.now(),
+                entitlement: normalizedEntitlement
+            }));
+            return true;
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    function restoreOfflineSession() {
+        const session = readStoredOfflineSession();
+        if (!session) {
+            removeStoredOfflineSession();
+            offlineSessionActive = false;
+            return null;
+        }
+
+        offlineSessionActive = true;
+        setEntitlement(session.entitlement, {
+            uid: session.uid,
+            reason: 'offline-premium-restore',
+            preserveOfflineSession: true
+        });
+        return {
+            uid: session.uid,
+            displayName: session.displayName,
+            email: session.email,
+            cachedAt: session.cachedAt
+        };
+    }
+
+    function getActiveOfflineSession() {
+        if (!offlineSessionActive) return null;
+        const session = readStoredOfflineSession();
+        if (!session || session.uid !== debugMeta.uid) {
+            offlineSessionActive = false;
+            return null;
+        }
+        return {
+            uid: session.uid,
+            displayName: session.displayName,
+            email: session.email,
+            cachedAt: session.cachedAt
+        };
+    }
+
+    function deactivateOfflineSession(options = {}) {
+        const activeUid = debugMeta.uid;
+        offlineSessionActive = false;
+        if (options.clear === true) removeStoredOfflineSession(options.uid || activeUid || null);
+    }
+
     function entitlementMatchesCurrentUser() {
         const currentUid = getCurrentAuthUid();
         if (currentUid === undefined) return true;
+        if (!currentUid && offlineSessionActive && window._authStateResolved !== true) {
+            const offlineSession = getActiveOfflineSession();
+            return Boolean(offlineSession && offlineSession.uid === debugMeta.uid);
+        }
         if (!currentUid) return !debugMeta.uid;
         return debugMeta.uid === currentUid;
     }
@@ -142,6 +267,7 @@ window.BARK.services = window.BARK.services || {};
             revision: changed ? debugMeta.revision + 1 : debugMeta.revision,
             updatedAt: new Date().toISOString()
         };
+        if (options.preserveOfflineSession !== true) offlineSessionActive = false;
 
         if (changed) notify();
         return cloneEntitlement();
@@ -176,6 +302,7 @@ window.BARK.services = window.BARK.services || {};
         return {
             entitlement: cloneEntitlement(),
             meta: { ...debugMeta },
+            offlineSessionActive,
             subscriberCount: listeners.size
         };
     }
@@ -186,6 +313,10 @@ window.BARK.services = window.BARK.services || {};
         setEntitlement,
         getEntitlement,
         isPremium,
+        rememberAuthoritativeOfflineSession,
+        restoreOfflineSession,
+        getActiveOfflineSession,
+        deactivateOfflineSession,
         subscribe,
         getDebugState
     };

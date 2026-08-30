@@ -48,6 +48,18 @@ for (const profile of [
             localStorage.setItem('barkCSV', csv);
             localStorage.setItem('barkCSV_time', String(Date.now()));
             localStorage.setItem('bark.lastAuthenticatedVisitUid', rememberedUid);
+            localStorage.setItem('bark.offlinePremiumSession.v1', JSON.stringify({
+                uid: rememberedUid,
+                displayName: 'Offline Premium Tester',
+                email: 'offline-premium@example.com',
+                cachedAt: Date.now(),
+                entitlement: {
+                    premium: true,
+                    status: 'active',
+                    source: 'lemon_squeezy',
+                    currentPeriodEnd: Date.now() + 7 * 24 * 60 * 60 * 1000
+                }
+            }));
             localStorage.setItem(`bark.unconfirmedVisits.${rememberedUid}`, JSON.stringify({
                 [pendingVisit.id]: { visit: pendingVisit, stashedAt: Date.now() }
             }));
@@ -85,6 +97,7 @@ for (const profile of [
             await context.route(/https:\/\/docs\.google\.com\/spreadsheets\/d\/e\//, route => route.abort('failed'));
 
             const page = await context.newPage();
+            page.on('pageerror', error => console.error(`[${profile.name}] page error:`, error));
             const startedAt = Date.now();
             await page.goto(`${BASE_URL}?fakeCellBoot=${Date.now()}`, { waitUntil: 'domcontentloaded' });
 
@@ -96,6 +109,19 @@ for (const profile of [
             expect(elapsedMs).toBeGreaterThanOrEqual(9500);
             expect(elapsedMs).toBeLessThan(12500);
             expect(await page.evaluate(() => window.BARK.loadState.getParkState())).toBe('ready');
+            expect(await page.evaluate(() => ({
+                premium: window.BARK.services.premium.isPremium(),
+                offlineUid: window.BARK.services.premium.getActiveOfflineSession()?.uid || null,
+                loginDisplay: document.getElementById('login-container')?.style.display || '',
+                profileDisplay: document.getElementById('offline-status-container')?.style.display || '',
+                profileName: document.getElementById('user-profile-name')?.textContent || ''
+            }))).toEqual({
+                premium: true,
+                offlineUid: rememberedUid,
+                loginDisplay: 'none',
+                profileDisplay: 'block',
+                profileName: 'Offline Premium Tester · Offline'
+            });
             expect(await page.evaluate(visitId => {
                 const repo = window.BARK.repos.VaultRepo;
                 const marker = window.BARK.markerManager?.markers?.get(visitId);
@@ -131,14 +157,43 @@ for (const profile of [
                 ringColor: '#f59e0b'
             });
             await page.evaluate(visitId => {
-                // The boot scenario deliberately stalls auth. Supply only the
-                // resolved-user result needed to verify the signed-in panel
-                // state without starting any network work.
-                window.BARK.services.firebase.getCurrentUser = () => ({ uid: 'fake-cell-remembered-user' });
                 window.BARK.markerManager.markers.get(visitId).fire('click');
             }, pendingDelete.id);
             await expect(page.locator('#mark-visited-text')).toHaveText('Removing (syncing…)');
             await expect(page.locator('#mark-visited-btn')).toBeDisabled();
+
+            const offlineAdd = await page.evaluate(async ({ rememberedUid, excludedIds }) => {
+                let cloudWrites = 0;
+                const firebaseService = window.BARK.services.firebase;
+                const originalSync = firebaseService.syncUserProgress;
+                const originalUpdate = firebaseService.updateCurrentUserVisitedPlaces;
+                firebaseService.syncUserProgress = async () => { cloudWrites++; };
+                firebaseService.updateCurrentUserVisitedPlaces = async () => { cloudWrites++; };
+                const park = window.BARK.repos.ParkRepo.getAll().find(item => item && item.id && !excludedIds.includes(item.id));
+                const result = await window.BARK.services.checkin.markAsVisited(park);
+                const journal = JSON.parse(localStorage.getItem(`bark.unconfirmedVisits.${rememberedUid}`) || '{}');
+                firebaseService.syncUserProgress = originalSync;
+                firebaseService.updateCurrentUserVisitedPlaces = originalUpdate;
+                return {
+                    result: {
+                        success: result.success,
+                        syncStatus: result.syncStatus,
+                        provisional: result.offlinePremiumProvisional === true
+                    },
+                    cloudWrites,
+                    orange: window.BARK.repos.VaultRepo.hasPendingMutation(park.id),
+                    journalProvisional: journal[park.id]?.offlinePremiumProvisional === true
+                };
+            }, {
+                rememberedUid,
+                excludedIds: [pendingVisit.id, pendingDelete.id]
+            });
+            expect(offlineAdd).toEqual({
+                result: { success: true, syncStatus: 'pending', provisional: true },
+                cloudWrites: 0,
+                orange: true,
+                journalProvisional: true
+            });
         } finally {
             await context.close();
             await browser.close();

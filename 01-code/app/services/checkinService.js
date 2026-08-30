@@ -143,11 +143,15 @@ function saveUnconfirmedVisitsMap(uid, map) {
     }
 }
 
-function stashUnconfirmedVisit(uid, visit) {
+function stashUnconfirmedVisit(uid, visit, options = {}) {
     if (!uid || !visit || !visit.id) return false;
     rememberAuthenticatedVisitUid(uid);
     const map = loadUnconfirmedVisitsMap(uid);
-    map[visit.id] = { visit, stashedAt: Date.now() };
+    map[visit.id] = {
+        visit,
+        stashedAt: Date.now(),
+        offlinePremiumProvisional: options.offlinePremiumProvisional === true
+    };
     if (!saveUnconfirmedVisitsMap(uid, map)) return false;
 
     // Verify the exact recovery record can be read back before the operation is
@@ -256,6 +260,18 @@ function hasUnconfirmedVisit(uid, visitId) {
     return Boolean(getUnconfirmedVisit(uid, visitId));
 }
 
+function filterSyncableVisitedPlaces(uid, visits) {
+    const placeList = Array.isArray(visits) ? visits : [];
+    if (!uid) return placeList.slice();
+    const provisionalIds = new Set(
+        Object.entries(loadUnconfirmedVisitsMap(uid))
+            .filter(([, entry]) => entry && entry.offlinePremiumProvisional === true)
+            .map(([visitId]) => visitId)
+    );
+    if (provisionalIds.size === 0) return placeList.slice();
+    return placeList.filter(visit => !provisionalIds.has(getVisitId(visit)));
+}
+
 function isVisitAwaitingServerProof(placeOrId) {
     const visitId = getVisitId(placeOrId);
     if (!visitId) return true;
@@ -301,10 +317,14 @@ function reconcileUnconfirmedVisits(uid) {
 // Firebase write so they sync as soon as connectivity allows.
 const replayUnconfirmedVisitsInFlight = new Map();
 
-async function replayUnconfirmedVisitsInternal(uid) {
+async function replayUnconfirmedVisitsInternal(uid, options = {}) {
     if (!uid) return;
     const map = loadUnconfirmedVisitsMap(uid);
-    const entries = Object.values(map);
+    const entries = Object.values(map).filter(entry => (
+        options.allowOfflinePremiumProvisional === true
+        || !entry
+        || entry.offlinePremiumProvisional !== true
+    ));
     if (entries.length === 0) return;
 
     const vaultRepo = getVaultRepo();
@@ -355,16 +375,57 @@ async function replayUnconfirmedVisitsInternal(uid) {
     }
 }
 
-function replayUnconfirmedVisits(uid) {
+function replayUnconfirmedVisits(uid, options = {}) {
     if (!uid) return Promise.resolve();
-    const existingReplay = replayUnconfirmedVisitsInFlight.get(uid);
+    const replayKey = `${uid}:${options.allowOfflinePremiumProvisional === true ? 'all' : 'confirmed-session'}`;
+    const existingReplay = replayUnconfirmedVisitsInFlight.get(replayKey);
     if (existingReplay) return existingReplay;
 
     const replayPromise = Promise.resolve()
-        .then(() => replayUnconfirmedVisitsInternal(uid))
-        .finally(() => replayUnconfirmedVisitsInFlight.delete(uid));
-    replayUnconfirmedVisitsInFlight.set(uid, replayPromise);
+        .then(() => replayUnconfirmedVisitsInternal(uid, options))
+        .finally(() => replayUnconfirmedVisitsInFlight.delete(replayKey));
+    replayUnconfirmedVisitsInFlight.set(replayKey, replayPromise);
     return replayPromise;
+}
+
+async function confirmOfflinePremiumProvisionalVisits(uid) {
+    if (!uid) return 0;
+    const map = loadUnconfirmedVisitsMap(uid);
+    let promoted = 0;
+    Object.values(map).forEach(entry => {
+        if (!entry || entry.offlinePremiumProvisional !== true) return;
+        entry.offlinePremiumProvisional = false;
+        promoted++;
+    });
+    if (promoted === 0) return 0;
+
+    if (!saveUnconfirmedVisitsMap(uid, map)) return 0;
+    await replayUnconfirmedVisits(uid, { allowOfflinePremiumProvisional: true });
+    return promoted;
+}
+
+function rejectOfflinePremiumProvisionalVisits(uid) {
+    if (!uid) return 0;
+    const map = loadUnconfirmedVisitsMap(uid);
+    const rejectedIds = Object.entries(map)
+        .filter(([, entry]) => entry && entry.offlinePremiumProvisional === true)
+        .map(([visitId]) => visitId);
+    if (rejectedIds.length === 0) return 0;
+
+    rejectedIds.forEach(visitId => { delete map[visitId]; });
+    saveUnconfirmedVisitsMap(uid, map);
+
+    const vaultRepo = getVaultRepo();
+    if (vaultRepo) {
+        if (typeof vaultRepo.removeVisits === 'function') vaultRepo.removeVisits(rejectedIds);
+        if (typeof vaultRepo.clearPendingMutation === 'function') {
+            rejectedIds.forEach(visitId => vaultRepo.clearPendingMutation(visitId));
+        }
+    }
+    refreshVisitedCache('checkin-offline-premium-rejected');
+    refreshVisitedVisuals('checkin-offline-premium-rejected', getFirebaseService());
+    requestVisitStateSync('checkin-offline-premium-rejected');
+    return rejectedIds.length;
 }
 
 function isNetworkLikeError(error) {
@@ -986,6 +1047,27 @@ function getCurrentFirebaseUid() {
     return user ? user.uid : null;
 }
 
+function getActiveOfflinePremiumVisitSession() {
+    const premiumService = getPremiumService();
+    if (!premiumService || typeof premiumService.getActiveOfflineSession !== 'function') return null;
+    const session = premiumService.getActiveOfflineSession();
+    if (!session || !session.uid || !isCurrentUserPremium()) return null;
+    return session;
+}
+
+function getVisitAccountContext() {
+    const offlineSession = getActiveOfflinePremiumVisitSession();
+    if (offlineSession) {
+        return {
+            uid: offlineSession.uid,
+            offlinePremiumProvisional: true
+        };
+    }
+
+    const uid = getCurrentFirebaseUid();
+    return uid ? { uid, offlinePremiumProvisional: false } : null;
+}
+
 function isCurrentUserPremium() {
     const premiumService = getPremiumService();
     return Boolean(
@@ -1134,7 +1216,8 @@ async function verifyGpsCheckin(parkData) {
 
         const vaultRepo = getVaultRepo();
         if (!vaultRepo) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
-        tokenUid = getCurrentFirebaseUid();
+        const accountContext = getVisitAccountContext();
+        tokenUid = accountContext && accountContext.uid;
         if (!tokenUid) return { success: false, error: 'AUTH_REQUIRED' };
         token = vaultRepo.snapshot();
 
@@ -1164,7 +1247,7 @@ async function verifyGpsCheckin(parkData) {
         // call — so that a write which never reaches Google's servers (poor
         // cell signal at a state park) can be replayed on the next app launch.
         if (tokenUid && checkinResult.visitRecord) {
-            const safetyCopySaved = stashUnconfirmedVisit(tokenUid, checkinResult.visitRecord);
+            const safetyCopySaved = stashUnconfirmedVisit(tokenUid, checkinResult.visitRecord, accountContext);
             if (!safetyCopySaved) {
                 if (typeof vaultRepo.restore === 'function') {
                     vaultRepo.restore(rollbackToken || token);
@@ -1179,6 +1262,15 @@ async function verifyGpsCheckin(parkData) {
         refreshVisitedCache('checkin-verified-add');
         refreshVisitedVisuals('checkin-verified-add', firebaseService);
         requestVisitStateSync('checkin-verified-add');
+
+        if (accountContext.offlinePremiumProvisional) {
+            return {
+                ...checkinResult,
+                action: 'verified',
+                syncStatus: 'pending',
+                offlinePremiumProvisional: true
+            };
+        }
 
         queueVisitedPlacesWrite(
             'Verified visit',
@@ -1234,7 +1326,8 @@ async function markAsVisited(parkData) {
     try {
         const vaultRepo = getVaultRepo();
         if (!vaultRepo) return { success: false, error: 'VISITED_PLACES_UNAVAILABLE' };
-        tokenUid = getCurrentFirebaseUid();
+        const accountContext = getVisitAccountContext();
+        tokenUid = accountContext && accountContext.uid;
         if (!tokenUid) return { success: false, error: 'AUTH_REQUIRED' };
         token = vaultRepo.snapshot();
 
@@ -1271,7 +1364,7 @@ async function markAsVisited(parkData) {
             rollbackToken = vaultRepo.createRollbackToken(token, [parkData.id]);
         }
         if (tokenUid && visitRecord) {
-            const safetyCopySaved = stashUnconfirmedVisit(tokenUid, visitRecord);
+            const safetyCopySaved = stashUnconfirmedVisit(tokenUid, visitRecord, accountContext);
             if (!safetyCopySaved) {
                 if (typeof vaultRepo.restore === 'function') {
                     vaultRepo.restore(rollbackToken || token);
@@ -1286,6 +1379,16 @@ async function markAsVisited(parkData) {
         refreshVisitedCache('checkin-mark-add');
         refreshVisitedVisuals('checkin-mark-add', firebaseService);
         requestVisitStateSync('checkin-mark-add');
+
+        if (accountContext.offlinePremiumProvisional) {
+            return {
+                success: true,
+                action: 'added',
+                visitRecord,
+                syncStatus: 'pending',
+                offlinePremiumProvisional: true
+            };
+        }
 
         queueVisitedPlacesWrite(
             'Visit',
@@ -1328,9 +1431,13 @@ window.BARK.services.checkin = {
     verifyGpsCheckin,
     markAsVisited,
     replayUnconfirmedVisits,
+    confirmOfflinePremiumProvisionalVisits,
+    rejectOfflinePremiumProvisionalVisits,
+    filterSyncableVisitedPlaces,
     hydrateRememberedUnconfirmedVisits,
     reconcilePreAuthVisitHydration,
     getRememberedAuthenticatedVisitUid,
+    getActiveOfflinePremiumVisitSession,
     rememberAuthenticatedVisitUid,
     forgetAuthenticatedVisitUid,
     reconcileUnconfirmedVisits,

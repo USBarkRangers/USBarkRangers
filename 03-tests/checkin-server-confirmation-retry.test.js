@@ -203,6 +203,92 @@ test('matching auth keeps the hydrated visit pending until normal replay confirm
     assert.equal(repo.hasPendingMutation(visit.id), true);
 });
 
+test('offline Premium visit is durable and orange but performs no cloud write before revalidation', async () => {
+    const context = loadCheckinService();
+    const uid = 'offline-paid-user';
+    let cloudWrites = 0;
+    context.window.BARK.services.premium = {
+        isPremium() { return true; },
+        getActiveOfflineSession() { return { uid, displayName: 'Offline Ranger' }; }
+    };
+    context.window.BARK.services.firebase = {
+        stageVisitedPlaceUpsert(visit) {
+            context.window.BARK.repos.VaultRepo.stageUpsert(visit);
+        },
+        cancelPendingVisitDeletion() {},
+        syncUserProgress() {
+            cloudWrites++;
+            return Promise.resolve();
+        }
+    };
+
+    const result = await context.window.BARK.services.checkin.markAsVisited({
+        id: 'offline-premium-park',
+        name: 'Offline Premium Park',
+        lat: 35,
+        lng: -84
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.offlinePremiumProvisional, true);
+    assert.equal(result.syncStatus, 'pending');
+    assert.equal(cloudWrites, 0, 'cached Premium proof must never authorize a server mutation');
+    assert.equal(context.window.BARK.repos.VaultRepo.hasPendingMutation('offline-premium-park'), true);
+    const journal = JSON.parse(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`));
+    assert.equal(journal['offline-premium-park'].offlinePremiumProvisional, true);
+});
+
+test('same UID plus authoritative Premium promotes and replays provisional visits', async () => {
+    const context = loadCheckinService();
+    const uid = 'offline-paid-user';
+    const visit = { id: 'promoted-park', name: 'Promoted Park', verified: false, ts: 10, syncToken: 'token-1' };
+    context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
+        [visit.id]: { visit, stashedAt: 11, offlinePremiumProvisional: true }
+    }));
+    context.window.BARK.repos.VaultRepo.addVisit(visit);
+    context.window.BARK.repos.VaultRepo.stageUpsert(visit);
+    let cloudWrites = 0;
+    context.firebase = {
+        auth() { return { currentUser: { uid } }; }
+    };
+    context.window.BARK.services.firebase = {
+        stageVisitedPlaceUpsert(nextVisit) {
+            context.window.BARK.repos.VaultRepo.stageUpsert(nextVisit);
+        },
+        async updateCurrentUserVisitedPlaces(visits) {
+            cloudWrites++;
+            return visits;
+        }
+    };
+
+    const promoted = await context.window.BARK.services.checkin.confirmOfflinePremiumProvisionalVisits(uid);
+
+    assert.equal(promoted, 1);
+    assert.equal(cloudWrites, 1);
+    assert.equal(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
+});
+
+test('other visit syncs cannot smuggle a provisional offline Premium visit to Firestore', () => {
+    const context = loadCheckinService();
+    const uid = 'offline-paid-user';
+    const safeVisit = { id: 'already-authorized', verified: false, ts: 1 };
+    const provisionalVisit = { id: 'awaiting-premium-proof', verified: false, ts: 2 };
+    context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
+        [provisionalVisit.id]: {
+            visit: provisionalVisit,
+            stashedAt: 3,
+            offlinePremiumProvisional: true
+        }
+    }));
+
+    const filtered = context.window.BARK.services.checkin.filterSyncableVisitedPlaces(uid, [
+        safeVisit,
+        provisionalVisit
+    ]);
+
+    assert.deepEqual(JSON.parse(JSON.stringify(filtered)), [safeVisit]);
+});
+
 function preparePendingVisit(context, visit) {
     const repo = context.window.BARK.repos.VaultRepo;
     repo.addVisit(visit);

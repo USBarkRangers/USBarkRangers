@@ -409,7 +409,10 @@ function renderMarkerClickPanel(context) {
     const checkinService = window.BARK.services && window.BARK.services.checkin;
 
     if (visitedSection && markVisitedBtn && markVisitedText && verifyBtn) {
-        if (firebaseService && firebaseService.getCurrentUser()) {
+        const hasOfflinePremiumVisitSession = checkinService
+            && typeof checkinService.getActiveOfflinePremiumVisitSession === 'function'
+            && checkinService.getActiveOfflinePremiumVisitSession();
+        if (firebaseService && (firebaseService.getCurrentUser() || hasOfflinePremiumVisitSession)) {
             visitedSection.style.display = 'grid';
             clearAccountLockedCheckinButton(markVisitedBtn);
             clearAccountLockedCheckinButton(verifyBtn);
@@ -592,6 +595,16 @@ function renderMarkerClickPanel(context) {
                 markVisitedBtn.style.cursor = 'progress';
                 markVisitedBtn.style.opacity = '1';
 
+                // The last authoritative Premium session may queue a visit
+                // while Firebase auth itself is unreachable. Keep it orange;
+                // server confirmation starts only after the same UID and its
+                // Premium entitlement are confirmed online.
+                if (checkinResult.offlinePremiumProvisional === true) {
+                    window.syncState();
+                    window.BARK.updateStatsUI();
+                    return;
+                }
+
                 const confirmation = typeof checkinService.awaitServerConfirmation === 'function'
                     ? await checkinService.awaitServerConfirmation(checkinResult.visitRecord)
                     : { confirmed: false, reason: 'confirmation-unavailable' };
@@ -706,6 +719,10 @@ function renderMarkerClickPanel(context) {
                 setMarkVisitedStatePending();
                 if (typeof window.BARK.perfOperationEnd === 'function') window.BARK.perfOperationEnd(visitOperation, 'added-pending');
                 window.syncState();
+
+                if (visitResult.offlinePremiumProvisional === true) {
+                    return;
+                }
 
                 const newVisit = visitResult.visitRecord;
                 if (!newVisit || !newVisit.id || typeof checkinService.awaitServerConfirmation !== 'function') {

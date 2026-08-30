@@ -8,6 +8,7 @@ window.BARK.services = window.BARK.services || {};
 let userSnapshotUnsubscribe = null;
 let authenticatedSessionSeen = false;
 let lastAuthenticatedUid = null;
+let offlinePremiumBootUid = null;
 let lastExpeditionSyncKey = null;
 let googlePopupAttempt = 0;
 
@@ -954,6 +955,16 @@ function getPremiumService() {
     return window.BARK.services && window.BARK.services.premium;
 }
 
+function getSafeAuthCurrentUser() {
+    try {
+        if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') return null;
+        if (Array.isArray(firebase.apps) && firebase.apps.length === 0) return null;
+        return firebase.auth().currentUser || null;
+    } catch (_error) {
+        return null;
+    }
+}
+
 function resetPremiumEntitlement(reason) {
     const premiumService = getPremiumService();
     if (!premiumService || typeof premiumService.reset !== 'function') return;
@@ -979,12 +990,88 @@ function updatePremiumEntitlement(rawEntitlement, user, reason) {
     }
 }
 
+function applyPremiumSnapshotEntitlement(rawEntitlement, user, metadata, reason) {
+    const premiumService = getPremiumService();
+    const authoritative = hasAuthoritativeSnapshotMetadata(metadata);
+    const offlineSession = premiumService && typeof premiumService.getActiveOfflineSession === 'function'
+        ? premiumService.getActiveOfflineSession()
+        : null;
+
+    // A cached Firestore snapshot is useful for normal boots, but it is not
+    // sufficient proof to release locally queued offline-Premium visits. Keep
+    // the last authoritative entitlement until a real server snapshot arrives.
+    if (!authoritative && offlineSession && user && offlineSession.uid === user.uid) {
+        refreshPremiumUiFromEntitlement('offline-premium-awaiting-server');
+        return;
+    }
+
+    updatePremiumEntitlement(rawEntitlement, user, reason);
+    if (!authoritative || !premiumService || !user || !user.uid) return;
+
+    offlinePremiumBootUid = null;
+    if (typeof premiumService.rememberAuthoritativeOfflineSession === 'function') {
+        premiumService.rememberAuthoritativeOfflineSession(rawEntitlement, user);
+    }
+
+    const checkinService = window.BARK.services && window.BARK.services.checkin;
+    if (premiumService.isPremium && premiumService.isPremium()) {
+        if (checkinService && typeof checkinService.confirmOfflinePremiumProvisionalVisits === 'function') {
+            Promise.resolve(checkinService.confirmOfflinePremiumProvisionalVisits(user.uid))
+                .catch(error => console.error('[authService] offline Premium visit promotion failed:', error));
+        }
+    } else if (checkinService && typeof checkinService.rejectOfflinePremiumProvisionalVisits === 'function') {
+        checkinService.rejectOfflinePremiumProvisionalVisits(user.uid);
+    }
+}
+
+function activateOfflinePremiumSession() {
+    if (window._authStateResolved === true) return null;
+    const premiumService = getPremiumService();
+    if (!premiumService || typeof premiumService.restoreOfflineSession !== 'function') return null;
+
+    const session = premiumService.restoreOfflineSession();
+    if (!session || !session.uid) return null;
+
+    offlinePremiumBootUid = session.uid;
+    lastAuthenticatedUid = session.uid;
+    const loginContainer = document.getElementById('login-container');
+    const offlineStatusContainer = document.getElementById('offline-status-container');
+    const profileName = document.getElementById('user-profile-name');
+    if (loginContainer) loginContainer.style.display = 'none';
+    if (offlineStatusContainer) offlineStatusContainer.style.display = 'block';
+    if (profileName) {
+        const identity = session.displayName || session.email || 'Premium Ranger';
+        profileName.textContent = `${identity} · Offline`;
+    }
+    refreshPremiumUiFromEntitlement('offline-premium-restore');
+    return session;
+}
+
+function restoreOfflinePremiumSessionForAuthenticatedUser(user) {
+    if (!user || !user.uid) return false;
+    const premiumService = getPremiumService();
+    if (!premiumService || typeof premiumService.restoreOfflineSession !== 'function') return false;
+
+    const activeSession = typeof premiumService.getActiveOfflineSession === 'function'
+        ? premiumService.getActiveOfflineSession()
+        : null;
+    const session = activeSession || premiumService.restoreOfflineSession();
+    if (!session) return false;
+    if (session.uid === user.uid) {
+        offlinePremiumBootUid = user.uid;
+        return true;
+    }
+
+    if (typeof premiumService.deactivateOfflineSession === 'function') {
+        premiumService.deactivateOfflineSession({ clear: true, uid: session.uid });
+    }
+    return false;
+}
+
 function trackAnalyticsAudience(kind) {
     const visitorAnalytics = window.BARK && window.BARK.visitorAnalytics;
     if (visitorAnalytics && typeof visitorAnalytics.setAudience === 'function') {
-        const user = typeof firebase !== 'undefined' && firebase.auth
-            ? firebase.auth().currentUser
-            : null;
+        const user = getSafeAuthCurrentUser();
         visitorAnalytics.setAudience(kind, user);
     }
 
@@ -1006,7 +1093,7 @@ function refreshPremiumUiFromEntitlement(reason) {
         sanitizePremiumState: shouldSanitizePremiumRuntime(reason, isPremium)
     });
 
-    const user = typeof firebase !== 'undefined' && firebase.auth ? firebase.auth().currentUser : null;
+    const user = getSafeAuthCurrentUser();
     const savedRoutesRefresh = window.BARK && window.BARK.refreshSavedRoutesEntitlementState;
     if (typeof savedRoutesRefresh === 'function') {
         savedRoutesRefresh(user && user.uid ? user.uid : null);
@@ -1408,10 +1495,11 @@ async function initFirebase() {
                 if (user) {
                     const previousAuthenticatedUid = lastAuthenticatedUid;
                     const isAuthenticatedUserChange = Boolean(previousAuthenticatedUid && previousAuthenticatedUid !== user.uid);
+                    const restoredOfflinePremium = restoreOfflinePremiumSessionForAuthenticatedUser(user);
 
                     if (lastAuthenticatedUid !== user.uid) {
                         window._cloudSettingsLoaded = false;
-                        resetPremiumEntitlement('auth-user-changed');
+                        if (!restoredOfflinePremium) resetPremiumEntitlement('auth-user-changed');
                     }
                     authenticatedSessionSeen = true;
                     lastAuthenticatedUid = user.uid;
@@ -1477,7 +1565,7 @@ async function initFirebase() {
                                             window.gamificationEngine.primeAchievementsFromUserDoc(user.uid, data);
                                         }
 
-                                        updatePremiumEntitlement(data.entitlement, user, 'auth-user-snapshot');
+                                        applyPremiumSnapshotEntitlement(data.entitlement, user, doc.metadata, 'auth-user-snapshot');
                                         const premiumService = getPremiumService();
                                         trackAnalyticsAudience(premiumService && typeof premiumService.isPremium === 'function' && premiumService.isPremium()
                                             ? 'premium'
@@ -1499,7 +1587,7 @@ async function initFirebase() {
                                         handleExpeditionSync(data);
                                     } else {
                                         reconcileVaultRepoFromUserSnapshot(user, {}, doc.metadata);
-                                        updatePremiumEntitlement(null, user, 'auth-user-snapshot-missing');
+                                        applyPremiumSnapshotEntitlement(null, user, doc.metadata, 'auth-user-snapshot-missing');
                                         trackAnalyticsAudience('free');
                                         window.currentWalkPoints = 0;
                                         handleAdminCheck({}, user);
@@ -1536,11 +1624,17 @@ async function initFirebase() {
                     refreshPremiumUiFromEntitlement('auth-signed-in');
                 } else {
                     const shouldResetRuntime = authenticatedSessionSeen || lastAuthenticatedUid !== null;
+                    const previousUid = lastAuthenticatedUid || offlinePremiumBootUid;
                     authenticatedSessionSeen = false;
                     lastAuthenticatedUid = null;
+                    offlinePremiumBootUid = null;
 
                     stopUserSnapshotSubscription();
                     stopVaultRepoVisitSubscription();
+                    const premiumService = getPremiumService();
+                    if (premiumService && typeof premiumService.deactivateOfflineSession === 'function') {
+                        premiumService.deactivateOfflineSession({ clear: true, uid: previousUid });
+                    }
                     resetPremiumEntitlement('auth-signed-out');
 
                     const checkinService = window.BARK.services && window.BARK.services.checkin;
@@ -1553,6 +1647,9 @@ async function initFirebase() {
                     }
                     if (checkinService && typeof checkinService.forgetAuthenticatedVisitUid === 'function') {
                         checkinService.forgetAuthenticatedVisitUid();
+                    }
+                    if (previousUid && checkinService && typeof checkinService.rejectOfflinePremiumProvisionalVisits === 'function') {
+                        checkinService.rejectOfflinePremiumProvisionalVisits(previousUid);
                     }
 
                     if (loginContainer) loginContainer.style.display = 'block';
@@ -1631,6 +1728,7 @@ async function initFirebase() {
 
 window.BARK.services.auth = {
     initFirebase,
+    activateOfflinePremiumSession,
     initializeFirebaseAppCheck,
     createGoogleProvider,
     ensureLocalAuthPersistence,

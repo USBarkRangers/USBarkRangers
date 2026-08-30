@@ -20,6 +20,7 @@ function makeServer(initialVisits, options = {}) {
     let holdNextCommit = false;
     let releaseCommit = null;
     const queuedFailures = [];
+    const enforceLargeShrinkRule = options.enforceLargeShrinkRule !== false;
 
     const db = {
         collection() {
@@ -62,6 +63,16 @@ function makeServer(initialVisits, options = {}) {
             if (holdNextCommit) {
                 holdNextCommit = false;
                 await new Promise(resolve => { releaseCommit = resolve; });
+            }
+            if (
+                enforceLargeShrinkRule
+                && state.visits.length >= 3
+                && staged.length <= state.visits.length - 3
+            ) {
+                throw Object.assign(
+                    new Error('Missing or insufficient permissions: visitedPlaces shrink exceeds two records.'),
+                    { code: 'permission-denied' }
+                );
             }
             state.visits = staged;
             state.version++;
@@ -196,7 +207,7 @@ test('cold fake-service boot hydrates only the remembered account deletion as pe
     );
 });
 
-test('50 rapid removals coalesce into one transaction without resurrecting visits', async () => {
+test('50 rapid removals commit in rule-safe pairs without resurrecting visits', async () => {
     const visits = makeVisits(50);
     const server = makeServer(visits);
     const harness = loadHarness(server);
@@ -205,7 +216,7 @@ test('50 rapid removals coalesce into one transaction without resurrecting visit
     const removals = visits.map(visit => harness.service.removeVisitedEntries([{ id: visit.id, record: visit }]));
     await Promise.all(removals.map(result => result.syncPromise));
 
-    assert.equal(server.state.commits, 1);
+    assert.equal(server.state.commits, 25);
     assert.equal(server.state.visits.length, 0);
     assert.equal(harness.repo.size(), 0);
     assert.equal(harness.repo.snapshot().pending.size, 0);
@@ -263,7 +274,7 @@ test('Premium bulk deletions stay committed when the post-save screen refresh th
     harness.context.dispatch('online');
     const results = await Promise.allSettled(removals.map(result => result.syncPromise));
 
-    assert.equal(server.state.commits, 1);
+    assert.equal(server.state.commits, 20);
     assert.equal(server.state.visits.length, 0);
     assert.equal(results.every(result => result.status === 'fulfilled'), true);
     assert.equal(harness.repo.size(), 0, 'a display failure must not restore server-deleted parks');
@@ -285,7 +296,7 @@ test('removals arriving during a write stay deleted and flush in one follow-up t
     server.releaseCommit();
     await Promise.all([...first, ...later].map(result => result.syncPromise));
 
-    assert.equal(server.state.commits, 2);
+    assert.equal(server.state.commits, 25);
     assert.equal(server.state.visits.length, 0);
     assert.equal(harness.repo.size(), 0);
     assert.equal(harness.repo.snapshot().pending.size, 0);
@@ -389,7 +400,7 @@ test('iOS code-0 IndexedDB resume failure stays queued and retries without resto
     const removals = visits.map(visit => harness.service.removeVisitedEntries([{ id: visit.id, record: visit }]));
     await Promise.all(removals.map(result => result.syncPromise));
 
-    assert.equal(server.state.commits, 1, 'the retry should perform one successful combined commit');
+    assert.equal(server.state.commits, 30, 'the retry must finish every rule-safe deletion slice');
     assert.equal(server.state.visits.length, 0);
     assert.equal(harness.repo.size(), 0);
     assert.equal(harness.storage.has('bark.pendingVisitDeletes.bulk-user'), false);

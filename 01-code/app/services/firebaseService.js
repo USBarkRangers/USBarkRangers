@@ -686,46 +686,81 @@ async function commitVisitedPlacesAtomically(db, userRef, requestedVisitedArray,
         throw error;
     }
 
+    // Firestore rules deliberately reject a client write that drops three or
+    // more visits at once. That protects an account from an accidental empty
+    // array, but rapid legitimate removals are coalesced by the coordinator and
+    // therefore must be committed in rule-safe slices. Two exact deletions per
+    // transaction preserves that server-side guard without rolling the user's
+    // durable offline intent back.
+    const MAX_DELETIONS_PER_TRANSACTION = 2;
     let committedVisitedArray = [];
     let rejectedFreeVisitIds = [];
-    if (window.BARK && typeof window.BARK.incrementRequestCount === 'function') {
-        // Count the single committed transaction write once. Firestore can
-        // rerun the callback below, but those retries only add document reads.
-        window.BARK.incrementRequestCount();
-    }
-    await db.runTransaction(async transaction => {
-        rejectedFreeVisitIds = [];
+    let deferredDeleteCount = 0;
+
+    do {
+        deferredDeleteCount = 0;
         if (window.BARK && typeof window.BARK.incrementRequestCount === 'function') {
+            // Count each transaction write once. Firestore may rerun its
+            // callback, and each rerun is counted as another document read.
             window.BARK.incrementRequestCount();
         }
-        const doc = await transaction.get(userRef);
-        const data = doc && doc.exists && typeof doc.data === 'function' ? (doc.data() || {}) : {};
-        const serverVisitedArray = Array.isArray(data.visitedPlaces)
-            ? data.visitedPlaces.map(cloneVisitedPlace)
-            : [];
 
-        // Firestore retries this callback if another device changes the user
-        // document. Rebuilding from that newest snapshot prevents the last
-        // writer from erasing a visit committed by the other device.
-        committedVisitedArray = mergeVisitedPlacesForSafeWrite(
-            serverVisitedArray,
-            requestedVisitedArray.map(cloneVisitedPlace)
-        );
+        await db.runTransaction(async transaction => {
+            rejectedFreeVisitIds = [];
+            if (window.BARK && typeof window.BARK.incrementRequestCount === 'function') {
+                window.BARK.incrementRequestCount();
+            }
+            const doc = await transaction.get(userRef);
+            const data = doc && doc.exists && typeof doc.data === 'function' ? (doc.data() || {}) : {};
+            const serverVisitedArray = Array.isArray(data.visitedPlaces)
+                ? data.visitedPlaces.map(cloneVisitedPlace)
+                : [];
 
-        // Run the destructive-write guard against the complete merge. The
-        // free-plan cap below only rejects new local additions; it never drops
-        // a record already present in the authoritative server document.
-        assertVisitedWriteIsNotDestructive(committedVisitedArray);
-        if (!hasServerPremiumVisitedAccess(data) && committedVisitedArray.length > 5) {
-            const capped = capFreeVisitedPlaces(serverVisitedArray, committedVisitedArray);
-            committedVisitedArray = capped.visits;
-            rejectedFreeVisitIds = capped.rejectedVisitIds;
-        }
+            // Firestore retries this callback if another device changes the
+            // user document. Rebuilding from that newest snapshot prevents the
+            // last writer from erasing a visit committed by the other device.
+            const requestedMerge = mergeVisitedPlacesForSafeWrite(
+                serverVisitedArray,
+                requestedVisitedArray.map(cloneVisitedPlace)
+            );
 
-        // set(..., { merge: true }) preserves syncUserProgress's prior ability
-        // to initialize a missing user document without replacing other fields.
-        transaction.set(userRef, { visitedPlaces: committedVisitedArray }, { merge: true });
-    });
+            // Validate the complete intended result before slicing it. The
+            // slice may temporarily retain staged deletions, but can never add
+            // an unstaged destructive drop.
+            assertVisitedWriteIsNotDestructive(requestedMerge);
+            const requestedIds = new Set(requestedMerge.map(getVisitedPlaceId).filter(Boolean).map(String));
+            const serverDeletes = serverVisitedArray.filter(visit => {
+                const id = getVisitedPlaceId(visit);
+                return id && !requestedIds.has(String(id));
+            });
+            const deferredDeletes = serverDeletes.slice(MAX_DELETIONS_PER_TRANSACTION);
+            deferredDeleteCount = deferredDeletes.length;
+
+            if (deferredDeleteCount > 0) {
+                const mergedIds = new Set(requestedMerge.map(getVisitedPlaceId).filter(Boolean).map(String));
+                committedVisitedArray = requestedMerge.concat(
+                    deferredDeletes
+                        .filter(visit => !mergedIds.has(String(getVisitedPlaceId(visit))))
+                        .map(cloneVisitedPlace)
+                );
+            } else {
+                committedVisitedArray = requestedMerge;
+            }
+
+            // The free-plan cap only rejects new local additions; it never
+            // drops a record already present in the authoritative document.
+            if (!hasServerPremiumVisitedAccess(data) && committedVisitedArray.length > 5) {
+                const capped = capFreeVisitedPlaces(serverVisitedArray, committedVisitedArray);
+                committedVisitedArray = capped.visits;
+                rejectedFreeVisitIds = capped.rejectedVisitIds;
+            }
+
+            // set(..., { merge: true }) preserves syncUserProgress's prior
+            // ability to initialize a missing user document without replacing
+            // other fields.
+            transaction.set(userRef, { visitedPlaces: committedVisitedArray }, { merge: true });
+        });
+    } while (deferredDeleteCount > 0);
 
     discardRejectedFreeVisitAdditions(uid, rejectedFreeVisitIds);
 

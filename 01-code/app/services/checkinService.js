@@ -12,6 +12,7 @@ const FREE_VISIT_LIMIT = 5;
 const FIREBASE_WRITE_TIMEOUT_MS = 15000;
 const WRITE_TIMEOUT_SENTINEL = '__BARK_WRITE_TIMEOUT__';
 const SERVER_CONFIRMATION_RETRY_MS = 5000;
+const FREE_RECOVERY_SIGNAL_DELAY_MS = 1000;
 const VISIT_SYNC_TOKEN_FIELD = 'syncToken';
 
 function createVisitSyncToken() {
@@ -589,7 +590,13 @@ async function probeServerForVisitConfirmation(expectedVisit, reason = 'confirma
         const data = doc && doc.exists && typeof doc.data === 'function' ? (doc.data() || {}) : {};
         const serverVisits = Array.isArray(data.visitedPlaces) ? data.visitedPlaces : [];
         const confirmedVisit = serverVisits.find(place => visitRecordsMatchForConfirmation(place, expectedVisit));
-        if (!confirmedVisit) return false;
+        if (!confirmedVisit) {
+            schedulePendingFreeVisitRecovery('authoritative-miss', {
+                delayMs: 0,
+                oncePerJournal: true
+            });
+            return false;
+        }
 
         const firebaseService = getFirebaseService();
         const vaultRepo = getVaultRepo();
@@ -672,6 +679,60 @@ function getServerConfirmationRetryMs(options = {}) {
 
 function isConfirmationSurfaceVisible() {
     return typeof document === 'undefined' || document.visibilityState !== 'hidden';
+}
+
+let scheduledFreeRecoveryHandle = null;
+let scheduledFreeRecoveryReason = null;
+let lastAuthoritativeMissRecoveryFingerprint = null;
+
+function getPendingFreeRecoveryFingerprint() {
+    const user = typeof firebase !== 'undefined' && firebase.auth
+        ? firebase.auth().currentUser
+        : null;
+    const premiumService = getPremiumService();
+    const hasAuthoritativePlanState = premiumService && typeof premiumService.isPremium === 'function';
+    if (!user || !user.uid || !hasAuthoritativePlanState || premiumService.isPremium()) return null;
+
+    const pendingVisits = Object.values(loadUnconfirmedVisitsMap(user.uid))
+        .filter(entry => (
+            entry
+            && entry.visit
+            && getVisitId(entry.visit)
+            && entry.offlinePremiumProvisional !== true
+        ))
+        .map(entry => `${getVisitId(entry.visit)}:${entry.visit[VISIT_SYNC_TOKEN_FIELD] || ''}`)
+        .sort();
+    return pendingVisits.length > 0 ? `${user.uid}|${pendingVisits.join('|')}` : null;
+}
+
+// Fake cellular service often leaves navigator.onLine=true, so a later switch
+// to working Wi-Fi may never emit "online". Reuse the existing full recovery
+// only when a free account has durable orange visits. An authoritative probe
+// that can reach Firestore but still cannot find the mutation schedules one
+// recovery for that exact journal; ordinary focus/connection signals can wake
+// it again without creating a new polling loop.
+function schedulePendingFreeVisitRecovery(reason, options = {}) {
+    const fingerprint = getPendingFreeRecoveryFingerprint();
+    if (!fingerprint) return false;
+
+    const oncePerJournal = options.oncePerJournal === true;
+    if (oncePerJournal && lastAuthoritativeMissRecoveryFingerprint === fingerprint) return false;
+    if (oncePerJournal) lastAuthoritativeMissRecoveryFingerprint = fingerprint;
+
+    scheduledFreeRecoveryReason = reason || 'recovery-signal';
+    if (scheduledFreeRecoveryHandle !== null) return true;
+
+    const delayMs = Number.isFinite(options.delayMs)
+        ? Math.max(0, Number(options.delayMs))
+        : FREE_RECOVERY_SIGNAL_DELAY_MS;
+    scheduledFreeRecoveryHandle = setTimeout(() => {
+        scheduledFreeRecoveryHandle = null;
+        const queuedReason = scheduledFreeRecoveryReason;
+        scheduledFreeRecoveryReason = null;
+        if (!getPendingFreeRecoveryFingerprint()) return;
+        forceServerSyncRecovery(`free-${queuedReason}`);
+    }, delayMs);
+    return true;
 }
 
 function triggerPendingServerConfirmationRecovery(reason = 'recovery-signal') {
@@ -912,14 +973,17 @@ if (typeof window !== 'undefined' && !window._barkOnlineRecoveryBound) {
 
     window.addEventListener('focus', () => {
         triggerPendingServerConfirmationRecovery('window-focus');
+        schedulePendingFreeVisitRecovery('window-focus');
     });
     window.addEventListener('pageshow', () => {
         triggerPendingServerConfirmationRecovery('page-show');
+        schedulePendingFreeVisitRecovery('page-show');
     });
     if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState !== 'hidden') {
                 triggerPendingServerConfirmationRecovery('visible');
+                schedulePendingFreeVisitRecovery('visible');
             }
         });
     }
@@ -929,6 +993,7 @@ if (typeof window !== 'undefined' && !window._barkOnlineRecoveryBound) {
     if (connection && typeof connection.addEventListener === 'function') {
         connection.addEventListener('change', () => {
             triggerPendingServerConfirmationRecovery('connection-change');
+            schedulePendingFreeVisitRecovery('connection-change');
         });
     }
 }

@@ -352,6 +352,133 @@ test('fresh visit cannot confirm until the exact server mutation exists', async 
     assert.equal(repo.hasPendingMutation(expected.id), true);
 });
 
+test('free orange visit replays when Firestore returns after fake service without an online event', async () => {
+    const context = loadCheckinService();
+    const uid = 'free-fake-service-user';
+    const expected = {
+        id: 'free-recovery-park',
+        name: 'Free Recovery Park',
+        verified: false,
+        ts: 250,
+        syncToken: 'free-recovery-token'
+    };
+    const repo = preparePendingVisit(context, expected);
+    let serverVisits = [];
+    let recoveryWrites = 0;
+
+    context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
+        [expected.id]: { visit: expected, stashedAt: 250, offlinePremiumProvisional: false }
+    }));
+    context.window.BARK.services.premium = { isPremium: () => false };
+    context.window.BARK.services.firebase = {
+        stageVisitedPlaceUpsert(visit) {
+            repo.stageUpsert(visit);
+        },
+        reconcileVisitedPlacesSnapshot(placeList, metadata) {
+            return repo.reconcileSnapshot(placeList, metadata);
+        },
+        replayPendingVisitDeletions() {
+            return Promise.resolve([]);
+        },
+        async updateCurrentUserVisitedPlaces(visits) {
+            recoveryWrites++;
+            serverVisits = visits.map(visit => ({ ...visit }));
+            return serverVisits;
+        }
+    };
+    context.firebase = {
+        auth() {
+            return { currentUser: { uid } };
+        },
+        firestore() {
+            return {
+                waitForPendingWrites() {
+                    return Promise.resolve();
+                },
+                collection() {
+                    return {
+                        doc() {
+                            return {
+                                async get() {
+                                    return makeSnapshot(serverVisits);
+                                }
+                            };
+                        }
+                    };
+                }
+            };
+        }
+    };
+
+    const result = await context.window.BARK.services.checkin.awaitServerConfirmation(expected, {
+        retryMs: 10,
+        timeoutMs: 500
+    });
+
+    assert.equal(result.confirmed, true);
+    assert.equal(recoveryWrites, 1, 'one existing recovery write should restage the missing free visit');
+    assert.equal(repo.hasPendingMutation(expected.id), false);
+    assert.equal(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
+});
+
+test('free recovery trigger does not alter the Premium offline path', async () => {
+    const context = loadCheckinService();
+    const uid = 'premium-control-user';
+    const expected = {
+        id: 'premium-control-park',
+        verified: false,
+        ts: 275,
+        syncToken: 'premium-control-token'
+    };
+    const repo = preparePendingVisit(context, expected);
+    let recoveryWrites = 0;
+
+    context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
+        [expected.id]: { visit: expected, stashedAt: 275, offlinePremiumProvisional: false }
+    }));
+    context.window.BARK.services.premium = { isPremium: () => true };
+    context.window.BARK.services.firebase = {
+        stageVisitedPlaceUpsert(visit) {
+            repo.stageUpsert(visit);
+        },
+        reconcileVisitedPlacesSnapshot(placeList, metadata) {
+            return repo.reconcileSnapshot(placeList, metadata);
+        },
+        async updateCurrentUserVisitedPlaces() {
+            recoveryWrites++;
+            return [];
+        }
+    };
+    context.firebase = {
+        auth() {
+            return { currentUser: { uid } };
+        },
+        firestore() {
+            return {
+                waitForPendingWrites() {
+                    return Promise.resolve();
+                },
+                collection() {
+                    return {
+                        doc() {
+                            return { async get() { return makeSnapshot([]); } };
+                        }
+                    };
+                }
+            };
+        }
+    };
+
+    const result = await context.window.BARK.services.checkin.awaitServerConfirmation(expected, {
+        retryMs: 10,
+        timeoutMs: 60
+    });
+
+    assert.equal(result.confirmed, false);
+    assert.equal(recoveryWrites, 0, 'Premium remains owned by its existing recovery flow');
+    assert.equal(repo.hasPendingMutation(expected.id), true);
+});
+
 test('same park ID with an older unverified server record cannot false-confirm a GPS upgrade', async () => {
     const context = loadCheckinService();
     const expected = { id: 'same-park', verified: true, ts: 300, syncToken: 'gps-upgrade-token' };

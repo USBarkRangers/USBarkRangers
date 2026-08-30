@@ -19,6 +19,12 @@
 
     let memorySnapshot = null;
     let restoreGeneration = 0;
+    let activeScrollRestoreCleanup = null;
+
+    function clearPanelScrollRestore() {
+        if (typeof activeScrollRestoreCleanup === 'function') activeScrollRestoreCleanup();
+        activeScrollRestoreCleanup = null;
+    }
 
     function removeStoredSnapshot() {
         memorySnapshot = null;
@@ -72,6 +78,7 @@
 
     function capture(options = {}) {
         restoreGeneration += 1;
+        clearPanelScrollRestore();
         removeStoredSnapshot();
         if (options.preservePinPopup !== true) return false;
 
@@ -118,13 +125,37 @@
     }
 
     function schedulePanelScrollRestore(marker, savedScrollTop, generation) {
+        clearPanelScrollRestore();
         const targetScrollTop = normalizeScrollTop(savedScrollTop);
-        const apply = () => {
-            if (generation !== restoreGeneration || window.BARK.activePinMarker !== marker) return;
+        const panel = document.getElementById('slide-panel');
+        const panelContent = panel && panel.querySelector('.panel-content');
+        if (!panel || !panel.classList.contains('open') || !panelContent) return;
 
-            const panel = document.getElementById('slide-panel');
-            const panelContent = panel && panel.querySelector('.panel-content');
-            if (!panel || !panel.classList.contains('open') || !panelContent) return;
+        let cancelled = false;
+        const timeoutIds = [];
+        const animationFrameIds = [];
+        const userIntentEvents = ['pointerdown', 'touchstart', 'wheel', 'keydown'];
+
+        const cleanup = () => {
+            if (cancelled) return;
+            cancelled = true;
+            timeoutIds.forEach(id => clearTimeout(id));
+            animationFrameIds.forEach(id => cancelAnimationFrame(id));
+            userIntentEvents.forEach(type => panelContent.removeEventListener(type, cleanup, true));
+            if (activeScrollRestoreCleanup === cleanup) activeScrollRestoreCleanup = null;
+        };
+        activeScrollRestoreCleanup = cleanup;
+
+        // A touch, wheel, pointer, or keyboard gesture means the user owns the
+        // card position now. Never let a delayed layout correction undo it.
+        userIntentEvents.forEach(type => panelContent.addEventListener(type, cleanup, {
+            capture: true,
+            passive: true
+        }));
+
+        const apply = () => {
+            if (cancelled || generation !== restoreGeneration || window.BARK.activePinMarker !== marker) return;
+            if (!panel.classList.contains('open')) return;
 
             const maxScrollTop = Math.max(0, panelContent.scrollHeight - panelContent.clientHeight);
             panelContent.scrollTop = Math.min(targetScrollTop, maxScrollTop);
@@ -134,8 +165,12 @@
         // settle over several frames after an external sheet closes. Reapply the
         // same absolute card position while the exact restored marker still owns it.
         apply();
-        requestAnimationFrame(() => requestAnimationFrame(apply));
-        SCROLL_RESTORE_DELAYS_MS.forEach(delay => setTimeout(apply, delay));
+        animationFrameIds.push(requestAnimationFrame(() => {
+            if (cancelled) return;
+            animationFrameIds.push(requestAnimationFrame(apply));
+        }));
+        SCROLL_RESTORE_DELAYS_MS.forEach(delay => timeoutIds.push(setTimeout(apply, delay)));
+        timeoutIds.push(setTimeout(cleanup, Math.max(...SCROLL_RESTORE_DELAYS_MS) + 100));
     }
 
     function snapshotMatchesHandoff(snapshot, expectedHandoffId) {
@@ -223,6 +258,7 @@
 
     function cancel() {
         restoreGeneration += 1;
+        clearPanelScrollRestore();
         removeStoredSnapshot();
         document.body.classList.remove(RETURN_VISIBLE_CLASS);
     }

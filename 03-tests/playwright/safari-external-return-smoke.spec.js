@@ -376,6 +376,73 @@ test.describe('Safari installed-app external return', () => {
         await context.close();
     });
 
+    test('an immediate upward scroll after return is never undone by delayed restoration', async ({ browser }) => {
+        const context = await newBarkContext(browser, {
+            viewport: { width: 390, height: 844 },
+            isMobile: true,
+            hasTouch: true
+        });
+        const page = await context.newPage();
+        await openLoadedApp(page);
+
+        const capturedScrollTop = await page.evaluate(() => {
+            const marker = Array.from(window.BARK.markerManager.markers.values())
+                .find(candidate => candidate && candidate._parkData);
+            if (!marker) throw new Error('No park marker is available for the immediate-scroll test.');
+
+            marker._parkData = {
+                ...marker._parkData,
+                website: 'https://example.com/immediate-scroll-return',
+                info: Array.from({ length: 40 }, (_value, index) => `Scroll return detail ${index + 1}`).join('\n')
+            };
+            window.BARK.markerManager.renderMarkerPanel(marker);
+            const link = document.querySelector('#websites-container a[href]');
+            link.addEventListener('click', event => event.preventDefault(), { once: true });
+            const panelContent = document.querySelector('#slide-panel .panel-content');
+            panelContent.scrollTop = panelContent.scrollHeight;
+            const scrollTop = panelContent.scrollTop;
+            link.click();
+            return scrollTop;
+        });
+        expect(capturedScrollTop).toBeGreaterThan(0);
+
+        await page.evaluate(() => {
+            window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+        });
+        await page.waitForFunction(() => {
+            const panel = document.getElementById('slide-panel');
+            const panelContent = panel.querySelector('.panel-content');
+            return panel.classList.contains('open') && panelContent.scrollTop > 0;
+        }, undefined, { timeout: 2000 });
+
+        const immediateScrollTop = await page.evaluate(() => {
+            const panelContent = document.querySelector('#slide-panel .panel-content');
+            panelContent.dispatchEvent(new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                isPrimary: true,
+                pointerType: 'touch'
+            }));
+            panelContent.scrollTop = 0;
+            return panelContent.scrollTop;
+        });
+        expect(immediateScrollTop).toBe(0);
+
+        // Every old correction used to reapply the captured position as late as
+        // 1.4 seconds, which made the first swipe appear to do nothing.
+        await page.waitForTimeout(1600);
+        const finalState = await page.evaluate(() => ({
+            panelOpen: document.getElementById('slide-panel').classList.contains('open'),
+            scrollTop: document.querySelector('#slide-panel .panel-content').scrollTop,
+            title: document.getElementById('panel-title').textContent
+        }));
+        expect(finalState.panelOpen).toBe(true);
+        expect(finalState.scrollTop).toBe(0);
+        expect(finalState.title).not.toBe('');
+
+        await context.close();
+    });
+
     test('rapid Website and Swag returns cannot consume the next handoff snapshot', async ({ browser }) => {
         const context = await newBarkContext(browser, {
             viewport: { width: 390, height: 844 },

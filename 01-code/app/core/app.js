@@ -7,6 +7,7 @@
 
     const _bootErrors = [];
     const MAP_READY_TIMEOUT_MS = 5000;
+    const FIREBASE_BOOT_WAIT_MS = 10000;
 
     window.BARK._bootErrors = _bootErrors;
     window.BARK.getBootErrors = function getBootErrors() {
@@ -139,6 +140,60 @@
         }
     }
 
+    /**
+     * Firebase can remain pending for a long time when a phone reports that it
+     * is online but its cellular connection cannot actually move data. Park
+     * data is independent and has a local CSV cache, so it must not wait
+     * forever behind cloud session restoration.
+     *
+     * This only bounds the boot dependency: Firebase keeps running after the
+     * timeout and its normal auth/snapshot callbacks take over when service
+     * recovers. Keeping the policy here makes the fallback easy to remove or
+     * tune without coupling dataService to authentication internals.
+     */
+    async function initializeFirebaseForBoot() {
+        const authService = window.BARK.services && window.BARK.services.auth;
+        if (!authService || typeof authService.initFirebase !== 'function') {
+            return { status: 'skipped' };
+        }
+
+        let timeoutId = null;
+        const firebaseInit = Promise.resolve()
+            .then(() => authService.initFirebase())
+            .then(() => ({ status: 'ready' }))
+            .catch(error => ({ status: 'error', error }));
+        const bootTimeout = new Promise(resolve => {
+            timeoutId = setTimeout(() => resolve({ status: 'timeout' }), FIREBASE_BOOT_WAIT_MS);
+        });
+        const result = await Promise.race([firebaseInit, bootTimeout]);
+
+        if (result.status !== 'timeout' && timeoutId !== null) clearTimeout(timeoutId);
+
+        if (result.status === 'timeout') {
+            console.warn('[B.A.R.K. Boot] Firebase is still connecting after 10s; loading cached park data now.');
+            firebaseInit.then(lateResult => {
+                if (lateResult.status === 'ready') {
+                    console.log('  ✓ Firebase initialized after cached map startup');
+                    return;
+                }
+                _bootErrors.push('initFirebase');
+                console.error('[B.A.R.K. Boot] "initFirebase" failed after cached map startup — auth and cloud sync unavailable.', lateResult.error);
+                showAuthFailure('Sign-in failed during startup. Cloud sync and saved progress are offline for this session.');
+            });
+            return result;
+        }
+
+        if (result.status === 'error') {
+            _bootErrors.push('initFirebase');
+            console.error('[B.A.R.K. Boot] "initFirebase" failed — auth and cloud sync unavailable.', result.error);
+            showAuthFailure('Sign-in failed during startup. Cloud sync and saved progress are offline for this session.');
+            return result;
+        }
+
+        console.log('  ✓ Firebase initialized');
+        return result;
+    }
+
     // async so we can await each callInit and preserve boot order even for future async inits.
     document.addEventListener('DOMContentLoaded', async () => {
         console.log('B.A.R.K. Boot Sequence: Initializing...');
@@ -179,18 +234,10 @@
         await callInit('initCSVExport', 'Share engine initialized');
         await callInit('initFirstOpenDisclaimer', 'First-open disclaimer initialized');
 
-        // 4. Firebase — separate try/catch because a throw here means auth is gone,
-        //    not just one feature. Named clearly so the console error is unambiguous.
-        try {
-            if (window.BARK.services && window.BARK.services.auth) {
-                await window.BARK.services.auth.initFirebase();
-                console.log('  ✓ Firebase initialized');
-            }
-        } catch (err) {
-            _bootErrors.push('initFirebase');
-            console.error('[B.A.R.K. Boot] "initFirebase" failed — auth and cloud sync unavailable.', err);
-            showAuthFailure('Sign-in failed during startup. Cloud sync and saved progress are offline for this session.');
-        }
+        // 4. Firebase gets a bounded head start. On fake cellular service the
+        //    local park cache continues after 10 seconds instead of waiting on
+        //    an unbounded cloud handshake. Firebase itself is not cancelled.
+        await initializeFirebaseForBoot();
 
         // 5. Data loading — loadData handles cache hydration, immediate fetch, and polling schedule
         try {

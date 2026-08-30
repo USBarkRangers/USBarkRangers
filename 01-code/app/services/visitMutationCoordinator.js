@@ -113,6 +113,7 @@ window.BARK = window.BARK || {};
         let running = false;
         let scheduledTimer = null;
         let retryTimer = null;
+        let consecutiveRetryCount = 0;
         const waiters = [];
 
         function clearTimer(name) {
@@ -139,12 +140,12 @@ window.BARK = window.BARK || {};
             }, delayMs);
         }
 
-        function scheduleRetry() {
+        function scheduleRetry(delayMs = retryMs) {
             if (retryTimer !== null) return;
             retryTimer = setTimeout(() => {
                 retryTimer = null;
                 drain();
-            }, retryMs);
+            }, Math.max(25, Number(delayMs) || retryMs));
         }
 
         async function drain() {
@@ -159,9 +160,14 @@ window.BARK = window.BARK || {};
                 } catch (error) {
                     const retryable = typeof options.isRetryable === 'function' && options.isRetryable(error);
                     if (retryable) {
+                        consecutiveRetryCount++;
                         if (typeof options.onDeferred === 'function') options.onDeferred(error, targetRevision);
-                        scheduleRetry();
+                        const requestedDelay = typeof options.getRetryDelay === 'function'
+                            ? options.getRetryDelay(error, consecutiveRetryCount, retryMs)
+                            : retryMs;
+                        scheduleRetry(requestedDelay);
                     } else {
+                        consecutiveRetryCount = 0;
                         committedRevision = Math.max(committedRevision, targetRevision);
                         settleThrough(targetRevision, 'reject', error);
                     }
@@ -172,6 +178,7 @@ window.BARK = window.BARK || {};
                 // cache, renderer, or other local acknowledgement failure must
                 // never turn that durable server result into a rejected write
                 // or trigger a destructive client rollback.
+                consecutiveRetryCount = 0;
                 committedRevision = Math.max(committedRevision, targetRevision);
                 if (typeof options.onCommitted === 'function') {
                     try {
@@ -205,6 +212,7 @@ window.BARK = window.BARK || {};
 
         function wake() {
             clearTimer('retry');
+            consecutiveRetryCount = 0;
             if (committedRevision < requestedRevision) schedule(0);
         }
 
@@ -226,7 +234,8 @@ window.BARK = window.BARK || {};
                     committedRevision,
                     running,
                     waiting: waiters.length,
-                    retryScheduled: retryTimer !== null
+                    retryScheduled: retryTimer !== null,
+                    consecutiveRetryCount
                 });
             }
         });

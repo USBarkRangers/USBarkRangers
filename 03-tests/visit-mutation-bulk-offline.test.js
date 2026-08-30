@@ -94,6 +94,7 @@ function makeServer(initialVisits, options = {}) {
 function loadHarness(server, storage = new Map(), { loadCheckin = false, premium = true } = {}) {
     const handlers = new Map();
     const alerts = [];
+    const sessionRefreshes = { auth: 0, appCheck: 0 };
     const context = {
         console,
         Date,
@@ -126,7 +127,21 @@ function loadHarness(server, storage = new Map(), { loadCheckin = false, premium
         removeItem: key => storage.delete(key)
     };
     context.firebase = {
-        auth: () => ({ currentUser: { uid: 'bulk-user' } }),
+        auth: () => ({
+            currentUser: {
+                uid: 'bulk-user',
+                async getIdToken() {
+                    sessionRefreshes.auth++;
+                    return 'refreshed-test-token';
+                }
+            }
+        }),
+        appCheck: () => ({
+            async getToken() {
+                sessionRefreshes.appCheck++;
+                return { token: 'refreshed-app-check-token' };
+            }
+        }),
         firestore: () => server.db
     };
     server.setEntitlement(premium ? { premium: true, status: 'active' } : { premium: false, status: 'inactive' });
@@ -155,7 +170,14 @@ function loadHarness(server, storage = new Map(), { loadCheckin = false, premium
         const handler = handlers.get(name);
         if (handler) handler();
     };
-    return { context, storage, alerts, repo: context.BARK.repos.VaultRepo, service: context.BARK.services.firebase };
+    return {
+        context,
+        storage,
+        alerts,
+        sessionRefreshes,
+        repo: context.BARK.repos.VaultRepo,
+        service: context.BARK.services.firebase
+    };
 }
 
 function makeVisits(count) {
@@ -283,6 +305,35 @@ test('Premium bulk deletions stay committed when the post-save screen refresh th
     assert.deepEqual(harness.alerts, []);
 });
 
+test('offline reconnect permission race refreshes session proof and keeps removals queued', async () => {
+    const visits = makeVisits(20);
+    const server = makeServer(visits, { available: false });
+    const harness = loadHarness(server, new Map(), { premium: true });
+    seedRepo(harness.repo, visits);
+
+    const removals = visits.map(visit => harness.service.removeVisitedEntries([{ id: visit.id, record: visit }]));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(server.state.commits, 0);
+    assert.equal(harness.repo.size(), 0);
+
+    // Reproduce the real PWA sequence: network transport returns, but the first
+    // Firestore attempt arrives before refreshed Auth/App Check proof.
+    server.setAvailable(true);
+    server.failNext(Object.assign(new Error('Session proof has not refreshed yet'), { code: 'permission-denied' }));
+    harness.context.dispatch('online');
+    const results = await Promise.allSettled(removals.map(result => result.syncPromise));
+
+    assert.equal(results.every(result => result.status === 'fulfilled'), true);
+    assert.equal(server.state.visits.length, 0);
+    assert.equal(harness.repo.size(), 0);
+    assert.equal(harness.repo.snapshot().pending.size, 0);
+    assert.equal(harness.storage.has('bark.pendingVisitDeletes.bulk-user'), false);
+    assert.equal(harness.storage.has('bark.visitWriteRecovery.bulk-user'), false);
+    assert.equal(harness.sessionRefreshes.auth >= 1, true);
+    assert.equal(harness.sessionRefreshes.appCheck >= 1, true);
+    assert.deepEqual(harness.alerts, []);
+});
+
 test('removals arriving during a write stay deleted and flush in one follow-up transaction', async () => {
     const visits = makeVisits(50);
     const server = makeServer(visits);
@@ -331,6 +382,36 @@ test('an offline deletion survives app close and is removed from the server on r
     offlineServer.setAvailable(true);
     firstSession.context.dispatch('online');
     await removal.syncPromise;
+});
+
+test('offline deletion survives restart and a first permission-denied reconnect response', async () => {
+    const visits = makeVisits(12);
+    const sharedState = { visits: visits.map(visit => ({ ...visit })), version: 0, commits: 0, reads: 0 };
+    const storage = new Map();
+    const offlineServer = makeServer([], { state: sharedState, available: false });
+    const firstSession = loadHarness(offlineServer, storage);
+    seedRepo(firstSession.repo, visits);
+
+    const removals = visits.map(visit => firstSession.service.removeVisitedEntries([{ id: visit.id, record: visit }]));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(storage.has('bark.visitWriteRecovery.bulk-user'), true);
+    assert.equal(sharedState.visits.length, 12);
+
+    const reconnectServer = makeServer([], { state: sharedState, available: true });
+    reconnectServer.failNext(Object.assign(new Error('App Check is still refreshing'), { code: 'permission-denied' }));
+    const reopened = loadHarness(reconnectServer, storage);
+    await reopened.service.replayPendingVisitDeletions('bulk-user');
+
+    assert.equal(sharedState.visits.length, 0);
+    assert.equal(storage.has('bark.pendingVisitDeletes.bulk-user'), false);
+    assert.equal(storage.has('bark.visitWriteRecovery.bulk-user'), false);
+    assert.equal(reopened.sessionRefreshes.auth >= 1, true);
+    assert.equal(reopened.sessionRefreshes.appCheck >= 1, true);
+    assert.deepEqual(reopened.alerts, []);
+
+    offlineServer.setAvailable(true);
+    firstSession.context.dispatch('online');
+    await Promise.all(removals.map(result => result.syncPromise));
 });
 
 test('deleting an orange pending visit clears its add-recovery record before syncing the delete', async () => {

@@ -39,6 +39,7 @@ window.BARK.services = window.BARK.services || {};
 
 let visitedPlacesWriteInFlightCount = 0;
 const visitedPlacesWriteCoordinators = new Map();
+const VISIT_WRITE_RECOVERY_PREFIX = 'bark.visitWriteRecovery.';
 let preAuthHydratedDeleteUid = null;
 let preAuthHydratedDeleteIds = new Set();
 let legacyVisitCoordinateIndex = new Map();
@@ -543,6 +544,68 @@ function isRetryableVisitedWriteError(error) {
         && /offline|network|connection|transaction|cache/i.test(String(error && error.message || ''));
 }
 
+function normalizeVisitedWriteErrorCode(error) {
+    const raw = String(error && error.code || '').toLowerCase();
+    const pieces = raw.split('/');
+    return pieces[pieces.length - 1];
+}
+
+function visitWriteRecoveryKey(uid) {
+    return uid ? `${VISIT_WRITE_RECOVERY_PREFIX}${uid}` : null;
+}
+
+function hasRecentVisitWriteRecovery(uid) {
+    const key = visitWriteRecoveryKey(uid);
+    if (!key) return false;
+    try {
+        const timestamp = Number(localStorage.getItem(key));
+        return Number.isFinite(timestamp) && timestamp > 0 && Date.now() - timestamp < 30 * 24 * 60 * 60 * 1000;
+    } catch (_error) {
+        return false;
+    }
+}
+
+function rememberVisitWriteRecovery(uid) {
+    const key = visitWriteRecoveryKey(uid);
+    if (!key) return;
+    try {
+        localStorage.setItem(key, String(Date.now()));
+    } catch (_error) { /* the durable deletion journal remains the primary copy */ }
+}
+
+function clearVisitWriteRecovery(uid) {
+    const key = visitWriteRecoveryKey(uid);
+    if (!key) return;
+    try {
+        localStorage.removeItem(key);
+    } catch (_error) { /* an expired marker is harmless */ }
+}
+
+function getPendingVisitDeleteCount(uid) {
+    const mutationService = getVisitMutationCoordinatorService();
+    if (!mutationService || typeof mutationService.getPendingDeleteIds !== 'function') return 0;
+    return mutationService.getPendingDeleteIds(uid).length;
+}
+
+function refreshVisitedWriteSessionProof(uid) {
+    const user = getCurrentUser();
+    if (!user || user.uid !== uid) return Promise.resolve(false);
+    const refreshes = [];
+    if (typeof user.getIdToken === 'function') {
+        refreshes.push(Promise.resolve().then(() => user.getIdToken(true)));
+    }
+    try {
+        if (firebase.appCheck && typeof firebase.appCheck === 'function') {
+            const appCheck = firebase.appCheck();
+            if (appCheck && typeof appCheck.getToken === 'function') {
+                refreshes.push(Promise.resolve().then(() => appCheck.getToken(true)));
+            }
+        }
+    } catch (_error) { /* the next Firestore retry still validates auth */ }
+    if (refreshes.length === 0) return Promise.resolve(false);
+    return Promise.allSettled(refreshes).then(() => true);
+}
+
 function stageVisitedPlaceUpsert(place) {
     const vaultRepo = getVaultRepo();
     if (vaultRepo && typeof vaultRepo.stageUpsert === 'function') vaultRepo.stageUpsert(place);
@@ -785,6 +848,7 @@ async function reconcileCommittedVisitedPlaces(uid, committedVisitedArray) {
             mutationService.reconcileCommittedDeletes(uid, committedVisitedArray)
         ));
     }
+    if (getPendingVisitDeleteCount(uid) === 0) clearVisitWriteRecovery(uid);
 
     const currentUser = getCurrentUser();
     if (!currentUser || currentUser.uid !== uid) return;
@@ -833,6 +897,8 @@ function getVisitedPlacesWriteCoordinator(uid) {
         throw makeVisitedWriteError('failed-precondition', 'Visit mutation coordinator is unavailable.');
     }
 
+    let reconnectRecoveryActive = hasRecentVisitWriteRecovery(uid);
+    let proofRefreshPromise = null;
     const coordinator = mutationService.createCoordinator({
         debounceMs: 75,
         retryMs: 5000,
@@ -862,9 +928,43 @@ function getVisitedPlacesWriteCoordinator(uid) {
         onPostCommitError(error) {
             console.error('[firebaseService] committed visitedPlaces but could not finish local reconciliation:', error);
         },
-        isRetryable: isRetryableVisitedWriteError,
+        isRetryable(error) {
+            if (isRetryableVisitedWriteError(error)) {
+                if (getPendingVisitDeleteCount(uid) > 0) {
+                    reconnectRecoveryActive = true;
+                    rememberVisitWriteRecovery(uid);
+                }
+                return true;
+            }
+
+            if (!reconnectRecoveryActive || getPendingVisitDeleteCount(uid) === 0) return false;
+            const code = normalizeVisitedWriteErrorCode(error);
+            const currentUser = getCurrentUser();
+
+            // iOS/Android PWAs can report online before Auth and App Check have
+            // refreshed after fake cellular service. Preserve the orange
+            // journal and retry these session-proof races instead of restoring
+            // visits that the user intentionally removed.
+            if (code === 'permission-denied' && currentUser && currentUser.uid === uid) return true;
+            if (code === 'stale-account' && !currentUser) return true;
+            return false;
+        },
+        getRetryDelay(error, attempt, defaultDelay) {
+            const code = normalizeVisitedWriteErrorCode(error);
+            if (code !== 'permission-denied' && code !== 'stale-account') return defaultDelay;
+            const reconnectDelays = [1000, 2000, 5000, 10000, 30000, 60000];
+            return reconnectDelays[Math.min(Math.max(1, attempt), reconnectDelays.length) - 1];
+        },
         onDeferred(error) {
             console.warn('[firebaseService] visited-place write queued until service returns:', error);
+            const code = normalizeVisitedWriteErrorCode(error);
+            if (code === 'permission-denied' && !proofRefreshPromise) {
+                proofRefreshPromise = refreshVisitedWriteSessionProof(uid)
+                    .catch(refreshError => {
+                        console.warn('[firebaseService] visit-write session refresh deferred:', refreshError);
+                    })
+                    .finally(() => { proofRefreshPromise = null; });
+            }
         }
     });
     visitedPlacesWriteCoordinators.set(uid, coordinator);

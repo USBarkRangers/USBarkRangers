@@ -6,7 +6,7 @@
  * render cached parks, and restore locally journaled visit mutations.
  */
 self.BARK_OFFLINE_CACHE_MANIFEST = Object.freeze({
-    version: '0.136',
+    version: '0.137',
     shell: Object.freeze([
         './',
         './index.html',

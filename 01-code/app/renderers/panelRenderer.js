@@ -241,6 +241,7 @@ function renderMarkerClickPanel(context) {
         marker._icon.classList.add('active-pin');
     }
     window.BARK.activePinMarker = marker;
+    if (slidePanel && slidePanel.dataset) slidePanel.dataset.parkId = String(marker._parkData.id || '');
 
     const panelScrollContainer = document.querySelector('.panel-content');
     if (panelScrollContainer && !refreshOnly) panelScrollContainer.scrollTop = 0;

@@ -6,7 +6,7 @@
  * render cached parks, and restore locally journaled visit mutations.
  */
 self.BARK_OFFLINE_CACHE_MANIFEST = Object.freeze({
-    version: '0.130',
+    version: '0.131',
     shell: Object.freeze([
         './',
         './index.html',
@@ -68,8 +68,8 @@ self.BARK_OFFLINE_CACHE_MANIFEST = Object.freeze({
         './modules/TripLayerManager.js?v=14',
         './modules/mapEngine.js?v=5',
         './modules/renderEngine.js?v=14',
-        './renderers/panelRenderer.js?v=30',
-        './modules/externalPinReturn.js?v=3',
+        './renderers/panelRenderer.js?v=31',
+        './modules/externalPinReturn.js?v=4',
         './modules/searchEngine.js?v=10',
         './modules/dataService.js?v=12',
         './renderers/leaderboardRenderer.js?v=1',
@@ -84,7 +84,7 @@ self.BARK_OFFLINE_CACHE_MANIFEST = Object.freeze({
         './modules/shareEngine.js?v=10',
         './modules/watermarkTool.js?v=5',
         './modules/settingsController.js?v=13',
-        './modules/uiController.js?v=29',
+        './modules/uiController.js?v=30',
         './modules/firstOpenDisclaimer.js?v=2',
         './modules/feedbackSubjectPicker.js?v=2',
         './modules/feedbackModal.js?v=6',

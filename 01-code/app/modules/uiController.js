@@ -92,10 +92,20 @@ window.BARK.initUI = function initUI() {
 let keyboardFocusContext = null;
 const EXTERNAL_HANDOFF_PENDING_KEY = 'bark_external_handoff_pending';
 const EXTERNAL_HANDOFF_STARTED_KEY = 'bark_external_handoff_started_at';
+const EXTERNAL_HANDOFF_ID_KEY = 'bark_external_handoff_id';
 const EXTERNAL_HANDOFF_CLASS = 'bark-external-handoff-pending';
 const EXTERNAL_RETURN_QUARANTINE_MS = 1200;
+const EXTERNAL_RETURN_PROBE_FAST_MS = 150;
+const EXTERNAL_RETURN_PROBE_SLOW_MS = 1000;
+const EXTERNAL_RETURN_PROBE_FAST_ATTEMPTS = 20;
+const EXTERNAL_RETURN_PROBE_MAX_ATTEMPTS = 80;
 let externalReturnSettleGeneration = 0;
 let externalHandoffPendingInMemory = false;
+let externalHandoffSequence = 0;
+let activeExternalHandoffId = 0;
+let externalHandoffWasAway = false;
+let externalReturnProbeTimer = null;
+let externalReturnProbeAttempt = 0;
 
 // ====== iOS SAFARI MAGNIFIER PROTECTION ======
 document.addEventListener('contextmenu', function (e) {
@@ -113,6 +123,8 @@ function syncAppTabMode() {
 }
 
 function resetSlidePanelShell() {
+    const panel = document.getElementById('slide-panel');
+    if (panel && panel.dataset) delete panel.dataset.parkId;
     const title = document.getElementById('panel-title');
     if (title) title.textContent = '';
 
@@ -177,29 +189,76 @@ function consumeExternalCheckoutCleanupFlag() {
     }
 }
 
+function clearExternalReturnProbe() {
+    if (externalReturnProbeTimer !== null) clearTimeout(externalReturnProbeTimer);
+    externalReturnProbeTimer = null;
+    externalReturnProbeAttempt = 0;
+}
+
+function scheduleExternalReturnProbe(handoffId) {
+    if (!handoffId || handoffId !== activeExternalHandoffId || externalReturnProbeTimer !== null) return;
+
+    const delay = externalReturnProbeAttempt < EXTERNAL_RETURN_PROBE_FAST_ATTEMPTS
+        ? EXTERNAL_RETURN_PROBE_FAST_MS
+        : EXTERNAL_RETURN_PROBE_SLOW_MS;
+    externalReturnProbeTimer = setTimeout(() => {
+        externalReturnProbeTimer = null;
+        externalReturnProbeAttempt += 1;
+        if (handoffId !== activeExternalHandoffId
+            || !document.body.classList.contains(EXTERNAL_HANDOFF_CLASS)) return;
+
+        const appHasFocus = typeof document.hasFocus !== 'function' || document.hasFocus();
+        if (externalHandoffWasAway && !document.hidden && appHasFocus) {
+            handleAppReturn('focus-probe');
+            return;
+        }
+        // Stop local probing after roughly one minute. The normal lifecycle
+        // signals and first-interaction fallback remain active indefinitely.
+        if (externalReturnProbeAttempt >= EXTERNAL_RETURN_PROBE_MAX_ATTEMPTS) return;
+        scheduleExternalReturnProbe(handoffId);
+    }, delay);
+}
+
 function markExternalHandoffPending() {
+    // A second Website/Swag tap can happen while the first return's delayed
+    // compositor cleanup is still running. Invalidate every older pass before
+    // capturing the new park snapshot so it cannot consume the new handoff.
+    externalReturnSettleGeneration += 1;
+    clearExternalReturnProbe();
+    activeExternalHandoffId = ++externalHandoffSequence;
     externalHandoffPendingInMemory = true;
+    externalHandoffWasAway = false;
     try {
         sessionStorage.setItem(EXTERNAL_HANDOFF_PENDING_KEY, '1');
         sessionStorage.setItem(EXTERNAL_HANDOFF_STARTED_KEY, String(Date.now()));
+        sessionStorage.setItem(EXTERNAL_HANDOFF_ID_KEY, String(activeExternalHandoffId));
     } catch (error) {
         // Best-effort only. Storage restrictions must never block an external action.
     }
+    scheduleExternalReturnProbe(activeExternalHandoffId);
+    return activeExternalHandoffId;
 }
 
 function consumeExternalHandoffCleanupFlag() {
     let pending = false;
+    let storedHandoffId = 0;
     try {
         pending = sessionStorage.getItem(EXTERNAL_HANDOFF_PENDING_KEY) === '1';
+        storedHandoffId = Number(sessionStorage.getItem(EXTERNAL_HANDOFF_ID_KEY)) || 0;
         sessionStorage.removeItem(EXTERNAL_HANDOFF_PENDING_KEY);
         sessionStorage.removeItem(EXTERNAL_HANDOFF_STARTED_KEY);
+        sessionStorage.removeItem(EXTERNAL_HANDOFF_ID_KEY);
     } catch (error) {
         // The body class is a storage-independent fallback for the same page instance.
     }
     const pendingInMemory = externalHandoffPendingInMemory;
     const checkoutPending = consumeExternalCheckoutCleanupFlag();
     externalHandoffPendingInMemory = false;
-    return pending || pendingInMemory || checkoutPending;
+    if (!pending && !pendingInMemory && !checkoutPending) return 0;
+    if (!activeExternalHandoffId) {
+        activeExternalHandoffId = storedHandoffId || ++externalHandoffSequence;
+    }
+    return activeExternalHandoffId;
 }
 
 function closeMapOnlySurfaces(options = {}) {
@@ -225,11 +284,11 @@ function closeStaleSlidePanel(reason) {
 window.BARK.closeMapOnlySurfaces = closeMapOnlySurfaces;
 
 function prepareExternalHandoff(details = {}) {
+    const handoffId = markExternalHandoffPending();
     const pinReturn = window.BARK && window.BARK.externalPinReturn;
     if (pinReturn && typeof pinReturn.capture === 'function') {
-        pinReturn.capture(details);
+        pinReturn.capture({ ...details, handoffId });
     }
-    markExternalHandoffPending();
     document.body.classList.add(EXTERNAL_HANDOFF_CLASS);
     document.body.classList.remove('keyboard-open');
     closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
@@ -281,12 +340,13 @@ function openExternalWebsite(destination, details = {}) {
     return true;
 }
 
-function settleExternalReturnViewport(reason) {
+function settleExternalReturnViewport(reason, handoffId = activeExternalHandoffId) {
     const generation = ++externalReturnSettleGeneration;
+    clearExternalReturnProbe();
     closeMapOnlySurfaces({ clearActivePin: true, resetPanel: true });
     document.body.classList.remove('keyboard-open');
     window.dispatchEvent(new CustomEvent('bark:external-return-started', {
-        detail: { reason: reason || 'external-return' }
+        detail: { reason: reason || 'external-return', handoffId }
     }));
 
     const settle = () => {
@@ -309,6 +369,7 @@ function settleExternalReturnViewport(reason) {
     setTimeout(settle, 480);
     setTimeout(() => {
         if (generation !== externalReturnSettleGeneration) return;
+        if (handoffId && activeExternalHandoffId && handoffId !== activeExternalHandoffId) return;
         settle();
         document.body.classList.remove(EXTERNAL_HANDOFF_CLASS);
         // Force WebKit to build a fresh fixed/composited scene after its Safari
@@ -316,8 +377,10 @@ function settleExternalReturnViewport(reason) {
         // empty, so even an old snapshot cannot leak a park name or button.
         void document.body.offsetHeight;
         window.dispatchEvent(new CustomEvent('bark:external-return-settled', {
-            detail: { reason: reason || 'external-return' }
+            detail: { reason: reason || 'external-return', handoffId }
         }));
+        if (!handoffId || activeExternalHandoffId === handoffId) activeExternalHandoffId = 0;
+        externalHandoffWasAway = false;
     }, EXTERNAL_RETURN_QUARANTINE_MS);
 }
 
@@ -328,18 +391,22 @@ function finishExternalReturnForInteraction(reason = 'user-interaction') {
     // delayed Safari-return pass before revealing new UI so it cannot resize
     // the map or keep a newly opened park card quarantined for another second.
     externalReturnSettleGeneration += 1;
-    consumeExternalHandoffCleanupFlag();
+    const handoffId = consumeExternalHandoffCleanupFlag();
+    clearExternalReturnProbe();
     document.body.classList.remove(EXTERNAL_HANDOFF_CLASS);
     void document.body.offsetHeight;
     window.dispatchEvent(new CustomEvent('bark:external-return-settled', {
-        detail: { reason }
+        detail: { reason, handoffId }
     }));
+    if (!handoffId || activeExternalHandoffId === handoffId) activeExternalHandoffId = 0;
+    externalHandoffWasAway = false;
     return true;
 }
 
 function handleAppReturn(reason) {
-    if (consumeExternalHandoffCleanupFlag()) {
-        settleExternalReturnViewport(reason);
+    const handoffId = consumeExternalHandoffCleanupFlag();
+    if (handoffId) {
+        settleExternalReturnViewport(reason, handoffId);
         return;
     }
     closeStaleSlidePanel(reason);
@@ -680,10 +747,28 @@ document.addEventListener('click', (event) => {
 }, true);
 
 window.addEventListener('pageshow', () => handleAppReturn('pageshow'));
-window.addEventListener('focus', () => handleAppReturn('focus'));
-document.addEventListener('visibilitychange', () => {
-    if (document.hidden === false) handleAppReturn('visibilitychange');
+window.addEventListener('blur', () => {
+    if (document.body.classList.contains(EXTERNAL_HANDOFF_CLASS)) externalHandoffWasAway = true;
 });
+window.addEventListener('focus', () => {
+    if (document.body.classList.contains(EXTERNAL_HANDOFF_CLASS) && !externalHandoffWasAway) return;
+    handleAppReturn('focus');
+});
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        if (document.body.classList.contains(EXTERNAL_HANDOFF_CLASS)) externalHandoffWasAway = true;
+        return;
+    }
+    handleAppReturn('visibilitychange');
+});
+document.addEventListener('pointerdown', () => {
+    // Some standalone browsers close an external sheet without emitting focus,
+    // pageshow, or visibilitychange. The first real interaction proves the app
+    // owns the screen again and restores the saved card before the click runs.
+    if (document.body.classList.contains(EXTERNAL_HANDOFF_CLASS)) {
+        handleAppReturn('interaction-fallback');
+    }
+}, true);
 
 // Close panel and clear pin
 if (closeSlideBtn) {

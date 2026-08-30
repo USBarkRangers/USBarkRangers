@@ -78,12 +78,17 @@
         const panel = document.getElementById('slide-panel');
         const marker = window.BARK.activePinMarker;
         const parkData = marker && marker._parkData;
-        const parkId = parkData && parkData.id != null ? String(parkData.id).trim() : '';
+        const markerParkId = parkData && parkData.id != null ? String(parkData.id).trim() : '';
+        const panelParkId = panel && panel.dataset && panel.dataset.parkId
+            ? String(panel.dataset.parkId).trim()
+            : '';
+        const parkId = markerParkId || panelParkId;
         if (!panel || !panel.classList.contains('open') || !parkId) return false;
         const panelContent = panel.querySelector('.panel-content');
 
         writeSnapshot({
             parkId,
+            handoffId: Number(options.handoffId) || 0,
             scrollTop: normalizeScrollTop(panelContent && panelContent.scrollTop),
             capturedAt: Date.now()
         });
@@ -133,14 +138,46 @@
         SCROLL_RESTORE_DELAYS_MS.forEach(delay => setTimeout(apply, delay));
     }
 
-    function tryRestore(snapshot, generation, isFinalAttempt) {
+    function snapshotMatchesHandoff(snapshot, expectedHandoffId) {
+        const snapshotHandoffId = Number(snapshot && snapshot.handoffId) || 0;
+        const expectedId = Number(expectedHandoffId) || 0;
+        return !expectedId || !snapshotHandoffId || snapshotHandoffId === expectedId;
+    }
+
+    function markerMatchesSnapshot(marker, snapshot) {
+        return Boolean(marker && marker._parkData
+            && String(marker._parkData.id) === String(snapshot.parkId));
+    }
+
+    function panelMatchesSnapshot(panel, snapshot) {
+        return Boolean(panel && panel.classList.contains('open')
+            && panel.dataset && String(panel.dataset.parkId || '') === String(snapshot.parkId));
+    }
+
+    function tryRestore(snapshot, generation, isFinalAttempt, expectedHandoffId) {
         if (generation !== restoreGeneration) return;
 
         const currentSnapshot = readSnapshot();
         if (!currentSnapshot || currentSnapshot.capturedAt !== snapshot.capturedAt) return;
+        if (!snapshotMatchesHandoff(currentSnapshot, expectedHandoffId)) return;
 
         const panel = document.getElementById('slide-panel');
-        if (!isMapViewActive() || window.BARK.activePinMarker || (panel && panel.classList.contains('open'))) {
+        if (!isMapViewActive()) {
+            removeStoredSnapshot();
+            return;
+        }
+
+        if (window.BARK.activePinMarker || (panel && panel.classList.contains('open'))) {
+            if (markerMatchesSnapshot(window.BARK.activePinMarker, snapshot)
+                && panelMatchesSnapshot(panel, snapshot)) {
+                const marker = window.BARK.activePinMarker;
+                removeStoredSnapshot();
+                document.body.classList.add(RETURN_VISIBLE_CLASS);
+                schedulePanelScrollRestore(marker, snapshot.scrollTop, generation);
+                return;
+            }
+
+            // A different pin selected during recovery always wins.
             removeStoredSnapshot();
             return;
         }
@@ -152,8 +189,14 @@
             return;
         }
 
-        removeStoredSnapshot();
         manager.renderMarkerPanel(marker, { externalReturnRestore: true });
+        if (!markerMatchesSnapshot(window.BARK.activePinMarker, snapshot)
+            || !panelMatchesSnapshot(panel, snapshot)) {
+            if (isFinalAttempt) removeStoredSnapshot();
+            return;
+        }
+
+        removeStoredSnapshot();
         document.body.classList.add(RETURN_VISIBLE_CLASS);
         schedulePanelScrollRestore(marker, snapshot.scrollTop, generation);
     }
@@ -161,17 +204,18 @@
     function requestRestore(options = {}) {
         const snapshot = readSnapshot();
         if (!snapshot) return false;
+        if (!snapshotMatchesHandoff(snapshot, options.handoffId)) return false;
 
         const generation = ++restoreGeneration;
         if (options.immediate === true) {
-            tryRestore(snapshot, generation, false);
+            tryRestore(snapshot, generation, false, options.handoffId);
         }
 
         RESTORE_RETRY_DELAYS_MS
             .filter(delay => options.immediate !== true || delay > 0)
             .forEach((delay, index, delays) => {
                 setTimeout(() => {
-                    tryRestore(snapshot, generation, index === delays.length - 1);
+                    tryRestore(snapshot, generation, index === delays.length - 1, options.handoffId);
                 }, delay);
             });
         return true;
@@ -183,17 +227,18 @@
         document.body.classList.remove(RETURN_VISIBLE_CLASS);
     }
 
-    window.addEventListener('bark:external-return-started', () => {
+    window.addEventListener('bark:external-return-started', (event) => {
         // Rebuild while the handoff guard still owns the compositor. CSS reveals
         // the fresh card already in its final position, without a down/up slide.
-        requestRestore({ immediate: true });
+        requestRestore({ immediate: true, handoffId: event.detail && event.detail.handoffId });
     });
 
-    window.addEventListener('bark:external-return-settled', () => {
+    window.addEventListener('bark:external-return-settled', (event) => {
         document.body.classList.remove(RETURN_VISIBLE_CLASS);
         // Fallback for a return signal that arrived before markers were ready.
         // Defer one task so a newly clicked pin still wins the race.
-        setTimeout(requestRestore, 0);
+        const handoffId = event.detail && event.detail.handoffId;
+        setTimeout(() => requestRestore({ handoffId }), 0);
     });
 
     window.BARK.externalPinReturn = Object.freeze({

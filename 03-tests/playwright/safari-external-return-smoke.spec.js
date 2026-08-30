@@ -376,6 +376,164 @@ test.describe('Safari installed-app external return', () => {
         await context.close();
     });
 
+    test('rapid Website and Swag returns cannot consume the next handoff snapshot', async ({ browser }) => {
+        const context = await newBarkContext(browser, {
+            viewport: { width: 390, height: 844 },
+            isMobile: true,
+            hasTouch: true
+        });
+        const page = await context.newPage();
+        await openLoadedApp(page);
+
+        const selectedPark = await page.evaluate(() => {
+            const marker = Array.from(window.BARK.markerManager.markers.values())
+                .find(candidate => candidate && candidate._parkData);
+            if (!marker) throw new Error('No park marker is available for the chained return test.');
+
+            marker._parkData = {
+                ...marker._parkData,
+                website: 'https://example.com/website-one https://example.org/website-two',
+                pics: [
+                    'https://images.example.com/swag-one.jpg',
+                    'https://images.example.com/swag-two.jpg',
+                    'https://images.example.com/swag-three.jpg'
+                ].join(' '),
+                info: Array.from({ length: 30 }, (_value, index) => `Return test detail ${index + 1}`).join('\n')
+            };
+            window.BARK.markerManager.renderMarkerPanel(marker);
+            return { id: String(marker._parkData.id), name: marker._parkData.name };
+        });
+
+        const linkSelectors = [
+            '#websites-container a:nth-child(1)',
+            '#websites-container a:nth-child(2)',
+            '#panel-pics a:nth-child(1)',
+            '#panel-pics a:nth-child(2)',
+            '#panel-pics a:nth-child(3)'
+        ];
+
+        for (const selector of linkSelectors) {
+            await page.evaluate((linkSelector) => {
+                const panelContent = document.querySelector('#slide-panel .panel-content');
+                panelContent.scrollTop = panelContent.scrollHeight;
+                const link = document.querySelector(linkSelector);
+                if (!link) throw new Error(`Missing chained external link: ${linkSelector}`);
+                link.addEventListener('click', event => event.preventDefault(), { once: true });
+                link.click();
+            }, selector);
+
+            await expect(page.locator('body')).toHaveClass(/\bbark-external-handoff-pending\b/);
+            await expect(page.locator('#slide-panel')).not.toHaveClass(/\bopen\b/);
+
+            // Return immediately, before the preceding handoff's 1.2-second
+            // compositor cleanup could finish. This is the Website 2 race.
+            await page.evaluate(() => {
+                window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+            });
+            await page.waitForFunction(({ id, name }) => {
+                const panel = document.getElementById('slide-panel');
+                const marker = window.BARK.activePinMarker;
+                return panel.classList.contains('open')
+                    && panel.dataset.parkId === id
+                    && document.getElementById('panel-title').textContent === name
+                    && marker && String(marker._parkData.id) === id;
+            }, selectedPark, { timeout: 2000 });
+
+        }
+
+        await page.waitForTimeout(1500);
+        const finalState = await page.evaluate(() => ({
+            pending: document.body.classList.contains('bark-external-handoff-pending'),
+            panelOpen: document.getElementById('slide-panel').classList.contains('open'),
+            panelParkId: document.getElementById('slide-panel').dataset.parkId,
+            activeParkId: window.BARK.activePinMarker && String(window.BARK.activePinMarker._parkData.id),
+            title: document.getElementById('panel-title').textContent
+        }));
+        expect(finalState).toEqual({
+            pending: false,
+            panelOpen: true,
+            panelParkId: selectedPark.id,
+            activeParkId: selectedPark.id,
+            title: selectedPark.name
+        });
+
+        await context.close();
+    });
+
+    test('external return self-heals when the browser omits its return event', async ({ browser }) => {
+        const context = await newBarkContext(browser, {
+            viewport: { width: 390, height: 844 },
+            isMobile: true,
+            hasTouch: true
+        });
+        const page = await context.newPage();
+        await openLoadedApp(page);
+
+        const selectedPark = await page.evaluate(() => {
+            const marker = Array.from(window.BARK.markerManager.markers.values())
+                .find(candidate => candidate && candidate._parkData);
+            marker._parkData = {
+                ...marker._parkData,
+                website: 'https://example.com/missing-return-event',
+                info: Array.from({ length: 24 }, (_value, index) => `Missing event detail ${index + 1}`).join('\n')
+            };
+            window.BARK.markerManager.renderMarkerPanel(marker);
+            const panelContent = document.querySelector('#slide-panel .panel-content');
+            panelContent.scrollTop = panelContent.scrollHeight;
+            return { id: String(marker._parkData.id), name: marker._parkData.name };
+        });
+
+        const clickWebsiteWithoutNavigation = async () => {
+            await page.locator('#websites-container a').first().evaluate(link => {
+                link.addEventListener('click', event => event.preventDefault(), { once: true });
+                link.click();
+            });
+            await expect(page.locator('body')).toHaveClass(/\bbark-external-handoff-pending\b/);
+        };
+
+        await clickWebsiteWithoutNavigation();
+        // Opening the external window emitted blur, but closing it emitted no
+        // focus/pageshow/visibility event. The bounded local focus probe must
+        // detect that the app owns the screen again.
+        await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        await page.waitForFunction(({ id, name }) => {
+            const panel = document.getElementById('slide-panel');
+            return panel.classList.contains('open')
+                && panel.dataset.parkId === id
+                && document.getElementById('panel-title').textContent === name;
+        }, selectedPark, { timeout: 2000 });
+        await page.waitForTimeout(1300);
+
+        // Some web-app shells omit blur as well. A real interaction is the last
+        // local fallback and must restore the card before ordinary input runs.
+        await clickWebsiteWithoutNavigation();
+        await page.evaluate(() => {
+            document.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
+        });
+        await page.waitForFunction(({ id, name }) => {
+            const panel = document.getElementById('slide-panel');
+            return panel.classList.contains('open')
+                && panel.dataset.parkId === id
+                && document.getElementById('panel-title').textContent === name;
+        }, selectedPark, { timeout: 2000 });
+        await page.waitForTimeout(1300);
+
+        const finalState = await page.evaluate(() => ({
+            pending: document.body.classList.contains('bark-external-handoff-pending'),
+            panelOpen: document.getElementById('slide-panel').classList.contains('open'),
+            panelParkId: document.getElementById('slide-panel').dataset.parkId,
+            activeParkId: window.BARK.activePinMarker && String(window.BARK.activePinMarker._parkData.id)
+        }));
+        expect(finalState).toEqual({
+            pending: false,
+            panelOpen: true,
+            panelParkId: selectedPark.id,
+            activeParkId: selectedPark.id
+        });
+
+        await context.close();
+    });
+
     test('community information links use an isolated Safari window', async ({ browser }) => {
         const context = await newBarkContext(browser, { viewport: { width: 390, height: 844 } });
         const page = await context.newPage();

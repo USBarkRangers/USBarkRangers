@@ -61,8 +61,11 @@ for (const profile of [
             ));
             expect(cachedTileCount).toBeLessThanOrEqual(350);
 
-            const shellCoverage = await onlinePage.evaluate(async () => {
-                const shellName = (await caches.keys()).find(name => name === 'bark-offline-shell-0.130');
+            const appVersion = await onlinePage.evaluate(async () => (
+                await (await fetch('./version.json', { cache: 'no-store' })).json()
+            ).version);
+            const shellCoverage = await onlinePage.evaluate(async (version) => {
+                const shellName = (await caches.keys()).find(name => name === `bark-offline-shell-${version}`);
                 if (!shellName) return { index: false, app: false, parks: false };
                 const urls = (await (await caches.open(shellName)).keys()).map(request => request.url);
                 return {
@@ -70,7 +73,7 @@ for (const profile of [
                     app: urls.some(url => /\/core\/app\.js\?v=37$/.test(url)),
                     parks: urls.some(url => /\/assets\/data\/bark-fallback\.csv$/.test(url))
                 };
-            });
+            }, appVersion);
             expect(shellCoverage).toEqual({ index: true, app: true, parks: true });
 
             await context.setOffline(true);

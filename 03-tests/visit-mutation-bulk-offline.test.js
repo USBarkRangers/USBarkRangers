@@ -138,6 +138,41 @@ function seedRepo(repo, visits) {
     visits.forEach(visit => repo.addVisit(visit));
 }
 
+test('a removal stays pending until the server confirms deletion', async () => {
+    const visit = makeVisits(1)[0];
+    const server = makeServer([visit]);
+    const harness = loadHarness(server);
+    seedRepo(harness.repo, [visit]);
+
+    const removal = harness.service.removeVisitedEntries([{ id: visit.id, record: visit }]);
+    assert.equal(harness.repo.hasVisit(visit.id), false);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), 'delete');
+    assert.equal(removal.syncStatus, 'pending');
+
+    await removal.syncPromise;
+    assert.equal(server.state.visits.length, 0);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), null);
+});
+
+test('cold fake-service boot hydrates only the remembered account deletion as pending', () => {
+    const visit = makeVisits(1)[0];
+    const storage = new Map();
+    storage.set('bark.pendingVisitDeletes.remembered-user', JSON.stringify({
+        [visit.id]: { id: visit.id, stagedAt: Date.now(), record: visit }
+    }));
+    const harness = loadHarness(makeServer([visit]), storage);
+
+    assert.equal(harness.service.hydrateRememberedPendingVisitDeletions('remembered-user'), 1);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), 'delete');
+    assert.equal(harness.service.reconcilePreAuthPendingVisitDeletions('different-user'), false);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), null);
+    assert.notEqual(
+        storage.get('bark.pendingVisitDeletes.remembered-user'),
+        undefined,
+        'account isolation must not erase the original account recovery journal'
+    );
+});
+
 test('50 rapid removals coalesce into one transaction without resurrecting visits', async () => {
     const visits = makeVisits(50);
     const server = makeServer(visits);
@@ -184,6 +219,7 @@ test('an offline deletion survives app close and is removed from the server on r
     const removal = firstSession.service.removeVisitedEntries([{ id: visit.id, record: visit }]);
     await new Promise(resolve => setTimeout(resolve, 100));
     assert.equal(firstSession.repo.hasVisit(visit.id), false);
+    assert.equal(firstSession.repo.getPendingMutationType(visit.id), 'delete');
     assert.notEqual(storage.get('bark.pendingVisitDeletes.bulk-user'), undefined);
     assert.equal(sharedState.visits.length, 1, 'offline transaction must not pretend the server changed');
 
@@ -194,6 +230,7 @@ test('an offline deletion survives app close and is removed from the server on r
     assert.equal(sharedState.visits.length, 0);
     assert.equal(storage.has('bark.pendingVisitDeletes.bulk-user'), false);
     assert.equal(reopened.repo.hasVisit(visit.id), false);
+    assert.equal(reopened.repo.getPendingMutationType(visit.id), null);
 
     // Let the old page's still-pending promise finish cleanly so no retry timer
     // survives the test process. Its newest state is also the intended deletion.

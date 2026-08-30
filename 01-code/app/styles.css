@@ -2377,10 +2377,11 @@ body.app-tab-active #slide-panel {
     z-index: 500 !important;
 }
 
-/* Visited-but-not-yet-server-confirmed: keep the visited treatment but tint
-   the ring orange so the map matches the in-panel "Verified (syncing…)" state.
-   Wins over `.visited-pin` above via higher class-specificity. */
-.visited-pin.visited-pin--pending-sync {
+/* Server-pending visit mutation: additions and deletions both stay orange
+   until Firestore confirms the intended state. The generic selector lets an
+   optimistically removed (currently unvisited) pin remain orange as well. */
+.visited-pin.visited-pin--pending-sync,
+.custom-bark-marker.visited-pin--pending-sync {
     --ring-color: #f59e0b !important;
     --pin-color: #f59e0b !important;
     --pin-shadow-color: rgba(245, 158, 11, 0.5) !important;
@@ -2459,7 +2460,7 @@ body.app-tab-active #slide-panel {
 /* While the visit is staged locally but not yet server-confirmed, override
    to orange so the button matches the pin ring's pending-sync color. Two-
    class selector beats single-class `.visited` rule above on specificity. */
-#mark-visited-btn.visited.pending-sync {
+#mark-visited-btn.pending-sync {
     background-color: #f59e0b !important;
     color: white !important;
     box-shadow: 0 4px 10px rgba(245, 158, 11, 0.3);

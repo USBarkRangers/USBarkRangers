@@ -729,14 +729,24 @@ function refreshActivePinVisitedButton() {
         ? window.BARK.isVisitAwaitingServerProof(d)
         : !(vaultRepo && typeof vaultRepo.hasPendingMutation === 'function')
             || vaultRepo.hasPendingMutation(d);
+    const pendingMutationType = vaultRepo && typeof vaultRepo.getPendingMutationType === 'function'
+        ? vaultRepo.getPendingMutationType(d)
+        : null;
 
     if (isVisited) {
         btn.classList.add('visited');
         btn.classList.toggle('pending-sync', Boolean(isPendingSync));
+        btn.disabled = false;
         if (btnText) btnText.textContent = isPendingSync ? '✓ Visited (syncing…)' : '✓ Visited';
+    } else if (pendingMutationType === 'delete') {
+        btn.classList.remove('visited');
+        btn.classList.add('pending-sync');
+        btn.disabled = true;
+        if (btnText) btnText.textContent = 'Removing (syncing…)';
     } else {
         btn.classList.remove('visited');
         btn.classList.remove('pending-sync');
+        btn.disabled = false;
         if (btnText) btnText.textContent = 'Mark as Visited';
     }
 }
@@ -1423,8 +1433,12 @@ async function initFirebase() {
                     }
 
                     const checkinService = window.BARK.services && window.BARK.services.checkin;
+                    const firebaseService = getFirebaseService();
                     if (checkinService && typeof checkinService.reconcilePreAuthVisitHydration === 'function') {
                         checkinService.reconcilePreAuthVisitHydration(user.uid);
+                    }
+                    if (firebaseService && typeof firebaseService.reconcilePreAuthPendingVisitDeletions === 'function') {
+                        firebaseService.reconcilePreAuthPendingVisitDeletions(user.uid);
                     }
                     if (checkinService && typeof checkinService.rememberAuthenticatedVisitUid === 'function') {
                         checkinService.rememberAuthenticatedVisitUid(user.uid);
@@ -1433,7 +1447,6 @@ async function initFirebase() {
                         Promise.resolve(checkinService.replayUnconfirmedVisits(user.uid))
                             .catch(error => console.error('[authService] replayUnconfirmedVisits failed:', error));
                     }
-                    const firebaseService = getFirebaseService();
                     if (firebaseService && typeof firebaseService.replayPendingVisitDeletions === 'function') {
                         Promise.resolve(firebaseService.replayPendingVisitDeletions(user.uid))
                             .catch(error => console.error('[authService] replayPendingVisitDeletions failed:', error));
@@ -1531,8 +1544,12 @@ async function initFirebase() {
                     resetPremiumEntitlement('auth-signed-out');
 
                     const checkinService = window.BARK.services && window.BARK.services.checkin;
+                    const firebaseService = getFirebaseService();
                     if (checkinService && typeof checkinService.reconcilePreAuthVisitHydration === 'function') {
                         checkinService.reconcilePreAuthVisitHydration(null);
+                    }
+                    if (firebaseService && typeof firebaseService.reconcilePreAuthPendingVisitDeletions === 'function') {
+                        firebaseService.reconcilePreAuthPendingVisitDeletions(null);
                     }
                     if (checkinService && typeof checkinService.forgetAuthenticatedVisitUid === 'function') {
                         checkinService.forgetAuthenticatedVisitUid();

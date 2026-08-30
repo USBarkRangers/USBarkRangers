@@ -130,7 +130,7 @@ class MarkerLayerManager {
         const isVisited = Object.prototype.hasOwnProperty.call(options, 'visitedState')
             ? Boolean(options.visitedState)
             : this.getVisitedState(marker._parkData);
-        const isPendingSync = isVisited && this.isPendingServerSync(marker._parkData);
+        const isPendingSync = this.isPendingServerSync(marker._parkData);
         const style = MapMarkerConfig.getPinStyle(marker._parkData, isVisited);
         const isInTripStop = this.isInTripStop(marker._parkData);
         const renderedStyleKey = [
@@ -161,7 +161,7 @@ class MarkerLayerManager {
         // .visited-pin--pending-sync tints the ring orange via styles.css; the
         // CSS rule uses !important so an inline JS override here would be
         // suppressed anyway. The class is the source of truth for the
-        // visited-but-not-server-confirmed visual state.
+        // server-pending visual state for both additions and deletions.
         marker._icon.classList.toggle('visited-pin--pending-sync', Boolean(isPendingSync));
         // park-pin--in-trip hides the inner pin shape so the trip overlay badge
         // is the only visible marker at trip-stop locations. Re-applied on every

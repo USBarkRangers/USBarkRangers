@@ -1330,6 +1330,7 @@ window.BARK.services.checkin = {
     replayUnconfirmedVisits,
     hydrateRememberedUnconfirmedVisits,
     reconcilePreAuthVisitHydration,
+    getRememberedAuthenticatedVisitUid,
     rememberAuthenticatedVisitUid,
     forgetAuthenticatedVisitUid,
     reconcileUnconfirmedVisits,

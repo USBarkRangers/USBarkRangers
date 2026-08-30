@@ -244,13 +244,25 @@
         // Auth later approves or removes that account-scoped hydration.
         if (firebaseBootResult.status === 'timeout') {
             const checkinService = window.BARK.services && window.BARK.services.checkin;
+            let rememberedVisitUid = null;
             if (checkinService && typeof checkinService.hydrateRememberedUnconfirmedVisits === 'function') {
                 try {
+                    if (typeof checkinService.getRememberedAuthenticatedVisitUid === 'function') {
+                        rememberedVisitUid = checkinService.getRememberedAuthenticatedVisitUid();
+                    }
                     checkinService.hydrateRememberedUnconfirmedVisits();
                 } catch (error) {
                     // Pending-visit recovery must never block the cached park
                     // layer. Auth can retry recovery when connectivity returns.
                     console.warn('[B.A.R.K. Boot] Pending visit cache hydration failed.', error);
+                }
+            }
+            const firebaseService = window.BARK.services && window.BARK.services.firebase;
+            if (firebaseService && typeof firebaseService.hydrateRememberedPendingVisitDeletions === 'function') {
+                try {
+                    firebaseService.hydrateRememberedPendingVisitDeletions(rememberedVisitUid);
+                } catch (error) {
+                    console.warn('[B.A.R.K. Boot] Pending visit deletion hydration failed.', error);
                 }
             }
         }

@@ -140,7 +140,7 @@ function hasTripVisitedPlace(placeOrId) {
         const isVisited = typeof window.BARK.isParkVisited === 'function'
             ? window.BARK.isParkVisited(parkData)
             : hasTripVisitedPlace(stop);
-        const isPendingSync = isVisited && isPendingServerSync(parkData);
+        const isPendingSync = isPendingServerSync(parkData);
         const style = window.MapMarkerConfig && typeof window.MapMarkerConfig.getPinStyle === 'function'
             ? window.MapMarkerConfig.getPinStyle(parkData, isVisited)
             : {

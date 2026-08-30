@@ -39,6 +39,8 @@ window.BARK.services = window.BARK.services || {};
 
 let visitedPlacesWriteInFlightCount = 0;
 const visitedPlacesWriteCoordinators = new Map();
+let preAuthHydratedDeleteUid = null;
+let preAuthHydratedDeleteIds = new Set();
 let legacyVisitCoordinateIndex = new Map();
 let legacyVisitCoordinateIndexRevision = null;
 let legacyVisitCoordinateIndexRepo = null;
@@ -49,8 +51,15 @@ function getParkRepo() {
 }
 
 function getCurrentUser() {
-    if (typeof firebase === 'undefined') return null;
-    return firebase.auth().currentUser;
+    if (typeof firebase === 'undefined' || !firebase.auth) return null;
+    try {
+        if (Array.isArray(firebase.apps) && firebase.apps.length === 0) return null;
+        return firebase.auth().currentUser;
+    } catch (_error) {
+        // The compatibility SDK may be present before initializeApp finishes
+        // on fake cellular service. That is unresolved auth, not a UI error.
+        return null;
+    }
 }
 
 function isPremiumActive() {
@@ -923,6 +932,10 @@ function stageDurableVisitDeletions(uid, entries) {
     if (!mutationService.stageDeletes(uid, entries)) {
         throw makeVisitedWriteError('local-safety-unavailable', 'Could not save an offline-safe deletion record.');
     }
+    const checkinService = window.BARK.services && window.BARK.services.checkin;
+    if (checkinService && typeof checkinService.rememberAuthenticatedVisitUid === 'function') {
+        checkinService.rememberAuthenticatedVisitUid(uid);
+    }
 }
 
 function rollbackVisitDeletion(uid, rollbackToken, entryIds, error) {
@@ -1026,6 +1039,50 @@ function replayPendingVisitDeletions(uid) {
     refreshVisitedVisuals('firebase-replay-pending-deletes');
     if (typeof window.syncState === 'function') window.syncState();
     return syncUserProgress();
+}
+
+// During the bounded fake-service boot fallback, stage the durable deletion
+// journal before park markers render. No server call happens here: the pending
+// class paints these otherwise-unvisited pins orange until normal auth replay
+// can prove the deletion reached Firestore.
+function hydrateRememberedPendingVisitDeletions(uid) {
+    const mutationService = getVisitMutationCoordinatorService();
+    const vaultRepo = getVaultRepo();
+    if (!uid || !mutationService || !vaultRepo || typeof mutationService.getPendingDeleteIds !== 'function') {
+        return 0;
+    }
+
+    const pendingIds = mutationService.getPendingDeleteIds(uid);
+    if (pendingIds.length === 0) return 0;
+
+    pendingIds.forEach(stageVisitedPlaceDelete);
+    preAuthHydratedDeleteUid = uid;
+    preAuthHydratedDeleteIds = new Set(pendingIds);
+    return pendingIds.length;
+}
+
+// A pre-auth journal may remain visible only when Firebase restores the same
+// account. A different account or signed-out result removes the temporary
+// marker state without deleting the original account's durable journal.
+function reconcilePreAuthPendingVisitDeletions(authenticatedUid) {
+    if (!preAuthHydratedDeleteUid) return false;
+
+    const matches = Boolean(authenticatedUid && authenticatedUid === preAuthHydratedDeleteUid);
+    if (!matches) {
+        const vaultRepo = getVaultRepo();
+        preAuthHydratedDeleteIds.forEach(id => {
+            const mutationType = vaultRepo && typeof vaultRepo.getPendingMutationType === 'function'
+                ? vaultRepo.getPendingMutationType(id)
+                : null;
+            if (mutationType === 'delete') clearVisitedPlacePendingMutation(id);
+        });
+        refreshVisitedCache('firebase-preauth-delete-account-mismatch');
+        refreshVisitedVisuals('firebase-preauth-delete-account-mismatch');
+    }
+
+    preAuthHydratedDeleteUid = null;
+    preAuthHydratedDeleteIds = new Set();
+    return matches;
 }
 
 function reconcilePendingVisitDeletions(uid) {
@@ -1179,6 +1236,8 @@ const firebaseService = {
     removeVisitedPlace,
     removeVisitedEntries,
     replayPendingVisitDeletions,
+    hydrateRememberedPendingVisitDeletions,
+    reconcilePreAuthPendingVisitDeletions,
     reconcilePendingVisitDeletions,
     cancelPendingVisitDeletion,
     clearPendingVisitDeletions,

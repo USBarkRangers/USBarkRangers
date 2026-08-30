@@ -487,7 +487,10 @@ function updateMarkers() {
                     item.marker._icon.classList.remove('marker-filter-hidden');
                     item.marker._barkRenderedVisibilityState = true;
                 }
-                const isPendingSync = isVisited && isRenderVisitPendingServerSync(item);
+                // Pending additions and pending deletions are both orange. A
+                // delete is already absent from the local vault, but remains
+                // visually pending until Firestore confirms that absence.
+                const isPendingSync = isRenderVisitPendingServerSync(item);
                 if (
                     item.marker._barkRenderedVisitedState !== Boolean(isVisited) ||
                     item.marker._barkRenderedPendingSyncState !== Boolean(isPendingSync)

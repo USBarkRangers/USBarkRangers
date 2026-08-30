@@ -30,18 +30,29 @@ for (const profile of [
             ts: Date.now(),
             syncToken: 'fake-cell-orange-test'
         };
+        const pendingDelete = {
+            id: 'ce2177b4-6eea-46ab-a0f6-67eaa15ddaae',
+            name: 'Agate Fossil Beds National Monument',
+            lat: 42.4251377,
+            lng: -103.7341933,
+            verified: false,
+            ts: Date.now() - 1000
+        };
         const rememberedUid = 'fake-cell-remembered-user';
 
         // Seed storage before any application script runs. Opening a preliminary
         // app page here creates an auth/sign-out race that is not part of a cold
         // installed-PWA launch and can erase the remembered account pointer.
-        await context.addInitScript(({ ios, csv, pendingVisit, rememberedUid }) => {
+        await context.addInitScript(({ ios, csv, pendingVisit, pendingDelete, rememberedUid }) => {
             localStorage.setItem('barkTermsAgreement', '1');
             localStorage.setItem('barkCSV', csv);
             localStorage.setItem('barkCSV_time', String(Date.now()));
             localStorage.setItem('bark.lastAuthenticatedVisitUid', rememberedUid);
             localStorage.setItem(`bark.unconfirmedVisits.${rememberedUid}`, JSON.stringify({
                 [pendingVisit.id]: { visit: pendingVisit, stashedAt: Date.now() }
+            }));
+            localStorage.setItem(`bark.pendingVisitDeletes.${rememberedUid}`, JSON.stringify({
+                [pendingDelete.id]: { id: pendingDelete.id, stagedAt: Date.now(), record: pendingDelete }
             }));
             if (ios) {
                 Object.defineProperty(navigator, 'standalone', { configurable: true, get: () => true });
@@ -58,7 +69,7 @@ for (const profile of [
                     }
                 });
             };
-        }, { ios: profile.ios, csv, pendingVisit, rememberedUid });
+        }, { ios: profile.ios, csv, pendingVisit, pendingDelete, rememberedUid });
 
         try {
             // Preserve the real app and replace only the Firebase initializer
@@ -100,6 +111,34 @@ for (const profile of [
                 awaitingProof: true,
                 orangeClass: true
             });
+            expect(await page.evaluate(visitId => {
+                const repo = window.BARK.repos.VaultRepo;
+                const marker = window.BARK.markerManager?.markers?.get(visitId);
+                return {
+                    hasVisit: repo.hasVisit(visitId),
+                    pendingType: repo.getPendingMutationType(visitId),
+                    orangeClass: Boolean(marker?._icon?.classList?.contains('visited-pin--pending-sync')),
+                    unvisitedClass: Boolean(marker?._icon?.classList?.contains('unvisited-marker')),
+                    ringColor: marker?._icon
+                        ? getComputedStyle(marker._icon).getPropertyValue('--ring-color').trim()
+                        : ''
+                };
+            }, pendingDelete.id)).toEqual({
+                hasVisit: false,
+                pendingType: 'delete',
+                orangeClass: true,
+                unvisitedClass: true,
+                ringColor: '#f59e0b'
+            });
+            await page.evaluate(visitId => {
+                // The boot scenario deliberately stalls auth. Supply only the
+                // resolved-user result needed to verify the signed-in panel
+                // state without starting any network work.
+                window.BARK.services.firebase.getCurrentUser = () => ({ uid: 'fake-cell-remembered-user' });
+                window.BARK.markerManager.markers.get(visitId).fire('click');
+            }, pendingDelete.id);
+            await expect(page.locator('#mark-visited-text')).toHaveText('Removing (syncing…)');
+            await expect(page.locator('#mark-visited-btn')).toBeDisabled();
         } finally {
             await context.close();
             await browser.close();

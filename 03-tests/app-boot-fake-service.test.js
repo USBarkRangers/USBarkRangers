@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const APP_PATH = path.join(__dirname, '..', '01-code', 'app', 'core', 'app.js');
 const APP_SOURCE = fs.readFileSync(APP_PATH, 'utf8');
 
-function createHarness(initFirebase, calls = [], checkinService = null) {
+function createHarness(initFirebase, calls = [], checkinService = null, firebaseService = null) {
     let domReadyHandler = null;
     const timers = [];
     const clearedTimers = new Set();
@@ -18,7 +18,8 @@ function createHarness(initFirebase, calls = [], checkinService = null) {
             BARK: {
                 services: {
                     auth: { initFirebase },
-                    ...(checkinService ? { checkin: checkinService } : {})
+                    ...(checkinService ? { checkin: checkinService } : {}),
+                    ...(firebaseService ? { firebase: firebaseService } : {})
                 },
                 loadData() { calls.push('loadData'); }
             }
@@ -102,12 +103,18 @@ test('fake-service timeout hydrates pending orange visits before cached park dat
     const harness = createHarness(
         () => new Promise(() => {}),
         calls,
-        { hydrateRememberedUnconfirmedVisits() { calls.push('hydrateOrange'); } }
+        {
+            getRememberedAuthenticatedVisitUid() { return 'remembered-user'; },
+            hydrateRememberedUnconfirmedVisits() { calls.push('hydrateOrange'); }
+        },
+        {
+            hydrateRememberedPendingVisitDeletions(uid) { calls.push(`hydrateDelete:${uid}`); }
+        }
     );
     const bootPromise = harness.start();
     await flushPromises();
 
     harness.timers.find(timer => timer.delay === 10000).callback();
     await bootPromise;
-    assert.deepEqual(calls, ['hydrateOrange', 'loadData']);
+    assert.deepEqual(calls, ['hydrateOrange', 'hydrateDelete:remembered-user', 'loadData']);
 });

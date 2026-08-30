@@ -453,6 +453,11 @@
         return pending.has(getVisitId(parkId));
     }
 
+    function getPendingMutationType(parkId) {
+        const mutation = pending.get(getVisitId(parkId));
+        return mutation ? mutation.type : null;
+    }
+
     function clearPendingMutations() {
         pending.clear();
     }
@@ -706,6 +711,7 @@
         stageUpsert,
         stageDelete,
         hasPendingMutation,
+        getPendingMutationType,
         clearPendingMutation,
         clearPendingMutations,
         reconcileSnapshot,

@@ -415,6 +415,10 @@ function renderMarkerClickPanel(context) {
             clearAccountLockedCheckinButton(verifyBtn);
 
             const visitedEntry = getPanelVisitEntry(d);
+            const panelVaultRepo = getVaultRepo();
+            const pendingMutationType = panelVaultRepo && typeof panelVaultRepo.getPendingMutationType === 'function'
+                ? panelVaultRepo.getPendingMutationType(d.id)
+                : null;
 
             if (visitedEntry) {
                 const cachedObj = visitedEntry.record;
@@ -482,17 +486,22 @@ function renderMarkerClickPanel(context) {
                 }
             } else {
                 markVisitedBtn.classList.remove('visited');
-                markVisitedText.textContent = 'Mark as Visited';
-                markVisitedBtn.disabled = false;
-                markVisitedBtn.style.cursor = 'pointer';
+                markVisitedBtn.classList.toggle('pending-sync', pendingMutationType === 'delete');
+                markVisitedText.textContent = pendingMutationType === 'delete'
+                    ? 'Removing (syncing…)'
+                    : 'Mark as Visited';
+                markVisitedBtn.disabled = pendingMutationType === 'delete';
+                markVisitedBtn.style.cursor = pendingMutationType === 'delete' ? 'progress' : 'pointer';
                 markVisitedBtn.style.opacity = '1';
                 markVisitedBtn.onmouseenter = null;
                 markVisitedBtn.onmouseleave = null;
 
-                verifyBtn.style.background = '#FF9800';
-                verifyBtnText.textContent = '🐾 Verified Check-In';
-                verifyBtn.disabled = false;
-                verifyBtn.style.cursor = 'pointer';
+                verifyBtn.style.background = pendingMutationType === 'delete' ? '#f59e0b' : '#FF9800';
+                verifyBtnText.textContent = pendingMutationType === 'delete'
+                    ? 'Removal syncing…'
+                    : '🐾 Verified Check-In';
+                verifyBtn.disabled = pendingMutationType === 'delete';
+                verifyBtn.style.cursor = pendingMutationType === 'delete' ? 'progress' : 'pointer';
                 verifyBtn.style.opacity = '1';
             }
 

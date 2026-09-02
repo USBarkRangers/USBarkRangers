@@ -636,7 +636,7 @@ function hideOfflineSyncNoticeIfRecovered() {
     window.BARK.hideOfflineRecoveryNotice({ resetDismissal: true });
 }
 
-function queueVisitedPlacesWrite(label, expectedVisit, writePromiseFactory, onFatalError) {
+function queueVisitedPlacesWrite(label, expectedVisit, writePromiseFactory) {
     const visitId = getVisitId(expectedVisit);
     const writeUid = getCurrentFirebaseUid();
     const durableWritePromise = Promise.resolve().then(writePromiseFactory);
@@ -651,15 +651,11 @@ function queueVisitedPlacesWrite(label, expectedVisit, writePromiseFactory, onFa
 
     awaitWithFirebaseWriteTimeout(() => durableWritePromise)
         .catch(error => {
-            if (isNetworkLikeError(error)) {
-                console.warn(`[checkinService] ${label} queued for sync (network unavailable):`, error);
-                return;
-            }
-
-            // A queued write may reject after sign-out/account switch, or after
-            // a newer same-park intent replaced it. In either case the old
-            // operation no longer owns the visible pending marker or journal,
-            // so it must not roll back/cancel the current operation.
+            // Cloud failure never owns the durable visit intent. The same exact
+            // mutation may already have been queued again by foreground/reopen
+            // recovery, so rolling it back here can delete the only safety copy
+            // before the replacement attempt drains. Keep it orange until an
+            // exact server acknowledgement (or an explicit user delete).
             if (!writeUid || getCurrentFirebaseUid() !== writeUid) return;
             const currentStashedVisit = getUnconfirmedVisit(writeUid, visitId);
             if (!visitRecordsMatchForConfirmation(currentStashedVisit, expectedVisit)) return;
@@ -669,15 +665,9 @@ function queueVisitedPlacesWrite(label, expectedVisit, writePromiseFactory, onFa
                 : null;
             if (!visitRecordsMatchForConfirmation(currentVaultVisit, expectedVisit)) return;
 
-            console.error(`[checkinService] ${label} failed after local staging:`, error);
-            if (typeof onFatalError === 'function') {
-                try {
-                    onFatalError(error);
-                } catch (rollbackError) {
-                    console.error(`[checkinService] ${label} rollback failed:`, rollbackError);
-                }
-            }
-            cancelPendingServerConfirmation(visitId, 'write-failed');
+            const failureKind = isNetworkLikeError(error) ? 'network unavailable' : 'cloud write rejected';
+            console.warn(`[checkinService] ${label} remains safely queued (${failureKind}):`, error);
+            showOfflineSyncNotice();
         });
 }
 
@@ -1561,18 +1551,7 @@ async function verifyGpsCheckin(parkData) {
         queueVisitedPlacesWrite(
             'Verified visit',
             checkinResult.visitRecord,
-            () => firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()),
-            () => {
-                const currentVaultRepo = getVaultRepo();
-                if (currentVaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof currentVaultRepo.restore === 'function') {
-                    currentVaultRepo.restore(rollbackToken || token);
-                } else if (typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
-                    firebaseService.clearVisitedPlacePendingMutation(checkinResult.visitRecord.id);
-                }
-                if (tokenUid && stashedVisitId) {
-                    clearUnconfirmedVisit(tokenUid, stashedVisitId);
-                }
-            }
+            () => firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray())
         );
 
         queueDailyStreakIncrement(firebaseService);
@@ -1681,18 +1660,7 @@ async function markAsVisited(parkData) {
             visitRecord,
             () => canSyncProgress
                 ? firebaseService.syncUserProgress()
-                : firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray()),
-            () => {
-                const currentVaultRepo = getVaultRepo();
-                if (currentVaultRepo && canRestoreVaultSnapshot(token, tokenUid) && typeof currentVaultRepo.restore === 'function') {
-                    currentVaultRepo.restore(rollbackToken || token);
-                } else if (typeof firebaseService.clearVisitedPlacePendingMutation === 'function') {
-                    firebaseService.clearVisitedPlacePendingMutation(visitRecord.id);
-                }
-                if (tokenUid && stashedVisitId) {
-                    clearUnconfirmedVisit(tokenUid, stashedVisitId);
-                }
-            }
+                : firebaseService.updateCurrentUserVisitedPlaces(getCheckinVisitedPlacesArray())
         );
 
         queueDailyStreakIncrement(firebaseService);

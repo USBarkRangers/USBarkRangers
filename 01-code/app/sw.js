@@ -6,7 +6,7 @@
  * actually viewed at high zoom. Firebase/API/payment/routing responses are
  * never stored here.
  */
-importScripts('./offline/cacheManifest.js?v=3');
+importScripts('./offline/cacheManifest.js?v=4');
 
 const CONFIG = self.BARK_OFFLINE_CACHE_MANIFEST;
 const SHELL_CACHE_PREFIX = 'bark-offline-shell-';

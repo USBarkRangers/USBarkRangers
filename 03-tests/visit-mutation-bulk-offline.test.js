@@ -488,6 +488,71 @@ test('iOS code-0 IndexedDB resume failure stays queued and retries without resto
     assert.deepEqual(harness.alerts, []);
 });
 
+test('an exact replay survives an older fatal coordinator attempt and commits the visit', async () => {
+    const server = makeServer([]);
+    const originalRunTransaction = server.db.runTransaction.bind(server.db);
+    let transactionAttempt = 0;
+    let releaseFirstAttempt;
+    let releaseSecondAttempt;
+    let markFirstAttemptStarted;
+    let markSecondAttemptStarted;
+    const firstAttemptStarted = new Promise(resolve => { markFirstAttemptStarted = resolve; });
+    const secondAttemptStarted = new Promise(resolve => { markSecondAttemptStarted = resolve; });
+    const firstAttemptGate = new Promise(resolve => { releaseFirstAttempt = resolve; });
+    const secondAttemptGate = new Promise(resolve => { releaseSecondAttempt = resolve; });
+
+    server.db.runTransaction = async callback => {
+        transactionAttempt++;
+        if (transactionAttempt === 1) {
+            markFirstAttemptStarted();
+            await firstAttemptGate;
+            const error = new Error('older coordinator attempt rejected');
+            error.code = 'permission-denied';
+            throw error;
+        }
+        if (transactionAttempt === 2) {
+            markSecondAttemptStarted();
+            await secondAttemptGate;
+        }
+        return originalRunTransaction(callback);
+    };
+
+    const harness = loadHarness(server, new Map(), { loadCheckin: true, premium: true });
+    harness.service.attemptDailyStreakIncrement = async () => ({ success: true });
+    const checkin = harness.context.BARK.services.checkin;
+    const result = await checkin.markAsVisited({
+        id: 'coordinator-exact-replay-park',
+        name: 'Coordinator Exact Replay Park',
+        lat: 35,
+        lng: -84
+    });
+    assert.equal(result.success, true);
+    await firstAttemptStarted;
+
+    const replay = checkin.replayUnconfirmedVisits('bulk-user');
+    releaseFirstAttempt();
+    await secondAttemptStarted;
+
+    const journalKey = 'bark.unconfirmedVisits.bulk-user';
+    const journalAtRetry = JSON.parse(harness.storage.get(journalKey));
+    assert.equal(harness.repo.hasVisit(result.visitRecord.id), true);
+    assert.equal(harness.repo.hasPendingMutation(result.visitRecord.id), true);
+    assert.equal(
+        journalAtRetry[result.visitRecord.id].visit.syncToken,
+        result.visitRecord.syncToken,
+        'the rejected older attempt must preserve the exact replay journal before rev2 captures/commits'
+    );
+
+    releaseSecondAttempt();
+    await replay;
+
+    assert.equal(server.state.visits.length, 1);
+    assert.equal(server.state.visits[0].syncToken, result.visitRecord.syncToken);
+    assert.equal(harness.repo.hasVisit(result.visitRecord.id), true);
+    assert.equal(harness.repo.hasPendingMutation(result.visitRecord.id), false);
+    assert.equal(harness.storage.has(journalKey), false);
+});
+
 test('free offline additions recover through the fifth park and reject only the sixth', async () => {
     const originalVisits = makeVisits(2);
     const offlineServer = makeServer(originalVisits, { available: false });

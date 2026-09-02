@@ -6,7 +6,7 @@
  * render cached parks, and restore locally journaled visit mutations.
  */
 self.BARK_OFFLINE_CACHE_MANIFEST = Object.freeze({
-    version: '0.138',
+    version: '0.139',
     shell: Object.freeze([
         './',
         './index.html',
@@ -54,7 +54,7 @@ self.BARK_OFFLINE_CACHE_MANIFEST = Object.freeze({
         './services/visitMutationCoordinator.js?v=2',
         './services/firebaseService.js?v=25',
         './renderers/routeRenderer.js?v=6',
-        './services/checkinService.js?v=26',
+        './services/checkinService.js?v=27',
         './services/authPremiumUi.js?v=5',
         './services/premiumService.js?v=3',
         './services/authAccountUi.js?v=26',

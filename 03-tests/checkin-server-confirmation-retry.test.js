@@ -1207,6 +1207,118 @@ test('late add failure cannot clear an orange visit after its date changed with 
     assert.deepEqual(journal[parkId].visit, JSON.parse(JSON.stringify(result.visitRecord)));
 });
 
+test('a rejected cloud write keeps the exact durable visit orange for later recovery', async () => {
+    const context = loadCheckinService();
+    const uid = 'durable-rejection-user';
+    const repo = context.window.BARK.repos.VaultRepo;
+
+    context.window.BARK.services.premium = { isPremium: () => true };
+    context.window.BARK.services.firebase = {
+        stageVisitedPlaceUpsert(visit) {
+            repo.stageUpsert(visit);
+        },
+        syncUserProgress() {
+            const error = new Error('credential proof was rejected');
+            error.code = 'permission-denied';
+            return Promise.reject(error);
+        }
+    };
+    context.firebase = {
+        auth() {
+            return { currentUser: { uid } };
+        }
+    };
+
+    const result = await context.window.BARK.services.checkin.markAsVisited({
+        id: 'durable-rejection-park',
+        name: 'Durable Rejection Park',
+        lat: 35,
+        lng: -84
+    });
+    assert.equal(result.success, true);
+    const confirmation = context.window.BARK.services.checkin.awaitServerConfirmation(result.visitRecord, {
+        retryMs: 10000,
+        timeoutMs: 30
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    assert.equal(repo.hasVisit(result.visitRecord.id), true);
+    assert.equal(repo.hasPendingMutation(result.visitRecord.id), true);
+    assert.notEqual(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
+    assert.deepEqual(JSON.parse(JSON.stringify(await confirmation)), {
+        confirmed: false,
+        reason: 'timeout'
+    });
+});
+
+test('an exact replay survives an older fatal rejection and later confirms', async () => {
+    const context = loadCheckinService();
+    const uid = 'exact-replay-race-user';
+    const repo = context.window.BARK.repos.VaultRepo;
+    let rejectOriginalWrite;
+    let resolveReplayWrite;
+    let markOriginalStarted;
+    let markReplayStarted;
+    const originalStarted = new Promise(resolve => { markOriginalStarted = resolve; });
+    const replayStarted = new Promise(resolve => { markReplayStarted = resolve; });
+    const originalWrite = new Promise((resolve, reject) => { rejectOriginalWrite = reject; });
+    const replayWrite = new Promise(resolve => { resolveReplayWrite = resolve; });
+
+    context.window.BARK.services.premium = { isPremium: () => true };
+    context.window.BARK.services.firebase = {
+        stageVisitedPlaceUpsert(visit) {
+            repo.stageUpsert(visit);
+        },
+        syncUserProgress() {
+            markOriginalStarted();
+            return originalWrite;
+        },
+        updateCurrentUserVisitedPlaces() {
+            markReplayStarted();
+            return replayWrite;
+        },
+        reconcileVisitedPlacesSnapshot(placeList, metadata) {
+            return repo.reconcileSnapshot(placeList, metadata);
+        }
+    };
+    context.firebase = {
+        auth() {
+            return { currentUser: { uid } };
+        }
+    };
+
+    const result = await context.window.BARK.services.checkin.markAsVisited({
+        id: 'exact-replay-race-park',
+        name: 'Exact Replay Race Park',
+        lat: 35,
+        lng: -84
+    });
+    assert.equal(result.success, true);
+    await originalStarted;
+
+    const replay = context.window.BARK.services.checkin.replayUnconfirmedVisits(uid);
+    await replayStarted;
+
+    const oldAttemptError = new Error('older attempt rejected');
+    oldAttemptError.code = 'permission-denied';
+    rejectOriginalWrite(oldAttemptError);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    assert.equal(repo.hasVisit(result.visitRecord.id), true);
+    assert.equal(repo.hasPendingMutation(result.visitRecord.id), true);
+    assert.notEqual(
+        context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`),
+        null,
+        'the older failure must not erase the exact replay journal'
+    );
+
+    resolveReplayWrite([result.visitRecord]);
+    await replay;
+
+    assert.equal(repo.hasPendingMutation(result.visitRecord.id), false);
+    assert.equal(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
+});
+
 test('same park ID with an older unverified server record cannot false-confirm a GPS upgrade', async () => {
     const context = loadCheckinService();
     const expected = { id: 'same-park', verified: true, ts: 300, syncToken: 'gps-upgrade-token' };

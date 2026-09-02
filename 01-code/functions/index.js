@@ -13,6 +13,7 @@ const businessReporting = require("./businessReporting.js");
 const costReporting = require("./costReporting.js");
 const healthMonitoring = require("./healthMonitoring.js");
 const dataIntegrity = require("./dataIntegrity.js");
+const catalogSnapshot = require("./catalogSnapshot.js");
 const feedbackAttachments = require("./feedbackAttachments.js");
 const supportDesk = require("./supportDesk.js");
 const routeRequestStrategy = require("./routeRequestStrategy.js");
@@ -4181,6 +4182,27 @@ exports.dailyErrorDigest = functions
     .timeZone("America/New_York")
     .onRun(async () => {
         return runDailyErrorDigest({ postDiscord: false });
+    });
+
+// The published Sheet remains the live primary source. This weekly job keeps
+// one independently validated, last-known-good fallback in Firestore.
+exports.weeklyCatalogSnapshot = functions
+    .runWith({ timeoutSeconds: 120, maxInstances: 1 })
+    .pubsub.schedule("15 4 * * 0")
+    .timeZone("America/New_York")
+    .onRun(async () => {
+        return catalogSnapshot.publishCatalogSnapshot({ firestore: admin.firestore() });
+    });
+
+// Public reads flow through the function, so the hidden Firestore document
+// needs no client rule. A first request may seed it through the same validated,
+// atomic transaction as the weekly job.
+exports.catalogSnapshot = functions
+    .runWith({ timeoutSeconds: 60, maxInstances: 5 })
+    .https.onRequest(async (req, res) => {
+        return catalogSnapshot.handleCatalogRequest(req, res, {
+            firestore: admin.firestore()
+        });
     });
 
 // Routine-tier rollup: traffic from GoatCounter plus counts from Firestore, in

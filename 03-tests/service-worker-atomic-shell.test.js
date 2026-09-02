@@ -6,10 +6,13 @@ const vm = require('node:vm');
 
 const APP_ROOT = path.join(__dirname, '..', '01-code', 'app');
 const SW_SOURCE = fs.readFileSync(path.join(APP_ROOT, 'sw.js'), 'utf8');
+const PRIOR_SW_SOURCE = fs.readFileSync(path.join(__dirname, 'fixtures', 'sw-0.141.js'), 'utf8');
 const LEGACY_SW_SOURCE = fs.readFileSync(path.join(__dirname, 'fixtures', 'sw-0.140.js'), 'utf8');
 const PUBLIC_INDEX_SOURCE = fs.readFileSync(path.join(APP_ROOT, 'index.html'), 'utf8');
-const PRIVATE_INDEX_SOURCE = fs.readFileSync(path.join(APP_ROOT, 'index.v141.html'), 'utf8');
-const MANIFEST_SOURCE = fs.readFileSync(path.join(APP_ROOT, 'offline', 'cacheManifest-0.141.js'), 'utf8');
+const PRIOR_PRIVATE_INDEX_SOURCE = fs.readFileSync(path.join(APP_ROOT, 'index.v141.html'), 'utf8');
+const PRIVATE_INDEX_SOURCE = fs.readFileSync(path.join(APP_ROOT, 'index.v142.html'), 'utf8');
+const MANIFEST_SOURCE = fs.readFileSync(path.join(APP_ROOT, 'offline', 'cacheManifest-0.142.js'), 'utf8');
+const PRIOR_MANIFEST_SOURCE = fs.readFileSync(path.join(APP_ROOT, 'offline', 'cacheManifest-0.141.js'), 'utf8');
 const LEGACY_MANIFEST_SOURCE = fs.readFileSync(path.join(APP_ROOT, 'offline', 'cacheManifest.js'), 'utf8');
 
 const CUTOVER_STABLE_REFS = Object.freeze([
@@ -29,6 +32,12 @@ const CORRECTIVE_PRIVATE_REFS = Object.freeze([
     'services/checkinService.v141.js',
     'services/authService.v141.js',
     'core/app.v141.js'
+]);
+
+const RELEASE_0142_REFS = Object.freeze([
+    'index.v142.html',
+    'modules/dataService.v142.js',
+    'assets/data/bark-fallback-0.142.csv'
 ]);
 
 function cacheKey(requestOrUrl) {
@@ -100,6 +109,12 @@ function loadWorker(fetchImpl, cacheState, manifestOverride = null, source = SW_
 function loadReleaseManifest() {
     const context = { self: {} };
     vm.runInNewContext(MANIFEST_SOURCE, context, { filename: 'cacheManifest.js' });
+    return context.self.BARK_OFFLINE_CACHE_MANIFEST;
+}
+
+function loadPriorManifest() {
+    const context = { self: {} };
+    vm.runInNewContext(PRIOR_MANIFEST_SOURCE, context, { filename: 'cacheManifest-0.141.js' });
     return context.self.BARK_OFFLINE_CACHE_MANIFEST;
 }
 
@@ -238,7 +253,7 @@ test('a controlling worker serves its matching cached app entry without mixing n
 });
 
 test('the real 0.140 worker cannot poison its cache while private 0.141 installs atomically', async () => {
-    const releaseManifest = loadReleaseManifest();
+    const releaseManifest = loadPriorManifest();
     const legacyManifest = loadLegacyManifest();
     assert.equal(releaseManifest.version, '0.141');
     assert.equal(releaseManifest.entry, './index.v141.html');
@@ -250,7 +265,7 @@ test('the real 0.140 worker cannot poison its cache while private 0.141 installs
         assert.equal(releaseShell.has(ref), true, `0.141 must retain legacy support for ${ref}`);
     });
     CORRECTIVE_PRIVATE_REFS.forEach(ref => {
-        assert.match(PRIVATE_INDEX_SOURCE, new RegExp(ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+        assert.match(PRIOR_PRIVATE_INDEX_SOURCE, new RegExp(ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
         assert.equal(releaseShell.has(ref), true, `0.141 must cache private ${ref}`);
     });
 
@@ -298,20 +313,20 @@ test('the real 0.140 worker cannot poison its cache while private 0.141 installs
     const failingWorker = loadWorker(async request => {
         if (request.url === blockedPrivateUrl) throw new Error('simulated private cutover failure');
         return new Response(`candidate:${request.url}`, { status: 200 });
-    }, cacheState, releaseManifest);
+    }, cacheState, releaseManifest, PRIOR_SW_SOURCE);
     await assert.rejects(runExtendable(failingWorker.handlers.install), /private cutover failure/);
     assert.equal(cacheState.stores.has(oldName), true, 'failed private install keeps 0.140');
     assert.equal(cacheState.stores.has('bark-offline-shell-0.141'), false);
 
     const worker = loadWorker(async request => {
         if (request.url.endsWith('/index.v141.html')) {
-            return new Response(PRIVATE_INDEX_SOURCE, { status: 200 });
+            return new Response(PRIOR_PRIVATE_INDEX_SOURCE, { status: 200 });
         }
         if (request.url.endsWith('/index.html') || request.url === 'https://example.test/app/') {
             return new Response(PUBLIC_INDEX_SOURCE, { status: 200 });
         }
         return new Response(`corrective:${request.url}`, { status: 200 });
-    }, cacheState, releaseManifest);
+    }, cacheState, releaseManifest, PRIOR_SW_SOURCE);
     await runExtendable(worker.handlers.install);
     assert.equal(cacheState.stores.has(oldName), true, '0.140 remains during complete install');
     const nextName = 'bark-offline-shell-0.141';
@@ -326,5 +341,108 @@ test('the real 0.140 worker cannot poison its cache while private 0.141 installs
     const response = await runExtendable(worker.handlers.fetch, {
         request: { method: 'GET', mode: 'navigate', url: 'https://example.test/app/' }
     });
-    assert.equal(await response.text(), PRIVATE_INDEX_SOURCE, 'active 0.141 must serve its private entry');
+    assert.equal(await response.text(), PRIOR_PRIVATE_INDEX_SOURCE, 'active 0.141 must serve its private entry');
+});
+
+test('the active private 0.141 shell survives until private 0.142 installs completely', async () => {
+    const releaseManifest = loadReleaseManifest();
+    const priorManifest = loadPriorManifest();
+    assert.equal(releaseManifest.version, '0.142');
+    assert.equal(releaseManifest.entry, './index.v142.html');
+    assert.equal(priorManifest.version, '0.141');
+
+    const releaseShell = new Set(releaseManifest.shell);
+    priorManifest.shell.forEach(reference => {
+        assert.equal(releaseShell.has(reference), true, `0.142 must retain 0.141 asset ${reference}`);
+    });
+    RELEASE_0142_REFS.forEach(ref => {
+        assert.equal(releaseShell.has(`./${ref}`), true, `0.142 must cache ${ref}`);
+    });
+    assert.match(PRIVATE_INDEX_SOURCE, /modules\/dataService\.v142\.js/);
+
+    const priorName = 'bark-offline-shell-0.141';
+    const priorEntries = {
+        'https://example.test/app/.bark-shell-ready-0.141': new Response('0.141'),
+        'https://example.test/app/index.v141.html': new Response(PRIOR_PRIVATE_INDEX_SOURCE)
+    };
+    priorManifest.shell.forEach(reference => {
+        const url = new URL(reference, 'https://example.test/app/').href;
+        if (!priorEntries[url]) priorEntries[url] = new Response(`prior:${reference}`);
+    });
+    const cacheState = createCacheStore({ [priorName]: priorEntries });
+
+    const blockedUrl = 'https://example.test/app/modules/dataService.v142.js';
+    const failingWorker = loadWorker(async request => {
+        if (request.url === blockedUrl) throw new Error('simulated 0.142 weak-cell failure');
+        return new Response(`candidate:${request.url}`, { status: 200 });
+    }, cacheState, releaseManifest);
+    await assert.rejects(runExtendable(failingWorker.handlers.install), /0\.142 weak-cell failure/);
+    assert.equal(cacheState.stores.has(priorName), true, 'failed 0.142 install must retain 0.141');
+    assert.equal(cacheState.stores.has('bark-offline-shell-0.142'), false);
+
+    const worker = loadWorker(async request => {
+        if (request.url.endsWith('/index.v142.html')) {
+            return new Response(PRIVATE_INDEX_SOURCE, { status: 200 });
+        }
+        if (request.url.endsWith('/index.v141.html')) {
+            return new Response(PRIOR_PRIVATE_INDEX_SOURCE, { status: 200 });
+        }
+        if (request.url.endsWith('/index.html') || request.url === 'https://example.test/app/') {
+            return new Response(PUBLIC_INDEX_SOURCE, { status: 200 });
+        }
+        return new Response(`release:${request.url}`, { status: 200 });
+    }, cacheState, releaseManifest);
+
+    await runExtendable(worker.handlers.install);
+    assert.equal(cacheState.stores.has(priorName), true, '0.141 remains active during 0.142 install');
+    const nextName = 'bark-offline-shell-0.142';
+    const next = cacheState.stores.get(nextName);
+    assert.ok(next);
+    priorManifest.shell.forEach(reference => {
+        const url = new URL(reference, 'https://example.test/app/').href;
+        assert.equal(next.has(url), true, `0.142 cache must carry forward ${reference}`);
+    });
+    RELEASE_0142_REFS.forEach(ref => {
+        assert.equal(next.has(`https://example.test/app/${ref}`), true, `0.142 cache must contain ${ref}`);
+    });
+
+    await runExtendable(worker.handlers.activate);
+    assert.equal(cacheState.stores.has(priorName), false, '0.141 retires only after complete 0.142 activation');
+    const response = await runExtendable(worker.handlers.fetch, {
+        request: { method: 'GET', mode: 'navigate', url: 'https://example.test/app/' }
+    });
+    assert.equal(await response.text(), PRIVATE_INDEX_SOURCE, 'active 0.142 must serve its private entry');
+});
+
+test('the pinned 0.141 worker can forward-roll an installed 0.142 shell back to the prior private entry', async () => {
+    const priorManifest = loadPriorManifest();
+    assert.match(PRIOR_SW_SOURCE, /cacheManifest-0\.141\.js/);
+
+    const currentName = 'bark-offline-shell-0.142';
+    const cacheState = createCacheStore({
+        [currentName]: {
+            'https://example.test/app/.bark-shell-ready-0.142': new Response('0.142'),
+            'https://example.test/app/index.v142.html': new Response(PRIVATE_INDEX_SOURCE)
+        }
+    });
+    const rollbackWorker = loadWorker(async request => {
+        if (request.url.endsWith('/index.v141.html')) {
+            return new Response(PRIOR_PRIVATE_INDEX_SOURCE, { status: 200 });
+        }
+        if (request.url.endsWith('/index.html') || request.url === 'https://example.test/app/') {
+            return new Response(PUBLIC_INDEX_SOURCE, { status: 200 });
+        }
+        return new Response(`rollback:${request.url}`, { status: 200 });
+    }, cacheState, priorManifest, PRIOR_SW_SOURCE);
+
+    await runExtendable(rollbackWorker.handlers.install);
+    assert.equal(cacheState.stores.has(currentName), true, 'rollback install must not delete active 0.142');
+    assert.equal(cacheState.stores.has('bark-offline-shell-0.141'), true);
+
+    await runExtendable(rollbackWorker.handlers.activate);
+    assert.equal(cacheState.stores.has(currentName), false);
+    const response = await runExtendable(rollbackWorker.handlers.fetch, {
+        request: { method: 'GET', mode: 'navigate', url: 'https://example.test/app/' }
+    });
+    assert.equal(await response.text(), PRIOR_PRIVATE_INDEX_SOURCE);
 });

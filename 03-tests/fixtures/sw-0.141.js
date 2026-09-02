@@ -6,9 +6,9 @@
  * actually viewed at high zoom. Firebase/API/payment/routing responses are
  * never stored here.
  */
-// This corrective worker must never pair with a mutable or prior manifest.
-// The physical release path makes its cache identity inseparable from 0.142.
-importScripts('./offline/cacheManifest-0.142.js');
+// This corrective worker must never pair with the mutable legacy manifest.
+// The physical release path makes its cache identity inseparable from 0.141.
+importScripts('./offline/cacheManifest-0.141.js');
 
 const CONFIG = self.BARK_OFFLINE_CACHE_MANIFEST;
 const SHELL_CACHE_PREFIX = 'bark-offline-shell-';
@@ -210,9 +210,8 @@ self.addEventListener('install', event => {
     const shellUrls = CONFIG.shell.map(toScopedUrl);
     event.waitUntil((async () => {
         await warmShell([...shellUrls, ...CONFIG.criticalExternal], { required: true });
-        // The candidate contains the untouched public 0.140 shell, the private
-        // 0.141 shell, and the private 0.142 entry, so taking control cannot
-        // strand a page that was already open during either cutover.
+        // The candidate contains both the untouched public 0.140 shell and the
+        // private 0.141 entry, so taking control cannot strand an existing page.
         if (typeof self.skipWaiting === 'function') await self.skipWaiting();
     })());
 });

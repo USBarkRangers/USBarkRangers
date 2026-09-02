@@ -34,6 +34,18 @@
   },
   "hosting": {
     "public": "01-code/app",
+    "redirects": [
+      {
+        "source": "/",
+        "destination": "/index.v142.html",
+        "type": 302
+      },
+      {
+        "source": "/index.html",
+        "destination": "/index.v142.html",
+        "type": 302
+      }
+    ],
     "ignore": [
       "firebase.json",
       ".firebaserc",

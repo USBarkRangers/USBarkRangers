@@ -6,14 +6,8 @@ const vm = require('node:vm');
 
 const ROOT = path.resolve(__dirname, '..');
 
-function loadCheckinService(options = {}) {
+function loadCheckinService() {
     const storage = new Map();
-    const windowListeners = new Map();
-    const documentListeners = new Map();
-    const connectionListeners = new Map();
-    const schedule = options.fastRecoverySignals === true
-        ? (callback, delay, ...args) => setTimeout(callback, delay === 1000 ? 5 : delay, ...args)
-        : setTimeout;
     const context = {
         console,
         Date,
@@ -28,7 +22,7 @@ function loadCheckinService(options = {}) {
         Array,
         JSON,
         RegExp,
-        setTimeout: schedule,
+        setTimeout,
         clearTimeout,
         setInterval,
         clearInterval
@@ -36,21 +30,7 @@ function loadCheckinService(options = {}) {
 
     context.window = context;
     context.global = context;
-    context.navigator = {
-        onLine: true,
-        geolocation: null,
-        connection: {
-            addEventListener(type, listener) {
-                connectionListeners.set(type, listener);
-            }
-        }
-    };
-    context.document = {
-        visibilityState: 'visible',
-        addEventListener(type, listener) {
-            documentListeners.set(type, listener);
-        }
-    };
+    context.navigator = { onLine: true, geolocation: null };
     context.localStorage = {
         getItem(key) {
             return storage.has(key) ? storage.get(key) : null;
@@ -62,21 +42,7 @@ function loadCheckinService(options = {}) {
             storage.delete(key);
         }
     };
-    context.addEventListener = (type, listener) => {
-        windowListeners.set(type, listener);
-    };
-    context.__dispatchWindowEvent = (type) => {
-        const listener = windowListeners.get(type);
-        if (listener) listener({ type });
-    };
-    context.__dispatchDocumentEvent = (type) => {
-        const listener = documentListeners.get(type);
-        if (listener) listener({ type });
-    };
-    context.__dispatchConnectionEvent = (type) => {
-        const listener = connectionListeners.get(type);
-        if (listener) listener({ type });
-    };
+    context.addEventListener = () => {};
     context.alert = () => {};
     context.confirm = () => true;
 
@@ -455,7 +421,7 @@ test('free orange visit replays when Firestore returns after fake service withou
     assert.equal(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
 });
 
-test('ordinary Premium orange visit replays after an authoritative server miss', async () => {
+test('free recovery trigger does not alter the Premium offline path', async () => {
     const context = loadCheckinService();
     const uid = 'premium-control-user';
     const expected = {
@@ -466,7 +432,6 @@ test('ordinary Premium orange visit replays after an authoritative server miss',
     };
     const repo = preparePendingVisit(context, expected);
     let recoveryWrites = 0;
-    let serverVisits = [];
 
     context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
         [expected.id]: { visit: expected, stashedAt: 275, offlinePremiumProvisional: false }
@@ -479,128 +444,6 @@ test('ordinary Premium orange visit replays after an authoritative server miss',
         reconcileVisitedPlacesSnapshot(placeList, metadata) {
             return repo.reconcileSnapshot(placeList, metadata);
         },
-        async updateCurrentUserVisitedPlaces(visits) {
-            recoveryWrites++;
-            serverVisits = visits.map(visit => ({ ...visit }));
-            return serverVisits;
-        }
-    };
-    context.firebase = {
-        auth() {
-            return { currentUser: { uid } };
-        },
-        firestore() {
-            return {
-                waitForPendingWrites() {
-                    return Promise.resolve();
-                },
-                collection() {
-                    return {
-                        doc() {
-                            return { async get() { return makeSnapshot(serverVisits); } };
-                        }
-                    };
-                }
-            };
-        }
-    };
-
-    const result = await context.window.BARK.services.checkin.awaitServerConfirmation(expected, {
-        retryMs: 10,
-        timeoutMs: 500
-    });
-
-    assert.equal(result.confirmed, true);
-    assert.equal(recoveryWrites, 1, 'ordinary Premium visits should use the same durable recovery as Free visits');
-    assert.equal(repo.hasPendingMutation(expected.id), false);
-    assert.equal(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
-});
-
-test('Premium foreground and connection signals coalesce into one durable recovery cycle', async () => {
-    const context = loadCheckinService({ fastRecoverySignals: true });
-    const uid = 'premium-lifecycle-user';
-    const expected = {
-        id: 'premium-lifecycle-park',
-        verified: false,
-        ts: 280,
-        syncToken: 'premium-lifecycle-token'
-    };
-    const repo = preparePendingVisit(context, expected);
-    let recoveryWrites = 0;
-    let serverVisits = [];
-
-    context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
-        [expected.id]: { visit: expected, stashedAt: 280, offlinePremiumProvisional: false }
-    }));
-    context.window.BARK.services.premium = { isPremium: () => true };
-    context.window.BARK.services.firebase = {
-        stageVisitedPlaceUpsert(visit) {
-            repo.stageUpsert(visit);
-        },
-        reconcileVisitedPlacesSnapshot(placeList, metadata) {
-            return repo.reconcileSnapshot(placeList, metadata);
-        },
-        replayPendingVisitDeletions() {
-            return Promise.resolve([]);
-        },
-        async updateCurrentUserVisitedPlaces(visits) {
-            recoveryWrites++;
-            serverVisits = visits.map(visit => ({ ...visit }));
-            return serverVisits;
-        }
-    };
-    context.firebase = {
-        auth() {
-            return { currentUser: { uid } };
-        },
-        firestore() {
-            return {
-                waitForPendingWrites() {
-                    return Promise.resolve();
-                },
-                collection() {
-                    return {
-                        doc() {
-                            return { get: async () => makeSnapshot(serverVisits) };
-                        }
-                    };
-                }
-            };
-        }
-    };
-
-    context.__dispatchWindowEvent('focus');
-    context.__dispatchWindowEvent('pageshow');
-    context.__dispatchDocumentEvent('visibilitychange');
-    context.__dispatchConnectionEvent('change');
-
-    await new Promise(resolve => setTimeout(resolve, 40));
-
-    assert.equal(recoveryWrites, 1, 'a signal burst should coalesce into one recovery replay');
-    assert.equal(repo.hasPendingMutation(expected.id), false);
-    assert.equal(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
-});
-
-test('foreground recovery never uploads an offline-provisional Premium visit', async () => {
-    const context = loadCheckinService({ fastRecoverySignals: true });
-    const uid = 'provisional-lifecycle-user';
-    const expected = {
-        id: 'provisional-lifecycle-park',
-        verified: false,
-        ts: 282,
-        syncToken: 'provisional-lifecycle-token'
-    };
-    const repo = preparePendingVisit(context, expected);
-    let recoveryWrites = 0;
-
-    context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
-        [expected.id]: { visit: expected, stashedAt: 282, offlinePremiumProvisional: true }
-    }));
-    context.window.BARK.services.premium = { isPremium: () => true };
-    context.window.BARK.services.firebase = {
-        stageVisitedPlaceUpsert(visit) {
-            repo.stageUpsert(visit);
-        },
         async updateCurrentUserVisitedPlaces() {
             recoveryWrites++;
             return [];
@@ -611,52 +454,14 @@ test('foreground recovery never uploads an offline-provisional Premium visit', a
             return { currentUser: { uid } };
         },
         firestore() {
-            throw new Error('provisional recovery must not touch Firestore');
-        }
-    };
-
-    context.__dispatchWindowEvent('focus');
-    context.__dispatchWindowEvent('pageshow');
-    context.__dispatchDocumentEvent('visibilitychange');
-    context.__dispatchConnectionEvent('change');
-
-    await new Promise(resolve => setTimeout(resolve, 30));
-
-    assert.equal(recoveryWrites, 0);
-    assert.equal(repo.hasPendingMutation(expected.id), true);
-    assert.notEqual(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
-});
-
-test('a slow confirmation read is circuit-broken until the raw read settles, then retries', async () => {
-    const context = loadCheckinService();
-    const user = { uid: 'user-1' };
-    const expected = {
-        id: 'hung-confirmation-read',
-        verified: true,
-        ts: 285,
-        syncToken: 'hung-confirmation-token'
-    };
-    const repo = preparePendingVisit(context, expected);
-    let serverReads = 0;
-    let resolveFirstRead;
-    const firstRead = new Promise(resolve => { resolveFirstRead = resolve; });
-
-    context.firebase = {
-        auth() {
-            return { currentUser: user };
-        },
-        firestore() {
             return {
+                waitForPendingWrites() {
+                    return Promise.resolve();
+                },
                 collection() {
                     return {
                         doc() {
-                            return {
-                                get() {
-                                    serverReads++;
-                                    if (serverReads === 1) return firstRead;
-                                    return Promise.resolve(makeSnapshot([expected]));
-                                }
-                            };
+                            return { async get() { return makeSnapshot([]); } };
                         }
                     };
                 }
@@ -664,659 +469,14 @@ test('a slow confirmation read is circuit-broken until the raw read settles, the
         }
     };
 
-    setTimeout(() => resolveFirstRead(makeSnapshot([])), 35);
-
     const result = await context.window.BARK.services.checkin.awaitServerConfirmation(expected, {
         retryMs: 10,
-        serverReadTimeoutMs: 20
-    });
-
-    assert.equal(result.confirmed, true);
-    assert.equal(serverReads, 2, 'a fresh read should run only after the abandoned raw read settles');
-    assert.equal(repo.hasPendingMutation(expected.id), false);
-});
-
-test('a never-settling confirmation read cannot accumulate orphaned Firestore requests', async () => {
-    const context = loadCheckinService();
-    const user = { uid: 'forever-read-user' };
-    const expected = {
-        id: 'forever-read-park',
-        verified: false,
-        ts: 288,
-        syncToken: 'forever-read-token'
-    };
-    const repo = preparePendingVisit(context, expected);
-    let serverReads = 0;
-
-    context.firebase = {
-        auth() {
-            return { currentUser: user };
-        },
-        firestore() {
-            return {
-                collection() {
-                    return {
-                        doc() {
-                            return {
-                                get() {
-                                    serverReads++;
-                                    return new Promise(() => {});
-                                }
-                            };
-                        }
-                    };
-                }
-            };
-        }
-    };
-
-    setTimeout(() => context.__dispatchWindowEvent('focus'), 40);
-    setTimeout(() => context.__dispatchWindowEvent('pageshow'), 50);
-    setTimeout(() => context.__dispatchDocumentEvent('visibilitychange'), 60);
-    setTimeout(() => context.__dispatchConnectionEvent('change'), 70);
-    const result = await context.window.BARK.services.checkin.awaitServerConfirmation(expected, {
-        retryMs: 10,
-        serverReadTimeoutMs: 20,
-        timeoutMs: 100
+        timeoutMs: 60
     });
 
     assert.equal(result.confirmed, false);
-    assert.equal(serverReads, 1, 'lifecycle storms must reuse the one uncancellable raw read');
+    assert.equal(recoveryWrites, 0, 'Premium remains owned by its existing recovery flow');
     assert.equal(repo.hasPendingMutation(expected.id), true);
-});
-
-test('force recovery releases its latch but does not overlap a stalled server read', async () => {
-    const context = loadCheckinService();
-    const user = { uid: 'user-1' };
-    const expected = {
-        id: 'hung-force-read',
-        verified: false,
-        ts: 290,
-        syncToken: 'hung-force-token'
-    };
-    const repo = preparePendingVisit(context, expected);
-    let serverReads = 0;
-    let resolveFirstRead;
-    const firstRead = new Promise(resolve => { resolveFirstRead = resolve; });
-
-    context.firebase = {
-        auth() {
-            return { currentUser: user };
-        },
-        firestore() {
-            return {
-                waitForPendingWrites() {
-                    return Promise.resolve();
-                },
-                collection() {
-                    return {
-                        doc() {
-                            return {
-                                get() {
-                                    serverReads++;
-                                    if (serverReads === 1) return firstRead;
-                                    return Promise.resolve(makeSnapshot([expected]));
-                                }
-                            };
-                        }
-                    };
-                }
-            };
-        }
-    };
-
-    await context.window.BARK.services.checkin.forceServerSyncRecovery('hung-read-1', {
-        serverReadTimeoutMs: 20
-    });
-    assert.equal(repo.hasPendingMutation(expected.id), true, 'a guarded read must not clear orange state');
-
-    await context.window.BARK.services.checkin.forceServerSyncRecovery('hung-read-2', {
-        serverReadTimeoutMs: 20
-    });
-    assert.equal(serverReads, 1, 'a second cycle must not create another uncancellable read');
-    assert.equal(repo.hasPendingMutation(expected.id), true);
-
-    resolveFirstRead(makeSnapshot([]));
-    await new Promise(resolve => setTimeout(resolve, 0));
-    await context.window.BARK.services.checkin.forceServerSyncRecovery('recovered-read-3', {
-        serverReadTimeoutMs: 20
-    });
-    assert.equal(serverReads, 2, 'a new read is allowed after the abandoned raw read settles');
-    assert.equal(repo.hasPendingMutation(expected.id), false);
-});
-
-test('a completed recovery that still lacks server proof offers reload without clearing the visit', async () => {
-    const context = loadCheckinService();
-    const uid = 'still-pending-user';
-    const expected = {
-        id: 'still-pending-park',
-        verified: false,
-        ts: 292,
-        syncToken: 'still-pending-token'
-    };
-    const repo = preparePendingVisit(context, expected);
-    const notices = [];
-
-    context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
-        [expected.id]: { visit: expected, stashedAt: 292, offlinePremiumProvisional: false }
-    }));
-    context.window.BARK.showAuthFailure = message => notices.push(message);
-    context.window.BARK.services.firebase = {
-        stageVisitedPlaceUpsert(visit) {
-            repo.stageUpsert(visit);
-        },
-        replayPendingVisitDeletions() {
-            return Promise.resolve([]);
-        },
-        updateCurrentUserVisitedPlaces() {
-            return Promise.resolve([]);
-        },
-        reconcileVisitedPlacesSnapshot(placeList, metadata) {
-            return repo.reconcileSnapshot(placeList, metadata);
-        }
-    };
-    context.firebase = {
-        auth() {
-            return { currentUser: { uid } };
-        },
-        firestore() {
-            return {
-                waitForPendingWrites() {
-                    return Promise.resolve();
-                },
-                collection() {
-                    return {
-                        doc() {
-                            return { get: async () => makeSnapshot([]) };
-                        }
-                    };
-                }
-            };
-        }
-    };
-
-    await context.window.BARK.services.checkin.forceServerSyncRecovery('still-pending', {
-        serverReadTimeoutMs: 20
-    });
-
-    assert.equal(repo.hasPendingMutation(expected.id), true);
-    assert.notEqual(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
-    assert.deepEqual(notices, [
-        'Saved visits will keep retrying. If syncing looks stuck, reload here.'
-    ]);
-});
-
-test('foreground recovery is inert before the default Firebase app exists', async () => {
-    const context = loadCheckinService({ fastRecoverySignals: true });
-    context.firebase = {
-        apps: [],
-        auth() {
-            throw new Error("Firebase: No Firebase App '[DEFAULT]'");
-        }
-    };
-
-    assert.doesNotThrow(() => {
-        context.__dispatchWindowEvent('focus');
-        context.__dispatchWindowEvent('pageshow');
-        context.__dispatchDocumentEvent('visibilitychange');
-        context.__dispatchConnectionEvent('change');
-    });
-    await new Promise(resolve => setTimeout(resolve, 20));
-});
-
-test('account switch during force recovery cannot replay the old UID journal', async () => {
-    const context = loadCheckinService();
-    const uidA = 'recovery-account-a';
-    const uidB = 'recovery-account-b';
-    const expected = {
-        id: 'account-a-park',
-        verified: false,
-        ts: 294,
-        syncToken: 'account-a-token'
-    };
-    let currentUid = uidA;
-    let releaseDeletionReplay;
-    let markDeletionReplayStarted;
-    const deletionReplayStarted = new Promise(resolve => { markDeletionReplayStarted = resolve; });
-    const deletionReplayPaused = new Promise(resolve => { releaseDeletionReplay = resolve; });
-    let stagedAdds = 0;
-    let cloudWrites = 0;
-
-    context.localStorage.setItem(`bark.unconfirmedVisits.${uidA}`, JSON.stringify({
-        [expected.id]: { visit: expected, stashedAt: 294, offlinePremiumProvisional: false }
-    }));
-    context.window.BARK.services.firebase = {
-        replayPendingVisitDeletions() {
-            markDeletionReplayStarted();
-            return deletionReplayPaused;
-        },
-        stageVisitedPlaceUpsert() {
-            stagedAdds++;
-        },
-        updateCurrentUserVisitedPlaces() {
-            cloudWrites++;
-            return Promise.resolve([]);
-        }
-    };
-    context.firebase = {
-        auth() {
-            return { currentUser: currentUid ? { uid: currentUid } : null };
-        },
-        firestore() {
-            return {};
-        }
-    };
-
-    const recovery = context.window.BARK.services.checkin.forceServerSyncRecovery('account-switch');
-    await deletionReplayStarted;
-    currentUid = uidB;
-    releaseDeletionReplay([]);
-    await recovery;
-
-    assert.equal(stagedAdds, 0);
-    assert.equal(cloudWrites, 0);
-    assert.equal(context.window.BARK.repos.VaultRepo.hasVisit(expected.id), false);
-    assert.notEqual(context.localStorage.getItem(`bark.unconfirmedVisits.${uidA}`), null);
-});
-
-test('late old-account replay completion cannot reconcile the active account', async () => {
-    const context = loadCheckinService();
-    const uidA = 'late-replay-account-a';
-    const uidB = 'late-replay-account-b';
-    const expected = {
-        id: 'late-account-a-park',
-        verified: true,
-        ts: 296,
-        syncToken: 'late-account-a-token'
-    };
-    let currentUid = uidA;
-    let resolveWrite;
-    let markWriteStarted;
-    const writeStarted = new Promise(resolve => { markWriteStarted = resolve; });
-    const pausedWrite = new Promise(resolve => { resolveWrite = resolve; });
-    let reconciliations = 0;
-
-    context.localStorage.setItem(`bark.unconfirmedVisits.${uidA}`, JSON.stringify({
-        [expected.id]: { visit: expected, stashedAt: 296, offlinePremiumProvisional: false }
-    }));
-    context.window.BARK.services.firebase = {
-        stageVisitedPlaceUpsert() {},
-        updateCurrentUserVisitedPlaces() {
-            markWriteStarted();
-            return pausedWrite;
-        },
-        reconcileVisitedPlacesSnapshot() {
-            reconciliations++;
-        }
-    };
-    context.firebase = {
-        auth() {
-            return { currentUser: currentUid ? { uid: currentUid } : null };
-        }
-    };
-
-    const replay = context.window.BARK.services.checkin.replayUnconfirmedVisits(uidA);
-    await writeStarted;
-    currentUid = uidB;
-    resolveWrite([expected]);
-    await replay;
-
-    assert.equal(reconciliations, 0);
-    assert.notEqual(context.localStorage.getItem(`bark.unconfirmedVisits.${uidA}`), null);
-});
-
-test('late direct visit commit cannot repaint after an account switch', async () => {
-    const context = loadCheckinService();
-    const uidA = 'late-commit-account-a';
-    const uidB = 'late-commit-account-b';
-    const users = {
-        [uidA]: { uid: uidA },
-        [uidB]: { uid: uidB }
-    };
-    let currentUid = uidA;
-    let resolveWrite;
-    let markWriteStarted;
-    const writeStarted = new Promise(resolve => { markWriteStarted = resolve; });
-    const pausedWrite = new Promise(resolve => { resolveWrite = resolve; });
-    let reconciliations = 0;
-    const repo = context.window.BARK.repos.VaultRepo;
-
-    context.window.BARK.services.premium = { isPremium: () => true };
-    context.window.BARK.services.firebase = {
-        stageVisitedPlaceUpsert(visit) {
-            repo.stageUpsert(visit);
-        },
-        reconcileVisitedPlacesSnapshot() {
-            reconciliations++;
-        },
-        syncUserProgress() {
-            markWriteStarted();
-            return pausedWrite;
-        }
-    };
-    context.firebase = {
-        auth() {
-            return { currentUser: currentUid ? users[currentUid] : null };
-        }
-    };
-
-    const result = await context.window.BARK.services.checkin.markAsVisited({
-        id: 'late-direct-commit-park',
-        name: 'Late Direct Commit Park',
-        lat: 35,
-        lng: -84
-    });
-    assert.equal(result.success, true);
-    await writeStarted;
-    currentUid = uidB;
-    resolveWrite([result.visitRecord]);
-    await new Promise(resolve => setTimeout(resolve, 0));
-
-    assert.equal(reconciliations, 0);
-    assert.equal(repo.hasPendingMutation(result.visitRecord.id), true);
-    assert.notEqual(context.localStorage.getItem(`bark.unconfirmedVisits.${uidA}`), null);
-});
-
-test('late old-account write failure cannot clear the new account same-park intent', async () => {
-    const context = loadCheckinService();
-    const uidA = 'late-failure-account-a';
-    const uidB = 'late-failure-account-b';
-    const parkId = 'shared-account-park';
-    let currentUid = uidA;
-    let rejectWrite;
-    let markWriteStarted;
-    const writeStarted = new Promise(resolve => { markWriteStarted = resolve; });
-    const pausedWrite = new Promise((resolve, reject) => { rejectWrite = reject; });
-    const clearedPendingIds = [];
-    const repo = context.window.BARK.repos.VaultRepo;
-
-    context.window.BARK.services.premium = { isPremium: () => true };
-    context.window.BARK.services.firebase = {
-        stageVisitedPlaceUpsert(visit) {
-            repo.stageUpsert(visit);
-        },
-        clearVisitedPlacePendingMutation(id) {
-            clearedPendingIds.push(id);
-            repo.clearPendingMutation(id);
-        },
-        syncUserProgress() {
-            markWriteStarted();
-            return pausedWrite;
-        }
-    };
-    context.firebase = {
-        auth() {
-            return { currentUser: currentUid ? { uid: currentUid } : null };
-        }
-    };
-
-    const result = await context.window.BARK.services.checkin.markAsVisited({
-        id: parkId,
-        name: 'Account A Park',
-        lat: 35,
-        lng: -84
-    });
-    assert.equal(result.success, true);
-    await writeStarted;
-
-    currentUid = uidB;
-    const accountBVisit = {
-        ...result.visitRecord,
-        name: 'Account B Park',
-        syncToken: 'account-b-newer-token'
-    };
-    context.localStorage.setItem(`bark.unconfirmedVisits.${uidB}`, JSON.stringify({
-        [parkId]: { visit: accountBVisit, stashedAt: 297, offlinePremiumProvisional: false }
-    }));
-    repo.addVisit(accountBVisit);
-    repo.stageUpsert(accountBVisit);
-
-    const staleAccountError = new Error('account changed');
-    staleAccountError.code = 'stale-account';
-    rejectWrite(staleAccountError);
-    await new Promise(resolve => setTimeout(resolve, 0));
-
-    assert.equal(repo.hasPendingMutation(parkId), true);
-    assert.deepEqual(JSON.parse(JSON.stringify(repo.getVisit(parkId))), accountBVisit);
-    assert.deepEqual(clearedPendingIds, []);
-    assert.notEqual(context.localStorage.getItem(`bark.unconfirmedVisits.${uidA}`), null);
-    assert.notEqual(context.localStorage.getItem(`bark.unconfirmedVisits.${uidB}`), null);
-});
-
-test('late same-account write failure cannot clear a newer same-park intent', async () => {
-    const context = loadCheckinService();
-    const uid = 'same-account-newer-intent';
-    const parkId = 'same-account-park';
-    let rejectWrite;
-    let markWriteStarted;
-    const writeStarted = new Promise(resolve => { markWriteStarted = resolve; });
-    const pausedWrite = new Promise((resolve, reject) => { rejectWrite = reject; });
-    const clearedPendingIds = [];
-    const repo = context.window.BARK.repos.VaultRepo;
-
-    context.window.BARK.services.premium = { isPremium: () => true };
-    context.window.BARK.services.firebase = {
-        stageVisitedPlaceUpsert(visit) {
-            repo.stageUpsert(visit);
-        },
-        clearVisitedPlacePendingMutation(id) {
-            clearedPendingIds.push(id);
-            repo.clearPendingMutation(id);
-        },
-        syncUserProgress() {
-            markWriteStarted();
-            return pausedWrite;
-        }
-    };
-    context.firebase = {
-        auth() {
-            return { currentUser: { uid } };
-        }
-    };
-
-    const result = await context.window.BARK.services.checkin.markAsVisited({
-        id: parkId,
-        name: 'Original Park Intent',
-        lat: 35,
-        lng: -84
-    });
-    assert.equal(result.success, true);
-    await writeStarted;
-
-    const newerVisit = {
-        ...result.visitRecord,
-        name: 'Newer Park Intent',
-        syncToken: 'same-account-newer-token'
-    };
-    context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
-        [parkId]: { visit: newerVisit, stashedAt: 298, offlinePremiumProvisional: false }
-    }));
-    repo.addVisit(newerVisit);
-    repo.stageUpsert(newerVisit);
-
-    const rejectedError = new Error('old request rejected');
-    rejectedError.code = 'permission-denied';
-    rejectWrite(rejectedError);
-    await new Promise(resolve => setTimeout(resolve, 0));
-
-    assert.equal(repo.hasPendingMutation(parkId), true);
-    assert.deepEqual(JSON.parse(JSON.stringify(repo.getVisit(parkId))), newerVisit);
-    assert.deepEqual(clearedPendingIds, []);
-    const journal = JSON.parse(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`));
-    assert.deepEqual(journal[parkId].visit, newerVisit);
-});
-
-test('late add failure cannot clear an orange visit after its date changed with the same token', async () => {
-    const context = loadCheckinService();
-    const uid = 'same-token-date-edit';
-    const parkId = 'orange-date-edit-park';
-    let rejectWrite;
-    let markWriteStarted;
-    const writeStarted = new Promise(resolve => { markWriteStarted = resolve; });
-    const pausedWrite = new Promise((resolve, reject) => { rejectWrite = reject; });
-    const clearedPendingIds = [];
-    const repo = context.window.BARK.repos.VaultRepo;
-
-    context.window.BARK.services.premium = { isPremium: () => true };
-    context.window.BARK.services.firebase = {
-        stageVisitedPlaceUpsert(visit) {
-            repo.stageUpsert(visit);
-        },
-        clearVisitedPlacePendingMutation(id) {
-            clearedPendingIds.push(id);
-            repo.clearPendingMutation(id);
-        },
-        syncUserProgress() {
-            markWriteStarted();
-            return pausedWrite;
-        }
-    };
-    context.firebase = {
-        auth() {
-            return { currentUser: { uid } };
-        }
-    };
-
-    const result = await context.window.BARK.services.checkin.markAsVisited({
-        id: parkId,
-        name: 'Orange Date Edit Park',
-        lat: 35,
-        lng: -84
-    });
-    assert.equal(result.success, true);
-    await writeStarted;
-
-    // updateVisitDate currently retains the add's sync token and changes only
-    // the Vault record. The older add no longer owns this visible mutation.
-    const editedVisit = {
-        ...result.visitRecord,
-        ts: result.visitRecord.ts + 86400000
-    };
-    repo.addVisit(editedVisit);
-    repo.stageUpsert(editedVisit);
-
-    const rejectedError = new Error('old add rejected after date edit');
-    rejectedError.code = 'permission-denied';
-    rejectWrite(rejectedError);
-    await new Promise(resolve => setTimeout(resolve, 0));
-
-    assert.equal(repo.hasPendingMutation(parkId), true);
-    assert.deepEqual(JSON.parse(JSON.stringify(repo.getVisit(parkId))), editedVisit);
-    assert.deepEqual(clearedPendingIds, []);
-    const journal = JSON.parse(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`));
-    assert.deepEqual(journal[parkId].visit, JSON.parse(JSON.stringify(result.visitRecord)));
-});
-
-test('a rejected cloud write keeps the exact durable visit orange for later recovery', async () => {
-    const context = loadCheckinService();
-    const uid = 'durable-rejection-user';
-    const repo = context.window.BARK.repos.VaultRepo;
-
-    context.window.BARK.services.premium = { isPremium: () => true };
-    context.window.BARK.services.firebase = {
-        stageVisitedPlaceUpsert(visit) {
-            repo.stageUpsert(visit);
-        },
-        syncUserProgress() {
-            const error = new Error('credential proof was rejected');
-            error.code = 'permission-denied';
-            return Promise.reject(error);
-        }
-    };
-    context.firebase = {
-        auth() {
-            return { currentUser: { uid } };
-        }
-    };
-
-    const result = await context.window.BARK.services.checkin.markAsVisited({
-        id: 'durable-rejection-park',
-        name: 'Durable Rejection Park',
-        lat: 35,
-        lng: -84
-    });
-    assert.equal(result.success, true);
-    const confirmation = context.window.BARK.services.checkin.awaitServerConfirmation(result.visitRecord, {
-        retryMs: 10000,
-        timeoutMs: 30
-    });
-    await new Promise(resolve => setTimeout(resolve, 0));
-
-    assert.equal(repo.hasVisit(result.visitRecord.id), true);
-    assert.equal(repo.hasPendingMutation(result.visitRecord.id), true);
-    assert.notEqual(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
-    assert.deepEqual(JSON.parse(JSON.stringify(await confirmation)), {
-        confirmed: false,
-        reason: 'timeout'
-    });
-});
-
-test('an exact replay survives an older fatal rejection and later confirms', async () => {
-    const context = loadCheckinService();
-    const uid = 'exact-replay-race-user';
-    const repo = context.window.BARK.repos.VaultRepo;
-    let rejectOriginalWrite;
-    let resolveReplayWrite;
-    let markOriginalStarted;
-    let markReplayStarted;
-    const originalStarted = new Promise(resolve => { markOriginalStarted = resolve; });
-    const replayStarted = new Promise(resolve => { markReplayStarted = resolve; });
-    const originalWrite = new Promise((resolve, reject) => { rejectOriginalWrite = reject; });
-    const replayWrite = new Promise(resolve => { resolveReplayWrite = resolve; });
-
-    context.window.BARK.services.premium = { isPremium: () => true };
-    context.window.BARK.services.firebase = {
-        stageVisitedPlaceUpsert(visit) {
-            repo.stageUpsert(visit);
-        },
-        syncUserProgress() {
-            markOriginalStarted();
-            return originalWrite;
-        },
-        updateCurrentUserVisitedPlaces() {
-            markReplayStarted();
-            return replayWrite;
-        },
-        reconcileVisitedPlacesSnapshot(placeList, metadata) {
-            return repo.reconcileSnapshot(placeList, metadata);
-        }
-    };
-    context.firebase = {
-        auth() {
-            return { currentUser: { uid } };
-        }
-    };
-
-    const result = await context.window.BARK.services.checkin.markAsVisited({
-        id: 'exact-replay-race-park',
-        name: 'Exact Replay Race Park',
-        lat: 35,
-        lng: -84
-    });
-    assert.equal(result.success, true);
-    await originalStarted;
-
-    const replay = context.window.BARK.services.checkin.replayUnconfirmedVisits(uid);
-    await replayStarted;
-
-    const oldAttemptError = new Error('older attempt rejected');
-    oldAttemptError.code = 'permission-denied';
-    rejectOriginalWrite(oldAttemptError);
-    await new Promise(resolve => setTimeout(resolve, 0));
-
-    assert.equal(repo.hasVisit(result.visitRecord.id), true);
-    assert.equal(repo.hasPendingMutation(result.visitRecord.id), true);
-    assert.notEqual(
-        context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`),
-        null,
-        'the older failure must not erase the exact replay journal'
-    );
-
-    resolveReplayWrite([result.visitRecord]);
-    await replay;
-
-    assert.equal(repo.hasPendingMutation(result.visitRecord.id), false);
-    assert.equal(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
 });
 
 test('same park ID with an older unverified server record cannot false-confirm a GPS upgrade', async () => {
@@ -1367,19 +527,12 @@ test('exact authoritative server mutation confirms and clears pending state', as
     const context = loadCheckinService();
     const expected = { id: 'secured-park', verified: true, ts: 600, syncToken: 'secured-token' };
     const repo = preparePendingVisit(context, expected);
-    const hideCalls = [];
-    context.localStorage.setItem('bark.unconfirmedVisits.user-1', JSON.stringify({
-        [expected.id]: { visit: expected, stashedAt: 600, offlinePremiumProvisional: false }
-    }));
-    context.window.BARK.hideOfflineRecoveryNotice = options => hideCalls.push(options);
     installServerSnapshot(context, () => makeSnapshot([expected]));
 
     const result = await context.window.BARK.services.checkin.awaitServerConfirmation(expected, { timeoutMs: 250 });
 
     assert.equal(result.confirmed, true);
     assert.equal(repo.hasPendingMutation(expected.id), false);
-    assert.equal(context.localStorage.getItem('bark.unconfirmedVisits.user-1'), null);
-    assert.equal(hideCalls.some(options => options && options.resetDismissal === true), true);
 });
 
 test('an exact manual visit can confirm without weakening the GPS proof contract', async () => {

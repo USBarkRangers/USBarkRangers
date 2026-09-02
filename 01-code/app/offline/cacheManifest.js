@@ -6,7 +6,7 @@
  * render cached parks, and restore locally journaled visit mutations.
  */
 self.BARK_OFFLINE_CACHE_MANIFEST = Object.freeze({
-    version: '0.139',
+    version: '0.140',
     shell: Object.freeze([
         './',
         './index.html',
@@ -17,7 +17,7 @@ self.BARK_OFFLINE_CACHE_MANIFEST = Object.freeze({
         './assets/images/bark-tag.jpeg',
         './assets/images/usbarkrangers-qr.jpeg',
         './assets/images/WatermarkBARK.PNG',
-        './styles.css?v=86',
+        './styles.css?v=87',
         './styles/mapStyles.css?v=6',
         './styles/trophyCase.css?v=8',
         './styles/feedbackModal.css?v=2',
@@ -54,7 +54,7 @@ self.BARK_OFFLINE_CACHE_MANIFEST = Object.freeze({
         './services/visitMutationCoordinator.js?v=2',
         './services/firebaseService.js?v=25',
         './renderers/routeRenderer.js?v=6',
-        './services/checkinService.js?v=27',
+        './services/checkinService.js?v=28',
         './services/authPremiumUi.js?v=5',
         './services/premiumService.js?v=3',
         './services/authAccountUi.js?v=26',
@@ -88,7 +88,7 @@ self.BARK_OFFLINE_CACHE_MANIFEST = Object.freeze({
         './modules/firstOpenDisclaimer.js?v=2',
         './modules/feedbackSubjectPicker.js?v=2',
         './modules/feedbackModal.js?v=6',
-        './core/app.js?v=38',
+        './core/app.js?v=39',
         './offline/offlineBootstrap.js?v=1',
         './pages/privacy.html',
         './pages/terms.html'

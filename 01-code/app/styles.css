@@ -306,106 +306,40 @@ textarea,
     justify-content: space-between;
     gap: 14px;
     padding: 12px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    border: 1px solid rgba(180, 83, 9, 0.25);
     border-radius: 8px;
-    background: rgba(33, 150, 243, 0.96);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: rgba(255, 251, 235, 0.97);
     box-shadow: 0 14px 32px rgba(15, 23, 42, 0.18);
-    color: #ffffff;
+    color: #78350f;
     transform: translateX(-50%);
-}
-
-.auth-failure-copy {
-    min-width: 0;
 }
 
 .auth-failure-banner strong {
     display: block;
     margin-bottom: 2px;
-    color: #ffffff;
+    color: #713f12;
     font-size: 13px;
     font-weight: 900;
 }
 
 .auth-failure-banner span {
     display: block;
-    color: rgba(255, 255, 255, 0.92);
+    color: #92400e;
     font-size: 12px;
     font-weight: 700;
     line-height: 1.35;
 }
 
-.auth-failure-actions {
-    display: flex;
+.auth-failure-banner button {
     flex: 0 0 auto;
-    align-items: center;
-    gap: 8px;
-}
-
-.auth-failure-banner .auth-failure-reload {
-    min-height: 44px;
     padding: 8px 10px;
-    border: none;
-    border-radius: 20px;
+    border: 1px solid rgba(146, 64, 14, 0.28);
+    border-radius: 8px;
     background: #ffffff;
-    color: #2196f3;
+    color: #78350f;
     font-size: 12px;
     font-weight: 900;
     cursor: pointer;
-}
-
-.auth-failure-banner .auth-failure-reload:hover {
-    background: #e3f2fd;
-}
-
-.auth-failure-banner .auth-failure-dismiss {
-    display: inline-flex;
-    width: 44px;
-    height: 44px;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border: 1px solid rgba(255, 255, 255, 0.45);
-    border-radius: 50%;
-    background: transparent;
-    color: #ffffff;
-    font-size: 22px;
-    font-weight: 600;
-    line-height: 1;
-    cursor: pointer;
-}
-
-.auth-failure-banner .auth-failure-dismiss:hover {
-    background: rgba(255, 255, 255, 0.14);
-}
-
-.auth-failure-banner .auth-failure-reload:focus-visible,
-.auth-failure-banner .auth-failure-dismiss:focus-visible {
-    outline: 3px solid rgba(255, 255, 255, 0.92);
-    outline-offset: 2px;
-}
-
-@media (max-width: 420px) {
-    .auth-failure-banner {
-        gap: 10px;
-        padding: 11px 10px 11px 12px;
-    }
-
-    .auth-failure-actions {
-        gap: 6px;
-    }
-
-    .auth-failure-banner .auth-failure-reload {
-        padding: 8px 11px;
-    }
-}
-
-/* Keep the recovery controls tappable while a GPS walk is active. The live
- * walk pill owns the first safe-top lane; the connectivity notice moves below
- * it instead of sitting underneath its higher stacking layer. */
-body:has(.live-walk-banner[style*="display: flex"]) .auth-failure-banner {
-    top: calc(max(env(safe-area-inset-top, 0px), var(--bark-safe-top, 0px)) + 72px);
 }
 
 /* Non-blocking callable rate-limit notice. It stays above fixed map/search and

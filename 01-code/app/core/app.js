@@ -8,8 +8,6 @@
     const _bootErrors = [];
     const MAP_READY_TIMEOUT_MS = 5000;
     const FIREBASE_BOOT_WAIT_MS = 10000;
-    let offlineNoticeDismissed = false;
-    let authNoticeDismissed = false;
 
     window.BARK._bootErrors = _bootErrors;
     window.BARK.getBootErrors = function getBootErrors() {
@@ -25,48 +23,14 @@
     }
 
     function bindAuthFailureActions() {
-        const reloadButton = document.getElementById('auth-failure-reload');
-        if (reloadButton && reloadButton.dataset.bound !== 'true') {
-            reloadButton.dataset.bound = 'true';
-            // Reload directly. Never await the cloud queue, sign out, or clear
-            // localStorage: durable orange visits must survive this recovery.
-            reloadButton.addEventListener('click', () => window.location.reload());
-        }
-
         const dismissButton = document.getElementById('auth-failure-dismiss');
-        if (dismissButton && dismissButton.dataset.bound !== 'true') {
-            dismissButton.dataset.bound = 'true';
-            dismissButton.addEventListener('click', () => {
-                const message = document.getElementById('auth-failure-message');
-                if (!message) return;
-                message.hidden = true;
-                // Dismissal is visual only. Keep auth and offline dismissal
-                // separate so hiding a connectivity hint cannot suppress a
-                // later sign-in failure (or vice versa).
-                if (message.dataset.noticeKind === 'offline') {
-                    offlineNoticeDismissed = true;
-                } else {
-                    authNoticeDismissed = true;
-                }
-            });
-        }
+        if (!dismissButton || dismissButton.dataset.bound === 'true') return;
 
-        if (!window._barkOfflineNoticeBound && typeof window.addEventListener === 'function') {
-            window._barkOfflineNoticeBound = true;
-            window.addEventListener('offline', () => {
-                showOfflineRecoveryNotice();
-            });
-            window.addEventListener('online', () => {
-                hideOfflineRecoveryNotice({ resetDismissal: true });
-            });
-        }
-
-        if (!window._barkOfflineInitialStateChecked) {
-            window._barkOfflineInitialStateChecked = true;
-            if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-                showOfflineRecoveryNotice();
-            }
-        }
+        dismissButton.dataset.bound = 'true';
+        dismissButton.addEventListener('click', () => {
+            const message = document.getElementById('auth-failure-message');
+            if (message) message.hidden = true;
+        });
     }
 
     function showAuthFailure(reason) {
@@ -74,50 +38,13 @@
         if (!message) return;
 
         bindAuthFailureActions();
-        if (authNoticeDismissed) return;
-
-        const title = document.getElementById('auth-failure-title');
-        if (title) title.textContent = 'Sign-in unavailable';
-        const dismissButton = document.getElementById('auth-failure-dismiss');
-        if (dismissButton) dismissButton.setAttribute('aria-label', 'Dismiss sign-in warning');
 
         const detail = document.getElementById('auth-failure-detail');
         if (detail) {
             detail.textContent = reason || 'Cloud sync and saved progress are offline for this session.';
         }
 
-        message.dataset.noticeKind = 'auth';
         message.hidden = false;
-    }
-
-    function showOfflineRecoveryNotice(reason) {
-        const message = document.getElementById('auth-failure-message');
-        if (!message) return;
-
-        bindAuthFailureActions();
-        if (offlineNoticeDismissed) return;
-        // A concrete authentication failure is more useful than the generic
-        // connectivity hint and must keep priority while visible.
-        if (!message.hidden && message.dataset.noticeKind === 'auth') return;
-
-        const title = document.getElementById('auth-failure-title');
-        if (title) title.textContent = 'You appear offline';
-        const dismissButton = document.getElementById('auth-failure-dismiss');
-        if (dismissButton) dismissButton.setAttribute('aria-label', 'Dismiss offline warning');
-        const detail = document.getElementById('auth-failure-detail');
-        if (detail) {
-            detail.textContent = reason || 'Saved visits will keep retrying. If syncing looks stuck, reload here.';
-        }
-
-        message.dataset.noticeKind = 'offline';
-        message.hidden = false;
-    }
-
-    function hideOfflineRecoveryNotice(options = {}) {
-        if (options.resetDismissal === true) offlineNoticeDismissed = false;
-        const message = document.getElementById('auth-failure-message');
-        if (!message || message.dataset.noticeKind !== 'offline') return;
-        message.hidden = true;
     }
 
     function assertSettingsStartupOrder() {
@@ -200,8 +127,6 @@
     window.BARK.showMapUnavailable = showMapUnavailable;
     window.BARK.checkMapAvailability = checkMapAvailability;
     window.BARK.showAuthFailure = showAuthFailure;
-    window.BARK.showOfflineRecoveryNotice = showOfflineRecoveryNotice;
-    window.BARK.hideOfflineRecoveryNotice = hideOfflineRecoveryNotice;
 
     // async so it catches both synchronous throws and rejected Promises from init functions.
     async function callInit(name, label) {

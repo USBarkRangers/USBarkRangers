@@ -40,7 +40,7 @@ function loadFirebaseServiceWithVisits(visits) {
         }
     };
     vm.createContext(sandbox);
-    vm.runInContext(fs.readFileSync(path.join(repoRoot, '01-code', 'app', 'services', 'firebaseService.js'), 'utf8'), sandbox);
+    vm.runInContext(fs.readFileSync(path.join(repoRoot, '01-code', 'app', 'services', 'firebaseService.v141.js'), 'utf8'), sandbox);
     sandbox.window.BARK.__getEntriesCallCount = () => entriesCallCount;
     return sandbox.window.BARK;
 }

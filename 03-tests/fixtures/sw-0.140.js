@@ -6,17 +6,13 @@
  * actually viewed at high zoom. Firebase/API/payment/routing responses are
  * never stored here.
  */
-// This corrective worker must never pair with the mutable legacy manifest.
-// The physical release path makes its cache identity inseparable from 0.141.
-importScripts('./offline/cacheManifest-0.141.js');
+importScripts('./offline/cacheManifest.js?v=5');
 
 const CONFIG = self.BARK_OFFLINE_CACHE_MANIFEST;
 const SHELL_CACHE_PREFIX = 'bark-offline-shell-';
 const SHELL_CACHE = `${SHELL_CACHE_PREFIX}${CONFIG.version}`;
 const TILE_CACHE = 'bark-offline-high-zoom-tiles-v1';
 const APP_SCOPE_URL = new URL(self.registration.scope);
-const APP_ENTRY_URL = new URL(CONFIG.entry || './index.html', APP_SCOPE_URL).href;
-const SHELL_READY_URL = new URL(`./.bark-shell-ready-${CONFIG.version}`, APP_SCOPE_URL).href;
 const OFFLINE_TILE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><rect width="256" height="256" fill="#e5e7eb"/><path d="M0 64h256M0 128h256M0 192h256M64 0v256M128 0v256M192 0v256" stroke="#d1d5db" stroke-width="1"/></svg>';
 let tileWritesSinceTrim = 0;
 
@@ -81,43 +77,13 @@ async function cacheOne(cache, requestOrUrl, options = {}) {
     }
 }
 
-async function warmShell(urls, options = {}) {
-    const existingNames = await caches.keys();
-    const cacheAlreadyExisted = existingNames.includes(SHELL_CACHE);
-    let cache = await caches.open(SHELL_CACHE);
-    const existingReady = await cache.match(SHELL_READY_URL);
-    // A versioned shell is immutable once complete. Never refresh its
-    // unversioned index.html with a newer release or mutate an active cache.
-    if (existingReady) return;
-    if (options.required === true && cacheAlreadyExisted) {
-        // A worker cannot activate without the ready marker, so a same-version
-        // markerless cache is an interrupted candidate. Rebuild it cleanly.
-        await caches.delete(SHELL_CACHE);
-        cache = await caches.open(SHELL_CACHE);
-    }
+async function warmShell(urls) {
+    const cache = await caches.open(SHELL_CACHE);
     const uniqueUrls = Array.from(new Set(urls));
-    const requests = uniqueUrls.map(url => cacheOne(cache, url, {
+    await Promise.allSettled(uniqueUrls.map(url => cacheOne(cache, url, {
         reload: true,
         timeoutMs: 8000
-    }));
-
-    if (options.required === true) {
-        try {
-            await Promise.all(requests);
-            await cache.put(SHELL_READY_URL, new Response(CONFIG.version, {
-                headers: { 'Content-Type': 'text/plain' }
-            }));
-        } catch (error) {
-            // Never activate a partially downloaded release or delete the last
-            // complete shell. The browser will keep the prior worker and retry
-            // this installation when service improves.
-            await caches.delete(SHELL_CACHE);
-            throw error;
-        }
-        return;
-    }
-
-    await Promise.allSettled(requests);
+    })));
 }
 
 async function trimTileCache(cache) {
@@ -175,27 +141,18 @@ async function networkFirstNavigation(request) {
     const appIndexPath = `${APP_SCOPE_URL.pathname}index.html`;
     const isAppEntry = requestUrl.pathname === APP_SCOPE_URL.pathname
         || requestUrl.pathname === appIndexPath;
-    if (isAppEntry) {
-        // A controlling old worker must serve its matching precached HTML. It
-        // must not put newer network HTML (which references newer scripts) into
-        // the old cache. Once the new shell installs completely, its worker and
-        // HTML become active together.
-        const coherentEntry = await cache.match(APP_ENTRY_URL, { ignoreSearch: true })
-            || await cache.match(toScopedUrl('./'), { ignoreSearch: true });
-        if (coherentEntry) return coherentEntry;
-    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CONFIG.navigationTimeoutMs);
 
     try {
         const response = await fetch(request, { signal: controller.signal });
         if (response && response.ok) {
-            if (!isAppEntry) await cache.put(request, response.clone());
+            await cache.put(isAppEntry ? toScopedUrl('./index.html') : request, response.clone());
         }
         return response;
     } catch (_error) {
         return await cache.match(request, { ignoreSearch: true })
-            || (isAppEntry ? await cache.match(APP_ENTRY_URL, { ignoreSearch: true }) : null)
+            || (isAppEntry ? await cache.match(toScopedUrl('./index.html'), { ignoreSearch: true }) : null)
             || (isAppEntry ? await cache.match(toScopedUrl('./'), { ignoreSearch: true }) : null)
             || new Response('B.A.R.K. offline startup is not prepared on this device yet.', {
                 status: 503,
@@ -208,19 +165,11 @@ async function networkFirstNavigation(request) {
 
 self.addEventListener('install', event => {
     const shellUrls = CONFIG.shell.map(toScopedUrl);
-    event.waitUntil((async () => {
-        await warmShell([...shellUrls, ...CONFIG.criticalExternal], { required: true });
-        // The candidate contains both the untouched public 0.140 shell and the
-        // private 0.141 entry, so taking control cannot strand an existing page.
-        if (typeof self.skipWaiting === 'function') await self.skipWaiting();
-    })());
+    event.waitUntil(warmShell([...shellUrls, ...CONFIG.criticalExternal]));
 });
 
 self.addEventListener('activate', event => {
     event.waitUntil((async () => {
-        const shellCache = await caches.open(SHELL_CACHE);
-        const ready = await shellCache.match(SHELL_READY_URL);
-        if (!ready) throw new Error(`Offline shell ${CONFIG.version} is incomplete.`);
         const names = await caches.keys();
         await Promise.all(names
             .filter(name => name.startsWith(SHELL_CACHE_PREFIX) && name !== SHELL_CACHE)
@@ -265,6 +214,6 @@ self.addEventListener('fetch', event => {
     }
 
     if (isCriticalExternalUrl(url) || isAppStaticRequest(request, url)) {
-        event.respondWith(cacheFirst(request));
+        event.respondWith(cacheFirst(request).catch(() => fetch(request)));
     }
 });

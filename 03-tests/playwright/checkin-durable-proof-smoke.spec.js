@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const { newBarkContext } = require('./helpers/barkContext');
 
-const BASE_URL = process.env.BARK_E2E_BASE_URL || 'http://localhost:4173/index.html';
+const BASE_URL = process.env.BARK_E2E_PRIVATE_BASE_URL || 'http://localhost:4173/index.v141.html';
 
 test('check-in proof stays fail-closed across browser engines and replays after reopen', async ({ browser }) => {
     const context = await newBarkContext(browser);

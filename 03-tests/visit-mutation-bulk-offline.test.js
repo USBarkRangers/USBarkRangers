@@ -18,7 +18,11 @@ function makeServer(initialVisits, options = {}) {
         ? null
         : (options.entitlement || { premium: true, status: 'active' });
     let holdNextCommit = false;
+    let heldCommitResolve = null;
     let releaseCommit = null;
+    let holdNextResponse = false;
+    let heldResponseResolve = null;
+    let releaseResponse = null;
     const queuedFailures = [];
     const enforceLargeShrinkRule = options.enforceLargeShrinkRule !== false;
 
@@ -62,6 +66,11 @@ function makeServer(initialVisits, options = {}) {
             });
             if (holdNextCommit) {
                 holdNextCommit = false;
+                if (heldCommitResolve) {
+                    const resolveHeld = heldCommitResolve;
+                    heldCommitResolve = null;
+                    resolveHeld();
+                }
                 await new Promise(resolve => { releaseCommit = resolve; });
             }
             if (
@@ -77,6 +86,15 @@ function makeServer(initialVisits, options = {}) {
             state.visits = staged;
             state.version++;
             state.commits++;
+            if (holdNextResponse) {
+                holdNextResponse = false;
+                if (heldResponseResolve) {
+                    const resolveHeld = heldResponseResolve;
+                    heldResponseResolve = null;
+                    resolveHeld();
+                }
+                await new Promise(resolve => { releaseResponse = resolve; });
+            }
         }
     };
 
@@ -86,8 +104,26 @@ function makeServer(initialVisits, options = {}) {
         setAvailable(value) { available = value; },
         setEntitlement(value) { entitlement = value; },
         failNext(error) { queuedFailures.push(error); },
-        holdOneCommit() { holdNextCommit = true; },
-        releaseCommit() { if (releaseCommit) releaseCommit(); }
+        holdOneCommit() {
+            holdNextCommit = true;
+            return new Promise(resolve => { heldCommitResolve = resolve; });
+        },
+        releaseCommit() {
+            if (!releaseCommit) return;
+            const release = releaseCommit;
+            releaseCommit = null;
+            release();
+        },
+        holdOneResponse() {
+            holdNextResponse = true;
+            return new Promise(resolve => { heldResponseResolve = resolve; });
+        },
+        releaseResponse() {
+            if (!releaseResponse) return;
+            const release = releaseResponse;
+            releaseResponse = null;
+            release();
+        }
     };
 }
 
@@ -149,11 +185,11 @@ function loadHarness(server, storage = new Map(), { loadCheckin = false, premium
     vm.createContext(context);
     const scripts = [
         '01-code/app/repos/ParkRepo.js',
-        '01-code/app/repos/VaultRepo.js',
-        '01-code/app/services/visitMutationCoordinator.js',
-        '01-code/app/services/firebaseService.js'
+        '01-code/app/repos/VaultRepo.v141.js',
+        '01-code/app/services/visitMutationCoordinator.v141.js',
+        '01-code/app/services/firebaseService.v141.js'
     ];
-    if (loadCheckin) scripts.push('01-code/app/services/checkinService.js');
+    if (loadCheckin) scripts.push('01-code/app/services/checkinService.v141.js');
     scripts.forEach(relativePath => {
         vm.runInContext(fs.readFileSync(path.join(ROOT, relativePath), 'utf8'), context, { filename: relativePath });
     });
@@ -194,6 +230,46 @@ function seedRepo(repo, visits) {
     visits.forEach(visit => repo.addVisit(visit));
 }
 
+function stageOrangeVisit(harness, uid, visit) {
+    harness.repo.addVisit(visit);
+    harness.service.stageVisitedPlaceUpsert(visit);
+    const key = `bark.unconfirmedVisits.${uid}`;
+    const existing = harness.storage.has(key)
+        ? JSON.parse(harness.storage.get(key))
+        : {};
+    existing[visit.id] = {
+        visit,
+        stashedAt: visit.ts,
+        offlinePremiumProvisional: false
+    };
+    harness.storage.set(key, JSON.stringify(existing));
+}
+
+function getStashedVisit(harness, uid, visitId) {
+    const raw = harness.storage.get(`bark.unconfirmedVisits.${uid}`);
+    if (!raw) return null;
+    const entry = JSON.parse(raw)[visitId];
+    return entry && entry.visit ? entry.visit : null;
+}
+
+function applyAuthoritativeVisitSnapshot(harness, uid, visits) {
+    const checkin = harness.context.BARK.services.checkin;
+    const checkpointSaved = checkin.rememberAuthoritativeVisitIds(uid, visits);
+    assert.equal(checkpointSaved, true);
+    harness.service.reconcileVisitedPlacesSnapshot(visits, {
+        fromCache: false,
+        hasPendingWrites: false,
+        canConfirmPending: checkpointSaved
+    });
+    checkin.reconcileUnconfirmedVisits(uid);
+    harness.service.reconcilePendingVisitDeletions(uid);
+}
+
+function getAuthoritativeVisits(harness, uid) {
+    const raw = harness.storage.get(`bark.authoritativeVisits.${uid}`);
+    return raw ? JSON.parse(raw).visits : null;
+}
+
 test('a removal stays pending until the server confirms deletion', async () => {
     const visit = makeVisits(1)[0];
     const server = makeServer([visit]);
@@ -227,6 +303,116 @@ test('cold fake-service boot hydrates only the remembered account deletion as pe
         undefined,
         'account isolation must not erase the original account recovery journal'
     );
+});
+
+test('weak-cell reload overlays a durable deletion on the saved baseline', () => {
+    const visit = makeVisits(1)[0];
+    const storage = new Map([
+        ['bark.lastAuthenticatedVisitUid', 'bulk-user'],
+        ['bark.authoritativeVisits.bulk-user', JSON.stringify({
+            schemaVersion: 1,
+            uid: 'bulk-user',
+            visits: [visit]
+        })],
+        ['bark.pendingVisitDeletes.bulk-user', JSON.stringify({
+            [visit.id]: { id: visit.id, stagedAt: Date.now(), record: visit }
+        })]
+    ]);
+    const harness = loadHarness(makeServer([visit]), storage, { loadCheckin: true });
+
+    harness.context.BARK.services.checkin.hydrateRememberedUnconfirmedVisits();
+    assert.equal(harness.repo.hasVisit(visit.id), true);
+    harness.service.hydrateRememberedPendingVisitDeletions('bulk-user');
+
+    assert.equal(harness.repo.hasVisit(visit.id), false);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), 'delete');
+    harness.repo.reconcileSnapshot([visit], { fromCache: true, hasPendingWrites: false });
+    assert.equal(harness.repo.hasVisit(visit.id), false, 'stale cache must not undo the delete overlay');
+    assert.equal(harness.repo.getPendingMutationType(visit.id), 'delete');
+});
+
+test('a failed re-add safety copy cannot erase the durable pending deletion', async () => {
+    const visit = makeVisits(1)[0];
+    const storage = new Map();
+    const harness = loadHarness(makeServer([visit]), storage, { loadCheckin: true });
+    const mutationService = harness.context.BARK.visitMutationCoordinator;
+
+    assert.equal(
+        mutationService.stageDeletes('bulk-user', [{ id: visit.id, record: visit }]),
+        true
+    );
+    harness.repo.removeVisit(visit.id);
+    harness.repo.stageDelete(visit.id);
+
+    const originalSetItem = harness.context.localStorage.setItem;
+    harness.context.localStorage.setItem = (key, value) => {
+        if (key === 'bark.unconfirmedVisits.bulk-user') {
+            throw new Error('simulated add journal quota failure');
+        }
+        return originalSetItem(key, value);
+    };
+
+    const result = await harness.context.BARK.services.checkin.markAsVisited(visit);
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'LOCAL_SAFETY_STORAGE_UNAVAILABLE');
+    assert.equal(harness.repo.hasVisit(visit.id), false);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), 'delete');
+    assert.notEqual(
+        storage.get('bark.pendingVisitDeletes.bulk-user'),
+        undefined,
+        'the accepted removal must retain its durable journal'
+    );
+
+    const reopened = loadHarness(makeServer([visit]), storage);
+    reopened.service.hydrateRememberedPendingVisitDeletions('bulk-user');
+    assert.equal(reopened.repo.hasVisit(visit.id), false);
+    assert.equal(reopened.repo.getPendingMutationType(visit.id), 'delete');
+});
+
+test('a legacy ID-only offline placeholder cannot overwrite the server through date edit', async () => {
+    const visit = { ...makeVisits(1)[0], verified: true, ts: 12345 };
+    const server = makeServer([visit]);
+    const storage = new Map([
+        ['bark.lastAuthenticatedVisitUid', 'bulk-user'],
+        ['bark.authoritativeVisitIds.bulk-user', JSON.stringify([visit.id])]
+    ]);
+    const harness = loadHarness(server, storage, { loadCheckin: true });
+    harness.context.BARK.services.checkin.hydrateRememberedUnconfirmedVisits();
+
+    const placeholder = harness.repo.getVisit(visit.id);
+    assert.equal(placeholder.legacyOfflineBaseline, true);
+    await assert.rejects(
+        harness.service.updateVisitDate(visit.id, 99999),
+        /finish syncing before editing/
+    );
+
+    assert.equal(server.state.commits, 0);
+    assert.deepEqual(server.state.visits, [visit]);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), null);
+});
+
+test('an orange addition cannot create an undurable date edit', async () => {
+    const visit = { ...makeVisits(1)[0], syncToken: 'orange-date-token' };
+    const server = makeServer([]);
+    const storage = new Map([
+        ['bark.unconfirmedVisits.bulk-user', JSON.stringify({
+            [visit.id]: { visit, stashedAt: Date.now(), offlinePremiumProvisional: false }
+        })]
+    ]);
+    const harness = loadHarness(server, storage, { loadCheckin: true });
+    harness.repo.addVisit(visit);
+    harness.repo.stageUpsert(visit);
+
+    await assert.rejects(
+        harness.service.updateVisitDate(visit.id, 99999),
+        /finish syncing before editing/
+    );
+
+    assert.equal(server.state.commits, 0);
+    assert.deepEqual(JSON.parse(storage.get('bark.unconfirmedVisits.bulk-user'))[visit.id].visit, visit);
+    assert.deepEqual(JSON.parse(JSON.stringify(harness.repo.getVisit(visit.id))), visit);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), 'upsert');
 });
 
 test('50 rapid removals commit in rule-safe pairs without resurrecting visits', async () => {
@@ -334,6 +520,39 @@ test('offline reconnect permission race refreshes session proof and keeps remova
     assert.deepEqual(harness.alerts, []);
 });
 
+test('a Premium addition retries after stale session proof and stays orange until commit', async () => {
+    const server = makeServer([]);
+    server.failNext(Object.assign(
+        new Error('Session proof has not refreshed yet'),
+        { code: 'permission-denied' }
+    ));
+    const harness = loadHarness(server, new Map(), { loadCheckin: true, premium: true });
+    const park = {
+        id: 'premium-proof-retry-park',
+        name: 'Premium Proof Retry Park',
+        lat: 35,
+        lng: -84
+    };
+
+    const result = await harness.context.BARK.services.checkin.markAsVisited(park);
+    assert.equal(result.success, true);
+    assert.equal(result.syncStatus, 'pending');
+    assert.equal(harness.repo.hasPendingMutation(park.id), true);
+    assert.notEqual(harness.storage.get('bark.unconfirmedVisits.bulk-user'), undefined);
+
+    const deadline = Date.now() + 2500;
+    while (server.state.commits === 0 && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 25));
+    }
+
+    assert.equal(server.state.commits, 1);
+    assert.equal(server.state.visits.some(visit => visit.id === park.id), true);
+    assert.equal(harness.repo.hasPendingMutation(park.id), false);
+    assert.equal(harness.storage.has('bark.unconfirmedVisits.bulk-user'), false);
+    assert.equal(harness.sessionRefreshes.auth >= 1, true);
+    assert.equal(harness.sessionRefreshes.appCheck >= 1, true);
+});
+
 test('removals arriving during a write stay deleted and flush in one follow-up transaction', async () => {
     const visits = makeVisits(50);
     const server = makeServer(visits);
@@ -382,6 +601,34 @@ test('an offline deletion survives app close and is removed from the server on r
     offlineServer.setAvailable(true);
     firstSession.context.dispatch('online');
     await removal.syncPromise;
+});
+
+test('a confirmed deletion persists an explicit empty baseline and stale cache cannot resurrect it', async () => {
+    const visit = makeVisits(1)[0];
+    const storage = new Map();
+    const server = makeServer([visit]);
+    const first = loadHarness(server, storage, { loadCheckin: true });
+    seedRepo(first.repo, [visit]);
+
+    const removal = first.service.removeVisitedEntries([{ id: visit.id, record: visit }]);
+    await removal.syncPromise;
+    assert.equal(server.state.visits.length, 0);
+    assert.equal(storage.has('bark.pendingVisitDeletes.bulk-user'), false);
+    const storedBaseline = JSON.parse(storage.get('bark.authoritativeVisits.bulk-user'));
+    assert.deepEqual(storedBaseline.visits, [], 'server-confirmed empty must be a real checkpoint');
+
+    const reopened = loadHarness(server, storage, { loadCheckin: true });
+    const restored = reopened.context.BARK.services.checkin.hydrateRememberedUnconfirmedVisits();
+    reopened.service.hydrateRememberedPendingVisitDeletions('bulk-user');
+    assert.equal(restored, 0, 'an explicit empty baseline contains zero visits but is still hydrated');
+    assert.equal(reopened.repo.hasVisit(visit.id), false);
+
+    reopened.repo.reconcileSnapshot([visit], { fromCache: true, hasPendingWrites: false });
+    assert.equal(
+        reopened.repo.hasVisit(visit.id),
+        false,
+        'cached pre-delete data must not resurrect a green park after reload'
+    );
 });
 
 test('offline deletion survives restart and a first permission-denied reconnect response', async () => {
@@ -486,6 +733,282 @@ test('iOS code-0 IndexedDB resume failure stays queued and retries without resto
     assert.equal(harness.repo.size(), 0);
     assert.equal(harness.storage.has('bark.pendingVisitDeletes.bulk-user'), false);
     assert.deepEqual(harness.alerts, []);
+});
+
+test('account A free-cap rejection cannot erase account B pending visit with the same park ID', async () => {
+    const originalVisits = makeVisits(5);
+    const server = makeServer(originalVisits);
+    const harness = loadHarness(server, new Map(), { loadCheckin: true, premium: false });
+    let currentUid = 'account-a';
+    harness.context.firebase.auth = () => ({
+        currentUser: currentUid ? { uid: currentUid } : null
+    });
+
+    const accountAVisit = {
+        id: 'shared-free-cap-park',
+        name: 'Account A Visit',
+        verified: false,
+        ts: 100,
+        syncToken: 'account-a-token'
+    };
+    const accountBVisit = {
+        ...accountAVisit,
+        name: 'Account B Visit',
+        ts: 200,
+        syncToken: 'account-b-token'
+    };
+
+    stageOrangeVisit(harness, currentUid, accountAVisit);
+    const commitHeld = server.holdOneCommit();
+    const accountAWrite = harness.service.updateCurrentUserVisitedPlaces([]);
+    await commitHeld;
+
+    currentUid = 'account-b';
+    harness.repo.clear();
+    stageOrangeVisit(harness, currentUid, accountBVisit);
+
+    server.releaseCommit();
+    await accountAWrite;
+
+    const currentVisit = harness.repo.getVisit(accountBVisit.id);
+    const pending = harness.repo.snapshot().pending.get(accountBVisit.id);
+    assert.equal(currentVisit && currentVisit.syncToken, accountBVisit.syncToken);
+    assert.equal(pending && pending.type, 'upsert');
+    assert.equal(pending && pending.place && pending.place.syncToken, accountBVisit.syncToken);
+    assert.equal(
+        getStashedVisit(harness, 'account-b', accountBVisit.id).syncToken,
+        accountBVisit.syncToken
+    );
+    assert.equal(harness.storage.has('bark.unconfirmedVisits.account-a'), false);
+    assert.equal(server.state.visits.some(visit => visit.id === accountBVisit.id), false);
+});
+
+test('same-UID free-cap rejection cannot erase a newer token for the same park', async () => {
+    const originalVisits = makeVisits(5);
+    const server = makeServer(originalVisits);
+    const harness = loadHarness(server, new Map(), { loadCheckin: true, premium: false });
+    const uid = 'bulk-user';
+    const firstVisit = {
+        id: 'superseded-free-cap-park',
+        name: 'First Pending Visit',
+        verified: false,
+        ts: 100,
+        syncToken: 'token-1'
+    };
+    const newerVisit = {
+        ...firstVisit,
+        name: 'Newer Pending Visit',
+        ts: 200,
+        syncToken: 'token-2'
+    };
+
+    stageOrangeVisit(harness, uid, firstVisit);
+    const commitHeld = server.holdOneCommit();
+    const firstWrite = harness.service.updateCurrentUserVisitedPlaces([]);
+    await commitHeld;
+
+    stageOrangeVisit(harness, uid, newerVisit);
+    server.releaseCommit();
+    await firstWrite;
+
+    const currentVisit = harness.repo.getVisit(newerVisit.id);
+    const pending = harness.repo.snapshot().pending.get(newerVisit.id);
+    assert.equal(currentVisit && currentVisit.syncToken, newerVisit.syncToken);
+    assert.equal(currentVisit && currentVisit.name, newerVisit.name);
+    assert.equal(pending && pending.type, 'upsert');
+    assert.equal(pending && pending.place && pending.place.syncToken, newerVisit.syncToken);
+    assert.equal(getStashedVisit(harness, uid, newerVisit.id).syncToken, newerVisit.syncToken);
+    assert.equal(server.state.visits.some(visit => visit.id === newerVisit.id), false);
+});
+
+test('a delayed delete result cannot overtake a newer authoritative re-add or acknowledge its journal', async () => {
+    const uid = 'bulk-user';
+    const visit = {
+        id: 'newer-server-readd',
+        name: 'Newer Server Re-add',
+        verified: true,
+        ts: 100
+    };
+    const server = makeServer([visit]);
+    const harness = loadHarness(server, new Map(), { loadCheckin: true });
+    seedRepo(harness.repo, [visit]);
+
+    const responseHeld = server.holdOneResponse();
+    const removal = harness.service.removeVisitedEntries([{ id: visit.id, record: visit }]);
+    await responseHeld;
+    assert.deepEqual(server.state.visits, [], 'the delete committed before its response was paused');
+
+    // Another authoritative write re-adds the visit while the older delete
+    // promise is still unresolved. The durable delete remains the user's newer
+    // local intent and must retry against that server re-add.
+    server.state.visits = [{ ...visit }];
+    applyAuthoritativeVisitSnapshot(harness, uid, [visit]);
+    assert.equal(harness.repo.hasVisit(visit.id), false);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), 'delete');
+    assert.notEqual(harness.storage.get(`bark.pendingVisitDeletes.${uid}`), undefined);
+
+    server.releaseResponse();
+    const staleResult = await removal.syncPromise;
+
+    assert.equal(staleResult.__barkStaleVisitCommitResult, true);
+    assert.deepEqual(getAuthoritativeVisits(harness, uid), [visit]);
+    assert.equal(harness.repo.hasVisit(visit.id), false);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), 'delete');
+    const deleteJournal = JSON.parse(harness.storage.get(`bark.pendingVisitDeletes.${uid}`));
+    assert.equal(deleteJournal[visit.id].id, visit.id);
+});
+
+test('a delayed add result cannot overtake a newer authoritative delete or clear replay safety', async () => {
+    const uid = 'bulk-user';
+    const visit = {
+        id: 'newer-server-delete',
+        name: 'Newer Server Delete',
+        verified: false,
+        ts: 200,
+        syncToken: 'newer-server-delete-token'
+    };
+    const server = makeServer([]);
+    const harness = loadHarness(server, new Map(), { loadCheckin: true });
+    const checkin = harness.context.BARK.services.checkin;
+    stageOrangeVisit(harness, uid, visit);
+
+    const responseHeld = server.holdOneResponse();
+    const replay = checkin.replayUnconfirmedVisits(uid);
+    await responseHeld;
+    assert.equal(server.state.visits[0].syncToken, visit.syncToken);
+
+    // A later authoritative deletion arrives before the old add transaction's
+    // response. The pending upsert overlay must remain orange and durable; in
+    // particular replay's direct confirm path must reject the tagged old array.
+    server.state.visits = [];
+    applyAuthoritativeVisitSnapshot(harness, uid, []);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), 'upsert');
+    assert.equal(getStashedVisit(harness, uid, visit.id).syncToken, visit.syncToken);
+
+    server.releaseResponse();
+    await replay;
+
+    assert.deepEqual(getAuthoritativeVisits(harness, uid), []);
+    assert.equal(harness.repo.getVisit(visit.id).syncToken, visit.syncToken);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), 'upsert');
+    assert.equal(getStashedVisit(harness, uid, visit.id).syncToken, visit.syncToken);
+});
+
+test('a failed first checkpoint cannot let a delayed transaction overtake newer authoritative state', async () => {
+    const uid = 'bulk-user';
+    const visit = {
+        id: 'failed-checkpoint-delayed-add',
+        name: 'Failed Checkpoint Delayed Add',
+        verified: false,
+        ts: 210,
+        syncToken: 'failed-checkpoint-delayed-token'
+    };
+    const server = makeServer([]);
+    const harness = loadHarness(server, new Map(), { loadCheckin: true });
+    const checkin = harness.context.BARK.services.checkin;
+    stageOrangeVisit(harness, uid, visit);
+
+    // Fail only the transaction response's first full-baseline checkpoint.
+    // A later listener checkpoint must be allowed to persist successfully.
+    const originalSetItem = harness.context.localStorage.setItem;
+    let remainingCheckpointFailures = 1;
+    harness.context.localStorage.setItem = (key, value) => {
+        if (key === `bark.authoritativeVisits.${uid}` && remainingCheckpointFailures > 0) {
+            remainingCheckpointFailures--;
+            throw new Error('simulated one-shot authoritative checkpoint failure');
+        }
+        return originalSetItem(key, value);
+    };
+
+    // Hold the transaction's repository reconciliation after it has applied
+    // locally. This creates the exact yield where a newer listener observation
+    // can advance the account's authoritative generation and durable baseline.
+    const originalReconcileSnapshot = harness.repo.reconcileSnapshot;
+    let releaseTransactionReconcile;
+    let markTransactionReconcileStarted;
+    const transactionReconcileStarted = new Promise(resolve => {
+        markTransactionReconcileStarted = resolve;
+    });
+    const transactionReconcileRelease = new Promise(resolve => {
+        releaseTransactionReconcile = resolve;
+    });
+    let holdFirstReconciliation = true;
+    harness.repo.reconcileSnapshot = (...args) => {
+        const result = originalReconcileSnapshot(...args);
+        if (!holdFirstReconciliation) return result;
+        holdFirstReconciliation = false;
+        markTransactionReconcileStarted();
+        return transactionReconcileRelease.then(() => result);
+    };
+
+    const replay = checkin.replayUnconfirmedVisits(uid);
+    await transactionReconcileStarted;
+    assert.equal(server.state.visits[0].syncToken, visit.syncToken);
+    assert.equal(remainingCheckpointFailures, 0);
+
+    // The transaction committed first, then a newer authoritative server state
+    // removed it. The older response must not repaint that visit green or
+    // replace this newer empty checkpoint when its delayed continuation runs.
+    server.state.visits = [];
+    applyAuthoritativeVisitSnapshot(harness, uid, []);
+    releaseTransactionReconcile();
+    await replay;
+
+    assert.deepEqual(getAuthoritativeVisits(harness, uid), []);
+    assert.equal(harness.repo.getVisit(visit.id).syncToken, visit.syncToken);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), 'upsert');
+    assert.equal(getStashedVisit(harness, uid, visit.id).syncToken, visit.syncToken);
+});
+
+test('newer authority during the final postcommit UI await blocks stale direct confirmation', async () => {
+    const uid = 'bulk-user';
+    const visit = {
+        id: 'final-ui-await-delayed-add',
+        name: 'Final UI Await Delayed Add',
+        verified: false,
+        ts: 220,
+        syncToken: 'final-ui-await-delayed-token'
+    };
+    const server = makeServer([]);
+    const harness = loadHarness(server, new Map(), { loadCheckin: true });
+    const checkin = harness.context.BARK.services.checkin;
+    stageOrangeVisit(harness, uid, visit);
+
+    let releaseFinalUiStep;
+    let markFinalUiStepStarted;
+    const finalUiStepStarted = new Promise(resolve => {
+        markFinalUiStepStarted = resolve;
+    });
+    const finalUiStepRelease = new Promise(resolve => {
+        releaseFinalUiStep = resolve;
+    });
+    harness.context.syncState = () => {
+        markFinalUiStepStarted();
+        return finalUiStepRelease;
+    };
+
+    const replay = checkin.replayUnconfirmedVisits(uid);
+    await finalUiStepStarted;
+
+    assert.equal(server.state.visits[0].syncToken, visit.syncToken);
+    assert.deepEqual(getAuthoritativeVisits(harness, uid), [visit]);
+    assert.equal(harness.repo.getPendingMutationType(visit.id), null);
+    assert.equal(getStashedVisit(harness, uid, visit.id), null);
+
+    // A newer authoritative deletion arrives while the older transaction is
+    // still awaiting its last postcommit callback. When that callback resumes,
+    // the returned array must be tagged stale before replay's direct confirmer
+    // can repaint or persist the older add.
+    server.state.visits = [];
+    applyAuthoritativeVisitSnapshot(harness, uid, []);
+    releaseFinalUiStep();
+    await replay;
+
+    assert.deepEqual(getAuthoritativeVisits(harness, uid), []);
+    assert.equal(harness.repo.hasVisit(visit.id), false);
+    assert.equal(harness.repo.hasPendingMutation(visit.id), false);
+    assert.equal(getStashedVisit(harness, uid, visit.id), null);
+    assert.deepEqual(server.state.visits, []);
 });
 
 test('free offline additions recover through the fifth park and reject only the sixth', async () => {

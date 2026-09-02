@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const APP_PATH = path.join(__dirname, '..', '01-code', 'app', 'core', 'app.js');
+const APP_PATH = path.join(__dirname, '..', '01-code', 'app', 'core', 'app.v141.js');
 const APP_SOURCE = fs.readFileSync(APP_PATH, 'utf8');
 
 function createHarness(initFirebase, calls = [], checkinService = null, firebaseService = null) {
@@ -81,6 +81,29 @@ test('normal Firebase startup hydrates public park data before cloud auth', asyn
 
     await harness.start();
     assert.deepEqual(calls, ['loadData', 'firebase']);
+});
+
+test('Firebase setup can return while Auth is unresolved and still hydrates the durable visit projection', async () => {
+    const calls = [];
+    const harness = createHarness(
+        async () => { calls.push('firebase-setup-returned'); },
+        calls,
+        {
+            getRememberedAuthenticatedVisitUid() { return 'weak-cell-user'; },
+            hydrateRememberedUnconfirmedVisits() { calls.push('hydrateBaselineAndAdds'); }
+        },
+        {
+            hydrateRememberedPendingVisitDeletions(uid) { calls.push(`hydrateDeletes:${uid}`); }
+        }
+    );
+
+    await harness.start();
+    assert.deepEqual(calls, [
+        'loadData',
+        'firebase-setup-returned',
+        'hydrateBaselineAndAdds',
+        'hydrateDeletes:weak-cell-user'
+    ]);
 });
 
 test('Firebase recovery after the timeout does not reload or replace cached park data', async () => {

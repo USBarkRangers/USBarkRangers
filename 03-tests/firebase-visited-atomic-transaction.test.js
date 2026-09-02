@@ -63,7 +63,7 @@ function createSharedTransactionalFirestore(initialVisits = []) {
     };
 }
 
-function loadDevice(sharedDb, localVisit) {
+function loadDevice(sharedDb, localVisit, localBaseline = []) {
     const storage = new Map();
     const context = {
         console, Date, Map, Set, Promise, Math, Number, String, Boolean,
@@ -86,9 +86,9 @@ function loadDevice(sharedDb, localVisit) {
     vm.createContext(context);
     [
         '01-code/app/repos/ParkRepo.js',
-        '01-code/app/repos/VaultRepo.js',
-        '01-code/app/services/visitMutationCoordinator.js',
-        '01-code/app/services/firebaseService.js'
+        '01-code/app/repos/VaultRepo.v141.js',
+        '01-code/app/services/visitMutationCoordinator.v141.js',
+        '01-code/app/services/firebaseService.v141.js'
     ].forEach(relativePath => {
         vm.runInContext(fs.readFileSync(path.join(ROOT, relativePath), 'utf8'), context, { filename: relativePath });
     });
@@ -96,9 +96,36 @@ function loadDevice(sharedDb, localVisit) {
     context.BARK.incrementRequestCount = () => {};
     context.BARK.invalidateVisitedIdsCache = () => {};
     const repo = context.BARK.repos.VaultRepo;
+    localBaseline.forEach(visit => repo.addVisit(visit));
     repo.addVisit(localVisit);
     repo.stageUpsert(localVisit);
     return context.BARK.services.firebase;
+}
+
+function createSingleTransactionalFirestore(initialVisits = []) {
+    let serverVisits = initialVisits.map(visit => ({ ...visit }));
+    const userRef = { path: 'users/shared-user' };
+    return {
+        db: {
+            collection() { return { doc: () => userRef }; },
+            async runTransaction(callback) {
+                let stagedVisits = null;
+                await callback({
+                    async get() {
+                        return {
+                            exists: true,
+                            data: () => ({ visitedPlaces: serverVisits.map(visit => ({ ...visit })) })
+                        };
+                    },
+                    set(_ref, payload) {
+                        stagedVisits = payload.visitedPlaces.map(visit => ({ ...visit }));
+                    }
+                });
+                serverVisits = stagedVisits;
+            }
+        },
+        getVisits: () => serverVisits.map(visit => ({ ...visit }))
+    };
 }
 
 test('simultaneous visit writes from two devices preserve both visits through transaction retry', async () => {
@@ -119,4 +146,36 @@ test('simultaneous visit writes from two devices preserve both visits through tr
         shared.getVisits().map(visit => visit.id).sort(),
         ['baseline', 'device-a', 'device-b']
     );
+});
+
+test('an unrelated local add cannot overwrite a newer same-ID server record from a stale baseline', async () => {
+    const newerServerRecord = {
+        id: 'shared-park',
+        name: 'Current Server Record',
+        verified: true,
+        ts: 200,
+        syncToken: 'newer-server-token'
+    };
+    const staleLocalRecord = {
+        id: 'shared-park',
+        name: 'Old Offline Record',
+        verified: false,
+        ts: 100,
+        syncToken: 'old-local-token'
+    };
+    const newLocalIntent = {
+        id: 'new-local-park',
+        name: 'New Local Park',
+        verified: false,
+        ts: 300,
+        syncToken: 'new-local-token'
+    };
+    const shared = createSingleTransactionalFirestore([newerServerRecord]);
+    const device = loadDevice(shared.db, newLocalIntent, [staleLocalRecord]);
+
+    await device.updateCurrentUserVisitedPlaces([staleLocalRecord, newLocalIntent]);
+
+    const saved = new Map(shared.getVisits().map(visit => [visit.id, visit]));
+    assert.deepEqual(saved.get(newerServerRecord.id), newerServerRecord);
+    assert.deepEqual(saved.get(newLocalIntent.id), newLocalIntent);
 });

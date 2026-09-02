@@ -28,9 +28,9 @@ function loadHarness() {
     context.syncState = () => {};
     vm.createContext(context);
     [
-        '01-code/app/repos/VaultRepo.js',
-        '01-code/app/services/visitMutationCoordinator.js',
-        '01-code/app/services/firebaseService.js'
+        '01-code/app/repos/VaultRepo.v141.js',
+        '01-code/app/services/visitMutationCoordinator.v141.js',
+        '01-code/app/services/firebaseService.v141.js'
     ].forEach(relativePath => {
         vm.runInContext(
             fs.readFileSync(path.join(ROOT, relativePath), 'utf8'),

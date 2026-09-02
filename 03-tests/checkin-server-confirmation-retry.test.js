@@ -6,8 +6,8 @@ const vm = require('node:vm');
 
 const ROOT = path.resolve(__dirname, '..');
 
-function loadCheckinService() {
-    const storage = new Map();
+function loadCheckinService(storage = new Map()) {
+    const eventHandlers = new Map();
     const context = {
         console,
         Date,
@@ -42,14 +42,18 @@ function loadCheckinService() {
             storage.delete(key);
         }
     };
-    context.addEventListener = () => {};
+    context.addEventListener = (name, handler) => {
+        const handlers = eventHandlers.get(name) || [];
+        handlers.push(handler);
+        eventHandlers.set(name, handlers);
+    };
     context.alert = () => {};
     context.confirm = () => true;
 
     vm.createContext(context);
     [
-        '01-code/app/repos/VaultRepo.js',
-        '01-code/app/services/checkinService.js'
+        '01-code/app/repos/VaultRepo.v141.js',
+        '01-code/app/services/checkinService.v141.js'
     ].forEach((relativePath) => {
         vm.runInContext(
             fs.readFileSync(path.join(ROOT, relativePath), 'utf8'),
@@ -63,6 +67,9 @@ function loadCheckinService() {
         refreshVisitedCache() {},
         refreshVisitedVisuals() {}
     };
+    context.dispatch = name => {
+        (eventHandlers.get(name) || []).forEach(handler => handler());
+    };
     return context;
 }
 
@@ -73,6 +80,9 @@ test('server confirmation retries until a fresh server doc contains the visit', 
 
     context.window.BARK.repos.VaultRepo.addVisit(visit);
     context.window.BARK.repos.VaultRepo.stageUpsert(visit);
+    context.localStorage.setItem('bark.unconfirmedVisits.user-1', JSON.stringify({
+        [visit.id]: { visit, stashedAt: Date.now(), offlinePremiumProvisional: false }
+    }));
     context.window._visitedPlacesServerSnapshotReceived = true;
     context.firebase = {
         auth() {
@@ -160,6 +170,53 @@ test('fake-service boot restores remembered pending visits as orange without ser
     assert.deepEqual(JSON.parse(JSON.stringify(repo.getVisit(visit.id))), visit);
     assert.equal(repo.hasPendingMutation(visit.id), true);
     assert.equal(context.window.BARK.services.checkin.isVisitAwaitingServerProof(visit.id), true);
+});
+
+test('an upgraded weak-cell boot keeps legacy server-confirmed park IDs visible', () => {
+    const context = loadCheckinService();
+    const uid = 'legacy-id-upgrade-user';
+    context.localStorage.setItem('bark.lastAuthenticatedVisitUid', uid);
+    context.localStorage.setItem(
+        `bark.authoritativeVisitIds.${uid}`,
+        JSON.stringify(['legacy-confirmed-one', 'legacy-confirmed-two'])
+    );
+
+    const restored = context.window.BARK.services.checkin.hydrateRememberedUnconfirmedVisits();
+    const repo = context.window.BARK.repos.VaultRepo;
+
+    assert.equal(restored, 2);
+    assert.equal(repo.hasVisit('legacy-confirmed-one'), true);
+    assert.equal(repo.hasVisit('legacy-confirmed-two'), true);
+    assert.equal(repo.hasPendingMutation('legacy-confirmed-one'), false);
+    assert.equal(
+        context.localStorage.getItem(`bark.authoritativeVisits.${uid}`),
+        null,
+        'display-only migration must not fabricate a full authoritative checkpoint'
+    );
+
+    repo.reconcileSnapshot([], { fromCache: true, hasPendingWrites: false });
+    assert.equal(repo.hasVisit('legacy-confirmed-one'), true);
+    assert.equal(repo.hasVisit('legacy-confirmed-two'), true);
+});
+
+test('an explicit legacy empty checkpoint blocks stale cache resurrection', () => {
+    const context = loadCheckinService();
+    const uid = 'legacy-empty-upgrade-user';
+    context.localStorage.setItem('bark.lastAuthenticatedVisitUid', uid);
+    context.localStorage.setItem(`bark.authoritativeVisitIds.${uid}`, '[]');
+
+    const restored = context.window.BARK.services.checkin.hydrateRememberedUnconfirmedVisits();
+    const repo = context.window.BARK.repos.VaultRepo;
+
+    assert.equal(restored, 0);
+    repo.reconcileSnapshot([
+        { id: 'stale-deleted-park', name: 'Stale Deleted Park', ts: 1 }
+    ], { fromCache: true, hasPendingWrites: false });
+    assert.equal(
+        repo.hasVisit('stale-deleted-park'),
+        false,
+        'the last server-confirmed empty list must remain the display floor while offline'
+    );
 });
 
 test('pre-auth orange hydration survives only for the matching restored account', () => {
@@ -289,10 +346,13 @@ test('other visit syncs cannot smuggle a provisional offline Premium visit to Fi
     assert.deepEqual(JSON.parse(JSON.stringify(filtered)), [safeVisit]);
 });
 
-function preparePendingVisit(context, visit) {
+function preparePendingVisit(context, visit, uid = 'user-1') {
     const repo = context.window.BARK.repos.VaultRepo;
     repo.addVisit(visit);
     repo.stageUpsert(visit);
+    context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
+        [visit.id]: { visit, stashedAt: Date.now(), offlinePremiumProvisional: false }
+    }));
     context.window.BARK.services.firebase = {
         reconcileVisitedPlacesSnapshot(placeList, metadata) {
             return repo.reconcileSnapshot(placeList, metadata);
@@ -362,7 +422,7 @@ test('free orange visit replays when Firestore returns after fake service withou
         ts: 250,
         syncToken: 'free-recovery-token'
     };
-    const repo = preparePendingVisit(context, expected);
+    const repo = preparePendingVisit(context, expected, uid);
     let serverVisits = [];
     let recoveryWrites = 0;
 
@@ -421,7 +481,7 @@ test('free orange visit replays when Firestore returns after fake service withou
     assert.equal(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
 });
 
-test('free recovery trigger does not alter the Premium offline path', async () => {
+test('ordinary Premium orange visits use the same weak-cell recovery path', async () => {
     const context = loadCheckinService();
     const uid = 'premium-control-user';
     const expected = {
@@ -430,7 +490,7 @@ test('free recovery trigger does not alter the Premium offline path', async () =
         ts: 275,
         syncToken: 'premium-control-token'
     };
-    const repo = preparePendingVisit(context, expected);
+    const repo = preparePendingVisit(context, expected, uid);
     let recoveryWrites = 0;
 
     context.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
@@ -446,7 +506,7 @@ test('free recovery trigger does not alter the Premium offline path', async () =
         },
         async updateCurrentUserVisitedPlaces() {
             recoveryWrites++;
-            return [];
+            return [expected];
         }
     };
     context.firebase = {
@@ -474,9 +534,340 @@ test('free recovery trigger does not alter the Premium offline path', async () =
         timeoutMs: 60
     });
 
+    assert.equal(result.confirmed, true);
+    assert.equal(recoveryWrites, 1, 'ordinary Premium must recover without requiring an online event');
+    assert.equal(repo.hasPendingMutation(expected.id), false);
+});
+
+test('a persisted server baseline survives weak-cell reload and stale cached snapshots', () => {
+    const storage = new Map();
+    const uid = 'baseline-reload-user';
+    const confirmed = { id: 'confirmed-before-reload', name: 'Confirmed', ts: 100 };
+    const pending = {
+        id: 'orange-before-reload',
+        name: 'Orange',
+        ts: 101,
+        syncToken: 'orange-before-reload-token'
+    };
+
+    const first = loadCheckinService(storage);
+    assert.equal(first.window.BARK.services.checkin.rememberAuthoritativeVisitIds(uid, [confirmed]), true);
+    first.localStorage.setItem('bark.lastAuthenticatedVisitUid', uid);
+    first.localStorage.setItem(`bark.unconfirmedVisits.${uid}`, JSON.stringify({
+        [pending.id]: { visit: pending, stashedAt: 101, offlinePremiumProvisional: false }
+    }));
+
+    const reopened = loadCheckinService(storage);
+    const checkin = reopened.window.BARK.services.checkin;
+    const repo = reopened.window.BARK.repos.VaultRepo;
+    assert.equal(checkin.hydrateRememberedUnconfirmedVisits(), 2);
+    assert.deepEqual(JSON.parse(JSON.stringify(repo.getVisit(confirmed.id))), confirmed);
+    assert.equal(repo.hasPendingMutation(confirmed.id), false);
+    assert.deepEqual(JSON.parse(JSON.stringify(repo.getVisit(pending.id))), pending);
+    assert.equal(repo.hasPendingMutation(pending.id), true);
+
+    repo.reconcileSnapshot([], { fromCache: true, hasPendingWrites: false });
+    assert.equal(repo.hasVisit(confirmed.id), true, 'stale cache must not erase confirmed history');
+    assert.equal(repo.hasVisit(pending.id), true, 'stale cache must not erase the orange overlay');
+    assert.equal(repo.hasPendingMutation(pending.id), true);
+});
+
+test('a fresh exact proof replaces the complete stale baseline before turning green', async () => {
+    const context = loadCheckinService();
+    const uid = 'full-proof-replacement-user';
+    const kept = { id: 'full-proof-kept', name: 'Kept', ts: 100 };
+    const removed = { id: 'full-proof-removed', name: 'Removed', ts: 101 };
+    const addedElsewhere = { id: 'full-proof-added', name: 'Added Elsewhere', ts: 102 };
+    const expected = {
+        id: 'full-proof-target',
+        name: 'Target',
+        ts: 103,
+        syncToken: 'full-proof-target-token'
+    };
+    const checkin = context.window.BARK.services.checkin;
+    const repo = context.window.BARK.repos.VaultRepo;
+    assert.equal(checkin.rememberAuthoritativeVisitIds(uid, [kept, removed]), true);
+    repo.reconcileSnapshot([kept, removed], { persistedBaseline: true });
+    preparePendingVisit(context, expected, uid);
+    context.firebase = {
+        auth() { return { currentUser: { uid } }; },
+        firestore() {
+            return {
+                collection() {
+                    return { doc() { return { async get() {
+                        return makeSnapshot([kept, addedElsewhere, expected]);
+                    } }; } };
+                }
+            };
+        }
+    };
+
+    const result = await checkin.awaitServerConfirmation(expected, { retryMs: 10, timeoutMs: 250 });
+    assert.equal(result.confirmed, true);
+    assert.deepEqual(
+        repo.getVisits().map(visit => visit.id).sort(),
+        [kept.id, addedElsewhere.id, expected.id].sort()
+    );
+    const baseline = JSON.parse(context.localStorage.getItem(`bark.authoritativeVisits.${uid}`));
+    assert.deepEqual(
+        baseline.visits.map(visit => visit.id).sort(),
+        [kept.id, addedElsewhere.id, expected.id].sort()
+    );
+});
+
+test('an authoritative miss still refreshes the full baseline while the target stays orange', async () => {
+    const context = loadCheckinService();
+    const uid = 'full-miss-replacement-user';
+    const kept = { id: 'full-miss-kept', name: 'Kept', ts: 104 };
+    const removed = { id: 'full-miss-removed', name: 'Removed', ts: 105 };
+    const addedElsewhere = { id: 'full-miss-added', name: 'Added Elsewhere', ts: 106 };
+    const expected = {
+        id: 'full-miss-target',
+        name: 'Target',
+        ts: 107,
+        syncToken: 'full-miss-target-token'
+    };
+    const checkin = context.window.BARK.services.checkin;
+    const repo = context.window.BARK.repos.VaultRepo;
+    assert.equal(checkin.rememberAuthoritativeVisitIds(uid, [kept, removed]), true);
+    repo.reconcileSnapshot([kept, removed], { persistedBaseline: true });
+    preparePendingVisit(context, expected, uid);
+    context.firebase = {
+        auth() { return { currentUser: { uid } }; },
+        firestore() {
+            return {
+                collection() {
+                    return { doc() { return { async get() {
+                        return makeSnapshot([kept, addedElsewhere]);
+                    } }; } };
+                }
+            };
+        }
+    };
+
+    const result = await checkin.awaitServerConfirmation(expected, { retryMs: 10, timeoutMs: 60 });
     assert.equal(result.confirmed, false);
-    assert.equal(recoveryWrites, 0, 'Premium remains owned by its existing recovery flow');
     assert.equal(repo.hasPendingMutation(expected.id), true);
+    assert.deepEqual(
+        repo.getVisits().map(visit => visit.id).sort(),
+        [kept.id, addedElsewhere.id, expected.id].sort()
+    );
+    const baseline = JSON.parse(context.localStorage.getItem(`bark.authoritativeVisits.${uid}`));
+    assert.deepEqual(
+        baseline.visits.map(visit => visit.id).sort(),
+        [kept.id, addedElsewhere.id].sort()
+    );
+});
+
+test('a delayed visit proof cannot overtake newer authoritative state', async () => {
+    const context = loadCheckinService();
+    const uid = 'delayed-proof-user';
+    const expected = {
+        id: 'delayed-proof-target',
+        name: 'Delayed Target',
+        ts: 110,
+        syncToken: 'delayed-proof-token'
+    };
+    const newer = { id: 'newer-unrelated-visit', name: 'Newer Visit', ts: 111 };
+    const repo = preparePendingVisit(context, expected, uid);
+    let releaseRead;
+    let markReadStarted;
+    const readStarted = new Promise(resolve => { markReadStarted = resolve; });
+    context.firebase = {
+        auth() { return { currentUser: { uid } }; },
+        firestore() {
+            return {
+                collection() {
+                    return {
+                        doc() {
+                            return {
+                                get() {
+                                    markReadStarted();
+                                    return new Promise(resolve => { releaseRead = resolve; });
+                                }
+                            };
+                        }
+                    };
+                }
+            };
+        }
+    };
+
+    const confirmation = context.window.BARK.services.checkin.awaitServerConfirmation(expected, {
+        retryMs: 10,
+        timeoutMs: 500,
+        serverReadTimeoutMs: 200
+    });
+    await readStarted;
+
+    repo.addVisit(newer);
+    assert.equal(
+        context.window.BARK.services.checkin.rememberAuthoritativeVisitIds(uid, [newer]),
+        true
+    );
+    releaseRead(makeSnapshot([expected]));
+
+    assert.equal((await confirmation).confirmed, false);
+    assert.equal(repo.hasPendingMutation(expected.id), true, 'stale proof must leave the target orange');
+    assert.equal(repo.hasVisit(newer.id), true, 'old target proof must not replace the whole Vault');
+    const baseline = JSON.parse(context.localStorage.getItem(`bark.authoritativeVisits.${uid}`));
+    assert.deepEqual(
+        baseline.visits.map(visit => visit.id).sort(),
+        [newer.id],
+        'target proof must not change a newer durable baseline'
+    );
+});
+
+test('a delayed add proof cannot resurrect a newer confirmed deletion on reload', async () => {
+    const storage = new Map();
+    const context = loadCheckinService(storage);
+    const uid = 'delayed-proof-delete-user';
+    const expected = {
+        id: 'delayed-proof-deleted-target',
+        name: 'Deleted Target',
+        ts: 111,
+        syncToken: 'delayed-proof-deleted-token'
+    };
+    const repo = preparePendingVisit(context, expected, uid);
+    let releaseRead;
+    let markReadStarted;
+    const readStarted = new Promise(resolve => { markReadStarted = resolve; });
+    context.firebase = {
+        auth() { return { currentUser: { uid } }; },
+        firestore() {
+            return {
+                collection() {
+                    return {
+                        doc() {
+                            return {
+                                get() {
+                                    markReadStarted();
+                                    return new Promise(resolve => { releaseRead = resolve; });
+                                }
+                            };
+                        }
+                    };
+                }
+            };
+        }
+    };
+
+    const confirmation = context.window.BARK.services.checkin.awaitServerConfirmation(expected, {
+        retryMs: 10,
+        timeoutMs: 80,
+        serverReadTimeoutMs: 200
+    });
+    await readStarted;
+
+    context.window.BARK.services.checkin.discardPendingVisitAdditions(uid, [expected]);
+    repo.removeVisit(expected.id);
+    repo.stageDelete(expected.id);
+    assert.equal(
+        context.window.BARK.services.checkin.rememberAuthoritativeVisitIds(uid, []),
+        true
+    );
+    repo.reconcileSnapshot([], {
+        fromCache: false,
+        hasPendingWrites: false,
+        canConfirmPending: true
+    });
+    releaseRead(makeSnapshot([expected]));
+
+    assert.equal((await confirmation).confirmed, false);
+    assert.equal(repo.hasVisit(expected.id), false);
+    assert.equal(repo.hasPendingMutation(expected.id), false);
+    const baseline = JSON.parse(context.localStorage.getItem(`bark.authoritativeVisits.${uid}`));
+    assert.deepEqual(baseline.visits, [], 'the stale add proof must not rewrite the confirmed empty baseline');
+
+    context.localStorage.setItem('bark.lastAuthenticatedVisitUid', uid);
+    const reopened = loadCheckinService(storage);
+    reopened.window.BARK.services.checkin.hydrateRememberedUnconfirmedVisits();
+    assert.equal(reopened.window.BARK.repos.VaultRepo.hasVisit(expected.id), false);
+});
+
+test('server proof stays orange when the authoritative baseline cannot be stored', async () => {
+    const context = loadCheckinService();
+    const uid = 'baseline-storage-failure-user';
+    const expected = {
+        id: 'baseline-storage-failure-park',
+        name: 'Baseline Failure',
+        ts: 112,
+        syncToken: 'baseline-storage-failure-token'
+    };
+    const repo = preparePendingVisit(context, expected, uid);
+    const originalSetItem = context.localStorage.setItem;
+    context.localStorage.setItem = (key, value) => {
+        if (String(key).startsWith('bark.authoritativeVisits.')) {
+            throw new Error('simulated authoritative baseline quota failure');
+        }
+        return originalSetItem.call(context.localStorage, key, value);
+    };
+    context.firebase = {
+        auth() { return { currentUser: { uid } }; },
+        firestore() {
+            return {
+                collection() {
+                    return { doc() { return { async get() { return makeSnapshot([expected]); } }; } };
+                }
+            };
+        }
+    };
+
+    const result = await context.window.BARK.services.checkin.awaitServerConfirmation(expected, {
+        retryMs: 10,
+        timeoutMs: 50,
+        serverReadTimeoutMs: 20
+    });
+    assert.equal(result.confirmed, false);
+    assert.equal(repo.hasPendingMutation(expected.id), true, 'failed checkpoint must remain orange');
+});
+
+test('a stalled server read waits for a real recovery signal and then confirms', async () => {
+    const context = loadCheckinService();
+    const uid = 'stalled-read-user';
+    const expected = {
+        id: 'stalled-read-park',
+        name: 'Stalled Read',
+        ts: 113,
+        syncToken: 'stalled-read-token'
+    };
+    const repo = preparePendingVisit(context, expected, uid);
+    let reads = 0;
+    context.firebase = {
+        auth() { return { currentUser: { uid } }; },
+        firestore() {
+            return {
+                collection() {
+                    return {
+                        doc() {
+                            return {
+                                get() {
+                                    reads++;
+                                    return reads === 1
+                                        ? new Promise(() => {})
+                                        : Promise.resolve(makeSnapshot([expected]));
+                                }
+                            };
+                        }
+                    };
+                }
+            };
+        }
+    };
+
+    const confirmation = context.window.BARK.services.checkin.awaitServerConfirmation(expected, {
+        retryMs: 10,
+        timeoutMs: 250,
+        serverReadTimeoutMs: 20
+    });
+    await new Promise(resolve => setTimeout(resolve, 55));
+    assert.equal(reads, 1, 'an uncancellable stalled read must not multiply in a polling loop');
+    assert.equal(repo.hasPendingMutation(expected.id), true);
+
+    context.dispatch('focus');
+    assert.equal((await confirmation).confirmed, true);
+    assert.equal(reads, 2);
+    assert.equal(repo.hasPendingMutation(expected.id), false);
 });
 
 test('same park ID with an older unverified server record cannot false-confirm a GPS upgrade', async () => {
@@ -535,6 +926,54 @@ test('exact authoritative server mutation confirms and clears pending state', as
     assert.equal(repo.hasPendingMutation(expected.id), false);
 });
 
+test('the first exact proof checkpoints the complete server visit list', async () => {
+    const storage = new Map();
+    const context = loadCheckinService(storage);
+    const uid = 'first-full-checkpoint-user';
+    const existingOne = { id: 'existing-one', verified: true, ts: 590 };
+    const existingTwo = { id: 'existing-two', verified: false, ts: 591 };
+    const expected = {
+        id: 'first-full-checkpoint-target',
+        verified: true,
+        ts: 592,
+        syncToken: 'first-full-checkpoint-token'
+    };
+    const repo = preparePendingVisit(context, expected, uid);
+    context.firebase = {
+        auth() { return { currentUser: { uid } }; },
+        firestore() {
+            return {
+                collection() {
+                    return { doc() { return { async get() {
+                        return makeSnapshot([existingOne, existingTwo, expected]);
+                    } }; } };
+                }
+            };
+        }
+    };
+
+    const result = await context.window.BARK.services.checkin.awaitServerConfirmation(expected, {
+        timeoutMs: 250,
+        retryMs: 10
+    });
+    assert.equal(result.confirmed, true);
+    assert.equal(repo.hasPendingMutation(expected.id), false);
+
+    const baseline = JSON.parse(context.localStorage.getItem(`bark.authoritativeVisits.${uid}`));
+    assert.deepEqual(
+        baseline.visits.map(visit => visit.id).sort(),
+        [existingOne.id, existingTwo.id, expected.id].sort()
+    );
+
+    context.localStorage.setItem('bark.lastAuthenticatedVisitUid', uid);
+    const reopened = loadCheckinService(storage);
+    reopened.window.BARK.services.checkin.hydrateRememberedUnconfirmedVisits();
+    assert.deepEqual(
+        reopened.window.BARK.repos.VaultRepo.getVisits().map(visit => visit.id).sort(),
+        [existingOne.id, existingTwo.id, expected.id].sort()
+    );
+});
+
 test('an exact manual visit can confirm without weakening the GPS proof contract', async () => {
     const context = loadCheckinService();
     const expected = { id: 'manual-park', verified: false, ts: 650, syncToken: 'manual-token' };
@@ -548,7 +987,8 @@ test('an exact manual visit can confirm without weakening the GPS proof contract
 });
 
 test('a resolved Firestore transaction confirms the exact visit without waiting for a later listener snapshot', async () => {
-    const context = loadCheckinService();
+    const storage = new Map();
+    const context = loadCheckinService(storage);
     const uid = 'commit-receipt-user';
     const repo = context.window.BARK.repos.VaultRepo;
 
@@ -584,10 +1024,51 @@ test('a resolved Firestore transaction confirms the exact visit without waiting 
     assert.equal(repo.hasPendingMutation(result.visitRecord.id), false);
     assert.equal(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
     assert.equal(context.window._visitedPlacesServerSnapshotReceived, true);
+    assert.notEqual(context.localStorage.getItem(`bark.authoritativeVisits.${uid}`), null);
     assert.deepEqual(
         JSON.parse(JSON.stringify(await context.window.BARK.services.checkin.awaitServerConfirmation(result.visitRecord))),
         { confirmed: true }
     );
+
+    const reopened = loadCheckinService(storage);
+    reopened.window.BARK.services.checkin.hydrateRememberedUnconfirmedVisits();
+    const reopenedRepo = reopened.window.BARK.repos.VaultRepo;
+    assert.equal(reopenedRepo.hasVisit(result.visitRecord.id), true);
+    assert.equal(reopenedRepo.hasPendingMutation(result.visitRecord.id), false);
+    reopenedRepo.reconcileSnapshot([], { fromCache: true, hasPendingWrites: false });
+    assert.equal(
+        reopenedRepo.hasVisit(result.visitRecord.id),
+        true,
+        'a cached empty response after reload cannot erase a committed green visit'
+    );
+});
+
+test('a provider rejection cannot erase a durably accepted orange addition', async () => {
+    const context = loadCheckinService();
+    const uid = 'preserved-add-user';
+    const repo = context.window.BARK.repos.VaultRepo;
+    context.window.BARK.services.premium = { isPremium: () => true };
+    context.firebase = { auth() { return { currentUser: { uid } }; } };
+    context.window.BARK.services.firebase = {
+        stageVisitedPlaceUpsert(visit) { repo.stageUpsert(visit); },
+        cancelPendingVisitDeletion() {},
+        syncUserProgress() {
+            return Promise.reject(Object.assign(new Error('proof not ready'), { code: 'permission-denied' }));
+        }
+    };
+
+    const result = await context.window.BARK.services.checkin.markAsVisited({
+        id: 'preserved-add-park',
+        name: 'Preserved Add',
+        lat: 35,
+        lng: -84
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    assert.equal(result.success, true);
+    assert.equal(repo.hasVisit(result.visitRecord.id), true);
+    assert.equal(repo.hasPendingMutation(result.visitRecord.id), true);
+    assert.notEqual(context.localStorage.getItem(`bark.unconfirmedVisits.${uid}`), null);
 });
 
 test('authoritative listener path ignores a stale same-ID record and resolves only on the exact mutation', async () => {
@@ -794,7 +1275,7 @@ test('every green visit surface consults the durable server-proof predicate', ()
         '01-code/app/modules/renderEngine.js',
         '01-code/app/modules/MarkerLayerManager.js',
         '01-code/app/modules/TripLayerManager.js',
-        '01-code/app/services/authService.js'
+        '01-code/app/services/authService.v141.js'
     ].forEach(relativePath => {
         const source = fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
         assert.equal(

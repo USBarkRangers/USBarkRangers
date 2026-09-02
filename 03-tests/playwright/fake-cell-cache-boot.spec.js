@@ -2,7 +2,7 @@ const { test, expect, chromium, webkit, devices } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 
-const BASE_URL = process.env.BARK_E2E_BASE_URL || 'http://localhost:4173/index.html';
+const BASE_URL = process.env.BARK_E2E_PRIVATE_BASE_URL || 'http://localhost:4173/index.v141.html';
 const ANDROID_PWA = {
     userAgent: 'Mozilla/5.0 (Linux; Android 16; SM-S938U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36',
     viewport: { width: 412, height: 915 },
@@ -86,7 +86,7 @@ for (const profile of [
         try {
             // Preserve the real app and replace only the Firebase initializer
             // with a never-settling fake-cell handshake.
-            await context.route('**/services/authService.js*', async route => {
+            await context.route('**/services/authService.v141.js*', async route => {
                 const response = await route.fetch();
                 const source = await response.text();
                 await route.fulfill({

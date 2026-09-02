@@ -57,7 +57,7 @@ function loadBark({ failWrite = false, failCode = 'unavailable' } = {}) {
         removeItem: key => storage.delete(key)
     };
 
-    ['01-code/app/repos/ParkRepo.js', '01-code/app/repos/VaultRepo.js', '01-code/app/services/visitMutationCoordinator.js', '01-code/app/services/firebaseService.js']
+    ['01-code/app/repos/ParkRepo.js', '01-code/app/repos/VaultRepo.v141.js', '01-code/app/services/visitMutationCoordinator.v141.js', '01-code/app/services/firebaseService.v141.js']
         .forEach(rel => vm.runInContext(fs.readFileSync(path.join(ROOT, rel), 'utf8'), context, { filename: rel }));
 
     context.window.BARK.incrementRequestCount = () => {};
@@ -119,13 +119,98 @@ test('removeVisitedPlace: an offline write remains deleted locally and queued fo
     assert.equal(win.localStorage.getItem('bark.pendingVisitDeletes.user-1'), null);
 });
 
-test('removeVisitedPlace: a fatal permission failure restores the prior visit', async () => {
+test('removeVisitedPlace: a permission failure preserves the durable orange removal', async () => {
     const win = loadBark({ failWrite: true, failCode: 'permission-denied' });
     const vaultRepo = seed(win);
 
     const result = await win.BARK.services.firebase.removeVisitedPlace('park-1');
-    await assert.rejects(result.syncPromise, /write failed/);
-    await new Promise(resolve => setTimeout(resolve, 0));
-    assert.equal(vaultRepo.hasVisit('park-1'), true);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(vaultRepo.hasVisit('park-1'), false);
+    assert.equal(vaultRepo.getPendingMutationType('park-1'), 'delete');
+    assert.notEqual(win.localStorage.getItem('bark.pendingVisitDeletes.user-1'), null);
+    win.__restoreWrites();
+    await result.syncPromise;
+    assert.equal(vaultRepo.getPendingMutationType('park-1'), null);
     assert.equal(win.localStorage.getItem('bark.pendingVisitDeletes.user-1'), null);
+});
+
+test('post-commit account switch skips stale-account reconciliation and UI side effects', async () => {
+    const win = loadBark();
+    let activeUid = 'user-1';
+    win.firebase.auth = () => ({
+        currentUser: activeUid ? { uid: activeUid } : null
+    });
+
+    const vaultRepo = seed(win);
+    const checkinCalls = [];
+    const markerRefreshes = [];
+    let syncStateCalls = 0;
+    win.BARK.services.checkin = {
+        reconcileUnconfirmedVisits(uid) {
+            checkinCalls.push({ type: 'reconcile', uid, activeUid });
+        },
+        notifyAuthoritativeSnapshot() {
+            checkinCalls.push({ type: 'notify', activeUid });
+        }
+    };
+    win.BARK.refreshCoordinator = {
+        refreshVisitedCache() {},
+        refreshVisitedVisuals(reason) {
+            markerRefreshes.push({ reason, activeUid });
+        }
+    };
+    win.syncState = () => { syncStateCalls++; };
+
+    let markFirstStepStarted;
+    const firstStepStarted = new Promise(resolve => { markFirstStepStarted = resolve; });
+    let releaseFirstStep;
+    const firstStepRelease = new Promise(resolve => { releaseFirstStep = resolve; });
+    const vaultReconcileUids = [];
+    const originalReconcileSnapshot = vaultRepo.reconcileSnapshot;
+    vaultRepo.reconcileSnapshot = (...args) => {
+        vaultReconcileUids.push(activeUid);
+        const result = originalReconcileSnapshot(...args);
+        markFirstStepStarted();
+        return firstStepRelease.then(() => result);
+    };
+
+    const removal = await win.BARK.services.firebase.removeVisitedPlace(VISIT.id);
+    await firstStepStarted;
+
+    activeUid = 'user-2';
+    vaultRepo.clear();
+    const accountBVisit = {
+        id: 'account-b-park',
+        name: 'Account B Park',
+        lat: 1,
+        lng: 2,
+        verified: false,
+        ts: 2000,
+        syncToken: 'account-b-token'
+    };
+    vaultRepo.addVisit(accountBVisit);
+    vaultRepo.stageUpsert(accountBVisit);
+    const accountBRevision = vaultRepo.getRevision();
+    const markerCountAtSwitch = markerRefreshes.length;
+    const syncStateCountAtSwitch = syncStateCalls;
+
+    releaseFirstStep();
+    await removal.syncPromise;
+
+    const accountABaseline = JSON.parse(
+        win.localStorage.getItem('bark.authoritativeVisits.user-1')
+    );
+    assert.deepEqual(accountABaseline.visits, [], 'the committed A baseline remains account-scoped');
+    assert.equal(
+        win.localStorage.getItem('bark.pendingVisitDeletes.user-1'),
+        null,
+        'A delete acknowledgement may finish after the account switch'
+    );
+    assert.deepEqual(vaultReconcileUids, ['user-1'], 'Vault reconciliation must run only while A is active');
+    assert.deepEqual(checkinCalls, [], 'A pending additions and confirmations must not run under B');
+    assert.equal(markerRefreshes.length, markerCountAtSwitch, 'A commit must not refresh B markers');
+    assert.equal(syncStateCalls, syncStateCountAtSwitch, 'A commit must not refresh B screen state');
+    assert.equal(vaultRepo.getRevision(), accountBRevision, 'A commit must not mutate B Vault state');
+    assert.equal(vaultRepo.getVisit(accountBVisit.id).syncToken, accountBVisit.syncToken);
+    assert.equal(vaultRepo.getPendingMutationType(accountBVisit.id), 'upsert');
 });

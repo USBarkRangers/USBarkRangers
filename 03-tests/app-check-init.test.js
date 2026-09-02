@@ -6,7 +6,7 @@ const { test } = require('node:test');
 const root = path.resolve(__dirname, '..');
 const indexSource = fs.readFileSync(path.join(root, '01-code/app/index.html'), 'utf8');
 const configSource = fs.readFileSync(path.join(root, '01-code/app/modules/barkConfig.js'), 'utf8');
-const authSource = fs.readFileSync(path.join(root, '01-code/app/services/authService.js'), 'utf8');
+const authSource = fs.readFileSync(path.join(root, '01-code/app/services/authService.v141.js'), 'utf8');
 
 test('App Check SDK and Enterprise site key are present in the hosted client', () => {
     assert.match(indexSource, /firebase-app-check-compat\.js/);

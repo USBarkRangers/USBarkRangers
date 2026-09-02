@@ -70,7 +70,7 @@ for (const profile of [
                 const urls = (await (await caches.open(shellName)).keys()).map(request => request.url);
                 return {
                     index: urls.some(url => /\/index\.html(?:\?|$)/.test(url)),
-                    app: urls.some(url => /\/core\/app\.js\?v=37$/.test(url)),
+                    app: urls.some(url => /\/core\/app\.js\?v=38$/.test(url)),
                     parks: urls.some(url => /\/assets\/data\/bark-fallback\.csv$/.test(url))
                 };
             }, appVersion);

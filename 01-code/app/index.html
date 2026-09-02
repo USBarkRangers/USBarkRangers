@@ -17,7 +17,7 @@
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js" defer></script>
 
-    <link rel="stylesheet" href="styles.css?v=85">
+    <link rel="stylesheet" href="styles.css?v=86">
     <link rel="stylesheet" href="styles/mapStyles.css?v=6">
     <link rel="stylesheet" href="styles/trophyCase.css?v=8">
     <link rel="stylesheet" href="styles/feedbackModal.css?v=2">
@@ -75,11 +75,15 @@
         </div>
     </div>
     <div id="auth-failure-message" class="auth-failure-banner" role="alert" aria-live="assertive" hidden>
-        <div>
-            <strong>Sign-in unavailable</strong>
-            <span id="auth-failure-detail">Cloud sync and saved progress are offline for this session.</span>
+        <div class="auth-failure-copy">
+            <strong id="auth-failure-title">You appear offline</strong>
+            <span id="auth-failure-detail">Saved visits will keep retrying. If syncing looks stuck, reload here.</span>
         </div>
-        <button id="auth-failure-dismiss" type="button" aria-label="Dismiss sign-in warning">Dismiss</button>
+        <div class="auth-failure-actions">
+            <button id="auth-failure-reload" class="auth-failure-reload" type="button">Reload</button>
+            <button id="auth-failure-dismiss" class="auth-failure-dismiss" type="button"
+                aria-label="Dismiss offline warning">&times;</button>
+        </div>
     </div>
     <div id="park-data-status" class="park-data-status" role="status" aria-live="polite" hidden>
         <div class="park-data-status-icon" aria-hidden="true">🐾</div>
@@ -1616,7 +1620,7 @@
     <script src="services/visitMutationCoordinator.js?v=2" defer></script>
     <script src="services/firebaseService.js?v=25" defer></script>
     <script src="renderers/routeRenderer.js?v=6" defer></script>
-    <script src="services/checkinService.js?v=25" defer></script>
+    <script src="services/checkinService.js?v=26" defer></script>
     <script src="services/authPremiumUi.js?v=5" defer></script>
     <script src="services/premiumService.js?v=3" defer></script>
     <script src="services/authAccountUi.js?v=26" defer></script>
@@ -1658,7 +1662,7 @@
     <script src="modules/feedbackModal.js?v=6" defer></script>
 
     <!-- ENTRY POINT: Bootstrap Orchestrator (must load LAST) -->
-    <script src="core/app.js?v=37" defer></script>
+    <script src="core/app.js?v=38" defer></script>
     <!-- SCORING PROTOCOL MODAL -->
     <div id="scoring-modal" class="scoring-modal-overlay">
         <div class="scoring-modal-card">

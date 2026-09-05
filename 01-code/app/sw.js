@@ -7,8 +7,8 @@
  * never stored here.
  */
 // This corrective worker must never pair with a mutable or prior manifest.
-// The physical release path makes its cache identity inseparable from 0.142.
-importScripts('./offline/cacheManifest-0.142.js');
+// The physical release path makes its cache identity inseparable from 0.143.
+importScripts('./offline/cacheManifest-0.143.js');
 
 const CONFIG = self.BARK_OFFLINE_CACHE_MANIFEST;
 const SHELL_CACHE_PREFIX = 'bark-offline-shell-';
@@ -58,6 +58,34 @@ function offlineTileResponse() {
     });
 }
 
+// Cover headers AND body. A network timeout must settle even when abort is ignored.
+async function fetchComplete(request, timeoutMs) {
+    const controller = new AbortController();
+    let timer;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+            controller.abort();
+            reject(new Error('Network deadline exceeded'));
+        }, timeoutMs);
+    });
+    try {
+        return await Promise.race([
+            (async () => {
+                const response = await fetch(request, { signal: controller.signal });
+                if (response.type === 'opaque') return response;
+                const body = await response.arrayBuffer();
+                return new Response(body, {
+                    status: response.status, statusText: response.statusText,
+                    headers: response.headers
+                });
+            })(),
+            timeout
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function cacheOne(cache, requestOrUrl, options = {}) {
     const request = requestOrUrl instanceof Request
         ? requestOrUrl
@@ -65,20 +93,12 @@ async function cacheOne(cache, requestOrUrl, options = {}) {
             credentials: new URL(requestOrUrl).origin === APP_SCOPE_URL.origin ? 'same-origin' : 'omit',
             cache: options.reload ? 'reload' : 'default'
         });
-    const controller = options.timeoutMs ? new AbortController() : null;
-    const timeoutId = controller
-        ? setTimeout(() => controller.abort(), options.timeoutMs)
-        : null;
-    try {
-        const response = await fetch(request, controller ? { signal: controller.signal } : undefined);
-        if (!response || (!response.ok && response.type !== 'opaque')) {
-            throw new Error(`Offline cache fetch failed: ${request.url}`);
-        }
-        await cache.put(request, response.clone());
-        return response;
-    } finally {
-        if (timeoutId !== null) clearTimeout(timeoutId);
+    const response = await fetchComplete(request, options.timeoutMs || CONFIG.staticTimeoutMs || 4000);
+    if (!response || (!response.ok && response.type !== 'opaque')) {
+        throw new Error(`Offline cache fetch failed: ${request.url}`);
     }
+    await cache.put(request, response.clone());
+    return response;
 }
 
 async function warmShell(urls, options = {}) {
@@ -103,7 +123,9 @@ async function warmShell(urls, options = {}) {
 
     if (options.required === true) {
         try {
-            await Promise.all(requests);
+            const outcomes = await Promise.allSettled(requests);
+            const failure = outcomes.find(result => result.status === 'rejected');
+            if (failure) throw failure.reason;
             await cache.put(SHELL_READY_URL, new Response(CONFIG.version, {
                 headers: { 'Content-Type': 'text/plain' }
             }));
@@ -139,7 +161,7 @@ async function rememberTile(cache, request, response) {
 async function serveHighZoomTile(event) {
     const cache = await caches.open(TILE_CACHE);
     const cached = await cache.match(event.request);
-    const networkRefresh = fetch(event.request)
+    const networkRefresh = fetchComplete(event.request, CONFIG.tileTimeoutMs || 4000)
         .then(async response => {
             await rememberTile(cache, event.request, response);
             return response;
@@ -158,7 +180,7 @@ async function serveHighZoomTile(event) {
 }
 
 async function serveUncachedTile(request) {
-    try { return await fetch(request); }
+    try { return await fetchComplete(request, CONFIG.tileTimeoutMs || 4000); }
     catch (_error) { return offlineTileResponse(); }
 }
 
@@ -166,15 +188,23 @@ async function cacheFirst(request) {
     const cache = await caches.open(SHELL_CACHE);
     const cached = await cache.match(request, { ignoreSearch: false });
     if (cached) return cached;
+    // An already-open prior release can still ask for its immutable files.
+    const previousNames = (await caches.keys()).filter(name =>
+        name.startsWith(SHELL_CACHE_PREFIX) && name !== SHELL_CACHE).reverse();
+    for (const name of previousNames) {
+        const previous = await (await caches.open(name)).match(request, { ignoreSearch: false });
+        if (previous) return previous;
+    }
     return cacheOne(cache, request);
 }
 
-async function networkFirstNavigation(request) {
+async function serveNavigation(request) {
     const cache = await caches.open(SHELL_CACHE);
     const requestUrl = new URL(request.url);
     const appIndexPath = `${APP_SCOPE_URL.pathname}index.html`;
     const isAppEntry = requestUrl.pathname === APP_SCOPE_URL.pathname
-        || requestUrl.pathname === appIndexPath;
+        || requestUrl.pathname === appIndexPath
+        || requestUrl.pathname === new URL(APP_ENTRY_URL).pathname;
     if (isAppEntry) {
         // A controlling old worker must serve its matching precached HTML. It
         // must not put newer network HTML (which references newer scripts) into
@@ -184,11 +214,10 @@ async function networkFirstNavigation(request) {
             || await cache.match(toScopedUrl('./'), { ignoreSearch: true });
         if (coherentEntry) return coherentEntry;
     }
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), CONFIG.navigationTimeoutMs);
-
+    const savedPage = await cache.match(request, { ignoreSearch: true });
+    if (savedPage) return savedPage;
     try {
-        const response = await fetch(request, { signal: controller.signal });
+        const response = await fetchComplete(request, CONFIG.navigationTimeoutMs);
         if (response && response.ok) {
             if (!isAppEntry) await cache.put(request, response.clone());
         }
@@ -201,8 +230,6 @@ async function networkFirstNavigation(request) {
                 status: 503,
                 headers: { 'Content-Type': 'text/plain; charset=utf-8' }
             });
-    } finally {
-        clearTimeout(timeoutId);
     }
 }
 
@@ -210,9 +237,8 @@ self.addEventListener('install', event => {
     const shellUrls = CONFIG.shell.map(toScopedUrl);
     event.waitUntil((async () => {
         await warmShell([...shellUrls, ...CONFIG.criticalExternal], { required: true });
-        // The candidate contains the untouched public 0.140 shell, the private
-        // 0.141 shell, and the private 0.142 entry, so taking control cannot
-        // strand a page that was already open during either cutover.
+        // Take control only after every current startup file is local.
+        // Keep the previous cache for pages already open during this cutover.
         if (typeof self.skipWaiting === 'function') await self.skipWaiting();
     })());
 });
@@ -223,9 +249,9 @@ self.addEventListener('activate', event => {
         const ready = await shellCache.match(SHELL_READY_URL);
         if (!ready) throw new Error(`Offline shell ${CONFIG.version} is incomplete.`);
         const names = await caches.keys();
-        await Promise.all(names
-            .filter(name => name.startsWith(SHELL_CACHE_PREFIX) && name !== SHELL_CACHE)
-            .map(name => caches.delete(name)));
+        const previousNames = names.filter(name => name.startsWith(SHELL_CACHE_PREFIX) && name !== SHELL_CACHE);
+        // Retain one prior release for old open clients; keep storage bounded.
+        await Promise.all(previousNames.slice(0, -1).map(name => caches.delete(name)));
         // Enforce the bound after restarts too. A browser can stop the worker
         // between the last write and the every-twelve-writes maintenance pass.
         await trimTileCache(await caches.open(TILE_CACHE));
@@ -253,7 +279,7 @@ self.addEventListener('fetch', event => {
 
     const url = new URL(request.url);
     if (request.mode === 'navigate') {
-        event.respondWith(networkFirstNavigation(request));
+        event.respondWith(serveNavigation(request));
         return;
     }
 
@@ -265,7 +291,23 @@ self.addEventListener('fetch', event => {
         return;
     }
 
+    // Older open pages may still request CDN URLs. Serve the identical pinned
+    // dependency locally without requiring that CDN during the upgrade.
+    const localDependency = CONFIG.legacyExternal && CONFIG.legacyExternal[url.href];
+    if (localDependency) {
+        event.respondWith(cacheFirst(new Request(toScopedUrl(localDependency))));
+        return;
+    }
+    // The release check is intentionally live, not frozen in the shell cache.
+    if (url.origin === APP_SCOPE_URL.origin && url.pathname === new URL('./version.json', APP_SCOPE_URL).pathname) {
+        event.respondWith(fetchComplete(request, CONFIG.staticTimeoutMs || 4000)
+            .catch(async () => await (await caches.open(SHELL_CACHE)).match(toScopedUrl('./version.json'))
+                || new Response('Release check unavailable.', { status: 503 })));
+        return;
+    }
     if (isCriticalExternalUrl(url) || isAppStaticRequest(request, url)) {
-        event.respondWith(cacheFirst(request));
+        event.respondWith(cacheFirst(request).catch(() => new Response('This app file is unavailable. Retry when connected.', {
+            status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+        })));
     }
 });

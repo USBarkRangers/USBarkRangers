@@ -47,10 +47,10 @@ for (const profile of [
             expect(await onlinePage.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
 
             // A static Beta/test origin may begin on the immutable public 0.140
-            // shell, while production redirects the first request to 0.142. Once
-            // 0.142 has claimed the page, the next navigation must stay private.
+            // shell. Once the current worker has claimed the page, the next
+            // navigation must use the current private entry.
             await onlinePage.reload({ waitUntil: 'domcontentloaded' });
-            await expect(onlinePage.locator('script[src="modules/dataService.v142.js"]')).toHaveCount(1);
+            await expect(onlinePage.locator('script[src="modules/dataService.v143.js"]')).toHaveCount(1);
             await expect(onlinePage.locator('script[src="core/app.v141.js"]')).toHaveCount(1);
             await expect.poll(() => onlinePage.evaluate(() => (
                 window.BARK?.repos?.ParkRepo?.getAll?.().length || 0
@@ -78,23 +78,23 @@ for (const profile of [
                 const shellName = (await caches.keys()).find(name => name === `bark-offline-shell-${version}`);
                 if (!shellName) return {
                     entry: false,
-                    priorEntry: false,
+                    libraries: false,
                     app: false,
                     data: false,
                     parks: false
                 };
                 const urls = (await (await caches.open(shellName)).keys()).map(request => request.url);
                 return {
-                    entry: urls.some(url => /\/index\.v142\.html(?:\?|$)/.test(url)),
-                    priorEntry: urls.some(url => /\/index\.v141\.html(?:\?|$)/.test(url)),
+                    entry: urls.some(url => /\/index\.v143\.html(?:\?|$)/.test(url)),
+                    libraries: urls.some(url => /\/vendor\/leaflet-1\.9\.4\/leaflet\.js$/.test(url)),
                     app: urls.some(url => /\/core\/app\.v141\.js$/.test(url)),
-                    data: urls.some(url => /\/modules\/dataService\.v142\.js$/.test(url)),
+                    data: urls.some(url => /\/modules\/dataService\.v143\.js$/.test(url)),
                     parks: urls.some(url => /\/assets\/data\/bark-fallback-0\.142\.csv$/.test(url))
                 };
             }, appVersion);
             expect(shellCoverage).toEqual({
                 entry: true,
-                priorEntry: true,
+                libraries: true,
                 app: true,
                 data: true,
                 parks: true
@@ -116,7 +116,7 @@ for (const profile of [
             await expect.poll(() => offlinePage.evaluate(() => (
                 window.BARK?.repos?.ParkRepo?.getAll?.().length || 0
             )), { timeout: 7000 }).toBeGreaterThan(300);
-            await expect(offlinePage.locator('script[src="modules/dataService.v142.js"]')).toHaveCount(1);
+            await expect(offlinePage.locator('script[src="modules/dataService.v143.js"]')).toHaveCount(1);
             await expect(offlinePage.locator('#bark-loader')).toHaveCount(0, { timeout: 10000 });
 
             // Cached pins still own the full card UI.

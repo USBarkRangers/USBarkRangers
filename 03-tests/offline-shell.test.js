@@ -6,10 +6,10 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const APP_ROOT = path.join(__dirname, '..', '01-code', 'app');
-const MANIFEST_PATH = path.join(APP_ROOT, 'offline', 'cacheManifest-0.142.js');
+const MANIFEST_PATH = path.join(APP_ROOT, 'offline', 'cacheManifest-0.143.js');
 const PRIOR_MANIFEST_PATH = path.join(APP_ROOT, 'offline', 'cacheManifest-0.141.js');
 const SW_PATH = path.join(APP_ROOT, 'sw.js');
-const HTML_PATH = path.join(APP_ROOT, 'index.v142.html');
+const HTML_PATH = path.join(APP_ROOT, 'index.v143.html');
 
 const LEGACY_PUBLIC_HASHES = Object.freeze({
     'index.html': '3d77650f4ee452fee1b456b8992f2560321765f8c82a2f3ea7f072f693d02035',
@@ -46,7 +46,7 @@ test('offline shell version matches the app release', () => {
     const manifest = loadCacheManifest();
     const version = JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'version.json'), 'utf8')).version;
     assert.equal(manifest.version, version);
-    assert.equal(version, '0.142');
+    assert.equal(version, '0.143');
 });
 
 test('the public 0.140 shell remains byte-identical for dormant legacy workers', () => {
@@ -69,17 +69,17 @@ test('the private 0.141 shell and fallback remain byte-identical for active prio
     assert.equal(priorWorkerHash, '1742025c7159d147f0f590d8451ef3b8ae63295f0173fbc2896017b8c4177792');
 });
 
-test('the corrective worker uses the physical 0.142 manifest and private entry', () => {
+test('the worker uses the physical 0.143 manifest and private entry', () => {
     const manifest = loadCacheManifest();
     const sw = fs.readFileSync(SW_PATH, 'utf8');
-    assert.equal(manifest.entry, './index.v142.html');
-    assert.match(sw, /cacheManifest-0\.142\.js/);
+    assert.equal(manifest.entry, './index.v143.html');
+    assert.match(sw, /cacheManifest-0\.143\.js/);
     assert.doesNotMatch(sw, /cacheManifest-0\.141\.js/);
     assert.doesNotMatch(sw, /cacheManifest\.js\?v=/);
 });
 
 test('the 0.142 shell is a complete union of the private 0.141 shell and new physical assets', () => {
-    const manifest = loadCacheManifest();
+    const manifest = loadCacheManifest(path.join(APP_ROOT, 'offline', 'cacheManifest-0.142.js'));
     const priorManifest = loadCacheManifest(PRIOR_MANIFEST_PATH);
     const shell = new Set(manifest.shell);
 
@@ -100,14 +100,14 @@ test('every local startup script and stylesheet is in the offline shell', () => 
     const cached = new Set(manifest.shell.map(value => value.replace(/^\.\//, '')));
     const missing = Array.from(new Set(references.filter(value => !cached.has(value))));
     assert.deepEqual(missing, [], `offline shell is missing: ${missing.join(', ')}`);
-    assert.match(html, /modules\/dataService\.v142\.js/);
+    assert.match(html, /modules\/dataService\.v143\.js/);
 
-    const dataService = fs.readFileSync(path.join(APP_ROOT, 'modules', 'dataService.v142.js'), 'utf8');
+    const dataService = fs.readFileSync(path.join(APP_ROOT, 'modules', 'dataService.v143.js'), 'utf8');
     assert.match(dataService, /assets\/data\/bark-fallback-0\.142\.csv/);
     assert.doesNotMatch(dataService, /['"]assets\/data\/bark-fallback\.csv['"]/);
 });
 
-test('every local 0.142 shell resource exists on disk', () => {
+test('every current shell resource exists on disk', () => {
     const manifest = loadCacheManifest();
     const missing = Array.from(
         manifest.shell,
@@ -118,10 +118,11 @@ test('every local 0.142 shell resource exists on disk', () => {
     assert.deepEqual(missing, [], `offline shell references missing files: ${missing.join(', ')}`);
 });
 
-test('critical CDN startup dependencies are cached but cloud data endpoints are not', () => {
+test('startup dependencies are local and no CDN is required to install the shell', () => {
     const manifest = loadCacheManifest();
-    const external = manifest.criticalExternal.join('\n');
-    assert.match(external, /leaflet@1\.9\.4/);
+    assert.equal(manifest.criticalExternal.length, 0);
+    const external = manifest.shell.join('\n');
+    assert.match(external, /vendor\/leaflet-1\.9\.4/);
     assert.match(external, /firebase-app-compat\.js/);
     assert.match(external, /papaparse/);
     assert.doesNotMatch(external, /firestore\.googleapis|docs\.google\.com|lemon|openrouteservice/i);
@@ -142,4 +143,13 @@ test('service worker does not intercept writes or cache Firebase/API responses',
     const sw = fs.readFileSync(SW_PATH, 'utf8');
     assert.match(sw, /if \(request\.method !== 'GET'\) return/);
     assert.doesNotMatch(sw, /firebaseio|firestore\.googleapis|cloudfunctions|lemonsqueezy|openrouteservice/i);
+});
+
+test('vendored startup dependencies retain the recorded upstream bytes', () => {
+    const vendorRoot = path.join(APP_ROOT, 'vendor');
+    const sources = JSON.parse(fs.readFileSync(path.join(vendorRoot, 'sources.json'), 'utf8'));
+    for (const source of sources) {
+        const bytes = fs.readFileSync(path.join(vendorRoot, source.file));
+        assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), source.sha256, source.file);
+    }
 });

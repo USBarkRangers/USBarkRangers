@@ -201,7 +201,7 @@ test('an interrupted incomplete candidate is rebuilt on the next install', async
     assert.equal(rebuilt.has('https://example.test/app/.bark-shell-ready-atomic-test'), true);
 });
 
-test('healthy shell installs completely before activation removes the prior cache', async () => {
+test('healthy shell installs completely and retains the prior cache for open clients', async () => {
     const oldName = 'bark-offline-shell-prior';
     const cacheState = createCacheStore({
         [oldName]: {
@@ -224,7 +224,7 @@ test('healthy shell installs completely before activation removes the prior cach
     assert.equal(next.has('https://example.test/app/.bark-shell-ready-atomic-test'), true);
 
     await runExtendable(worker.handlers.activate);
-    assert.equal(cacheState.stores.has(oldName), false, 'old cache retires only after complete activation');
+    assert.equal(cacheState.stores.has(oldName), true, 'prior cache remains available to open clients');
 });
 
 test('a controlling worker serves its matching cached app entry without mixing newer HTML', async () => {
@@ -407,7 +407,7 @@ test('the active private 0.141 shell survives until private 0.142 installs compl
     });
 
     await runExtendable(worker.handlers.activate);
-    assert.equal(cacheState.stores.has(priorName), false, '0.141 retires only after complete 0.142 activation');
+    assert.equal(cacheState.stores.has(priorName), true, 'prior shell remains available to open clients');
     const response = await runExtendable(worker.handlers.fetch, {
         request: { method: 'GET', mode: 'navigate', url: 'https://example.test/app/' }
     });
@@ -445,4 +445,72 @@ test('the pinned 0.141 worker can forward-roll an installed 0.142 shell back to 
         request: { method: 'GET', mode: 'navigate', url: 'https://example.test/app/' }
     });
     assert.equal(await response.text(), PRIOR_PRIVATE_INDEX_SOURCE);
+});
+
+function deadlineManifest() {
+    return {
+        version: 'deadline-test', entry: './index.v143.html', shell: [], criticalExternal: [],
+        staticTimeoutMs: 25, navigationTimeoutMs: 25, tileTimeoutMs: 25,
+        minimumOfflineTileZoom: 11, maximumOfflineTiles: 350
+    };
+}
+
+for (const failure of ['no headers', 'unfinished body']) {
+    test(`current worker bounds missing startup assets with ${failure}`, async () => {
+        const state = createCacheStore();
+        const fetchStub = failure === 'no headers'
+            ? () => new Promise(() => {})
+            : async () => new Response(new ReadableStream({ start() {} }));
+        const worker = loadWorker(fetchStub, state, deadlineManifest());
+        const response = await runExtendable(worker.handlers.fetch, {
+            request: new Request('https://example.test/app/missing.js')
+        });
+        assert.equal(response.status, 503);
+        assert.equal(state.stores.get('bark-offline-shell-deadline-test').size, 0, 'failed asset must not enter cache');
+    });
+}
+
+test('current release and canonical navigation return saved HTML without any network request', async () => {
+    const state = createCacheStore({
+        'bark-offline-shell-deadline-test': {
+            'https://example.test/app/index.v143.html': new Response('saved current app')
+        }
+    });
+    const worker = loadWorker(() => { throw new Error('must not use network'); }, state, deadlineManifest());
+    for (const entry of ['', 'index.html', 'index.v143.html']) {
+        const response = await runExtendable(worker.handlers.fetch, {
+            request: { method: 'GET', mode: 'navigate', url: `https://example.test/app/${entry}` }
+        });
+        assert.equal(await response.clone().text(), 'saved current app');
+    }
+});
+
+test('release checks see a newer version and fall back to the saved version on a stalled request', async () => {
+    const state = createCacheStore({
+        'bark-offline-shell-deadline-test': {
+            'https://example.test/app/version.json': new Response('{"version":"0.143"}')
+        }
+    });
+    let stalled = false;
+    const worker = loadWorker(async () => stalled ? new Promise(() => {}) : new Response('{"version":"0.144"}'), state, deadlineManifest());
+    const request = new Request('https://example.test/app/version.json?cache_bypass=123');
+    assert.equal((await (await runExtendable(worker.handlers.fetch, { request })).json()).version, '0.144');
+    stalled = true;
+    assert.equal((await (await runExtendable(worker.handlers.fetch, { request })).json()).version, '0.143');
+});
+
+test('a failed candidate waits for remaining downloads before deleting partial cache', async () => {
+    const state = createCacheStore();
+    let finishRemaining;
+    const worker = loadWorker(request => request.url.endsWith('index.html')
+        ? Promise.reject(new Error('failed index'))
+        : new Promise(resolve => { finishRemaining = () => resolve(new Response('late script')); }), state, {
+            ...deadlineManifest(), shell: ['./index.html', './late.js']
+        });
+    const install = runExtendable(worker.handlers.install);
+    for (let i = 0; i < 15; i++) await Promise.resolve();
+    assert.equal(typeof finishRemaining, 'function');
+    finishRemaining();
+    await assert.rejects(install, /failed index/);
+    assert.equal(state.stores.has('bark-offline-shell-deadline-test'), false);
 });

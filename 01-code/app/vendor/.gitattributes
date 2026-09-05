@@ -1,0 +1,2 @@
+# Preserve upstream bytes so sources.json checksums also match fresh checkouts.
+** -text whitespace=cr-at-eol

@@ -16,10 +16,15 @@ test.describe('BUG-AUDIT-004 static data fallback', () => {
         await context.addInitScript(() => {
             localStorage.removeItem('barkCSV');
             localStorage.removeItem('barkCSV_time');
+            // This test isolates catalog startup from live account/App Check services.
+            // A stalled sign-in must not hide otherwise usable fallback pins.
+            document.addEventListener('DOMContentLoaded', () => {
+                window.BARK.services.auth.initFirebase = () => new Promise(() => {});
+            }, { once: true });
         });
 
         await context.route(GOOGLE_SHEET_PATTERN, route => route.abort('failed'));
-        await context.route('**/assets/data/bark-fallback.csv', route => {
+        await context.route(/\/assets\/data\/bark-fallback(?:-0\.\d+)?\.csv(?:\?|$)/, route => {
             fallbackRequested = true;
             route.continue();
         });

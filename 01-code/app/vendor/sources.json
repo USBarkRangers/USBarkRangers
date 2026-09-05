@@ -1,0 +1,117 @@
+[
+  {
+    "file": "leaflet-1.9.4/leaflet.js",
+    "source": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+    "sha256": "db49d009c841f5ca34a888c96511ae936fd9f5533e90d8b2c4d57596f4e5641a"
+  },
+  {
+    "file": "leaflet-1.9.4/leaflet.css",
+    "source": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
+    "sha256": "a7837102824184820dfa198d1ebcd109ff6d0ff9a2672a074b9a1b4d147d04c6"
+  },
+  {
+    "file": "leaflet-1.9.4/LICENSE",
+    "source": "https://unpkg.com/leaflet@1.9.4/LICENSE",
+    "sha256": "53e8dc25862014e4324741ca18fbe3611e11d42ef69f59f86ea8c5389647d4cb"
+  },
+  {
+    "file": "markercluster-1.4.1/leaflet.markercluster.js",
+    "source": "https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js",
+    "sha256": "58be871df61f6c512464e15db0941e63b9491bf1396a2ae3bea6f39e0854cd1c"
+  },
+  {
+    "file": "markercluster-1.4.1/MarkerCluster.css",
+    "source": "https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css",
+    "sha256": "f9b756b96397305917d2ff42bebdce58294f89879f0d0cfd18664fffbc59c5d7"
+  },
+  {
+    "file": "markercluster-1.4.1/MarkerCluster.Default.css",
+    "source": "https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css",
+    "sha256": "2d687359a406651b1616bac9c60fba667f134fce24d3fb6bb621c173aa9c1a96"
+  },
+  {
+    "file": "markercluster-1.4.1/MIT-LICENCE.txt",
+    "source": "https://unpkg.com/leaflet.markercluster@1.4.1/MIT-LICENCE.txt",
+    "sha256": "c14f7ab1a0cfd6bb5c686802a553b182d7fe4ff2f02592be9fadd1c50526b76e"
+  },
+  {
+    "file": "turf-6.5.0/turf.min.js",
+    "source": "https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js",
+    "sha256": "d00f3e8ff8a8f9c103dad61c2fd4bb58143e1404aadfdf09e29b6db1a2de0a3f"
+  },
+  {
+    "file": "turf-6.5.0/LICENSE",
+    "source": "https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/LICENSE",
+    "sha256": "f9b32b82fd5a1d3a990526d86da97f42fb805d9f4d9f978125c4679b674fce44"
+  },
+  {
+    "file": "papaparse-5.4.1/papaparse.min.js",
+    "source": "https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js",
+    "sha256": "b8e870c5d2b29772f10c9fa9a693c8b896aac8540ed6701e3cc6304c683febdb"
+  },
+  {
+    "file": "papaparse-5.4.1/LICENSE",
+    "source": "https://unpkg.com/papaparse@5.4.1/LICENSE",
+    "sha256": "99aa68e4b42758b09828a46515f70369e5463458ab7a990189f641af2b8d9b4e"
+  },
+  {
+    "file": "firebase-10.11.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/firebase/firebase-js-sdk/firebase%4010.11.0/LICENSE",
+    "sha256": "6bcc23f2ed5dde5b7f0de4fa8ab94ec669799f227970aea93b998d5a17d52ea8"
+  },
+  {
+    "file": "leaflet-1.9.4/images/layers.png",
+    "source": "https://unpkg.com/leaflet@1.9.4/dist/images/layers.png",
+    "sha256": "1dbbe9d028e292f36fcba8f8b3a28d5e8932754fc2215b9ac69e4cdecf5107c6"
+  },
+  {
+    "file": "leaflet-1.9.4/images/layers-2x.png",
+    "source": "https://unpkg.com/leaflet@1.9.4/dist/images/layers-2x.png",
+    "sha256": "066daca850d8ffbef007af00b06eac0015728dee279c51f3cb6c716df7c42edf"
+  },
+  {
+    "file": "leaflet-1.9.4/images/marker-icon.png",
+    "source": "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+    "sha256": "574c3a5cca85f4114085b6841596d62f00d7c892c7b03f28cbfa301deb1dc437"
+  },
+  {
+    "file": "leaflet-1.9.4/images/marker-icon-2x.png",
+    "source": "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+    "sha256": "00179c4c1ee830d3a108412ae0d294f55776cfeb085c60129a39aa6fc4ae2528"
+  },
+  {
+    "file": "leaflet-1.9.4/images/marker-shadow.png",
+    "source": "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+    "sha256": "264f5c640339f042dd729062cfc04c17f8ea0f29882b538e3848ed8f10edb4da"
+  },
+  {
+    "file": "firebase-10.11.0/firebase-app-compat.js",
+    "source": "https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js",
+    "sha256": "53f0a4a52db125d5a12bc2f6b2518c32c9c5fcc2e33d68e4f9a6f01d4aeea669"
+  },
+  {
+    "file": "firebase-10.11.0/firebase-app-check-compat.js",
+    "source": "https://www.gstatic.com/firebasejs/10.11.0/firebase-app-check-compat.js",
+    "sha256": "a2a451162fb4c8c0b6b9f0dd7c40cdab2b90f1287beeca07d4337029bf073482"
+  },
+  {
+    "file": "firebase-10.11.0/firebase-auth-compat.js",
+    "source": "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth-compat.js",
+    "sha256": "909ce5a95bc3514d23138d2ad6c97c70b0d35db15c3ecd37bb6e530d2ec5981c"
+  },
+  {
+    "file": "firebase-10.11.0/firebase-firestore-compat.js",
+    "source": "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js",
+    "sha256": "e1d19f85bd2c4a1441d8c80ab083afb8c1bba72619dd63a03f9907ec51d91ec7"
+  },
+  {
+    "file": "firebase-10.11.0/firebase-functions-compat.js",
+    "source": "https://www.gstatic.com/firebasejs/10.11.0/firebase-functions-compat.js",
+    "sha256": "e7d38f5e172b3d3f0fb41d358e81d3373b63e3f6171438bd3f3ad82a5bd6f01b"
+  },
+  {
+    "file": "firebase-10.11.0/firebase-analytics-compat.js",
+    "source": "https://www.gstatic.com/firebasejs/10.11.0/firebase-analytics-compat.js",
+    "sha256": "cfcf69d9ce1ea9a9920f6876c8aebfc35229896dd948ae14973926e40b29cc48"
+  }
+]

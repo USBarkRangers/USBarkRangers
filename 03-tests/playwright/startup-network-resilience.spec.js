@@ -14,7 +14,7 @@ async function serveApp() {
             state.stalled++;
             return; // Real socket stays open: bars present, no response, no offline event.
         }
-        const file = path.join(appRoot, pathname === '/' ? 'index.v143.html' : pathname);
+        const file = path.join(appRoot, pathname === '/' ? 'index.v144.html' : pathname);
         if (!file.startsWith(appRoot) || !fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
         let body = fs.readFileSync(file);
         if (pathname.endsWith('authService.v141.js')) {
@@ -57,14 +57,14 @@ for (const [name, browserType] of [['Android Chromium', chromium], ['iPhone WebK
         });
         try {
             let page = await context.newPage();
-            await page.goto(`${server.url}/index.v143.html`, { waitUntil: 'domcontentloaded' });
+            await page.goto(`${server.url}/index.v144.html`, { waitUntil: 'domcontentloaded' });
             await expect(page.locator('#bark-loader')).toHaveCount(0, { timeout: 4000 });
             const count = await page.evaluate(() => window.BARK.repos.ParkRepo.getAll().length);
             expect(count).toBeGreaterThan(300);
             expect(sheetRequests).toBeGreaterThan(0);
             await expect.poll(() => page.evaluate(async () => {
-                const cache = await caches.open('bark-offline-shell-0.143');
-                return !!(navigator.serviceWorker.controller && await cache.match(new URL('./.bark-shell-ready-0.143', location.href).href));
+                const cache = await caches.open('bark-offline-shell-0.144');
+                return !!(navigator.serviceWorker.controller && await cache.match(new URL('./.bark-shell-ready-0.144', location.href).href));
             }), { timeout: 15000 }).toBe(true);
             // Seed a last-known catalog distinct from the bundled snapshot, and a durable journal.
             await page.evaluate(async () => {
@@ -72,6 +72,12 @@ for (const [name, browserType] of [['Android Chromium', chromium], ['iPhone WebK
                 localStorage.setItem('barkCSV', csv.replaceAll('Acadia National Park', 'Last Known Acadia National Park'));
                 localStorage.setItem('barkCSV_time', String(Date.now()));
                 localStorage.setItem('bark.unconfirmedVisits.startup-test', '{"kept":"durable"}');
+                const park = window.BARK.repos.ParkRepo.getAll()[0];
+                localStorage.setItem('startup-saved-green-id', park.id);
+                localStorage.setItem('bark.lastAuthenticatedVisitUid', 'startup-test');
+                localStorage.setItem('bark.authoritativeVisits.startup-test', JSON.stringify({
+                    schemaVersion: 1, uid: 'startup-test', visits: [{ id: park.id, name: park.name, lat: park.lat, lng: park.lng, ts: Date.now(), verified: false }]
+                }));
             });
             expect(await page.evaluate(() => (localStorage.getItem('barkCSV') || '').includes('Last Known Acadia'))).toBe(true);
             server.state.stall = true;
@@ -81,6 +87,16 @@ for (const [name, browserType] of [['Android Chromium', chromium], ['iPhone WebK
             await page.goto(`${server.url}/?coldFakeCell=1`, { waitUntil: 'domcontentloaded' });
             await expect(page.locator('#bark-loader')).toHaveCount(0, { timeout: 4000 });
             expect(Date.now() - started).toBeLessThan(4500);
+            const expectSavedGreen = async () => {
+                await expect.poll(() => page.evaluate(() => {
+                    const id = localStorage.getItem('startup-saved-green-id');
+                    const repo = window.BARK.repos.VaultRepo;
+                    const marker = window.BARK.markerManager.markers.get(id);
+                    return repo.hasVisit(id) && !repo.hasPendingMutation(id)
+                        && !!marker?._icon?.classList.contains('visited-marker');
+                }), { timeout: 2500, intervals: [100] }).toBe(true);
+            };
+            await expectSavedGreen();
             expect(await page.evaluate(() => navigator.onLine)).toBe(true);
             expect(await page.evaluate(() => window.__initialCatalog.known)).toBe(true);
             expect(await page.evaluate(() => ({
@@ -89,12 +105,13 @@ for (const [name, browserType] of [['Android Chromium', chromium], ['iPhone WebK
                 displayed: window.BARK.repos.ParkRepo.getAll().some(p => p.name.includes('Last Known Acadia')),
                 count: window.BARK.repos.ParkRepo.getAll().length,
                 version: window.BARK.releaseVersion
-            }))).toEqual({ saved: true, displayed: true, count, version: '0.143', storageLength: expect.any(Number) });
+            }))).toEqual({ saved: true, displayed: true, count, version: '0.144', storageLength: expect.any(Number) });
             await page.evaluate(() => window.BARK.showOfflineRecoveryNotice());
             await page.locator('#auth-failure-reload').click();
             await page.waitForLoadState('domcontentloaded');
             await expect(page.locator('#bark-loader')).toHaveCount(0, { timeout: 4000 });
             expect(await page.evaluate(() => window.BARK.repos.ParkRepo.getAll().length)).toBe(count);
+            await expectSavedGreen();
             expect(await page.evaluate(() => localStorage.getItem('bark.unconfirmedVisits.startup-test'))).toBe('{"kept":"durable"}');
             // Pin cards and navigation must respond, not just paint a screenshot.
             await page.evaluate(() => window.BARK.markerManager.markers.values().next().value.fire('click'));
@@ -104,10 +121,11 @@ for (const [name, browserType] of [['Android Chromium', chromium], ['iPhone WebK
                 await page.reload({ waitUntil: 'domcontentloaded' });
                 await expect(page.locator('#bark-loader')).toHaveCount(0, { timeout: 4000 });
                 expect(await page.evaluate(() => window.BARK.repos.ParkRepo.getAll().length)).toBe(count);
+                await expectSavedGreen();
                 await context.setOffline(false);
             }
             server.state.stall = false;
-            expect(await page.evaluate(async () => (await (await fetch('./version.json?recovery=1')).json()).version)).toBe('0.143');
+            expect(await page.evaluate(async () => (await (await fetch('./version.json?recovery=1')).json()).version)).toBe('0.144');
         } finally { await context.close(); await browser.close(); await server.close(); }
     });
 
@@ -118,7 +136,7 @@ for (const [name, browserType] of [['Android Chromium', chromium], ['iPhone WebK
         await context.route('**/*', route => route.request().url().startsWith(server.url) ? route.continue() : route.abort());
         try {
             const page = await context.newPage();
-            await page.goto(`${server.url}/index.v143.html`, { waitUntil: 'commit' });
+            await page.goto(`${server.url}/index.v144.html`, { waitUntil: 'commit' });
             await expect(page.locator('#bark-startup-recovery')).toBeVisible({ timeout: 5500 });
             await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
             expect(server.state.stalled).toBeGreaterThan(0);

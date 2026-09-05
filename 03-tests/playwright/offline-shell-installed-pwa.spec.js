@@ -51,7 +51,7 @@ for (const profile of [
             // navigation must use the current private entry.
             await onlinePage.reload({ waitUntil: 'domcontentloaded' });
             await expect(onlinePage.locator('script[src="modules/dataService.v143.js"]')).toHaveCount(1);
-            await expect(onlinePage.locator('script[src="core/app.v141.js"]')).toHaveCount(1);
+            await expect(onlinePage.locator('script[src="core/app.v144.js"]')).toHaveCount(1);
             await expect.poll(() => onlinePage.evaluate(() => (
                 window.BARK?.repos?.ParkRepo?.getAll?.().length || 0
             )), { timeout: 10000 }).toBeGreaterThan(300);
@@ -85,9 +85,9 @@ for (const profile of [
                 };
                 const urls = (await (await caches.open(shellName)).keys()).map(request => request.url);
                 return {
-                    entry: urls.some(url => /\/index\.v143\.html(?:\?|$)/.test(url)),
+                    entry: urls.some(url => /\/index\.v144\.html(?:\?|$)/.test(url)),
                     libraries: urls.some(url => /\/vendor\/leaflet-1\.9\.4\/leaflet\.js$/.test(url)),
-                    app: urls.some(url => /\/core\/app\.v141\.js$/.test(url)),
+                    app: urls.some(url => /\/core\/app\.v144\.js$/.test(url)),
                     data: urls.some(url => /\/modules\/dataService\.v143\.js$/.test(url)),
                     parks: urls.some(url => /\/assets\/data\/bark-fallback-0\.142\.csv$/.test(url))
                 };

@@ -1,0 +1,1964 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <script>
+/**
+ * oauthFragmentGuard.js — remove OAuth credentials from the visible URL before
+ * diagnostics and the rest of the application can observe them.
+ *
+ * This file must remain a synchronous, first-party script near the top of the
+ * document. authService consumes the captured fragment once during boot.
+ */
+window.BARK = window.BARK || {};
+
+(function guardOAuthFragment() {
+    let capturedFragment = '';
+
+    try {
+        const rawFragment = window.location.hash ? window.location.hash.slice(1) : '';
+        const params = new URLSearchParams(rawFragment);
+        const isOAuthReturn = params.has('id_token') ||
+            params.has('access_token') ||
+            (params.has('error') && params.has('state'));
+
+        if (isOAuthReturn) {
+            capturedFragment = rawFragment;
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+    } catch (_error) {
+        // authService still has its direct-fragment fallback if early scrubbing
+        // is unavailable in an unusual browser environment.
+    }
+
+    window.BARK.consumeOAuthRedirectFragment = function consumeOAuthRedirectFragment() {
+        const value = capturedFragment;
+        capturedFragment = '';
+        return value;
+    };
+})();
+
+    </script>
+    <script src="offline/offlineBootstrap.js?v=1" defer></script>
+
+    <!-- This recovery UI must run before any network-dependent script or CSS. -->
+    <style>
+        #bark-loader { position:fixed; inset:0; height:100dvh; z-index:10000;
+            display:flex; flex-direction:column; align-items:center; justify-content:center;
+            gap:16px; background:#2d3436; color:white; font:600 16px system-ui,sans-serif;
+            text-align:center; padding:24px; box-sizing:border-box; }
+        #bark-startup-recovery[hidden] { display:none; }
+        #bark-startup-recovery { max-width:340px; line-height:1.5; }
+        #bark-startup-recovery button { min-height:44px; padding:10px 24px; margin-top:16px;
+            border:0; border-radius:8px; background:#2196f3; color:white; font:inherit; }
+    </style>
+    <script>
+        (function watchStartup() {
+            window.BARK.releaseVersion = '0.144';
+            // Once offline startup is prepared, reload through the canonical entry
+            // so a future worker can select its own matching release.
+            function useCanonicalEntry() {
+                try {
+                    const canonical = new URL('./', window.location.href);
+                    window.history.replaceState(null, '', canonical.pathname + window.location.search + window.location.hash);
+                } catch (_error) { /* keep the working release URL */ }
+            }
+            if ('serviceWorker' in navigator) {
+                if (navigator.serviceWorker.controller) useCanonicalEntry();
+                else navigator.serviceWorker.addEventListener('controllerchange', useCanonicalEntry, { once: true });
+            }
+            const startedAt = Date.now();
+            function check() {
+                const loader = document.getElementById('bark-loader');
+                if (!loader) {
+                    if (document.readyState === 'loading') setTimeout(check, 50);
+                    return;
+                }
+                if (window.map && Array.from(document.querySelectorAll('link[data-startup-style]')).every(link => link.sheet)
+                    && window.BARK?.loadState?.getParkState() === 'ready'
+                    && typeof window.dismissBarkLoader === 'function') {
+                    // Styles load without blocking the recovery message. Recheck
+                    // Leaflet's size before revealing a map created ahead of its CSS.
+                    window.map.invalidateSize({ animate: false });
+                    window.dismissBarkLoader();
+                    return;
+                }
+                if (Date.now() - startedAt >= 4000) {
+                    const recovery = document.getElementById('bark-startup-recovery');
+                    if (recovery) recovery.hidden = false;
+                }
+                setTimeout(check, 100);
+            }
+            setTimeout(check, 0);
+        })();
+    </script>
+    <title>US BARK Rangers</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="vendor/leaflet-1.9.4/leaflet.css" media="print" onload="this.media='all'" data-startup-style>
+    <script src="vendor/leaflet-1.9.4/leaflet.js" defer></script>
+
+    <!-- Leaflet.markercluster Dependencies -->
+    <link rel="stylesheet" href="vendor/markercluster-1.4.1/MarkerCluster.css" media="print" onload="this.media='all'" data-startup-style>
+    <link rel="stylesheet" href="vendor/markercluster-1.4.1/MarkerCluster.Default.css" media="print" onload="this.media='all'" data-startup-style>
+    <script src="vendor/markercluster-1.4.1/leaflet.markercluster.js" defer></script>
+    <script src="vendor/turf-6.5.0/turf.min.js" defer></script>
+
+    <link rel="stylesheet" href="styles.v141.css" media="print" onload="this.media='all'" data-startup-style>
+    <link rel="stylesheet" href="styles/mapStyles.css?v=6" media="print" onload="this.media='all'" data-startup-style>
+    <link rel="stylesheet" href="styles/trophyCase.css?v=8" media="print" onload="this.media='all'" data-startup-style>
+    <link rel="stylesheet" href="styles/feedbackModal.css?v=2" media="print" onload="this.media='all'" data-startup-style>
+    <link rel="stylesheet" href="styles/watermarkTool.css?v=2" media="print" onload="this.media='all'" data-startup-style>
+    <link rel="stylesheet" href="styles/walkTracker.css?v=2" media="print" onload="this.media='all'" data-startup-style>
+    <link rel="stylesheet" href="styles/viewportShell.css?v=5" media="print" onload="this.media='all'" data-startup-style>
+    <link rel="stylesheet" href="styles/loadState.css?v=1" media="print" onload="this.media='all'" data-startup-style>
+    <script src="modules/viewportCoordinator.js?v=7" defer></script>
+    <!-- RISKY BETA EXPERIMENT: isolated so it is easy to disable/revert if the
+         Android 980px standalone-PWA recovery causes a layout problem. -->
+    <link rel="stylesheet" href="styles/riskyAndroidDesktopViewportRecovery.css?v=6" media="print" onload="this.media='all'" data-startup-style>
+    <script src="modules/riskyAndroidDesktopViewportRecovery.js?v=1" defer></script>
+
+    <!-- PWA Manifest & App Icons -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#e5e5e5">
+
+    <!-- iOS PWA Enhancements -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="US BARK Rangers">
+    <link rel="apple-touch-icon" href="assets/images/bark-logo.jpeg">
+    <link rel="icon" type="image/jpeg" href="assets/images/bark-logo.jpeg">
+
+    <!-- GoatCounter Analytics -->
+    <script>
+        if (!['localhost', '127.0.0.1', '::1'].includes(window.location.hostname) && window.location.protocol !== 'file:') {
+            const goatCounterScript = document.createElement('script');
+            goatCounterScript.async = true;
+            goatCounterScript.dataset.goatcounter = 'https://carterswarm.goatcounter.com/count';
+            goatCounterScript.src = '//gc.zgo.at/count.js';
+            document.head.appendChild(goatCounterScript);
+        }
+    </script>
+</head>
+
+<body>
+    <div id="bark-loader">
+        <div class="dog-spinner">🐾</div>
+        <p>US BARK Rangers Loading...</p>
+        <div id="bark-startup-recovery" role="status" hidden>
+            Loading is taking longer than usual. Saved parks will open as soon as the app is ready.
+            If this device has no saved copy, a working connection is needed once.
+            <br><button type="button" onclick="window.location.reload()">Retry</button>
+        </div>
+    </div>
+    <div id="map"></div>
+    <div id="filtered-pins-indicator" class="filtered-pins-indicator" aria-live="polite" hidden>
+        <div class="filtered-pins-label">Filtered map</div>
+        <div id="filtered-pins-count" class="filtered-pins-count">0 of 0 pins</div>
+        <div id="filtered-pins-detail" class="filtered-pins-detail">Pins filtered</div>
+    </div>
+    <div id="map-unavailable-message" class="map-unavailable-notice" role="alert" aria-live="assertive" hidden>
+        <div class="map-unavailable-card">
+            <div class="map-unavailable-kicker">Map Status</div>
+            <h2>Map unavailable</h2>
+            <p>Try refreshing. If this keeps happening, the map library may be blocked or the network may be offline.</p>
+            <p id="map-unavailable-detail" class="map-unavailable-detail">The app could not start the map.</p>
+            <button id="map-unavailable-refresh" class="map-unavailable-action" type="button">Refresh</button>
+        </div>
+    </div>
+    <div id="auth-failure-message" class="auth-failure-banner" role="alert" aria-live="assertive" hidden>
+        <div class="auth-failure-copy">
+            <strong id="auth-failure-title">You appear offline</strong>
+            <span id="auth-failure-detail">Pending park changes stay saved on this device. Reload here to restart sync.</span>
+        </div>
+        <div class="auth-failure-actions">
+            <button id="auth-failure-reload" class="auth-failure-reload" type="button">Reload</button>
+            <button id="auth-failure-dismiss" class="auth-failure-dismiss" type="button"
+                aria-label="Dismiss offline warning">&times;</button>
+        </div>
+    </div>
+    <div id="park-data-status" class="park-data-status" role="status" aria-live="polite" hidden>
+        <div class="park-data-status-icon" aria-hidden="true">🐾</div>
+        <div>
+            <strong id="park-data-status-title">Loading is taking longer than usual</strong>
+            <span id="park-data-status-detail">Park pins will appear automatically when the data arrives.</span>
+        </div>
+    </div>
+
+    <div id="filter-panel" class="glass-panel collapsed">
+        <div class="panel-header" id="panel-header" style="text-align: center; width: 100%; cursor: default;">
+            <h1 style="margin-bottom: 12px; font-size: 18px;">US BARK RANGERS&reg;</h1>
+            <div class="search-bar-row" style="display: flex; gap: 10px; width: 100%; align-items: center;">
+                <div class="search-container" style="flex: 1; position: relative; display: flex; align-items: center;">
+                    <input type="text" id="park-search" placeholder="Search by name (e.g. 'Acadia')..."
+                        style="padding-right: 35px;">
+                    <button id="clear-search-btn" aria-label="Clear Search"
+                        style="display: none; position: absolute; right: 10px; background: none; border: none; font-size: 18px; color: #888; cursor: pointer; padding: 5px;">&times;</button>
+                    <div id="search-suggestions" class="suggestions-container" style="display: none;"></div>
+                </div>
+                <button id="toggle-filter-btn" aria-label="Toggle Filters"
+                    style="background: white; border: 1px solid rgba(0,0,0,0.1); border-radius: 12px; padding: 10px; min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" class="filter-icon"
+                        style="transition: transform 0.3s ease;">
+                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div id="filter-content" class="filter-content">
+
+            <div class="filter-group">
+                <select id="type-filter">
+                    <option value="all">All Park Types</option>
+                    <option value="National">National Parks/Sites</option>
+                    <option value="State">State Parks/Forests</option>
+                    <option value="Other">Local/Other</option>
+                </select>
+            </div>
+
+            <div class="filter-toggles">
+                <button class="filter-btn" data-filter="Tag">
+                    <span class="dot blue"></span> Tags
+                </button>
+                <button class="filter-btn" data-filter="Bandana">
+                    <span class="dot orange"></span> Bandanas
+                </button>
+                <button class="filter-btn" data-filter="Certificate">
+                    <span class="dot green"></span> Certificates
+                </button>
+                <button class="filter-btn" data-filter="Other">
+                    <span class="dot gray"></span> Other
+                </button>
+            </div>
+
+            <div class="premium-filters-section premium-locked" id="premium-filters-wrap">
+                <div class="filter-divider"></div>
+
+                <div class="premium-label">
+                    <span>Premium Map Tools</span>
+                    <span id="premium-lock-icon">🔒</span>
+                </div>
+
+                <div class="premium-trail-controls">
+                    <button class="filter-btn premium-trail-btn" data-filter="VirtualTrail" id="toggle-virtual-trail"
+                        aria-disabled="true">
+                        <span class="dot green" style="background: linear-gradient(90deg, #22c55e, #fee2e2);"></span>
+                        Active Trail
+                    </button>
+                    <button class="filter-btn premium-trail-btn" data-filter="CompletedTrails"
+                        id="toggle-completed-trails" aria-disabled="true">
+                        <span class="dot green"
+                            style="background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.6);"></span>
+                        Conquered Trails
+                    </button>
+                </div>
+
+                <button type="button" id="premium-upgrade-btn" class="premium-upgrade-btn">
+                    Upgrade to Premium
+                </button>
+
+                <div class="premium-controls">
+                    <select id="visited-filter" class="premium-select" disabled>
+                        <option value="all">Show All Places</option>
+                        <option value="visited">Only Visited Places</option>
+                        <option value="unvisited">Only Unvisited Places</option>
+                        <option value="route">Only Trip Route Pins</option>
+                    </select>
+
+                    <select id="map-style-select" class="premium-select" disabled>
+                        <option value="default">Default (OpenStreetMap)</option>
+                        <option value="terrain">Terrain (TopoMap)</option>
+                        <option value="satellite">Satellite (Esri)</option>
+                        <option value="streets">Roads & Highways (Esri)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+    <div id="slide-panel">
+        <button id="close-slide-panel" aria-label="Close" class="close-btn">&times;</button>
+        <div class="panel-content">
+            <h2 id="panel-title" style="margin-bottom: 20px;">Park Name</h2>
+
+            <div class="panel-section" id="panel-visited-section" style="display: none;">
+                <button id="verify-checkin-btn" class="glass-btn panel-visit-action">
+                    <span class="panel-action-icon">🐾</span>
+                    <span id="verify-checkin-text">Verified Check-In</span>
+                </button>
+                <button id="mark-visited-btn" class="glass-btn panel-visit-action">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" class="heart-icon">
+                        <path
+                            d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z">
+                        </path>
+                    </svg>
+                    <span id="mark-visited-text">Mark as Visited</span>
+                </button>
+            </div>
+
+            <a id="suggest-edit-btn" href="mailto:support@usbarkrangersmap.com" data-bark-local-action="feedback"
+                class="glass-btn outline-btn panel-secondary-action">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20h9"></path>
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                </svg>
+                Suggest an Edit
+            </a>
+
+            <!-- High-Density Quick-Info Bar -->
+            <div id="panel-meta-container" class="park-meta-bar"></div>
+
+            <div class="panel-section" id="panel-info-section" style="display: none;">
+                <div class="panel-label">Updates & Reports</div>
+                <div id="panel-info-container" class="report-container">
+                    <div id="panel-info" class="panel-value">Details...</div>
+                    <div class="report-fade-overlay"></div>
+                </div>
+                <button id="show-more-info" class="show-more-btn" style="display: none;">Show Full Reports ▾</button>
+            </div>
+
+            <div id="media-links" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
+                <div id="websites-container" style="display: flex; flex-wrap: wrap; gap: 10px; flex: 1;"></div>
+                <div id="panel-pics"
+                    style="display: none; flex-wrap: wrap; flex: 1; align-items: center; justify-content: center;">
+                </div>
+                <a id="panel-video" href="#" target="_blank" class="glass-btn"
+                    style="display: none; padding: 8px 16px; font-size: 14px; flex: 1; text-align: center;">Watch
+                    Video</a>
+            </div>
+
+            <!-- Command Center Sticky Footer -->
+            <div id="panel-sticky-footer" class="panel-sticky-footer" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- UI Views -->
+    <div id="home-view" class="ui-view">
+        <div class="view-content glass-panel">
+            <h2>Welcome to #USBarkRangers!</h2>
+            <p>Join our community of nearly 50,000 members as we inspire amazing travel adventures with our best
+                friends. Remember the B.A.R.K. principles: Bag your pet's waste, Always keep your pet on a leash,
+                Respect the wildlife, and Know where you can go.</p>
+
+            <hr class="view-divider">
+
+            <h3>Watermark Your Swag Photo</h3>
+            <p class="tool-desc">Upload a photo to add the B.A.R.K. Ranger logo!</p>
+
+            <div class="watermark-tool">
+                <input type="file" id="wm-upload" accept="image/*" class="custom-file-input" hidden>
+                <label for="wm-upload" class="glass-btn primary-btn">Select Photo</label>
+                <div class="canvas-preview-container" id="wm-preview-container"
+                    style="display:none; position:relative; max-width: 100%;">
+                    <div class="wm-stage-toolbar">
+                        <button id="wm-clear" class="close-btn" aria-label="Clear Photo">&times;</button>
+                    </div>
+                    <div class="wm-stage" id="wm-stage">
+                        <canvas id="wm-canvas" class="wm-canvas"></canvas>
+                        <canvas id="wm-logo-layer" class="wm-logo-layer" aria-hidden="true"></canvas>
+                        <div id="wm-logo-handle" class="wm-logo-handle" role="button" tabindex="0"
+                            aria-label="Watermark logo, currently bottom right. Drag it, or use the arrow keys, to move it to another corner."></div>
+                    </div>
+                    <p class="wm-drag-hint" id="wm-drag-hint" hidden>Drag the logo to any corner</p>
+
+                    <div id="wm-slider-container" style="display:none; width: 100%; margin-top: 15px;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <label for="wm-logo-size" style="font-weight: 600; color: #444; font-size: 14px;">Logo
+                                Size:</label>
+                            <span id="wm-logo-size-val"
+                                style="font-weight: 800; color: #4CAF50; font-size: 14px;">10%</span>
+                        </div>
+                        <input type="range" id="wm-logo-size" min="1" max="50" value="10" class="custom-slider">
+
+                        <div
+                            style="display: flex; align-items: center; gap: 10px; margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.03); border-radius: 8px;">
+                            <input type="checkbox" id="wm-high-res" style="width: 20px; height: 20px; cursor: pointer;">
+                            <label for="wm-high-res"
+                                style="font-size: 13px; font-weight: 600; color: #333; cursor: pointer;">Original
+                                Resolution (Print Quality)</label>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="wm-download" class="glass-btn primary-btn" style="display:none; margin-top: 15px;">Download
+                    Watermarked Image</button>
+            </div>
+        </div>
+
+        <div class="view-content glass-panel" style="margin-top: 20px;">
+            <h3>What is a B.A.R.K. Ranger?</h3>
+            <p style="font-size: 15px; line-height: 1.6;">If you take your pup to a park and follow the principles, they
+                can join the ranks of the #USBarkRangers! Many park sites have an actual program where you and your pup
+                complete fun activities to earn a badge, tag, or bandana. Some will even swear your dog in! Whether they
+                have a full program or just sell the tags, it is a ton of fun and you'll make great memories.</p>
+        </div>
+
+        <div class="view-content glass-panel" style="margin-top: 20px;">
+            <h3>The B.A.R.K. Principles</h3>
+            <div
+                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 15px; margin-top: 15px; text-align: center;">
+                <div class="glass-btn" style="padding: 15px; cursor: default;">
+                    <div style="font-size: 28px; font-weight: 800; color: #4CAF50; margin-bottom: 5px;">B</div>
+                    <div style="font-size: 13px; font-weight: 500;">Bag the poo and dispose of it</div>
+                </div>
+                <div class="glass-btn" style="padding: 15px; cursor: default;">
+                    <div style="font-size: 28px; font-weight: 800; color: #4CAF50; margin-bottom: 5px;">A</div>
+                    <div style="font-size: 13px; font-weight: 500;">Always on leash</div>
+                </div>
+                <div class="glass-btn" style="padding: 15px; cursor: default;">
+                    <div style="font-size: 28px; font-weight: 800; color: #4CAF50; margin-bottom: 5px;">R</div>
+                    <div style="font-size: 13px; font-weight: 500;">Respect the wildlife</div>
+                </div>
+                <div class="glass-btn" style="padding: 15px; cursor: default;">
+                    <div style="font-size: 28px; font-weight: 800; color: #4CAF50; margin-bottom: 5px;">K</div>
+                    <div style="font-size: 13px; font-weight: 500;">Know where they can go</div>
+                </div>
+            </div>
+            <p style="font-size: 14px; text-align: center; margin-top: 15px; color: #666;">Following these rules
+                preserves the environment and keeps your pup safe!</p>
+        </div>
+
+        <div class="view-content glass-panel" style="margin-top: 20px;">
+            <h3>Official B.A.R.K. Swag</h3>
+            <p>Show off your B.A.R.K. Ranger pride! Grab high-quality vinyl stickers, magnets, dye-sublimated patches,
+                beautiful collar tags, and durable bandanas. Always Free Shipping!</p>
+            <a href="https://www.ebay.com/itm/404632413543" target="_blank" class="glass-btn primary-btn"
+                style="text-decoration: none; display: inline-block; width: fit-content; margin-top: 10px;">Shop the
+                Store</a>
+        </div>
+
+        <div class="view-content glass-panel" style="margin-top: 20px;">
+            <h3>Community Resources</h3>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+                <a href="https://usbarkrangers.com/safety-tips" target="_blank" rel="noopener noreferrer" class="glass-btn"
+                    style="flex: 1; min-width: 120px; text-align: center; padding: 10px; text-decoration: none;">Safety
+                    Tips</a>
+                <a href="https://usbarkrangers.com/meet-the-team" target="_blank" rel="noopener noreferrer" class="glass-btn"
+                    style="flex: 1; min-width: 120px; text-align: center; padding: 10px; text-decoration: none;">Meet
+                    the Team</a>
+                <a href="https://www.alltrails.com/plans?irclickid=1tU2C52IjxyZR2xVwpx5t3kRUkuw%3Alzpz0vIzo0&sharedid=&irpid=5451289&utm_source=affiliate&utm_medium=impact&irmpgroupname=%22Affiliate%22%2C%22Hiking%22%2C%22Pets%22%2C%22Social+Content%22&irgwc=1&afsrc=1&k=explorenow"
+                    target="_blank" class="glass-btn"
+                    style="flex: 1; min-width: 120px; text-align: center; padding: 10px; text-decoration: none;">AllTrails
+                    Trial</a>
+            </div>
+            <p style="font-size: 14px; text-align: center; margin-top: 15px; color: #666;">Plan dog-friendly hikes with
+                our partner.</p>
+        </div>
+
+        <div class="view-content glass-panel" style="margin-top: 20px;">
+            <h3>Join the Community</h3>
+            <div style="display: flex; gap: 15px; justify-content: center; margin-top: 15px;">
+                <a href="https://www.facebook.com/share/g/1NEaDxEURR/" target="_blank" class="social-link glass-btn"
+                    aria-label="Facebook Group">
+                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
+                    </svg>
+                </a>
+                <a href="https://www.instagram.com/usbarkrangers/" target="_blank" class="social-link glass-btn"
+                    aria-label="Instagram">
+                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                        <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                        <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                    </svg>
+                </a>
+                <a href="https://www.youtube.com/channel/UCxSm2WLFRaQYCdZSeHTI02w" target="_blank"
+                    class="social-link glass-btn" aria-label="YouTube">
+                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path
+                            d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33 2.78 2.78 0 0 0 1.94 2c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.33 29 29 0 0 0-.46-5.33z">
+                        </path>
+                        <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"></polygon>
+                    </svg>
+                </a>
+                <a href="https://www.tiktok.com/@usbarkrangers?_r=1&_t=ZP-95DaSKf76sQ" target="_blank"
+                    class="social-link glass-btn" aria-label="TikTok">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" class="tiktok-icon">
+                        <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"></path>
+                    </svg>
+                </a>
+            </div>
+
+            <div id="share-portal" class="home-qr-card">
+                <div class="home-qr-copy">
+                    <span>Official QR Code</span>
+                    <h4>US BARK Rangers</h4>
+                </div>
+                <button type="button" id="official-qr-open-btn" class="home-qr-image-wrap"
+                    aria-label="Open US BARK Rangers QR code">
+                    <img id="official-qr-code" class="home-qr-image" src="assets/images/usbarkrangers-qr.jpeg"
+                        alt="US BARK Rangers QR code" width="391" height="400" loading="lazy">
+                </button>
+            </div>
+
+        </div>
+
+        <div style="padding-bottom: 90px;"></div>
+
+    </div>
+
+    <div id="planner-view" class="ui-view">
+        <div class="view-content"
+            style="max-width: 500px; margin: 0 auto; background: transparent; box-shadow: none; border: none; padding: 0;">
+
+            <!-- Tile 1: Identity -->
+            <div
+                style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h2 style="font-size: 18px; color: #1e293b; margin: 0; font-weight: 900;">Route Planner</h2>
+                </div>
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px;">
+                    <input type="text" id="tripNameInput" placeholder="Route Name (e.g. Summer Road Trip 2024)"
+                        style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; font-weight: 700; color: #334155; outline: none; background: white; box-sizing: border-box;">
+                </div>
+            </div>
+
+            <!-- Tile 2: The Itinerary -->
+            <div
+                style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 20px;">
+                <div id="route-telemetry"
+                    style="display: none; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px; margin-bottom: 16px; text-align: center; font-size: 12px; font-weight: 600; color: #15803d;">
+                </div>
+
+                <div id="itinerary-timeline-wrapper"
+                    style="background: transparent; border: none; padding: 0; margin: 0;">
+                    <ul id="trip-queue-list"
+                        style="list-style: none; padding: 0; margin: 0; max-height: 35dvh; overflow-y: auto;"></ul>
+                </div>
+            </div>
+
+            <!-- Tile 3: Current Day -->
+            <section class="planner-day-card">
+                <details class="planner-day-notes-details" open>
+                    <summary class="planner-day-notes-summary">
+                        <span>📝 Day Notes & Planning</span>
+                        <span class="planner-day-notes-chevron">▾</span>
+                    </summary>
+                    <div id="day-notes-container" class="planner-day-notes-container"></div>
+                </details>
+            </section>
+
+            <!-- Tile 4: Global Trip Actions -->
+            <section class="planner-global-section">
+                <div class="planner-global-actions">
+                    <div class="planner-global-file-row">
+                        <button id="planner-load-btn" class="planner-action-btn planner-action-neutral">
+                            <span class="planner-action-icon">📂</span>
+                            <span>Load</span>
+                        </button>
+                        <button id="save-route-btn" class="planner-action-btn planner-action-neutral">
+                            <span class="planner-action-icon">💾</span>
+                            <span>Save</span>
+                        </button>
+                    </div>
+
+                    <button id="optimize-trip-btn" class="planner-action-btn planner-action-global-optimize">
+                        <span class="planner-action-icon">✨</span>
+                        <span>Optimize Trip</span>
+                    </button>
+
+                    <button id="start-route-btn" class="planner-action-btn planner-action-primary planner-action-route-cta">
+                        <span>Generate Route</span>
+                    </button>
+
+                    <button id="clear-trip-btn" class="planner-action-clear">
+                        <span>Clear</span>
+                    </button>
+
+                    <div id="planner-saved-routes-container" class="planner-saved-routes-container" style="display: none;">
+                        <div class="planner-saved-routes-header">
+                            <span class="planner-saved-routes-title">📂
+                                Your Saved Routes</span>
+                            <button id="planner-routes-close-btn"
+                                style="background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer;">&times;</button>
+                        </div>
+                        <div id="planner-saved-routes-list"
+                            style="max-height: 250px; overflow-y: auto; padding-right: 4px;"></div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+    <div id="profile-view" class="ui-view">
+
+        <div class="view-content"
+            style="max-width: 500px; margin: 0 auto; background: transparent; box-shadow: none; border: none; padding: 0; position: relative; padding-top: 50px;">
+
+            <!-- Darkened Sticky Header Overlay -->
+            <div
+                style="position: fixed; top: 0; left: 0; width: 100%; height: 80px; background: linear-gradient(to bottom, rgba(0,0,0,0.12) 0%, rgba(0,0,0,0) 100%); z-index: 9; pointer-events: none;">
+            </div>
+
+            <!-- Sticky Settings Gear (Persistent App Header) -->
+            <button id="settings-gear-btn" type="button" aria-label="Open settings">⚙️</button>
+
+            <!-- Premium Settings Modal Overlay (Fixed standard) -->
+            <div id="settings-overlay" class="modal-overlay">
+                <div id="settings-modal" class="modal-card">
+                    <div class="modal-header">
+                        <button id="close-settings-btn" class="modal-close-btn">&times;</button>
+                        <h2 style="margin: 0; font-size: 24px; font-weight: 900; color: #1e293b;">Settings</h2>
+                    </div>
+
+                    <div class="modal-body">
+                        <!-- 🧭 CORE PREFERENCES -->
+                        <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 5px; margin-bottom: 15px;">Core Preferences</div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Allow Unchecking Visited</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Enables removal of manual map check-ins. Verified visits remain permanent.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="allow-uncheck-setting">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Remember Map Position</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Start exactly where you left off instead of your current location.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="remember-map-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Start at National View</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Start fully zoomed out on the USA instead of automatically zooming to your current GPS location.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="national-view-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Instant Camera</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Disables map panning animations for instant loading.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="instant-nav-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Stop Auto Movements</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Prevents the map from automatically panning during search, filtering, and pin selection.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-stop-auto-move">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+
+
+                        <div style="border-top: 1px solid rgba(0,0,0,0.1); margin: 5px 0;"></div>
+
+                        <!-- 🎯 GESTURE CONTROLS -->
+                        <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px; margin-bottom: 15px;">Gesture Controls</div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Lock Map Panning</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Disables all dragging/scrolling on the map to prevent accidental movement.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-lock-map-panning">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Disable 1-Finger Drag Zoom</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Turns off the custom double-tap and drag zoom integration.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-disable-1finger">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Disable 2-Finger Pinch Zoom</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Turns off native two-finger pinch to zoom in and out.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-disable-pinch">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">Disable Double-Tap Zoom</div>
+                                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 4px; line-height: 1.4;">
+                                    Turns off native rapid double-tap to zoom in.
+                                </div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-disable-double-tap">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <section class="settings-preference-section">
+                            <div class="settings-preference-heading">Pin Clustering</div>
+                            <div class="settings-preference-list">
+                                <div data-cluster-setting="standard" class="settings-preference-row">
+                                    <div class="settings-toggle-copy">
+                                        <div class="settings-toggle-title">Standard Bubble Mode</div>
+                                        <div class="settings-toggle-description">
+                                            Groups pins aggressively to keep the screen clean. Recommended for older devices.
+                                        </div>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="standard-cluster-toggle">
+                                        <span class="slider round"></span>
+                                    </label>
+                                </div>
+
+                                <div data-cluster-setting="premium" class="settings-preference-row">
+                                    <div class="settings-toggle-copy">
+                                        <div class="settings-toggle-title">Premium Bubble Mode</div>
+                                        <div class="settings-toggle-description">
+                                            Opens clusters progressively as you zoom in while keeping the national map clean.
+                                        </div>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="premium-cluster-toggle">
+                                        <span class="slider round"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="settings-preference-section settings-preference-section--optimizations">
+                            <div class="settings-preference-heading">Optimizations</div>
+                            <div class="settings-optimization-levels">
+                                <div id="performance-settings-master"></div>
+
+                                <div class="settings-preference-row settings-optimization-tier settings-optimization-tier--level-2">
+                                    <div class="settings-toggle-copy">
+                                        <div class="settings-preference-title-line">
+                                            <div class="settings-toggle-title">Ultra Fast Mode</div>
+                                            <span class="settings-level-badge settings-level-badge--level-2">Level 2</span>
+                                        </div>
+                                        <div class="settings-toggle-description">
+                                            Similar overall speed to Level 1, with up to 65% smoother frames on extremely old phones.
+                                        </div>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="ultra-low-toggle">
+                                        <span class="slider round"></span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="settings-custom-optimization-heading">Individual Controls</div>
+                            <div id="performance-settings-registry" class="settings-preference-list"></div>
+                        </section>
+
+                        <div class="settings-bottom-stack">
+                            <!-- ☁️ Cloud sync -->
+                            <section class="settings-cloud-card">
+                                <button id="save-settings-cloud-btn" class="settings-cloud-sync-btn">
+                                    ☁️ Premium Cloud Sync
+                                </button>
+                                <div id="save-settings-cloud-copy" class="settings-cloud-copy">
+                                    Local settings save automatically. Cloud sync is a Premium feature.
+                                </div>
+                            </section>
+
+                            <!-- ☢️ System reset -->
+                            <section class="settings-reset-block">
+                                <button id="terminate-reload-btn" class="settings-reset-btn">
+                                    ☢️ Terminate & Reload App
+                                </button>
+                                <div class="settings-reset-copy">
+                                    Wipes local settings, map cache, and signs you out. Cloud data stays safe.
+                                </div>
+                            </section>
+                        </div>
+
+                        <p class="settings-version-footer">
+                            US BARK Ranger © v<span id="settings-app-version">0.1</span>
+                        </p>
+                        <p class="settings-legal-links"
+                            style="text-align: center; font-size: 12px; margin-top: 8px;">
+                            <a href="pages/terms.html" target="_blank" rel="noopener"
+                                style="color: #64748b; font-weight: 600;">Terms of Use</a>
+                            <span style="color: #cbd5e1; margin: 0 6px;">·</span>
+                            <a href="pages/privacy.html" target="_blank" rel="noopener"
+                                style="color: #64748b; font-weight: 600;">Privacy Policy</a>
+                        </p>
+
+                    </div>
+                </div>
+            </div>
+
+            <div id="offline-status-container"
+                style="display: none; background: transparent; border: none; padding: 0; margin-top: 0;">
+
+                <!-- 1. Identity: Stats & Title -->
+                <div class="profile-section-card"
+                    style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; margin-bottom: 24px; border: 1px solid rgba(0,0,0,0.05);">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                        <div>
+                            <h2 style="margin: 0; font-size: 22px; font-weight: 900; color: #1e293b;">Welcome!</h2>
+                            <p id="user-profile-name"
+                                style="font-weight: 600; margin: 0; color: #64748b; font-size: 14px;"></p>
+                        </div>
+                        <div id="streak-pill"
+                            style="background: #fef2f2; border: 1px solid #fee2e2; color: #ef4444; font-weight: 900; font-size: 12px; padding: 4px 10px; border-radius: 20px;">
+                            🔥 <span id="streak-count-label">0</span>
+                        </div>
+                    </div>
+
+                    <div id="stats-grid"
+                        style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; text-align: center; margin-top: 16px;">
+                        <div
+                            style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9;">
+                            <div id="stat-score" style="font-size: 26px; font-weight: 900; color: #10b981;">—</div>
+                            <div
+                                style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">
+                                Total Score</div>
+                        </div>
+                        <div
+                            style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9; position: relative; overflow: hidden;">
+                            <span
+                                style="position: absolute; right: -5px; bottom: -10px; font-size: 40px; opacity: 0.05; pointer-events: none;">🐾</span>
+                            <div id="stat-verified"
+                                style="font-size: 26px; font-weight: 900; color: #f59e0b; position: relative;">—</div>
+                            <div
+                                style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px; position: relative;">
+                                🐾 Verified</div>
+                        </div>
+                        <div
+                            style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9;">
+                            <div id="stat-regular" style="font-size: 26px; font-weight: 900; color: #3b82f6;">—</div>
+                            <div
+                                style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">
+                                Sites Visited</div>
+                        </div>
+                        <div
+                            style="background: #f8fafc; border-radius: 12px; padding: 15px 5px; border: 1px solid #f1f5f9;">
+                            <div id="stat-states" style="font-size: 26px; font-weight: 900; color: #a855f7;">—</div>
+                            <div
+                                style="font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">
+                                States</div>
+                        </div>
+                    </div>
+
+                    <div class="banner-card"
+                        style="background: #f8fafc; border-radius: 12px; padding: 15px; border: 1px solid #f1f5f9;">
+                        <div class="banner-content">
+                            <div class="title-section">
+                                <div class="title-wrap" style="width: 100%;">
+                                    <div
+                                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                        <span class="title-eyebrow"
+                                            style="color: #94a3b8; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;">CURRENT
+                                            TITLE</span>
+                                        <button id="scoring-info-btn" class="info-pulse-btn" style="font-size: 11px;">ℹ️
+                                            Info</button>
+                                    </div>
+                                    <h2 id="current-title-label"
+                                        style="font-size: 20px; font-weight: 900; color: #1e293b; margin: 0;">Loading…</h2>
+                                </div>
+                            </div>
+                            <div style="text-align: right; margin-bottom: 6px;">
+                                <span id="rank-progress-fraction"
+                                    style="font-size: 11px; font-weight: 800; color: #94a3b8; letter-spacing: 0.5px;"></span>
+                            </div>
+                            <div class="progress-bar-track"
+                                style="background: #e2e8f0; height: 8px; border-radius: 4px;">
+                                <div id="tier-progress-fill" class="progress-bar-fill"
+                                    style="width: 0%; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #3b82f6, #8b5cf6);">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="profile-premium-card" class="profile-section-card paywall-profile-card">
+                    <div class="paywall-profile-card-header">
+                        <div>
+                            <div id="profile-premium-eyebrow" class="paywall-card-eyebrow">Premium map tools</div>
+                            <h3 id="profile-premium-status">Free plan</h3>
+                        </div>
+                        <div id="profile-premium-price" class="paywall-card-price">$20/year</div>
+                    </div>
+                    <p id="profile-premium-copy">
+                        Upgrade for visited-aware filters, map styles, trail controls, and global towns.
+                    </p>
+                    <button type="button" id="profile-premium-action" class="glass-btn paywall-card-action">
+                        Upgrade
+                    </button>
+                    <div class="paywall-card-note">Use the same account when returning from checkout.</div>
+                </div>
+
+                <!-- 3. Gamification: Vault -->
+                <div class="profile-section-card"
+                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b;">🏆 Achievement Vault
+                        </h3>
+                        <button id="share-vault-btn" class="glass-btn"
+                            style="font-size: 11px; padding: 6px 12px; border-radius: 8px;">📸 Share</button>
+                    </div>
+
+                    <div class="vault-tabs">
+                        <button class="tab-btn active" data-tab="rare-feats">Rare Feats</button>
+                        <button class="tab-btn" data-tab="paws">Paws</button>
+                        <button class="tab-btn" data-tab="states">States</button>
+                    </div>
+
+                    <div class="vault-drawer" id="vault-drawer">
+                        <div class="tab-content active" id="rare-feats-content">
+                            <div class="badge-grid" id="rare-feats-grid"></div>
+                        </div>
+                        <div class="tab-content" id="paws-content">
+                            <div class="badge-grid" id="paws-grid"></div>
+                        </div>
+                        <div class="tab-content" id="states-content">
+                            <div class="badge-grid" id="states-grid"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Unified Virtual Basecamp Module -->
+                <div class="profile-section-card" id="virtual-basecamp-module"
+                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b;">Virtual Expedition
+                            </h3>
+                            <span id="lifetime-miles-display"
+                                style="background: #eff6ff; color: #3b82f6; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 800;">0.0
+                                mi</span>
+                        </div>
+                        <span id="expedition-name"
+                            style="font-size: 11px; font-weight: 900; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.5px;"></span>
+                    </div>
+
+                    <div id="expedition-intro-state">
+                        <div
+                            style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 8px;">
+                            <div
+                                style="font-size: 40px; margin-bottom: 12px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));">
+                                🎒</div>
+                            <p
+                                style="font-size: 13px; color: #475569; line-height: 1.5; margin-bottom: 16px; font-weight: 600;">
+                                Experience America's greatest trails right from your neighborhood. Spin the wheel to
+                                receive your first expedition!
+                            </p>
+                            <button id="spin-wheel-btn" class="glass-btn primary-btn"
+                                style="width: 100%; font-size: 14px; padding: 14px; border-radius: 10px; font-weight: 900; box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);">
+                                🎡 Spin for a Trail
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="expedition-complete-state" style="display: none;">
+                        <div id="expedition-celebration-state" style="text-align: center; padding: 24px 12px;">
+                            <div class="bounce-emoji"
+                                style="font-size: 50px; margin-bottom: 16px; text-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                                🏆</div>
+                            <h4 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 900; color: #1e293b;">Expedition
+                                Complete!</h4>
+                            <p style="font-size: 13px; color: #64748b; margin-bottom: 20px; line-height: 1.4;">
+                                Incredible work! You've conquered the <strong id="celebration-trail-name"
+                                    style="color: #f59e0b;"></strong>.
+                            </p>
+
+                            <div style="display: flex; gap: 8px; flex-direction: column;">
+                                <button id="share-single-expedition-btn"
+                                    class="glass-btn"
+                                    style="width: 100%; padding: 12px; font-size: 13px; border-radius: 10px; font-weight: 800; background: #f8fafc; color: #1e293b; border: 1px solid #cbd5e1;">
+                                    📸 Share This Victory
+                                </button>
+                                <button id="claim-reward-btn" class="glass-btn"
+                                    style="width: 100%; padding: 14px; font-size: 14px; border-radius: 10px; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; font-weight: 900; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);">
+                                    🎁 Claim +1 PT & Reset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="expedition-active-state" style="display: none;">
+                        <div class="expedition-track">
+                            <div id="expedition-fill" class="expedition-fill" style="width: 0%;">
+                                <div id="expedition-avatar" class="expedition-avatar">🐕</div>
+                            </div>
+                        </div>
+                        <div style="text-align: right; margin-bottom: 20px;">
+                            <span id="expedition-progress-text"
+                                style="font-size: 11px; font-weight: 800; color: #94a3b8;">0.0 / 0.0 Miles (0%)</span>
+                        </div>
+
+                        <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+                            <button id="fly-active-trail-btn" class="glass-btn"
+                                style="flex: 1; padding: 8px; font-size: 11px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #1e293b;">
+                                🗺️ View on Map
+                            </button>
+                            <button id="trail-brief-btn"
+                                class="glass-btn"
+                                style="flex: 1; padding: 8px; font-size: 11px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #1e293b;">
+                                📖 Trail Brief
+                            </button>
+                        </div>
+
+                        <div
+                            style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="flex: 1; padding-right: 12px;">
+                                    <h4 style="margin: 0 0 4px 0; font-size: 13px; font-weight: 800; color: #1e293b;">
+                                        Live GPS Walk</h4>
+                                    <p id="training-desc"
+                                        style="margin: 0; font-size: 11px; color: #64748b; line-height: 1.4;">
+                                        Tracks your real route while the app is open. iOS pauses GPS when the screen
+                                        locks, so keep this screen on while you walk. Tracked miles advance your trail;
+                                        completing the full trail earns 1 point.
+                                    </p>
+                                </div>
+                                <div style="display: flex; flex-direction: column; gap: 8px;">
+                                    <button id="training-action-btn"
+                                        class="glass-btn training-btn"
+                                        style="padding: 10px 16px; border-radius: 8px;">Start Walk</button>
+                                    <button id="cancel-training-btn"
+                                        style="display: none; background: transparent; color: #94a3b8; border: none; font-size: 10px; font-weight: 700; text-decoration: underline; cursor: pointer;">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <details class="premium-details"
+                            style="background: transparent; border: 1px solid #e2e8f0; border-radius: 12px;">
+                            <summary
+                                style="font-size: 12px; font-weight: 800; color: #64748b; cursor: pointer; padding: 12px; display: flex; justify-content: space-between; align-items: center; list-style: none;">
+                                <span>📋 Expedition Log & Manual Entry</span>
+                                <span class="chevron">▼</span>
+                            </summary>
+
+                            <div style="padding: 0 12px 12px 12px; border-top: 1px solid #f1f5f9; margin-top: 4px;">
+                                <ul id="expedition-history-list"
+                                    style="list-style: none; padding: 0; margin: 0 0 16px 0; max-height: 180px; overflow-y: auto;">
+                                    <li
+                                        style="color: #94a3b8; font-size: 11px; text-align: center; padding: 10px 0; font-style: italic;">
+                                        No miles logged yet.</li>
+                                </ul>
+
+                                <div id="manual-miles-premium-control" class="premium-locked"
+                                    style="background: #fef2f2; border: 1px dashed #fca5a5; border-radius: 8px; padding: 12px;">
+                                    <div
+                                        style="font-size: 10px; font-weight: 800; color: #ef4444; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">
+                                        ⚠️ Honor System Override · Premium · trail progress only</div>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="number" id="miles-input" placeholder="Miles walked..." min="0.1"
+                                            step="0.1" max="15" disabled aria-disabled="true"
+                                            style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid #fca5a5; font-size: 12px; outline: none;">
+                                        <button id="log-manual-miles-btn" class="glass-btn" aria-disabled="true"
+                                            style="background: #ef4444; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 800; opacity: 0.72;">🔒 Premium</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+
+                <!-- Digital Trophy Case (Expedition Rewards) -->
+                <div class="profile-section-card" id="expedition-trophy-case"
+                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px; overflow: hidden; display: none;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3
+                            style="margin: 0; font-size: 13px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">
+                            🏅 Completed Expeditions</h3>
+                        <button id="share-all-expeditions-btn" class="glass-btn"
+                            style="font-size: 11px; padding: 6px 12px; border-radius: 8px; background: #eff6ff; color: #3b82f6; border: none; font-weight: 800;">📸
+                            Share All</button>
+                    </div>
+
+                    <div id="completed-expeditions-grid"
+                        style="display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding-bottom: 12px; -webkit-overflow-scrolling: touch; scroll-snap-type: x mandatory;">
+                        <div
+                            style="font-size: 11px; color: #94a3b8; font-style: italic; width: 100%; text-align: center; padding: 10px 0;">
+                            No expeditions completed yet. Spin the wheel to start!
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Classified feats now live at the end of the Rare Feats tab
+                     (see rare-feats-grid above); the separate dossier section was
+                     removed so they take less vertical space. -->
+
+                <!-- 5. Gamification: Leaderboard -->
+                <div class="profile-section-card" id="leaderboard-container"
+                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3 style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b;">🏆 Global Leaderboard
+                        </h3>
+                        <span id="personal-rank-display"
+                            style="font-size: 11px; font-weight: 900; color: #f59e0b; background: #fffbeb; padding: 4px 10px; border-radius: 20px; border: 1px solid #fef3c7;">Rank:
+                            --</span>
+                    </div>
+                    <ul id="leaderboard-list" style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
+                        <li style="color: #94a3b8; font-style: italic; text-align: center; padding: 20px 0;">Loading Top
+                            5...</li>
+                    </ul>
+                    <div id="leaderboard-controls" style="margin-top: 15px; text-align: center;"></div>
+                </div>
+
+                <!-- 6. Utility: Data & Routes -->
+                <div class="profile-section-card"
+                    style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); margin-bottom: 24px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3
+                            style="margin: 0; font-size: 16px; font-weight: 900; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                            🗃️ My Data & Routes</h3>
+                    </div>
+
+                    <div style="padding-top: 4px;">
+                        <details class="premium-details">
+                            <summary
+                                style="color: #1e293b; font-size: 14px; font-weight: 800; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none; padding: 12px; margin: -12px; border-radius: 12px; transition: all 0.2s ease;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 16px;">📂</span>
+                                    <div>Saved Itineraries</div>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span id="saved-routes-count"
+                                        style="background: #eff6ff; color: #2563eb; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 800;">0</span>
+                                    <span class="chevron"
+                                        style="font-size: 12px; color: #94a3b8; transition: transform 0.3s ease;">▼</span>
+                                </div>
+                            </summary>
+                            <div id="saved-routes-list"
+                                style="max-height: 350px; overflow-y: auto; margin-top: 24px; padding-top: 20px; border-top: 1px solid #f1f5f9; padding-right: 4px;">
+                            </div>
+                        </details>
+                    </div>
+
+                    <div style="border-top: 1px solid #f1f5f9; margin: 16px 0;"></div>
+
+                    <details id="manage-places-portal" class="premium-details">
+                        <summary
+                            style="color: #1e293b; font-size: 14px; font-weight: 800; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none; padding: 12px; margin: -12px; border-radius: 12px; transition: all 0.2s ease;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-size: 16px;">📍</span>
+                                <div>My Visited Places</div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span id="manage-portal-count"
+                                    style="background: #eff6ff; color: #3b82f6; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 900;">0</span>
+                                <span class="chevron"
+                                    style="font-size: 12px; color: #94a3b8; transition: transform 0.3s ease;">▼</span>
+                            </div>
+                        </summary>
+                        <div
+                            style="max-height: 280px; overflow-y: auto; margin-top: 24px; padding-top: 20px; border-top: 1px solid #f1f5f9;">
+                            <ul id="manage-places-list"
+                                style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
+                            </ul>
+                        </div>
+                    </details>
+
+                    <div style="border-top: 1px solid #f1f5f9; margin: 16px 0;"></div>
+
+                    <details id="manage-walks-portal" class="premium-details">
+                        <summary
+                            style="color: #1e293b; font-size: 14px; font-weight: 800; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; list-style: none; padding: 12px; margin: -12px; border-radius: 12px; transition: all 0.2s ease;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-size: 16px;">🥾</span>
+                                <div>My Total Walks</div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span id="manage-walks-count"
+                                    style="background: #eff6ff; color: #3b82f6; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 900;">0</span>
+                                <span class="chevron"
+                                    style="font-size: 12px; color: #94a3b8; transition: transform 0.3s ease;">▼</span>
+                            </div>
+                        </summary>
+                        <div
+                            style="max-height: 280px; overflow-y: auto; margin-top: 24px; padding-top: 20px; border-top: 1px solid #f1f5f9;">
+                            <div id="manage-walks-list">
+                                <!-- Grouped walk logs injected here -->
+                            </div>
+                        </div>
+                    </details>
+
+                    <div style="border-top: 1px solid #f1f5f9; margin: 16px 0;"></div>
+
+                    <button id="export-csv-btn" class="glass-btn"
+                        style="width: 100%; background: #f8fafc; color: #475569; border: 1px dashed #cbd5e1; padding: 14px; border-radius: 12px; font-weight: 700; display: flex; justify-content: center; gap: 8px; transition: all 0.2s ease;">📥
+                        Download Raw CSV Data</button>
+                </div>
+
+                <div id="account-status-card" class="profile-section-card account-status-card" hidden>
+                    <div class="account-card-header">
+                        <div>
+                            <div class="account-card-eyebrow">Current account</div>
+                            <h3>Signed in</h3>
+                        </div>
+                        <div id="account-display-premium" class="account-premium-pill">Loading</div>
+                    </div>
+                    <dl class="account-details-list">
+                        <div>
+                            <dt>Username</dt>
+                            <dd id="account-display-name">Loading</dd>
+                        </div>
+                        <div>
+                            <dt>Email</dt>
+                            <dd id="account-display-email">Loading</dd>
+                        </div>
+                        <div>
+                            <dt>UID</dt>
+                            <dd id="account-display-uid">Loading</dd>
+                        </div>
+                        <div>
+                            <dt>Method</dt>
+                            <dd id="account-display-provider">Loading</dd>
+                        </div>
+                    </dl>
+                    <div id="account-billing-panel" class="account-billing-panel" hidden>
+                        <div class="account-billing-copy-wrap">
+                            <div id="account-billing-eyebrow" class="account-billing-eyebrow">SUBSCRIPTION</div>
+                            <div id="account-billing-title" class="account-billing-title">Active</div>
+                            <p id="account-billing-copy" class="account-billing-copy">
+                                Auto-renews when active.
+                            </p>
+                        </div>
+                        <button type="button" id="account-manage-subscription-btn" class="account-billing-btn">
+                            Manage
+                        </button>
+                    </div>
+                    <div id="account-email-verification-panel" class="account-verification-panel" hidden>
+                        <div class="account-verification-copy-wrap">
+                            <div id="account-email-verification-eyebrow" class="account-verification-eyebrow">Please verify your email</div>
+                            <div id="account-email-verification-title" class="account-verification-title">Email verification sent</div>
+                            <p id="account-email-verification-copy" class="account-verification-copy">
+                                Please verify your email before using Premium checkout, coupons, or premium routing.
+                            </p>
+                        </div>
+                        <div class="account-verification-actions">
+                            <button type="button" id="account-resend-verification-btn" class="account-verification-btn">
+                                Resend verification email
+                            </button>
+                            <button type="button" id="account-refresh-verification-btn" class="account-verification-btn secondary">
+                                I verified, refresh status
+                            </button>
+                        </div>
+                    </div>
+                    <div class="account-actions">
+                        <button type="button" id="account-switch-btn" class="account-secondary-btn">Switch account</button>
+                        <button type="button" id="account-signout-btn" class="account-danger-btn">Sign out</button>
+                    </div>
+                </div>
+
+                <!-- Admin Action Container injected by JS if user is admin -->
+                <div id="admin-controls-container" style="margin-bottom: 24px;"></div>
+            </div>
+
+
+            <!-- Logged-Out State: Value Pitch -->
+            <div id="login-container" style="margin-top: 20px;">
+                <div class="account-auth-card" id="account-auth-card">
+                    <h2>Create Your Free B.A.R.K. Account</h2>
+                    <p class="account-auth-copy">Save where you've been, keep verified check-ins, build your profile, and back up road trip itineraries.</p>
+
+                    <button id="google-login-btn" class="google-login-btn" type="button">
+                        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google"
+                            class="google-login-icon">
+                        Continue with Google
+                    </button>
+
+                    <div class="account-divider"><span>or use email</span></div>
+
+                    <div class="account-mode-tabs" role="group" aria-label="Account mode">
+                        <button type="button" id="account-mode-signin" class="account-mode-btn active" aria-pressed="true">Sign in</button>
+                        <button type="button" id="account-mode-create" class="account-mode-btn" aria-pressed="false">Create account</button>
+                        <button type="button" id="account-mode-reset" class="account-mode-btn" aria-pressed="false">Reset password</button>
+                    </div>
+
+                    <div id="account-auth-message" class="account-auth-message" role="status" aria-live="polite" hidden></div>
+
+                    <form id="account-signin-form" class="account-form">
+                        <label for="account-signin-email">Email</label>
+                        <input id="account-signin-email" type="email" autocomplete="email" inputmode="email" required>
+                        <label for="account-signin-password">Password</label>
+                        <input id="account-signin-password" type="password" autocomplete="current-password" required>
+                        <button type="submit" class="account-primary-btn">Sign in with email</button>
+                        <button type="button" id="account-forgot-password-btn" class="account-link-btn">Forgot password?</button>
+                    </form>
+
+                    <form id="account-create-form" class="account-form" hidden>
+                        <label for="account-create-username">Username</label>
+                        <input id="account-create-username" type="text" autocomplete="nickname" maxlength="30" required>
+                        <p class="account-field-hint">Shown on your profile and leaderboard.</p>
+                        <label for="account-create-email">Email</label>
+                        <input id="account-create-email" type="email" autocomplete="email" inputmode="email" required>
+                        <label for="account-create-password">Password</label>
+                        <input id="account-create-password" type="password" autocomplete="new-password" minlength="8" required>
+                        <p class="account-field-hint">Use at least 8 characters.</p>
+                        <button type="submit" class="account-primary-btn">Create account</button>
+                    </form>
+
+                    <form id="account-reset-form" class="account-form" hidden>
+                        <label for="account-reset-email">Email</label>
+                        <input id="account-reset-email" type="email" autocomplete="email" inputmode="email" required>
+                        <button type="submit" class="account-primary-btn">Send password reset email</button>
+                        <button type="button" id="account-inline-create-btn" class="account-link-btn">Need a new account?</button>
+                    </form>
+
+                    <p class="account-auth-footnote">Browsing the map is free. An account saves your personal B.A.R.K. history.</p>
+                </div>
+            </div>
+
+            <!-- Universal Footer: Community Tools -->
+            <div id="add-location-portal" class="profile-section-card"
+                style="background: white; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; margin-bottom: 24px; border: 1px solid rgba(0,0,0,0.05);">
+                <div style="text-align: center;">
+                    <h3 style="color: #333; font-size: 16px; font-weight: 700; margin-bottom: 10px;">➕ Report a Bug,
+                        Missing Location, or Idea</h3>
+                    <p style="font-size: 13px; color: #666; margin-bottom: 15px;">Help grow the map and improve the app.
+                        One send reaches the team and opens an email you can edit.</p>
+
+                    <a id="email-suggest-btn" href="#" data-bark-local-action="feedback" class="glass-btn primary-btn"
+                        style="text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; width: 100%; padding: 14px; border-radius: 12px;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z">
+                            </path>
+                            <polyline points="22,6 12,13 2,6"></polyline>
+                        </svg>
+                        Send Feedback
+                    </a>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Navigation Bar -->
+    <nav id="main-nav" class="glass-nav">
+        <button type="button" class="nav-item" data-target="home-view">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+            </svg>
+            <span>Home</span>
+        </button>
+        <button type="button" class="nav-item active" data-target="map-view" aria-current="page">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon>
+                <line x1="8" y1="2" x2="8" y2="18"></line>
+                <line x1="16" y1="6" x2="16" y2="22"></line>
+            </svg>
+            <span>USBarkRangers</span>
+        </button>
+        <button type="button" class="nav-item" data-target="planner-view" style="position: relative;">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="1" y="3" width="15" height="13"></rect>
+                <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                <circle cx="18.5" cy="18.5" r="2.5"></circle>
+            </svg>
+            <span>Planner</span>
+            <span id="planner-badge"
+                style="display: none; position: absolute; top: 5px; right: 15px; background: #FF9800; color: white; border-radius: 12px; font-size: 10px; font-weight: 800; padding: 2px 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">0</span>
+        </button>
+        <button type="button" class="nav-item" data-target="profile-view">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            <span>Profile</span>
+        </button>
+    </nav>
+
+    <div id="update-toast" class="update-toast">
+        <span>A new version of the map is available!</span>
+        <button id="refresh-btn">Refresh</button>
+    </div>
+
+    <div id="official-qr-overlay" class="official-qr-overlay" aria-hidden="true">
+        <div class="official-qr-modal" role="dialog" aria-modal="true" aria-label="US BARK Rangers QR code">
+            <button type="button" id="official-qr-close-btn" class="official-qr-close-btn"
+                aria-label="Close QR code">&times;</button>
+            <img class="official-qr-modal-image" src="assets/images/usbarkrangers-qr.jpeg"
+                alt="US BARK Rangers QR code" width="391" height="400" loading="lazy">
+        </div>
+    </div>
+
+    <div id="wm-save-overlay" class="wm-save-overlay" aria-hidden="true">
+        <div class="wm-save-modal" role="dialog" aria-modal="true" aria-labelledby="wm-save-title">
+            <button type="button" id="wm-save-close" class="wm-save-close" aria-label="Close">&times;</button>
+            <h3 id="wm-save-title" class="wm-save-title">Save Your Photo</h3>
+            <div class="wm-save-image-wrap">
+                <img id="wm-save-preview" class="wm-save-image" alt="Watermarked photo preview">
+            </div>
+            <div class="wm-save-progress" id="wm-save-progress" role="progressbar" aria-label="Preparing image"
+                aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div class="wm-save-progress-bar" id="wm-save-progress-bar"></div>
+            </div>
+            <p class="wm-save-status" id="wm-save-status">Preparing full-resolution image…</p>
+            <div class="wm-save-actions">
+                <button type="button" id="wm-save-share" class="glass-btn primary-btn wm-save-btn" disabled>
+                    Save to Photos / Files</button>
+                <button type="button" id="wm-save-download" class="glass-btn wm-save-btn wm-save-btn-secondary" disabled>
+                    Download to device</button>
+            </div>
+            <p class="wm-save-note">Saved as a lossless PNG at full resolution.</p>
+        </div>
+    </div>
+
+    <div id="paywall-overlay" class="paywall-overlay" aria-hidden="true">
+        <div class="paywall-modal" role="dialog" aria-modal="true" aria-labelledby="paywall-title">
+            <button type="button" id="paywall-close-btn" class="paywall-close-btn" aria-label="Close paywall">
+                &times;
+            </button>
+            <div id="paywall-eyebrow" class="paywall-eyebrow">Annual plan</div>
+            <h2 id="paywall-title">Upgrade to BARK Ranger Premium</h2>
+            <p id="paywall-body" class="paywall-body-copy">
+                Unlock the premium map tools for one annual plan.
+            </p>
+            <div id="paywall-tier-group" class="paywall-tier-group" aria-label="Premium plan">
+                <button type="button" class="paywall-tier-option selected" data-tier="standard"
+                    aria-pressed="true">
+                    <span class="paywall-tier-radio" aria-hidden="true"></span>
+                    <span class="paywall-tier-copy">
+                        <span class="paywall-tier-title-row">
+                            <span class="paywall-tier-title">Standard &mdash; $20/year</span>
+                        </span>
+                    </span>
+                </button>
+            </div>
+            <ul id="paywall-feature-list" class="paywall-feature-list">
+                <li>Know which parks you've conquered</li>
+                <li>Cleaner, sharper map styles</li>
+                <li>Track virtual & completed trails</li>
+                <li>Plan trips to any town or city</li>
+                <li>Get there with smarter routing</li>
+            </ul>
+            <div class="paywall-actions">
+                <button type="button" id="paywall-primary-btn" class="paywall-primary-btn">
+                    Continue to secure checkout
+                </button>
+                <button type="button" id="paywall-secondary-btn" class="paywall-secondary-btn">
+                    Maybe later
+                </button>
+            </div>
+            <button type="button" id="paywall-clear-url-btn" class="paywall-clear-url-btn" hidden>
+                Dismiss checkout message
+            </button>
+            <div class="paywall-footer">
+                <span class="paywall-support-copy">
+                    Secure checkout by Lemon Squeezy. Premium stays attached to this account.
+                </span>
+                <button type="button" id="paywall-restore-btn" class="paywall-restore-btn" hidden>
+                    Restore purchase
+                </button>
+            </div>
+            <div id="paywall-source" class="paywall-source">Opened from manual</div>
+        </div>
+    </div>
+
+    <div id="account-management-overlay" class="account-management-overlay" aria-hidden="true">
+        <div class="account-management-modal" role="dialog" aria-modal="true" aria-labelledby="account-management-title">
+            <button type="button" id="account-management-close-btn" class="account-management-close-btn" aria-label="Close account management">
+                &times;
+            </button>
+            <div id="account-management-eyebrow" class="account-management-eyebrow">Account</div>
+            <h2 id="account-management-title">Manage account</h2>
+            <p id="account-management-copy" class="account-management-copy">
+                Review your account and billing options.
+            </p>
+
+            <div class="account-management-summary">
+                <div>
+                    <span>Signed in as</span>
+                    <strong id="account-management-email">Not signed in</strong>
+                </div>
+                <div>
+                    <span>Plan</span>
+                    <strong id="account-management-plan">Loading</strong>
+                </div>
+                <div>
+                    <span>Billing</span>
+                    <strong id="account-management-billing">Loading</strong>
+                </div>
+            </div>
+
+            <div class="account-management-actions">
+                <button type="button" id="account-management-upgrade-btn" class="account-management-primary-btn">
+                    Upgrade to Premium
+                </button>
+                <button type="button" id="account-management-portal-btn" class="account-management-secondary-btn">
+                    Open secure billing portal
+                </button>
+                <button type="button" id="account-management-cancel-subscription-btn" class="account-management-cancel-btn">
+                    Cancel subscription
+                </button>
+                <p id="account-management-cancel-warning" class="account-management-cancel-warning" hidden>
+                    Cancels renewal only. Premium stays active until the paid period ends.
+                </p>
+                <button type="button" id="account-management-support-btn" class="account-management-secondary-btn">
+                    Contact support
+                </button>
+            </div>
+
+            <div id="account-management-message" class="account-management-message" hidden></div>
+
+            <div class="account-management-danger">
+                <div class="account-management-danger-copy">
+                    <h3>Delete account</h3>
+                    <p id="account-management-delete-copy">
+                        Delete your BARK account, saved progress, trips, and leaderboard entry. If you have a Lemon Squeezy subscription, cancel billing in the secure billing portal first.
+                    </p>
+                </div>
+                <label for="account-delete-confirm-input">Type DELETE to confirm</label>
+                <input id="account-delete-confirm-input" type="text" autocomplete="off" inputmode="text" placeholder="DELETE">
+                <button type="button" id="account-delete-confirm-btn" class="account-management-delete-btn" disabled>
+                    Delete account
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="account-gate-overlay" class="account-gate-overlay" aria-hidden="true">
+        <div class="account-gate-modal" role="dialog" aria-modal="true" aria-labelledby="account-gate-title">
+            <button type="button" id="account-gate-close-btn" class="account-gate-close-btn" aria-label="Close account prompt">
+                &times;
+            </button>
+            <div id="account-gate-eyebrow" class="account-gate-eyebrow">Free account</div>
+            <h2 id="account-gate-title">Create a free account to save where you've been</h2>
+            <p id="account-gate-body" class="account-gate-body-copy">
+                Your B.A.R.K. passport, visited parks, verified check-ins, and saved trips stay with your account.
+            </p>
+            <ul class="account-gate-feature-list">
+                <li>Save visited and verified B.A.R.K. stops</li>
+                <li>Build your profile, states, points, and achievements</li>
+                <li>Keep trip routes and notes backed up</li>
+            </ul>
+            <div class="account-gate-actions">
+                <button type="button" id="account-gate-primary-btn" class="account-gate-primary-btn">
+                    Create free account
+                </button>
+                <button type="button" id="account-gate-secondary-btn" class="account-gate-secondary-btn">
+                    Sign in instead
+                </button>
+            </div>
+            <p class="account-gate-support-copy">
+                The map is free to browse. An account saves your personal B.A.R.K. history.
+            </p>
+            <div id="account-gate-source" class="account-gate-source">Opened from map</div>
+        </div>
+    </div>
+
+    <div id="feedback-overlay" class="feedback-overlay" aria-hidden="true">
+        <div id="feedback-modal" class="feedback-modal" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+            <button type="button" id="feedback-close-btn" class="feedback-close-btn" aria-label="Close feedback">
+                &times;
+            </button>
+            <div class="feedback-eyebrow">Feedback</div>
+            <h2 id="feedback-title">Tell us what you found</h2>
+            <p id="feedback-intro" class="feedback-intro">
+                One send: it reaches the team right away and opens a prefilled email you can edit.
+            </p>
+
+            <p id="feedback-signed-out-note" class="feedback-note" hidden>
+                You are signed out. This still reaches the team — sign in if you want to attach screenshots.
+            </p>
+
+            <form id="feedback-form" class="feedback-form" novalidate>
+                <div class="feedback-field">
+                    <label for="feedback-subject-input">What is this about?</label>
+                    <div class="feedback-combobox">
+                        <input id="feedback-subject-input" type="text" role="combobox" autocomplete="off"
+                            aria-expanded="false" aria-autocomplete="list" aria-controls="feedback-subject-list"
+                            placeholder="General feedback, or search a B.A.R.K. stop">
+                        <ul id="feedback-subject-list" class="feedback-subject-list" role="listbox"
+                            aria-label="Feedback subject" hidden></ul>
+                    </div>
+                </div>
+
+                <div class="feedback-field">
+                    <span class="feedback-field-label" id="feedback-type-label">What kind of feedback?</span>
+                    <div id="feedback-type-group" class="feedback-type-group" role="group"
+                        aria-labelledby="feedback-type-label"></div>
+                </div>
+
+                <div class="feedback-field">
+                    <label for="feedback-message">Your message</label>
+                    <textarea id="feedback-message" rows="6" maxlength="2000"
+                        placeholder="What happened, what you expected, and where you were on the map."></textarea>
+                    <span id="feedback-message-count" class="feedback-counter">0 / 2000</span>
+                </div>
+
+                <div class="feedback-field-row">
+                    <div class="feedback-field">
+                        <label for="feedback-name">Name</label>
+                        <input id="feedback-name" type="text" autocomplete="name" maxlength="80">
+                    </div>
+                    <div class="feedback-field">
+                        <label for="feedback-email">Email</label>
+                        <input id="feedback-email" type="email" autocomplete="email" inputmode="email" maxlength="254">
+                    </div>
+                </div>
+
+                <div class="feedback-field" id="feedback-shots-row" hidden>
+                    <span class="feedback-field-label">Screenshots (optional)</span>
+                    <ul id="feedback-shots-list" class="feedback-shots-list"></ul>
+                    <input id="feedback-shots-input" class="feedback-visually-hidden" type="file" accept="image/*"
+                        multiple>
+                    <button type="button" id="feedback-shots-add" class="feedback-secondary-btn">
+                        Add screenshot (0/3)
+                    </button>
+                    <p class="feedback-hint">Shrunk on your device before sending. They go with the team report, not the email.</p>
+                </div>
+
+                <div id="feedback-status" class="feedback-status" role="status" hidden></div>
+
+                <button type="submit" id="feedback-submit-btn" class="feedback-primary-btn">Send feedback</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Firebase SDK (Compat Version) -->
+    <script src="vendor/firebase-10.11.0/firebase-app-compat.js" defer></script>
+    <script src="vendor/firebase-10.11.0/firebase-app-check-compat.js" defer></script>
+    <script src="vendor/firebase-10.11.0/firebase-auth-compat.js" defer></script>
+    <script src="vendor/firebase-10.11.0/firebase-firestore-compat.js" defer></script>
+    <script src="vendor/firebase-10.11.0/firebase-functions-compat.js" defer></script>
+    <script src="vendor/firebase-10.11.0/firebase-analytics-compat.js" defer></script>
+
+    <script src="vendor/papaparse-5.4.1/papaparse.min.js" defer></script>
+
+    <!-- Lightweight monitoring context and reporter load early to cover boot. -->
+    <script src="modules/monitoringContext.js?v=5" defer></script>
+    <script src="modules/errorReporter.js?v=7" defer></script>
+    <script src="modules/rateLimitUi.js?v=3" defer></script>
+    <!-- Core Dependencies (load before modules) -->
+    <script src="utils/geoUtils.js?v=2" defer></script>
+    <script src="utils/scoringUtils.js?v=2" defer></script>
+    <script src="utils/imageDownscale.js?v=2" defer></script>
+    <script src="gamificationLogic.js?v=10" defer></script>
+    <script src="MapMarkerConfig.js?v=4" defer></script>
+
+    <!-- NEW: Modular Architecture (strict load order) -->
+    <script src="modules/settingsRegistry.js?v=3" defer></script>
+    <script src="repos/ParkRepo.js?v=2" defer></script>
+    <script src="repos/VaultRepo.v141.js" defer></script>
+    <script src="modules/launchFlags.js?v=1" defer></script>
+    <script src="modules/barkState.js?v=17" defer></script>
+    <script src="modules/barkConfig.js?v=9" defer></script>
+    <script src="modules/loadState.js?v=1" defer></script>
+    <script src="modules/visitorAnalytics.js?v=1" defer></script>
+    <script src="config/domRefs.js?v=4" defer></script>
+    <script src="state/settingsStore.js?v=6" defer></script>
+    <script src="state/appState.js?v=4" defer></script>
+    <!-- Phase 2B: additive refreshCoordinator seam; existing refresh calls still remain in place. -->
+    <script src="modules/RefreshCoordinator.js?v=2" defer></script>
+    <script src="services/orsRouteCache.js?v=2" defer></script>
+    <script src="services/orsService.js?v=8" defer></script>
+    <script src="services/visitMutationCoordinator.v141.js" defer></script>
+    <script src="services/firebaseService.v141.js" defer></script>
+    <script src="renderers/routeRenderer.js?v=6" defer></script>
+    <script src="services/checkinService.v141.js" defer></script>
+    <script src="services/authPremiumUi.js?v=5" defer></script>
+    <script src="services/premiumService.js?v=3" defer></script>
+    <script src="services/authAccountUi.js?v=26" defer></script>
+    <!-- feedbackTransport owns the feedback addresses and mailto builder, so it must
+         parse before authService and panelRenderer, which build fallback links from it. -->
+    <script src="modules/feedbackTransport.js?v=7" defer></script>
+    <script src="modules/paywallController.js?v=24" defer></script>
+    <script src="services/authService.v141.js" defer></script>
+    <script src="modules/markerLayerPolicy.js?v=2" defer></script>
+    <script src="modules/MarkerLayerManager.js?v=19" defer></script>
+    <script src="engines/tripRoutePlan.js?v=3" defer></script>
+    <script src="engines/tripRouteBatch.js?v=4" defer></script>
+    <script src="modules/TripLayerManager.js?v=14" defer></script>
+    <script src="modules/mapEngine.v143.js" defer></script>
+    <script src="modules/renderEngine.js?v=14" defer></script>
+    <script src="renderers/panelRenderer.js?v=31" defer></script>
+    <script src="modules/externalPinReturn.js?v=5" defer></script>
+    <script src="modules/searchEngine.js?v=10" defer></script>
+    <script src="modules/dataService.v143.js" defer></script>
+    <script src="renderers/leaderboardRenderer.js?v=1" defer></script>
+    <script src="modules/achievementsPanel.js?v=1" defer></script>
+    <script src="modules/managePortal.js?v=2" defer></script>
+    <script src="modules/profileEngine.js?v=18" defer></script>
+    <!-- leaderboardEngine loads after profileEngine so the shared visit helpers are
+         registered on window.BARK first. Calls in the other direction are late-bound. -->
+    <script src="modules/leaderboardSyncPolicy.js?v=1" defer></script>
+    <script src="modules/leaderboardEngine.js?v=4" defer></script>
+    <script src="modules/expeditionEngine.js?v=11" defer></script>
+    <script src="modules/walkTracker.js?v=4" defer></script>
+    <script src="engines/tripPlannerCore.js?v=28" defer></script>
+    <script src="modules/shareEngine.js?v=10" defer></script>
+    <script src="modules/watermarkTool.js?v=5" defer></script>
+    <script src="modules/settingsController.js?v=13" defer></script>
+    <script src="modules/uiController.js?v=30" defer></script>
+    <script src="modules/firstOpenDisclaimer.js?v=2" defer></script>
+    <!-- The combobox scores parks with searchEngine, so both load after it;
+         feedbackTransport is loaded earlier, above. -->
+    <script src="modules/feedbackSubjectPicker.js?v=2" defer></script>
+    <script src="modules/feedbackModal.js?v=6" defer></script>
+
+    <!-- ENTRY POINT: Bootstrap Orchestrator (must load LAST) -->
+    <script src="core/app.v144.js" defer></script>
+    <!-- SCORING PROTOCOL MODAL -->
+    <div id="scoring-modal" class="scoring-modal-overlay">
+        <div class="scoring-modal-card">
+            <div class="modal-header">
+                <h3>🛡️ B.A.R.K. PROTOCOL</h3>
+                <button id="close-scoring-modal" class="modal-close-btn">&times; Close</button>
+            </div>
+
+            <div class="modal-section">
+                <h4 class="section-title">THE POINT SYSTEM</h4>
+                <div class="protocol-grid">
+                    <div class="protocol-item">
+                        <span class="p-icon">📝</span>
+                        <div class="protocol-item-details">
+                            <strong>Honor Code (Regular)</strong>
+                            <p>1 PT per unique site</p>
+                        </div>
+                    </div>
+                    <div class="protocol-item">
+                        <span class="p-icon">🐾</span>
+                        <div class="protocol-item-details">
+                            <strong>Verified (GPS)</strong>
+                            <p>+1 bonus PT, 2 PTS total</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-section">
+                <h4 class="section-title">THE STATUS LADDER</h4>
+                <div class="ladder-list">
+                    <div class="ladder-step"><span>0-9</span> <strong>Trainee</strong></div>
+                    <div class="ladder-step"><span>10-24</span> <strong>Ranger</strong></div>
+                    <div class="ladder-step"><span>25-49</span> <strong>Trail Blazer</strong></div>
+                    <div class="ladder-step"><span>50-99</span> <strong>B.A.R.K. Master</strong></div>
+                    <div class="ladder-step"><span>100-199</span> <strong>Trail Legend</strong></div>
+                    <div class="ladder-step"><span>200-299</span> <strong>Apex Ranger</strong></div>
+                    <div class="ladder-step"><span>300+</span> <strong>National Treasure</strong></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="optimizer-modal" class="scoring-modal-overlay">
+        <div class="scoring-modal-card">
+            <div class="modal-header">
+                <h3>✨ OPTIMIZER SETTINGS</h3>
+                <button id="optimizer-modal-close-btn"
+                    class="modal-close-btn">&times; Cancel</button>
+            </div>
+            <div class="modal-section">
+                <p style="font-size: 12px; color: #94a3b8; margin-bottom: 20px;">How would you like to pace your road
+                    trip? The AI will group your stops accordingly.</p>
+
+                <label style="display:block; font-size:11px; font-weight:800; color:#f1f5f9; margin-bottom:8px;">Max
+                    Stops Per Day</label>
+                <input type="number" id="opt-max-stops" value="5" min="2" max="15"
+                    style="width:100%; padding:10px; border-radius:8px; border:none; margin-bottom:20px; background:#1e293b; color:white;">
+
+                <label style="display:block; font-size:11px; font-weight:800; color:#f1f5f9; margin-bottom:8px;">Max
+                    Estimated Drive Time (Hours / Day)</label>
+                <input type="number" id="opt-max-hours" value="4" min="1" max="12"
+                    style="width:100%; padding:10px; border-radius:8px; border:none; margin-bottom:20px; background:#1e293b; color:white;">
+
+                <button id="execute-smart-optimization-btn"
+                    style="width:100%; background:linear-gradient(135deg, #9333ea, #c026d3); color:white; font-weight:900; padding:12px; border-radius:8px; border:none; cursor:pointer; text-transform:uppercase; box-shadow: 0 4px 15px rgba(147, 51, 234, 0.4);">Run
+                    Global Optimizer</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="route-generation-choice-modal" class="scoring-modal-overlay route-generation-choice-modal"
+        role="dialog" aria-modal="true" aria-labelledby="route-generation-choice-title"
+        aria-describedby="route-generation-choice-copy">
+        <div class="route-generation-choice-card">
+            <button id="route-generation-choice-close-btn" type="button" class="route-generation-choice-close"
+                aria-label="Cancel route generation">&times;</button>
+            <div class="route-generation-choice-eyebrow">Premium Routing</div>
+            <h3 id="route-generation-choice-title">Optimize Your Trip?</h3>
+            <p id="route-generation-choice-copy">
+                We can automatically reorder your stops to find the most efficient driving route, or you can keep your exact manual order.
+            </p>
+            <div class="route-generation-choice-actions">
+                <button id="route-optimize-generate-btn" type="button" class="route-generation-choice-primary">
+                    ✨ Optimize &amp; Generate
+                </button>
+                <button id="route-skip-generate-btn" type="button" class="route-generation-choice-secondary">
+                    Skip &amp; Generate
+                </button>
+                <button id="route-generation-choice-cancel-btn" type="button" class="route-generation-choice-cancel">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trail Education Modal -->
+    <div id="trail-education-modal" class="scoring-modal-overlay" style="display: none;">
+        <div class="scoring-modal-card">
+            <div class="modal-header">
+                <h3>📖 EXPEDITION BRIEF</h3>
+                <button id="trail-education-close-btn"
+                    class="modal-close-btn">&times;</button>
+            </div>
+
+            <div class="modal-section" style="text-align: left;">
+                <div
+                    style="font-size: 10px; font-weight: 800; color: #e2e8f0; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 1px;">
+                    LOCATION</div>
+                <div id="edu-park-name" style="font-size: 18px; font-weight: 900; color: #f8fafc; margin-bottom: 20px;">
+                    Loading...</div>
+
+                <div
+                    style="font-size: 10px; font-weight: 800; color: #e2e8f0; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 1px;">
+                    ABOUT THIS TRAIL</div>
+                <div id="edu-trail-desc"
+                    style="font-size: 15px; color: #cbd5e1; line-height: 1.6; margin-bottom: 24px;">Loading
+                    description...</div>
+
+                <div
+                    style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 28px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));">🥾</span>
+                    <div>
+                        <div style="font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase;">Total
+                            Distance</div>
+                        <div id="edu-trail-distance" style="font-size: 16px; font-weight: 900; color: #22c55e;">0.0
+                            Miles</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- First-Open Disclaimer Modal -->
+    <div id="disclaimer-modal" class="scoring-modal-overlay" role="dialog" aria-modal="true"
+        aria-labelledby="disclaimer-title" style="display: none;">
+        <div class="scoring-modal-card" style="max-width: 440px; text-align: center; border: 1px solid rgba(245, 158, 11, 0.5); box-shadow: 0 0 30px rgba(245, 158, 11, 0.25), 0 20px 40px rgba(0,0,0,0.4);">
+            <div style="font-size: 44px; margin-bottom: 12px;">⚠️</div>
+            <h3 id="disclaimer-title"
+                style="font-size: 18px; letter-spacing: 1px; color: #f59e0b; margin: 0 0 16px 0; text-transform: uppercase;">
+                Please Read First</h3>
+            <p style="font-size: 16px; line-height: 1.6; color: #f8fafc; font-weight: 700; margin: 0 0 12px 0;">
+                Info on B.A.R.K. Ranger programs is very fluid and constantly subject to change.
+            </p>
+            <p style="font-size: 15px; line-height: 1.6; color: #f59e0b; font-weight: 800; margin: 0 0 20px 0;">
+                Please call ahead before you visit!
+            </p>
+            <p style="font-size: 13px; line-height: 1.5; color: #cbd5e1; margin: 0 0 20px 0;">
+                Program availability, hours, badges, and swag can change without notice. Always confirm
+                directly with the park before making the trip.
+            </p>
+            <label for="disclaimer-agree-checkbox"
+                style="display: flex; align-items: flex-start; gap: 10px; text-align: left; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 14px; margin-bottom: 18px; cursor: pointer;">
+                <input type="checkbox" id="disclaimer-agree-checkbox"
+                    style="width: 20px; height: 20px; margin-top: 1px; flex-shrink: 0; cursor: pointer; accent-color: #f59e0b;">
+                <span style="font-size: 13px; line-height: 1.5; color: #e2e8f0;">
+                    I understand the above, and I agree to the
+                    <a href="pages/terms.html" target="_blank" rel="noopener"
+                        style="color: #fbbf24; font-weight: 700;">Terms of Use</a>
+                    and
+                    <a href="pages/privacy.html" target="_blank" rel="noopener"
+                        style="color: #fbbf24; font-weight: 700;">Privacy Policy</a>.
+                </span>
+            </label>
+            <button id="disclaimer-accept-btn" type="button" disabled
+                style="width: 100%; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; border-radius: 12px; padding: 14px; font-size: 15px; font-weight: 800; cursor: pointer; box-shadow: 0 6px 16px rgba(245, 158, 11, 0.3); opacity: 0.5; transition: opacity 0.2s;">
+                Agree &amp; Continue
+            </button>
+        </div>
+    </div>
+
+    <!-- HIDDEN EXPORT STUDIO (Flex Engine) -->
+    <div id='vault-export-template'
+        style='position: absolute; left: -9999px; top: 0; width: 1080px; height: 1080px; background: radial-gradient(circle at top, #1e293b, #0f172a); color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: "Inter", sans-serif; box-sizing: border-box; padding: 60px;'>
+        <div
+            style='font-size: 24px; font-weight: 900; letter-spacing: 6px; color: #f59e0b; margin-bottom: 20px; text-transform: uppercase;'>
+            B.A.R.K. RANGER MAP</div>
+        <h1 id="export-title"
+            style="font-size: 80px; font-weight: 900; margin: 0 0 20px 0; color: #f8fafc; text-shadow: 0 10px 20px rgba(0,0,0,0.8);">
+            Trail Legend</h1>
+        <div id='export-score'
+            style='background: linear-gradient(135deg, #f59e0b, #d97706); color: white; font-weight: 900; font-size: 36px; padding: 15px 40px; border-radius: 50px; box-shadow: 0 10px 20px rgba(245, 158, 11, 0.4); margin-bottom: 80px;'>
+            122 PTS</div>
+        <div
+            style='font-size: 20px; font-weight: 700; color: #64748b; margin-bottom: 30px; letter-spacing: 2px; text-transform: uppercase;'>
+            TOP ACHIEVEMENTS</div>
+        <div id='export-badges-container' style='display: flex; gap: 40px; justify-content: center; width: 100%;'></div>
+        <div
+            style='position: absolute; bottom: 40px; font-size: 20px; font-weight: 800; color: #475569; letter-spacing: 2px;'>
+            START YOUR JOURNEY AT USBARKRANGERS.COM</div>
+    </div>
+
+    <!-- SINGLE MILESTONE FLEX ENGINE -->
+    <div id="single-export-template"
+        style="position: absolute; left: -9999px; top: 0; width: 1080px; height: 1080px; background: radial-gradient(circle at top, #1e293b, #0f172a); color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Inter', sans-serif; box-sizing: border-box; padding: 60px;">
+        <div
+            style="font-size: 28px; font-weight: 900; letter-spacing: 6px; color: #f59e0b; margin-bottom: 60px; text-transform: uppercase;">
+            NEW ACHIEVEMENT UNLOCKED</div>
+        <div id="single-export-card-container"></div>
+        <div
+            style="position: absolute; bottom: 60px; font-size: 24px; font-weight: 800; color: #475569; letter-spacing: 3px;">
+            TRACK YOUR PARKS AT USBARKRANGERS.COM</div>
+    </div>
+</body>
+
+</html>

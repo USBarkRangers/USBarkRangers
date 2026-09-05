@@ -6,10 +6,10 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const APP_ROOT = path.join(__dirname, '..', '01-code', 'app');
-const MANIFEST_PATH = path.join(APP_ROOT, 'offline', 'cacheManifest-0.143.js');
+const MANIFEST_PATH = path.join(APP_ROOT, 'offline', 'cacheManifest-0.144.js');
 const PRIOR_MANIFEST_PATH = path.join(APP_ROOT, 'offline', 'cacheManifest-0.141.js');
 const SW_PATH = path.join(APP_ROOT, 'sw.js');
-const HTML_PATH = path.join(APP_ROOT, 'index.v143.html');
+const HTML_PATH = path.join(APP_ROOT, 'index.v144.html');
 
 const LEGACY_PUBLIC_HASHES = Object.freeze({
     'index.html': '3d77650f4ee452fee1b456b8992f2560321765f8c82a2f3ea7f072f693d02035',
@@ -46,7 +46,7 @@ test('offline shell version matches the app release', () => {
     const manifest = loadCacheManifest();
     const version = JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'version.json'), 'utf8')).version;
     assert.equal(manifest.version, version);
-    assert.equal(version, '0.143');
+    assert.equal(version, '0.144');
 });
 
 test('the public 0.140 shell remains byte-identical for dormant legacy workers', () => {
@@ -69,11 +69,11 @@ test('the private 0.141 shell and fallback remain byte-identical for active prio
     assert.equal(priorWorkerHash, '1742025c7159d147f0f590d8451ef3b8ae63295f0173fbc2896017b8c4177792');
 });
 
-test('the worker uses the physical 0.143 manifest and private entry', () => {
+test('the worker uses the physical 0.144 manifest and private entry', () => {
     const manifest = loadCacheManifest();
     const sw = fs.readFileSync(SW_PATH, 'utf8');
-    assert.equal(manifest.entry, './index.v143.html');
-    assert.match(sw, /cacheManifest-0\.143\.js/);
+    assert.equal(manifest.entry, './index.v144.html');
+    assert.match(sw, /cacheManifest-0\.144\.js/);
     assert.doesNotMatch(sw, /cacheManifest-0\.141\.js/);
     assert.doesNotMatch(sw, /cacheManifest\.js\?v=/);
 });

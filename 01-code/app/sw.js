@@ -7,8 +7,8 @@
  * never stored here.
  */
 // This corrective worker must never pair with a mutable or prior manifest.
-// The physical release path makes its cache identity inseparable from 0.143.
-importScripts('./offline/cacheManifest-0.143.js');
+// The physical release path makes its cache identity inseparable from 0.144.
+importScripts('./offline/cacheManifest-0.144.js');
 
 const CONFIG = self.BARK_OFFLINE_CACHE_MANIFEST;
 const SHELL_CACHE_PREFIX = 'bark-offline-shell-';

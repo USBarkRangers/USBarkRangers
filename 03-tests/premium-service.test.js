@@ -32,8 +32,8 @@ function loadPremiumService(options = {}) {
     }
     context.window.window = context.window;
 
-    const source = fs.readFileSync(path.join(__dirname, '..', '01-code', 'app', 'services', 'premiumService.js'), 'utf8');
-    vm.runInNewContext(source, context, { filename: 'services/premiumService.js' });
+    const source = fs.readFileSync(path.join(__dirname, '..', '01-code', 'app', 'services', 'premiumService.v145.js'), 'utf8');
+    vm.runInNewContext(source, context, { filename: 'services/premiumService.v145.js' });
     const service = context.window.BARK.services.premium;
     service.__testStorage = storage;
     service.__testWindow = context.window;
@@ -171,4 +171,15 @@ test('offline Premium cache cannot unlock a different authenticated UID', () => 
     otherAccountService.__testWindow._authStateResolved = true;
     assert.equal(otherAccountService.restoreOfflineSession().uid, 'paid-user');
     assert.equal(otherAccountService.isPremium(), false);
+});
+
+
+test('early offline access rejects a different remembered UID before activating entitlement', () => {
+    const storage = new Map();
+    const service = loadPremiumService({ storage });
+    service.rememberAuthoritativeOfflineSession({ premium: true, status: 'active', source: 'lemon_squeezy', currentPeriodEnd: Date.now() + 86400000 }, { uid: 'account-a' });
+    assert.equal(service.restoreOfflineSession('account-b'), null);
+    assert.equal(service.getActiveOfflineSession(), null);
+    assert.equal(service.isPremium(), false);
+    assert.equal(service.restoreOfflineSession('account-a').uid, 'account-a');
 });

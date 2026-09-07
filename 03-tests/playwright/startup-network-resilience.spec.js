@@ -14,10 +14,10 @@ async function serveApp() {
             state.stalled++;
             return; // Real socket stays open: bars present, no response, no offline event.
         }
-        const file = path.join(appRoot, pathname === '/' ? 'index.v144.html' : pathname);
+        const file = path.join(appRoot, pathname === '/' ? 'index.v145.html' : pathname);
         if (!file.startsWith(appRoot) || !fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
         let body = fs.readFileSync(file);
-        if (pathname.endsWith('authService.v141.js')) {
+        if (pathname.endsWith('authService.v145.js')) {
             body = Buffer.from(body.toString() + '\nwindow.BARK.services.auth.initFirebase = () => new Promise(() => {});');
         }
         res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
@@ -57,14 +57,14 @@ for (const [name, browserType] of [['Android Chromium', chromium], ['iPhone WebK
         });
         try {
             let page = await context.newPage();
-            await page.goto(`${server.url}/index.v144.html`, { waitUntil: 'domcontentloaded' });
+            await page.goto(`${server.url}/index.v145.html`, { waitUntil: 'domcontentloaded' });
             await expect(page.locator('#bark-loader')).toHaveCount(0, { timeout: 4000 });
             const count = await page.evaluate(() => window.BARK.repos.ParkRepo.getAll().length);
             expect(count).toBeGreaterThan(300);
             expect(sheetRequests).toBeGreaterThan(0);
             await expect.poll(() => page.evaluate(async () => {
-                const cache = await caches.open('bark-offline-shell-0.144');
-                return !!(navigator.serviceWorker.controller && await cache.match(new URL('./.bark-shell-ready-0.144', location.href).href));
+                const cache = await caches.open('bark-offline-shell-0.145');
+                return !!(navigator.serviceWorker.controller && await cache.match(new URL('./.bark-shell-ready-0.145', location.href).href));
             }), { timeout: 15000 }).toBe(true);
             // Seed a last-known catalog distinct from the bundled snapshot, and a durable journal.
             await page.evaluate(async () => {
@@ -105,7 +105,7 @@ for (const [name, browserType] of [['Android Chromium', chromium], ['iPhone WebK
                 displayed: window.BARK.repos.ParkRepo.getAll().some(p => p.name.includes('Last Known Acadia')),
                 count: window.BARK.repos.ParkRepo.getAll().length,
                 version: window.BARK.releaseVersion
-            }))).toEqual({ saved: true, displayed: true, count, version: '0.144', storageLength: expect.any(Number) });
+            }))).toEqual({ saved: true, displayed: true, count, version: '0.145', storageLength: expect.any(Number) });
             await page.evaluate(() => window.BARK.showOfflineRecoveryNotice());
             await page.locator('#auth-failure-reload').click();
             await page.waitForLoadState('domcontentloaded');
@@ -125,7 +125,7 @@ for (const [name, browserType] of [['Android Chromium', chromium], ['iPhone WebK
                 await context.setOffline(false);
             }
             server.state.stall = false;
-            expect(await page.evaluate(async () => (await (await fetch('./version.json?recovery=1')).json()).version)).toBe('0.144');
+            expect(await page.evaluate(async () => (await (await fetch('./version.json?recovery=1')).json()).version)).toBe('0.145');
         } finally { await context.close(); await browser.close(); await server.close(); }
     });
 
@@ -136,7 +136,7 @@ for (const [name, browserType] of [['Android Chromium', chromium], ['iPhone WebK
         await context.route('**/*', route => route.request().url().startsWith(server.url) ? route.continue() : route.abort());
         try {
             const page = await context.newPage();
-            await page.goto(`${server.url}/index.v144.html`, { waitUntil: 'commit' });
+            await page.goto(`${server.url}/index.v145.html`, { waitUntil: 'commit' });
             await expect(page.locator('#bark-startup-recovery')).toBeVisible({ timeout: 5500 });
             await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
             expect(server.state.stalled).toBeGreaterThan(0);

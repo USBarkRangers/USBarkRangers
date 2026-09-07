@@ -187,7 +187,7 @@ function loadHarness(server, storage = new Map(), { loadCheckin = false, premium
         '01-code/app/repos/ParkRepo.js',
         '01-code/app/repos/VaultRepo.v141.js',
         '01-code/app/services/visitMutationCoordinator.v141.js',
-        '01-code/app/services/firebaseService.v141.js'
+        '01-code/app/services/firebaseService.v145.js'
     ];
     if (loadCheckin) scripts.push('01-code/app/services/checkinService.v141.js');
     scripts.forEach(relativePath => {

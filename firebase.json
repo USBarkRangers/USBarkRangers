@@ -15,11 +15,17 @@
         ".env",
         ".env.*",
         ".env*"
+      ],
+      "predeploy": [
+        "node \"$PROJECT_DIR/05-tools/scripts/check-firebase-project.cjs\" \"$GCLOUD_PROJECT\""
       ]
     }
   ],
   "firestore": {
-    "rules": "06-config/firestore.rules"
+    "rules": "06-config/firestore.rules",
+    "predeploy": [
+      "node \"$PROJECT_DIR/05-tools/scripts/check-firebase-project.cjs\" \"$GCLOUD_PROJECT\""
+    ]
   },
   "emulators": {
     "auth": {
@@ -106,6 +112,9 @@
           }
         ]
       }
+    ],
+    "predeploy": [
+      "node \"$PROJECT_DIR/05-tools/scripts/check-firebase-project.cjs\" \"$GCLOUD_PROJECT\""
     ]
   }
 }

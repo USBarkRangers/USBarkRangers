@@ -24,6 +24,8 @@ npm run test:rules
 
 ## Releases & environments
 
+Before deploying, read [Firebase project ownership](04-docs/FIREBASE_PROJECT_OWNERSHIP.md). This repository targets only `barkrangermap-auth`; Just Dee Dee Music has its own repository and Firebase project. Deployment hooks reject the wrong project for functions, hosting, and rules.
+
 - **Beta**: GitHub Pages (`main`) - <https://usbarkrangers.github.io/USBarkRangers/>
 - **Production**: Firebase Hosting - <https://barkrangermap-auth.web.app/>
 

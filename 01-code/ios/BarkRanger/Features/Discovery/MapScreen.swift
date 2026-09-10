@@ -96,15 +96,22 @@ struct MapScreen: View {
                 }
             }
             .overlay(alignment: .bottom) {
-                if model.selectedID != nil && !showsFilters {
-                    ParkDetailSheet(
-                        model: model.detail, position: $detailPosition, layout: sheetLayout,
-                        dismiss: model.dismissPark
-                    ) { height in
-                        detailHeight = height
+                ZStack(alignment: .bottom) {
+                    if model.selectedID != nil && !showsFilters {
+                        ParkDetailSheet(
+                            model: model.detail, position: $detailPosition, layout: sheetLayout,
+                            dismiss: model.dismissPark
+                        ) { height in
+                            detailHeight = height
+                        }
+                        .offset(y: geometry.safeAreaInsets.bottom)
+                        .transition(
+                            .asymmetric(
+                                insertion: .identity,
+                                removal: reduceMotion ? .opacity : .move(edge: .bottom)))
                     }
-                    .offset(y: geometry.safeAreaInsets.bottom)
                 }
+                .animation(.easeIn(duration: 0.26), value: model.selectedID != nil)
             }
             .onChange(of: geometry.safeAreaInsets.bottom, initial: true) { _, overlap in
                 // Retain the resting overlap while the sheet and native bar move above it.
@@ -125,9 +132,11 @@ struct MapScreen: View {
         }
         .onChange(of: model.selectedID) { _, id in
             // Keep the user's low/medium browsing height across selections and dismissals.
-            // A full-detail dismissal returns to compact browsing rather than hiding the next map.
-            if detailPosition == .high { detailPosition = .low }
-            if id != nil { searchFocused = false }
+            // Reset high on the next selection so the departing sheet keeps its full height.
+            if id != nil {
+                if detailPosition == .high { detailPosition = .low }
+                searchFocused = false
+            }
         }
         .onChange(of: searchFocused) { _, focused in
             if focused {

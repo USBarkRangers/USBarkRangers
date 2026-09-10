@@ -1,6 +1,6 @@
 # Phase 1 — Native foundation and app shell
 
-September 10, 2026. Build **0.1.0 (1)**, branch `codex/ios-native-setup`, based on setup commit `e6d0700`. The user explicitly started phase 1 with “do phase 1.” **Implementation is in place; final verification is in progress. User acceptance is pending.** Phase 2 has not started.
+September 10, 2026. Build **0.1.0 (1)**, branch `codex/ios-native-setup`, implementation commit `f055492`, based on setup commit `e6d0700`. The user explicitly started phase 1 with “do phase 1.” **Complete and awaiting user testing. User acceptance is pending.** Phase 2 has not started.
 
 ## What is implemented
 
@@ -38,11 +38,11 @@ Toolchain: **Xcode 26.6 (17F113), Apple Swift 6.3.3**, Swift 6 language mode and
 |---|---|
 | Foundation package tests | Passed: 3 Swift Testing functions, 6 parameterized cases. |
 | App unit behavior | Passed: 8 Swift Testing functions, 22 parameterized cases, including rejected links and repeated lifecycle events. |
-| Debug app and test-target compilation | Passed on installed simulators; final clean command verification pending. |
+| Debug app and test-target compilation | Passed, including iPhone SE compilation from fresh derived data and GitHub’s clean iPhone 17 Pro build with Swift warnings treated as errors. |
 | Release simulator build | Passed from separate clean derived data with Swift warnings treated as errors. |
-| iPhone 17 Pro UI suite | All 4 UI tests passed; that run's overall result failed because a separate app-unit test host was killed before connecting. A final successful overall run is required before handoff. |
-| iPhone SE (3rd generation) | Largest-text action reachability passed. Final accessibility/navigation rerun pending after making the Home audit scroll its lower card fully into view. |
-| GitHub Actions | Workflow added; hosted execution pending. |
+| iPhone 17 Pro UI suite | All 4 UI tests passed. A focused final app-unit rerun also passed (8 functions / 22 cases, exit 0), resolving the earlier local test-host startup interruption. Hosted full-run result is recorded separately below. |
+| iPhone SE (3rd generation) | Passed final overall run: 12 test functions / 26 cases, zero failures/skips. All 4 UI tests, including full light/dark accessibility audits and largest-text scrolling/actions, passed. |
+| GitHub Actions | Passed on implementation commit `f055492`: package tests, clean app/test build, all 8 app-unit functions and all 4 UI tests (zero failures). [Verified GitHub run](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34438297644). |
 | User acceptance / physical iPhone | Pending; no registration/provisioning changes made. |
 
 No compiler/concurrency warnings remain in app/package source. Xcode emits “Metadata extraction skipped. No AppIntents.framework dependency found.” for targets without AppIntents; this is a toolchain notice, not a reason to add an unused dependency. Simulator testing can also emit duplicate system accessibility-class and debugger-version diagnostics. A failed wrapper/test-host run is recorded as failed even if individual UI checks passed.
@@ -74,7 +74,7 @@ xcodebuild -project 01-code/ios/BarkRanger.xcodeproj -scheme BarkRanger \
   CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build
 ```
 
-Local evidence is kept outside Git in `/tmp/bark-phase1/`: package-tests.log, release-build.log, simulator logs and `.xcresult` bundles. These are temporary machine-local evidence, not permanent repository artifacts. CI retains its result bundle for seven days.
+Local evidence is kept outside Git in `/tmp/bark-phase1/`: `package-tests.log`, `release-build.log`, `small-final-tests.log`, and `SmallFinalTests.xcresult`. The latter’s result summary reports Passed, 12 test functions and 26 device cases with zero failures/skips. `pro-final-tests.log` records the earlier unit-host startup interruption, separately from its passing UI tests. The subsequent focused `pro-unit-final-tests.log` / `ProUnitFinalTests.xcresult` run passed with exit 0 using `test-without-building -only-testing:BarkRangerTests` against iPhone 17 Pro and the same current build. Xcode also built and launched the app normally on iPhone 17 Pro; Home and landscape safe areas were visually inspected, then portrait restored. Exported iPhone SE screenshots confirm the dark palette and native controls. These are temporary machine-local evidence, not permanent repository artifacts. CI retains its result bundle for seven days. The successful hosted job took 12m 52s, including the fresh simulator startup; its four UI tests took 175s. No production deployment step ran.
 
 ## Your testing checklist
 
@@ -95,7 +95,17 @@ Report any screen/action that behaves differently. Feedback stays in phase 1; ph
 
 ## Actual size and preservation
 
-Runtime Swift currently contains **10 files / 509 physical lines**, including comments and blank lines. Tests, package manifest, resources, Xcode/CI configuration and documentation are counted separately at final handoff. The deleted temporary ContentView had 24 lines. The original 41-line starter is replaced, not retained as a second app path.
+Runtime Swift currently contains **10 files / 509 physical lines**, including comments and blank lines. The separate physical-line counts are shown below (comments and blank lines included; generated build output excluded). The deleted temporary ContentView had 24 lines. The original 41-line starter is replaced, not retained as a second app path: the native runtime grows by 468 lines for the real shell.
+
+| Category | Files | Lines |
+|---|---:|---:|
+| App + domain runtime Swift | 10 | 509 |
+| App/UI/package test Swift | 3 | 215 |
+| Native package/build configuration, metadata, string catalog and ignore file | 14 | 1,106 |
+| GitHub workflow | 1 | 54 |
+| Badge/icon binaries | 2 | Not counted as source lines |
+
+Documentation is excluded from runtime savings. The ownership map covers the native guides, this report, ADR and plan updates separately.
 
 **Old web/backend runtime lines removed: 0.** The old app, Firebase rules/functions/hosting settings, users and payments remain untouched. The production entry still serves `index.v142.html`; the root development redirect still points to `index.v145.html`. No production deployment or customer move occurred. Unrelated support/rules/Discord working-tree changes were preserved and excluded from native commits.
 
@@ -103,4 +113,4 @@ The overall code-reduction estimate remains a forecast. Building this 509-line f
 
 ## Next boundary
 
-After final automated checks, the status becomes **awaiting user testing**. No Firebase, catalog publication, park map, sign-in, persistence, billing, tracking, migration, user-data conversion or future-phase implementation belongs in this handoff. The next action is your testing and phase-1 fixes.
+Phase 1 is now **awaiting user testing**; all required implementation checks are complete. No Firebase, catalog publication, park map, sign-in, persistence, billing, tracking, migration, user-data conversion or future-phase implementation belongs in this handoff. The next action is your testing and phase-1 fixes.

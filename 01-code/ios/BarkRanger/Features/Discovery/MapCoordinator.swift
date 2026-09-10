@@ -10,10 +10,12 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
     private var cameraID: UUID?
     private var annotationVersion: UInt64?
     private var clustering: Bool?
+    private var renderedSelection: ParkID?
     private var overview: Bool?
     private let basemap = OfflineBasemapOverlay(urlTemplate: nil)
     private let outlines = OfflineBasemapOverlay.loadOutlines()
     private var applying = false
+    private var reduceMotion = false
     private let selectionFraming = MapSelectionFraming()
     init(model: MapFeatureModel) {
         self.model = model
@@ -22,11 +24,13 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
 
     func apply(
         to map: MKMapView, detailPosition: ParkSheetPosition = .low, detailHeight: CGFloat = 0,
-        detailMaximumHeight: CGFloat = 0, topObstruction: CGFloat = 0
+        detailFramingHeight: CGFloat = 0, topObstruction: CGFloat = 0, reduceMotion: Bool = false
     ) {
+        self.reduceMotion = reduceMotion
         applying = true
         defer { applying = false }
         updateAnnotations(on: map)
+        updateSelectionGrouping(on: map)
         updateOverlays(on: map)
         map.mapType =
             model.settings.value.mapStyle == .satellite && !model.usesOfflineMap ? .satellite : .standard
@@ -43,7 +47,8 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
         selectionFraming.apply(
             to: map, annotation: model.selectedID.flatMap { annotations[$0] },
             position: detailPosition, sheetHeight: detailHeight, cameraChanged: cameraChanged,
-            maximumSheetHeight: detailMaximumHeight, topObstruction: topObstruction)
+            framingSheetHeight: detailFramingHeight, topObstruction: topObstruction,
+            animated: !reduceMotion)
         if model.selectedID == nil {
             for annotation in map.selectedAnnotations { map.deselectAnnotation(annotation, animated: false) }
         }
@@ -51,10 +56,14 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
     private func updateAnnotations(on map: MKMapView) {
         guard annotationVersion != model.annotationVersion || clustering != model.settings.value.clustering
         else { return }
+        let groupingChanged = clustering != nil && clustering != model.settings.value.clustering
         annotationVersion = model.annotationVersion
         clustering = model.settings.value.clustering
         let next = Set(model.result.matchingIDs)
-        map.removeAnnotations(visible.subtracting(next).compactMap { annotations[$0] })
+        // Re-enroll the same objects when grouping changes; changing only materialized views leaves
+        // MapKit's existing clusters and offscreen members using the previous grouping policy.
+        map.removeAnnotations(
+            (groupingChanged ? visible : visible.subtracting(next)).compactMap { annotations[$0] })
         let knownIDs = model.projection?.catalogIDs ?? []
         annotations = annotations.filter { knownIDs.contains($0.key) }
         for park in model.parks {
@@ -66,11 +75,29 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
             if let annotation = annotations[park.id],
                 let view = map.view(for: annotation) as? ParkAnnotationView
             {
-                view.configure(park: park, clustering: model.settings.value.clustering)
+                // Refresh facts here; an attached member keeps its grouping until re-registration.
+                view.configure(park: park, clustering: view.clusteringIdentifier != nil)
             }
         }
-        map.addAnnotations(next.subtracting(visible).compactMap { annotations[$0] })
+        map.addAnnotations(
+            (groupingChanged ? next : next.subtracting(visible)).compactMap { annotations[$0] })
         visible = next
+    }
+    private func groups(_ id: ParkID) -> Bool {
+        model.settings.value.clustering && model.selectedID != id
+    }
+    /// The selected park must remain a real pin, not disappear inside a native cluster.
+    private func updateSelectionGrouping(on map: MKMapView) {
+        let next = model.selectedID
+        guard renderedSelection != next else { return }
+        let changed = [renderedSelection, next].compactMap { $0 }
+            .filter { visible.contains($0) }.compactMap { annotations[$0] }
+        renderedSelection = next
+        guard model.settings.value.clustering else { return }
+        // Remove first: changing an attached member's grouping ID can invalidate its live cluster.
+        // The delegate applies the new policy when MapKit requests its representation again.
+        map.removeAnnotations(changed)
+        map.addAnnotations(changed)
     }
     private func updateOverlays(on map: MKMapView) {
         guard overview != model.usesOfflineMap else { return }
@@ -91,7 +118,7 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: "park", for: park)
                 as? ParkAnnotationView
         {
-            view.configure(park: park.park, clustering: model.settings.value.clustering)
+            view.configure(park: park.park, clustering: groups(park.park.id))
             return view
         }
         if let cluster = annotation as? MKClusterAnnotation,
@@ -108,7 +135,9 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
         if let park = annotation as? ParkAnnotation {
             model.selectPark(id: park.park.id, focusOnMap: false)
         } else if let cluster = annotation as? MKClusterAnnotation {
-            mapView.showAnnotations(cluster.memberAnnotations, animated: true)
+            model.dismissPark()
+            mapView.deselectAnnotation(cluster, animated: false)
+            mapView.showAnnotations(cluster.memberAnnotations, animated: !reduceMotion)
         }
     }
     // All touches collapse search; only a completed background tap dismisses park selection.
@@ -126,7 +155,9 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool { true }
     @objc func mapTapped(_ recognizer: UITapGestureRecognizer) {
-        if recognizer.state == .ended { model.dismissPark() }
+        if recognizer.state == .ended {
+            model.dismissPark()
+        }
     }
     func mapViewDidFailLoadingMap(_ mapView: MKMapView, withError error: any Error) { model.imageryFailed() }
     func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {

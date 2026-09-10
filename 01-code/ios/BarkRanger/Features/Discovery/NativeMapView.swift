@@ -3,10 +3,11 @@ import SwiftUI
 
 /// The only SwiftUI/MapKit bridge. The MKMapView instance persists across catalog and filter changes.
 struct NativeMapView: UIViewRepresentable {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let model: MapFeatureModel
     var detailPosition = ParkSheetPosition.low
     var detailHeight: CGFloat = 0
-    var detailMaximumHeight: CGFloat = 0
+    var detailFramingHeight: CGFloat = 0
     var topObstruction: CGFloat = 0
     var interactionBegan: () -> Void = {}
     func makeCoordinator() -> MapCoordinator { MapCoordinator(model: model) }
@@ -32,14 +33,16 @@ struct NativeMapView: UIViewRepresentable {
         map.delegate = context.coordinator
         context.coordinator.apply(
             to: map, detailPosition: detailPosition, detailHeight: detailHeight,
-            detailMaximumHeight: detailMaximumHeight, topObstruction: topObstruction)
+            detailFramingHeight: detailFramingHeight, topObstruction: topObstruction,
+            reduceMotion: reduceMotion)
         return map
     }
     func updateUIView(_ map: MKMapView, context: Context) {
         context.coordinator.interactionBegan = interactionBegan
         context.coordinator.apply(
             to: map, detailPosition: detailPosition, detailHeight: detailHeight,
-            detailMaximumHeight: detailMaximumHeight, topObstruction: topObstruction)
+            detailFramingHeight: detailFramingHeight, topObstruction: topObstruction,
+            reduceMotion: reduceMotion)
     }
     static func dismantleUIView(_ map: MKMapView, coordinator: MapCoordinator) { map.delegate = nil }
 }

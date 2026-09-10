@@ -48,6 +48,11 @@ struct LocationCancellationTests {
 nonisolated private final class ControlledLocationManager: CLLocationManager {
     private let count = Mutex(0)
     var requests: Int { count.withLock { $0 } }
+    // Tests deliver callbacks explicitly; real authorization notifications can add extra requests.
+    override var delegate: (any CLLocationManagerDelegate)? {
+        get { nil }
+        set {}
+    }
     override var authorizationStatus: CLAuthorizationStatus { .authorizedWhenInUse }
     override func requestLocation() { count.withLock { $0 += 1 } }
     override func stopUpdatingLocation() {}

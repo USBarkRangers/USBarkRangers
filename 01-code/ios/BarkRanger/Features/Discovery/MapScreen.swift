@@ -21,7 +21,7 @@ struct MapScreen: View {
             ZStack(alignment: .top) {
                 NativeMapView(
                     model: model, detailPosition: detailPosition, detailHeight: detailHeight,
-                    detailMaximumHeight: sheetLayout.height(at: .medium),
+                    detailFramingHeight: sheetLayout.height(at: detailPosition),
                     topObstruction: geometry.safeAreaInsets.top + searchHeight
                 ) {
                     resultsCollapsed = true
@@ -120,7 +120,9 @@ struct MapScreen: View {
             Text(model.locationMessage ?? "")
         }
         .onChange(of: model.selectedID) { _, id in
-            detailPosition = .low
+            // Keep the user's low/medium browsing height across selections and dismissals.
+            // A full-detail dismissal returns to compact browsing rather than hiding the next map.
+            if detailPosition == .high { detailPosition = .low }
             aboveMedium = false
             if id != nil { searchFocused = false }
         }

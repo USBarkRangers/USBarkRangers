@@ -135,6 +135,22 @@ nonisolated final class MapInteractionUITests: XCTestCase {
         let firstPin = app.buttons["park-pin-\(firstID)"]
         let secondPin = app.buttons["park-pin-\(secondID)"]
         XCTAssertTrue(secondPin.waitForExistence(timeout: 5))
+        // Move the pair below the floating filter rail before testing a drag from the badge.
+        let openMap = app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+        openMap.press(
+            forDuration: 0.05, thenDragTo: openMap.withOffset(CGVector(dx: 0, dy: 120)),
+            withVelocity: .slow, thenHoldForDuration: 0.1)
+        XCTAssertGreaterThan(firstPin.frame.minY, app.scrollViews["active-filters"].frame.maxY)
+        capture("Pin before drag", app)
+        let beforeDrag = firstPin.frame.midY
+        let pinTouch = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: firstPin.frame.midX, dy: firstPin.frame.midY))
+        pinTouch.press(
+            forDuration: 0.05, thenDragTo: pinTouch.withOffset(CGVector(dx: 0, dy: 70)),
+            withVelocity: .slow, thenHoldForDuration: 0.1)
+        XCTAssertGreaterThan(abs(firstPin.frame.midY - beforeDrag), 25)
+        XCTAssertFalse(firstPin.isSelected || secondPin.isSelected)
+        XCTAssertFalse(app.scrollViews["park-detail-sheet"].exists, "Dragging from a pin must not select it")
         firstPin.tap()
         waitForPinToSettle(firstPin, in: app)
         let count = app.staticTexts["park-count"].label

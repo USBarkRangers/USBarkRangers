@@ -16,7 +16,9 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
     private let outlines = OfflineBasemapOverlay.loadOutlines()
     private var applying = false
     private var reduceMotion = false
-    private var dismissesSelectionOnTap = false
+    private var consumesMapTap = false
+    // Current touch target only; the feature model remains the selection authority.
+    private weak var tappedPark: ParkAnnotation?
     private let selectionFraming = MapSelectionFraming()
     init(model: MapFeatureModel) {
         self.model = model
@@ -141,24 +143,31 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
             mapView.showAnnotations(cluster.memberAnnotations, animated: !reduceMotion)
         }
     }
-    // All touches collapse search; only a completed background tap dismisses park selection.
+    // Resolve a completed pin tap directly; native selection otherwise waits for competing gestures.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        dismissesSelectionOnTap = false
+        consumesMapTap = false
+        tappedPark = nil
         interactionBegan()
         var view = touch.view
         while let current = view {
-            if current is MKAnnotationView || current is UIControl { return false }
+            if let annotationView = current as? MKAnnotationView {
+                guard let park = annotationView.annotation as? ParkAnnotation else { return false }
+                tappedPark = park
+                consumesMapTap = true
+                return true
+            }
+            if current is UIControl { return false }
             view = current.superview
         }
         // Capture this touch's intent before dismissal clears selection. Consuming its first tap
         // stops MapKit from treating the next quick drag as the second half of one-finger zoom.
-        dismissesSelectionOnTap = model.selectedID != nil
+        consumesMapTap = model.selectedID != nil
         return true
     }
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-    ) -> Bool { !dismissesSelectionOnTap }
+    ) -> Bool { !consumesMapTap }
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
@@ -170,11 +179,15 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
         {
             return false
         }
-        guard dismissesSelectionOnTap, let map = gestureRecognizer.view else { return false }
+        guard consumesMapTap, let map = gestureRecognizer.view else { return false }
         return otherGestureRecognizer.view?.isDescendant(of: map) == true
     }
     @objc func mapTapped(_ recognizer: UITapGestureRecognizer) {
-        if recognizer.state == .ended {
+        guard recognizer.state == .ended else { return }
+        defer { tappedPark = nil }
+        if let tappedPark {
+            model.selectPark(id: tappedPark.park.id, focusOnMap: false)
+        } else {
             model.dismissPark()
         }
     }

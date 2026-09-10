@@ -1,10 +1,10 @@
 # Six implementation prompts and the testing handoff
 
-Revised September 10, 2026. Status: **plan only; no phase has started.** This is the current execution contract. It replaces the former foundation/catalog phase 1 and the former migration/rollout phase 7. The user will review this plan once more, then explicitly say **“start phase 1.”** That future instruction authorizes implementing phase 1 only.
+Revised September 10, 2026. Status: **phase 1 in progress**, explicitly started by the user on September 10, 2026 ("do phase 1"). This is the current execution contract. It replaces the former foundation/catalog phase 1 and the former migration/rollout phase 7. The user explicitly requested "do phase 1" on September 10, 2026. That instruction authorizes phase 1 only; phase 2 still requires a separate explicit start.
 
 ## Workspace preparation
 
-At the user's request on September 10, the existing Desktop Xcode starter was copied into `01-code/ios/BarkRanger.xcodeproj`, configured for iPhone/iOS 18.4/Swift 6 and given a shared BarkRanger scheme. This is setup only; all six implementation statuses below remain **Not started**. The temporary ContentView still displays the original Hello, world! starter. See the [native setup README](../../../01-code/ios/README.md). GitHub setup branch: `codex/ios-native-setup` on `USBarkRangers/USBarkRangers`.
+At the user's request on September 10, the existing Desktop Xcode starter was copied into `01-code/ios/BarkRanger.xcodeproj`, configured for iPhone/iOS 18.4/Swift 6 and given a shared BarkRanger scheme. That historical setup preceded phase 1. The phase-1 implementation now replaces the temporary Hello, world! ContentView; the table below records the current status. See the [native setup README](../../../01-code/ios/README.md). GitHub setup branch: `codex/ios-native-setup` on `USBarkRangers/USBarkRangers`.
 
 ## How we will work
 
@@ -14,7 +14,7 @@ Do not begin the next phase merely because tests pass, because the user asks a q
 
 | Phase | Reusable AI prompt | What the user gets to test | Implementation status | User acceptance |
 |---|---|---|---|---|
-| 1 | [Foundation and app shell](prompts/PHASE_1_FOUNDATION.md) | A native app that builds, launches, navigates and has a documented structure. | Not started | Pending |
+| 1 | [Foundation and app shell](prompts/PHASE_1_FOUNDATION.md) | A native app that builds, launches, navigates and has a documented structure. | In progress | Pending |
 | 2 | [Catalog and discovery](prompts/PHASE_2_CATALOG_DISCOVERY.md) | Real offline parks, refresh/reconnect behavior, map, search, filters and details. | Not started | Pending |
 | 3 | [Accounts, persistence and sync](prompts/PHASE_3_ACCOUNTS_SYNC.md) | Test-account sign-in, current-format data reads, memberships, persistent settings/profile edits and account isolation. | Not started | Pending |
 | 4 | [Visits, trips and passport](prompts/PHASE_4_VISITS_TRIPS.md) | Durable visits, itinerary planning, saved trips, passport, achievements and leaderboard. | Not started | Pending |
@@ -103,7 +103,7 @@ The full resource/test inventory remains in [BUILD_AND_TEST_INVENTORY.md](BUILD_
 | `01-code/ios/BarkRangerTests/ProfileSettingsRepositoryTests.swift` | 3 | Verifies the first real offline-write slice, conflict/receipt behavior and scoped settings. |
 | `04-docs/reports/ios-native/PHASE_N.md` | 1–6 | One maintained implementation/testing handoff per started phase. |
 
-No source files listed here exist merely because this plan has been written. These development tools/tests are excluded from production Swift/runtime savings. Their actual size is reported separately during implementation.
+Source files are created only by their explicitly started phase, not merely because they appear in this plan. These development tools/tests are excluded from production Swift/runtime savings. Their actual size is reported separately during implementation.
 
 ## After phase 6
 

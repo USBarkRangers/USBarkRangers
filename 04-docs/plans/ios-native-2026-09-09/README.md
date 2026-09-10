@@ -1,6 +1,6 @@
 # Bark Ranger: native iOS build blueprint
 
-Prepared September 9, 2026 from working-tree source at commit `8451e06`; six-phase workflow revised September 10, 2026. Planning only: no application code, infrastructure, accounts, payments, or deployments changed.
+Prepared September 9, 2026 from working-tree source at commit `8451e06`; six-phase workflow revised September 10, 2026. The original blueprint was planning only. Phase 1 was explicitly started on September 10; see the current status and evidence below. Infrastructure, accounts, payments and deployments remain unchanged.
 
 ## The recommendation
 
@@ -12,11 +12,11 @@ Your confirmed requirements are to preserve existing users and features, and cho
 
 ## Workspace preparation
 
-September 10: the user requested Xcode/GitHub preparation before phase 1. A [buildable starter project](../../../01-code/ios/README.md) now exists in the planned iOS folder on `codex/ios-native-setup`. The earlier no-code statements describe creation of this blueprint; the subsequent setup reused the existing Desktop template. Native feature implementation and user migration have not started.
+September 10: the user requested Xcode/GitHub preparation before phase 1. A [buildable starter project](../../../01-code/ios/README.md) now exists in the planned iOS folder on `codex/ios-native-setup`. The earlier no-code statements describe creation of this blueprint; the subsequent setup reused the existing Desktop template. The subsequent phase-1 build replaces that template; [the phase report](../../reports/ios-native/PHASE_1.md) records implementation and testing. User migration has not started.
 
 ## Six builds, with your testing between them
 
-Start with [the six implementation phases and prompts](IMPLEMENTATION_PHASES.md). Each prompt names its files, staged operations, call paths, backend changes, AI checks, your testing checklist and an explicit stop. Complete one phase, test it, fix what you find, and only then explicitly start the next. No phase has started; the next step is your final review before saying **“start phase 1.”**
+Start with [the six implementation phases and prompts](IMPLEMENTATION_PHASES.md). Each prompt names its files, staged operations, call paths, backend changes, AI checks, your testing checklist and an explicit stop. Complete one phase, test it, fix what you find, and only then explicitly start the next. Phase 1 was explicitly started by the user on September 10 ("do phase 1"). Its [report](../../reports/ios-native/PHASE_1.md) and the status table are the current handoff; phases 2–6 remain unstarted.
 
 Existing accounts, memberships and saved formats stay in place. Ordinary decoding reads them. Archive import/export for migration, a dedicated legacy-conversion layer and speculative migration scaffolding were removed. A small durable offline queue remains because it is needed for everyday saves. Journaling, customer transfer and server data restructuring are later decisions.
 

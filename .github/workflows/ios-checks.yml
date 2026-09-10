@@ -1,0 +1,54 @@
+name: Native iOS checks
+
+on:
+  push:
+    paths: ['01-code/ios/**', '.github/workflows/ios-checks.yml']
+  pull_request:
+    paths: ['01-code/ios/**', '.github/workflows/ios-checks.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shell:
+    runs-on: macos-26
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Verify toolchain
+        run: |
+          xcodebuild -version
+          xcrun swift --version
+          test "$(xcodebuild -version | head -n 1)" = 'Xcode 26.6'
+      - name: Test domain values
+        run: swift test --package-path 01-code/ios/Packages/BarkDomain
+      - name: Build app and shell tests
+        run: |
+          xcodebuild -project 01-code/ios/BarkRanger.xcodeproj -scheme BarkRanger \
+            -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
+            -derivedDataPath "$RUNNER_TEMP/BarkDerivedData" \
+            CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build-for-testing
+      - name: Run shell and accessibility tests
+        run: |
+          xcodebuild -project 01-code/ios/BarkRanger.xcodeproj -scheme BarkRanger \
+            -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
+            -derivedDataPath "$RUNNER_TEMP/BarkDerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/BarkShell.xcresult" \
+            -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test-without-building
+      - name: Keep test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bark-shell-test-results
+          path: ${{ runner.temp }}/BarkShell.xcresult
+          if-no-files-found: ignore
+          retention-days: 7

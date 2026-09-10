@@ -1,11 +1,10 @@
 import BarkDomain
 import MapKit
 
-/// Frames selection near the lower center of the settled sheet’s visible map, without changing zoom.
+/// Uses one medium-safe selection anchor for both browsing heights, without changing zoom.
 final class MapSelectionFraming {
     private var selection: ParkID?
     private var coordinate: Coordinate?
-    private var position = ParkSheetPosition.low
     private var visibleBand = CGRect.zero
 
     func apply(
@@ -29,15 +28,13 @@ final class MapSelectionFraming {
         let band = CGRect(x: 0, y: top, width: size.width, height: max(0, bottom - top))
         guard
             cameraChanged || selection != annotation.park.id || coordinate != annotation.park.coordinate
-                || self.position != position
                 || visibleBand != band
         else { return }
         selection = annotation.park.id
         coordinate = annotation.park.coordinate
-        self.position = position
         visibleBand = band
-        // Use the settled detent, not live drag height, so the camera does not chase every drag frame.
-        let targetY = position == .medium ? max(band.minY, band.maxY - 24) : band.minY + band.height * 0.72
+        // Low and medium share the same anchor; resizing the card must not replay a camera command.
+        let targetY = max(band.minY, band.maxY - 24)
         let target = CGPoint(x: band.midX, y: targetY)
         // MapKit centers its camera inside the margins. During a glide/resize, centerCoordinate's
         // screen position can still reflect the old margins, so derive the new inset center directly.

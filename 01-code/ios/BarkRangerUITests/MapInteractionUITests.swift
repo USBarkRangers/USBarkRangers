@@ -104,6 +104,7 @@ nonisolated final class MapInteractionUITests: XCTestCase {
             capture("Pin selection: \(name)", app)
         }
         let handle = app.otherElements["park-sheet-handle"]
+        let anchorY = firstPin.frame.midY
         for (delta, pin, detent) in [(-220.0, secondPin, "Medium"), (220.0, firstPin, "Low")] {
             let start = app.coordinate(withNormalizedOffset: .zero)
                 .withOffset(CGVector(dx: app.frame.midX, dy: handle.frame.midY))
@@ -112,6 +113,9 @@ nonisolated final class MapInteractionUITests: XCTestCase {
                 withVelocity: .slow, thenHoldForDuration: 0.3)
             XCTAssertEqual(handle.value as? String, detent)
             waitForPinToSettle(detent == "Medium" ? firstPin : secondPin, in: app)
+            let priorPin = detent == "Medium" ? firstPin : secondPin
+            XCTAssertEqual(
+                priorPin.frame.midY, anchorY, accuracy: 3, "Changing low/medium must not pan the map")
             XCTAssertTrue(pin.isHittable)
             pin.tap()
             waitForPinToSettle(pin, in: app)
@@ -119,7 +123,8 @@ nonisolated final class MapInteractionUITests: XCTestCase {
             XCTAssertEqual(handle.value as? String, detent, "The next park keeps the chosen sheet height")
             let gap = handle.frame.minY - pin.frame.maxY
             XCTAssertGreaterThan(gap, 10)
-            XCTAssertLessThan(gap, detent == "Medium" ? 65 : 190)
+            XCTAssertEqual(pin.frame.midY, anchorY, accuracy: 3)
+            if detent == "Medium" { XCTAssertLessThan(gap, 65) }
             capture("Next park stays \(detent)", app)
         }
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.45)).tap()

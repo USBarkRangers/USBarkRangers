@@ -18,11 +18,11 @@ struct MapScreen: View {
             let sheetLayout = ParkSheetLayout(
                 availableHeight: geometry.size.height + geometry.safeAreaInsets.bottom,
                 bottomOverlap: tabBarOverlap, searchHeight: searchHeight)
-            let chromeProgress = model.selectedID == nil ? 0 : sheetLayout.chromeProgress(at: detailHeight)
+            let hidesChrome = model.selectedID != nil && sheetLayout.hidesChrome(at: detailHeight)
             ZStack(alignment: .top) {
                 NativeMapView(
                     model: model, detailPosition: detailPosition, detailHeight: detailHeight,
-                    detailFramingHeight: sheetLayout.height(at: detailPosition),
+                    detailFramingHeight: sheetLayout.height(at: .medium),
                     topObstruction: geometry.safeAreaInsets.top + searchHeight
                 ) {
                     resultsCollapsed = true
@@ -68,13 +68,14 @@ struct MapScreen: View {
                     searchHeight = $0
                 }
                 .offset(
-                    y: reduceMotion ? 0 : -(searchHeight + geometry.safeAreaInsets.top + 16) * chromeProgress
+                    y: reduceMotion || !hidesChrome ? 0 : -(searchHeight + geometry.safeAreaInsets.top + 16)
                 )
-                .opacity(reduceMotion ? 1 - chromeProgress : 1)
-                .allowsHitTesting(chromeProgress == 0)
-                .accessibilityHidden(chromeProgress > 0)
+                .opacity(reduceMotion && hidesChrome ? 0 : 1)
+                .animation(.easeInOut(duration: ParkSheetLayout.chromeDuration), value: hidesChrome)
+                .allowsHitTesting(!hidesChrome)
+                .accessibilityHidden(hidesChrome)
             }
-            .background(MapTabBarTransition(progress: chromeProgress, reduceMotion: reduceMotion))
+            .background(MapTabBarTransition(hidesChrome: hidesChrome, reduceMotion: reduceMotion))
             .background(Color(uiColor: .systemBackground).ignoresSafeArea())
             .overlay(alignment: .bottomTrailing) {
                 if !searchFocused && model.selectedID == nil {

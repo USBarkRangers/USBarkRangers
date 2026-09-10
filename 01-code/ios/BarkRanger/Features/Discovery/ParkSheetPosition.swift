@@ -14,6 +14,7 @@ enum ParkSheetPosition: Int, CaseIterable {
 /// Sheet geometry is local presentation state, independent of catalog and camera persistence.
 struct ParkSheetLayout {
     static let topInset: CGFloat = 8
+    static let chromeDuration: TimeInterval = 0.22
     let availableHeight: CGFloat
     let bottomOverlap: CGFloat
     let searchHeight: CGFloat
@@ -30,9 +31,9 @@ struct ParkSheetLayout {
         if height > self.height(at: .medium) + 1 { return .high }
         return height > self.height(at: .low) + 1 ? .medium : .low
     }
-    func chromeProgress(at height: CGFloat) -> CGFloat {
-        let medium = self.height(at: .medium)
-        return min(1, max(0, (height - medium) / max(1, self.height(at: .high) - medium)))
+    func hidesChrome(at height: CGFloat) -> Bool {
+        // Cross a small threshold, then finish the short animation even if the finger pauses.
+        height > self.height(at: .medium) + 8
     }
     func nearest(to height: CGFloat) -> ParkSheetPosition {
         ParkSheetPosition.allCases.min {

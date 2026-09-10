@@ -43,6 +43,22 @@ nonisolated final class ParkDetailSheetUITests: XCTestCase {
     }
 
     @MainActor
+    func testShortLiftPastMediumRestoresChromeWhenReleasedBackToMedium() {
+        let app = openPark()
+        dragHandle(app, by: -220)
+        let home = app.tabBars.buttons["Home"]
+        let resting = home.frame
+        // Hold just beyond the threshold. The recording must show both controls finish leaving
+        // before release; the native layer regression also verifies this without further input.
+        dragHandle(app, by: -40, hold: 2)
+        XCTAssertEqual(app.otherElements["park-sheet-handle"].value as? String, "Medium")
+        XCTAssertTrue(home.isHittable)
+        XCTAssertTrue(app.textFields["park-search"].isHittable)
+        XCTAssertEqual(home.frame.minY, resting.minY, accuracy: 2)
+        capture("Short lift reverses cleanly back to medium", app)
+    }
+
+    @MainActor
     func testScrolledHighSheetReturnsTabsToTheirRestingPositionRepeatedly() {
         let app = openPark()
         let home = app.tabBars.buttons["Home"]

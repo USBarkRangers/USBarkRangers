@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// Moves the existing native tab bar with the sheet, without changing safe areas mid-gesture.
+/// Briskly hides/restores the native tab bar after the sheet crosses medium, without moving its layout frame.
 struct MapTabBarTransition: UIViewControllerRepresentable {
-    let progress: CGFloat
+    let hidesChrome: Bool
     let reduceMotion: Bool
 
     func makeUIViewController(context: Context) -> Controller { Controller() }
     func updateUIViewController(_ controller: Controller, context: Context) {
-        controller.progress = progress
+        controller.hidesChrome = hidesChrome
         controller.reduceMotion = reduceMotion
         controller.apply()
     }
@@ -16,10 +16,10 @@ struct MapTabBarTransition: UIViewControllerRepresentable {
     }
 
     final class Controller: UIViewController {
-        var progress: CGFloat = 0
+        var hidesChrome = false
         var reduceMotion = false
         private weak var bar: UITabBar?
-        private var isVisible = false
+        private(set) var isVisible = false
 
         override func loadView() {
             view = UIView()
@@ -32,31 +32,54 @@ struct MapTabBarTransition: UIViewControllerRepresentable {
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
             isVisible = true
-            apply()
+            apply(animated: false)
         }
         override func viewWillDisappear(_ animated: Bool) {
             isVisible = false
             restore()
             super.viewWillDisappear(animated)
         }
-        func apply() {
+        func apply(animated: Bool = true) {
             guard isVisible, viewIfLoaded?.window != nil, let tabBar = tabBarController?.tabBar else {
                 return
             }
             bar = tabBar
-            let amount = min(1, max(0, progress))
-            // Move rendered contents, not UIKit's layout frame. Transforming the bar itself lets
-            // a later scroll/layout pass bake the offset into its resting position.
+            tabBar.isUserInteractionEnabled = !hidesChrome
+            tabBar.accessibilityElementsHidden = hidesChrome
+            let layer = tabBar.layer
+            let target = CATransform3DMakeTranslation(
+                0, hidesChrome && !reduceMotion ? tabBar.bounds.height + 32 : 0, 0)
+            let opacity: Float = hidesChrome && reduceMotion ? 0 : 1
+            guard !CATransform3DEqualToTransform(layer.sublayerTransform, target) || layer.opacity != opacity
+            else { return }
+            let current = layer.presentation() ?? layer
+            let move = CABasicAnimation(keyPath: "sublayerTransform")
+            move.fromValue = NSValue(caTransform3D: current.sublayerTransform)
+            move.toValue = NSValue(caTransform3D: target)
+            move.duration = ParkSheetLayout.chromeDuration
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = current.opacity
+            fade.toValue = opacity
+            fade.duration = ParkSheetLayout.chromeDuration
+            // Only rendered contents move. UIKit retains the bar's resting frame and safe areas.
+            layer.removeAnimation(forKey: "bark.chrome")
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            tabBar.layer.sublayerTransform = CATransform3DMakeTranslation(
-                0, reduceMotion ? 0 : (tabBar.bounds.height + 32) * amount, 0)
+            layer.sublayerTransform = target
+            tabBar.alpha = CGFloat(opacity)
             CATransaction.commit()
-            tabBar.alpha = reduceMotion ? 1 - amount : 1
-            tabBar.isUserInteractionEnabled = amount == 0
-            tabBar.accessibilityElementsHidden = amount > 0
+            guard animated else { return }
+            let transition = CAAnimationGroup()
+            transition.animations = reduceMotion ? [fade] : [move, fade]
+            transition.duration = ParkSheetLayout.chromeDuration
+            transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            // A reversal starts at the visible presentation, not the old destination. Layout passes
+            // with the same destination return above, so holding the finger cannot restart the slide.
+            layer.add(transition, forKey: "bark.chrome")
         }
+
         func restore() {
+            bar?.layer.removeAnimation(forKey: "bark.chrome")
             bar?.layer.sublayerTransform = CATransform3DIdentity
             bar?.alpha = 1
             bar?.isUserInteractionEnabled = true

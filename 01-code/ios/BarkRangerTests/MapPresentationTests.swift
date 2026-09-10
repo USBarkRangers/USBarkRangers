@@ -30,59 +30,96 @@ nonisolated final class MapPresentationTests: XCTestCase {
     }
 
     @MainActor
-    func testTabBarSlideSharesSheetProgressAndRestoresNativeInteraction() {
+    func testTabBarFinishesShortSlideAtThresholdAndRestoresNativeInteraction() async throws {
         let controller = MapTabBarTransition.Controller()
         let tabs = UITabBarController()
-        tabs.viewControllers = [controller]
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        tabs.viewControllers = [controller, UIViewController()]
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
         window.rootViewController = tabs
         window.makeKeyAndVisible()
-        defer { window.isHidden = true }
+        defer {
+            window.isHidden = true
+            previousWindow?.makeKeyAndVisible()
+        }
         tabs.view.layoutIfNeeded()
-        controller.beginAppearanceTransition(true, animated: false)
-        controller.endAppearanceTransition()
+        try await waitForRendering { controller.isVisible }
         let restingFrame = tabs.tabBar.frame
         let restingInsets = controller.view.safeAreaInsets
         let layout = ParkSheetLayout(availableHeight: 760, bottomOverlap: 83, searchHeight: 100)
         let medium = layout.height(at: .medium)
-        let high = layout.height(at: .high)
-        XCTAssertEqual(layout.chromeProgress(at: medium - 50), 0)
-        controller.progress = layout.chromeProgress(at: (medium + high) / 2)
-        controller.apply()
-        XCTAssertEqual(controller.progress, 0.5, accuracy: 0.001)
-        XCTAssertEqual(
-            tabs.tabBar.layer.sublayerTransform.m42, (tabs.tabBar.bounds.height + 32) / 2, accuracy: 0.001)
+        XCTAssertFalse(layout.hidesChrome(at: medium))
+        controller.hidesChrome = layout.hidesChrome(at: medium + 20)
+        try await waitForRendering {
+            controller.apply()
+            return tabs.tabBar.layer.animation(forKey: "bark.chrome") != nil
+        }
+        XCTAssertTrue(controller.hidesChrome)
+        let travel = tabs.tabBar.bounds.height + 32
+        XCTAssertEqual(tabs.tabBar.layer.sublayerTransform.m42, travel, accuracy: 0.001)
         XCTAssertEqual(tabs.tabBar.frame, restingFrame, "Visual travel must never move UIKit’s layout frame")
         XCTAssertFalse(tabs.tabBar.isUserInteractionEnabled)
         XCTAssertTrue(tabs.tabBar.accessibilityElementsHidden)
-        controller.progress = layout.chromeProgress(at: high + 50)
+        let animation = try XCTUnwrap(tabs.tabBar.layer.animation(forKey: "bark.chrome"))
+        XCTAssertLessThan(animation.duration, 0.3, "A slight drag beyond medium starts the whole quick slide")
+        CATransaction.flush()
+        try await waitForRendering {
+            let y = tabs.tabBar.layer.presentation()?.sublayerTransform.m42 ?? 0
+            return y > 1 && y < travel - 1
+        }
+        // Reverse while the outward slide is still visible; the next animation starts there.
+        let visibleOffset = try XCTUnwrap(tabs.tabBar.layer.presentation()).sublayerTransform.m42
+        controller.hidesChrome = false
         controller.apply()
-        XCTAssertEqual(controller.progress, 1)
-        XCTAssertGreaterThanOrEqual(
-            tabs.tabBar.frame.minY + tabs.tabBar.layer.sublayerTransform.m42, tabs.view.bounds.maxY)
+        let reverse = try XCTUnwrap(tabs.tabBar.layer.animation(forKey: "bark.chrome") as? CAAnimationGroup)
+        let move = try XCTUnwrap(reverse.animations?.first as? CABasicAnimation)
+        let from = try XCTUnwrap(move.fromValue as? NSValue).caTransform3DValue.m42
+        XCTAssertEqual(from, visibleOffset, accuracy: 4)
+        CATransaction.flush()
+        try await waitForRendering { abs(tabs.tabBar.layer.presentation()?.sublayerTransform.m42 ?? 0) < 0.5 }
+        controller.hidesChrome = true
+        controller.apply()
+        CATransaction.flush()
+        // Holding at medium + 20 must finish; no additional sheet movement is supplied.
+        try await waitForRendering {
+            abs((tabs.tabBar.layer.presentation()?.sublayerTransform.m42 ?? 0) - travel) < 0.5
+        }
+        XCTAssertGreaterThanOrEqual(tabs.tabBar.frame.minY + travel, tabs.view.bounds.maxY)
         for _ in 0..<6 {
             // UIKit can re-layout while details scroll. Returning to medium must not accumulate offsets.
             tabs.view.setNeedsLayout()
             tabs.view.layoutIfNeeded()
-            controller.progress = 0
+            controller.hidesChrome = false
             controller.apply()
             XCTAssertEqual(tabs.tabBar.frame, restingFrame)
             XCTAssertEqual(controller.view.safeAreaInsets, restingInsets)
             XCTAssertTrue(CATransform3DIsIdentity(tabs.tabBar.layer.sublayerTransform))
-            controller.progress = 1
+            controller.hidesChrome = true
             controller.apply()
         }
         controller.reduceMotion = true
         controller.apply()
         XCTAssertTrue(CATransform3DIsIdentity(tabs.tabBar.layer.sublayerTransform))
         XCTAssertEqual(tabs.tabBar.alpha, 0)
-        controller.beginAppearanceTransition(false, animated: false)
-        controller.endAppearanceTransition()
+        tabs.selectedIndex = 1
+        try await waitForRendering { tabs.tabBar.alpha == 1 && tabs.tabBar.isUserInteractionEnabled }
         XCTAssertEqual(tabs.tabBar.alpha, 1)
         XCTAssertTrue(tabs.tabBar.isUserInteractionEnabled)
         XCTAssertFalse(tabs.tabBar.accessibilityElementsHidden)
         controller.apply()
         XCTAssertEqual(tabs.tabBar.alpha, 1, "An offscreen map must not hide another tab's controls")
+    }
+
+    @MainActor
+    private func waitForRendering(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        // Let UIKit's render loop advance between checks; a busy Task.yield loop can starve it.
+        while !condition() && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(condition(), "Native presentation did not reach the expected frame")
     }
 
     @MainActor
@@ -105,12 +142,15 @@ nonisolated final class MapPresentationTests: XCTestCase {
         XCTAssertEqual(view.accessibilityValue, "Visited, In trip")
         XCTAssertTrue(view.accessibilityTraits.contains(.selected))
         XCTAssertTrue(view.annotation === annotation)
+        XCTAssertEqual(view.transform.a, 1.12, accuracy: 0.001)
+        XCTAssertEqual(view.bounds.size, CGSize(width: 44, height: 54))
         view.prepareForReuse()
         XCTAssertNil(view.accessibilityValue)
         let next = try park("next", category: .state)
         view.annotation = ParkAnnotation(park: next)
         view.configure(park: next, clustering: false)
         XCTAssertFalse(view.isSelected)
+        XCTAssertEqual(view.transform, .identity)
         XCTAssertFalse(view.accessibilityTraits.contains(.selected))
         XCTAssertEqual(view.accessibilityValue, "")
         XCTAssertEqual(view.accessibilityIdentifier, "park-pin-next")

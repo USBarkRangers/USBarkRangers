@@ -1,10 +1,16 @@
 # Native iOS follow-up maintainability audit
 
-September 10, 2026 · original deep audit: commit **b0e5e67**, build **0.2.5 (7)**. The **0.2.8 (10)** pre-Phase-3 corrections and current priorities appear first below. Earlier sections are retained as historical findings and verification.
+September 10, 2026 · original deep audit: commit **b0e5e67**, build **0.2.5 (7)**. The **0.2.9 (11)** presentation refinement and 0.2.8 pre-Phase-3 corrections appear first below. Earlier sections are retained as historical findings and verification.
 
 **Recommendation: GO for Phase 3 development, after the user's Phase 2 acceptance. The cleanup materially improved correctness and execution cost; it was not cosmetic. No remaining finding requires a broad rewrite or blocks starting accounts/persistence/sync.** The original audit found two smaller map issues; 0.2.6 fixed coordinate framing and 0.2.8 fixes order-only invalidation. Test limitations and ownership/readability constraints remain. This is not release approval or verification of account isolation that has not been implemented.
 
 This is a deeper follow-up to [the previous audit](MAINTAINABILITY_AUDIT_2026-09-10.md). No runtime, test, project, backend or production behavior was changed for the original audit. The later interaction patch is documented separately below. Experiments used a disposable copy of the native project. All 63 existing runtime/test Swift files in that copy were checked byte-for-byte against the working source; extra probe files existed only in that copy. Pre-existing unrelated changes, including the string catalog, were preserved.
+
+**Presentation refinement — build 0.2.9 (11)**
+
+The requested interaction change adds no runtime file or domain/data responsibility. Low and medium now consume the same framing height and MapSelectionFraming drops its redundant detent invalidation key; resizing between those positions leaves the camera alone. Selected badges scale to 1.12 and reset on reuse/deselection. Search and native tabs use one derived threshold and 0.22-second duration rather than a per-drag progress value. The tab bridge owns one keyed native layer animation, reverses from the rendered presentation and removes it when restoring the bar. Unchanged layout cannot restart it; UIKit’s frame stays untouched. The bridge is 90 lines and remains a focused presentation/platform boundary.
+
+Source size: **50 files / 3,501 lines**, +23 lines, no new runtime file. Code quality **8/10**, spaghetti risk **2/10**, maintainability **8/10**, architecture clarity **8.5/10**, efficiency **8/10** remain unchanged. New tests check shared low/medium pixel position and camera-command count, selected scale/reuse, rendered animation reversal/completion, brief threshold crossing and repeated tab restoration. The same physical-device/minimum-iOS checks and future account-ownership constraints still apply. No new Phase 3 blocker was found; this is presentation polish, not a reason to inflate the architecture scores.
 
 **Focused corrections — build 0.2.8 (10)**
 

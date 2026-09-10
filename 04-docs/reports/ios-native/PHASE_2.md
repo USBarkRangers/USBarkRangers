@@ -1,6 +1,6 @@
 # Phase 2 — catalog and discovery
 
-September 10, 2026. Current build **0.2.8 (10)** corrects the returning tab-bar position, prevents ungrouped pin collision hiding, isolates development/test storage and removes marker rescans caused only by result order. It retains 0.2.7 sheet-versus-content scrolling, coordinated search/tab travel and local-preference corrections. It retains 0.2.6 native camera gliding, grouping-setting fixes, low/medium browsing height and lower selected-pin placement. It retains the 0.2.5 selection, background-result, marker-invalidation and catalog-diagnostic corrections. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
+September 10, 2026. Current build **0.2.9 (11)** keeps a stable low/medium selected-pin position, enlarges selected pins slightly and uses a brisk reversible search/tab transition. It retains 0.2.8, which corrects the returning tab-bar position, prevents ungrouped pin collision hiding, isolates development/test storage and removes marker rescans caused only by result order. It retains 0.2.7 sheet-versus-content scrolling, coordinated search/tab travel and local-preference corrections. It retains 0.2.6 native camera gliding, grouping-setting fixes, low/medium browsing height and lower selected-pin placement. It retains the 0.2.5 selection, background-result, marker-invalidation and catalog-diagnostic corrections. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
 
 ## What you can use
 
@@ -45,6 +45,26 @@ The [implemented architecture and call map](../../../01-code/ios/ARCHITECTURE.md
 | Verification | Domain/app/UI tests plus publication/script tests; native iOS and catalog GitHub workflows. Neither workflow deploys. |
 
 The [publication runbook](../../operations/NATIVE_CATALOG_PUBLICATION.md) maps backend calls, local fixtures, eventual configuration and rollback. A deliberate refinement keeps the old CSV/fallback writer as its existing owner: native publication adds no second writer to old fallback storage. The public asset publisher uses immutable upload followed by a generation-conditioned manifest promotion. Memory adapters verify ordering/conflicts locally; they do not certify cloud IAM or actual storage preconditions.
+
+## Stable browsing anchor and brisk controls — 0.2.9 (11)
+
+Low and medium now reserve the same medium-height map space when initially framing a selected park. MapSelectionFraming no longer treats a low/medium detent change as a reason to pan. The selected coordinate stays at the same screen point through the drag, settled transition and return, preserving zoom/heading and deliberate map pans. New park selection, coordinate corrections and actual geometry changes still reframe normally. High retains its full-detail behavior.
+
+Selected pins use a restrained **1.12 scale**, keeping the existing artwork, states and canonical identity. Deselection and reuse restore normal scale; the prior ungrouped visibility fix and cluster styling remain intact.
+
+Crossing **eight points above medium** starts a **0.22-second ease-in/out** slide: search up, tabs down. The slide finishes even when the finger pauses just above medium. Returning below that threshold reverses from the current visible position. The native tab owner changes rendered contents only, preserving the resting frame/safe areas and restoring native interaction on dismissal/tab changes. Reduce Motion uses a fade. There is no new settings switch, task, observer, presentation manager or runtime file.
+
+Current source count: **50 files / 3,501 lines** (+23 from 0.2.8). Discovery has 24 files; MapScreen is 141 lines, MapSelectionFraming 48 and MapTabBarTransition 90. The change remains entirely within Discovery presentation and its regression tests.
+
+Verification:
+
+- All **49 app test functions** passed in `/tmp/BarkStableAnchorFinalNative.xcresult` (40 Swift Testing and 9 native XCTest); **11 domain tests** passed. The rendered-animation test attaches to a real UIWindowScene, waits for appearance/rendering, reverses mid-slide and checks cleanup. It also checks that unchanged layout does not alter the bar’s resting frame. Log: `/tmp/bark-stable-anchor-native-final.log`.
+- The short held-drag UI regression passed (`/tmp/BarkStableAnchorShortDrag.xcresult`), and its recording `/tmp/bark-short-chrome.mov` was visually checked: after a small lift above medium, both controls finish leaving while the finger pauses, then return as the sheet settles back. Selected-pin position remains fixed during the low-to-medium portion.
+- On iPhone SE 3, pin-to-pin selection with the shared low/medium anchor and repeated scrolled-high tab restoration passed (`/tmp/BarkStableAnchorSEFinal.xcresult`). Six iPhone 17 Pro interaction scenarios also passed (`/tmp/BarkStableAnchorUI.xcresult`): grouping toggles, search gestures, pin switching/anchor stability, sheet-body scroll boundaries, repeated high-scroll restoration and all three detents. Together with the short held-drag case, this is nine UI runs across both screen sizes.
+- Debug and Release builds passed with Swift warnings treated as errors; formatting/diff checks passed. Logs: `/tmp/bark-stable-anchor-build.log`, `/tmp/bark-stable-anchor-release.log`.
+- At 393 and 5,000 records, the 300-update geometry regression and same-membership result-reordering regression still produce zero marker lookups or add/remove calls. Background projection medians were 3.12–4.27 ms / 13.45–31.17 ms; MainActor heartbeat progress remained present. Physical-device/minimum-iOS and Instruments certification remain separate checks.
+
+User acceptance: select a park at low, drag to medium and back (pin should stay put), compare selected/unselected badge size, then make a small lift past medium and pause before reversing. Both controls should finish their quick departure and return without changing the camera or leaving the tab bar raised.
 
 ## Focused interaction and pre-Phase-3 corrections — 0.2.8 (10)
 

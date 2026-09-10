@@ -123,7 +123,39 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
     }
 
     @MainActor
-    func testFramingPreservesZoomHeadingIdentityAndUserPanUntilDetentChanges() throws {
+    func testLowAndMediumKeepOneScreenAnchorWithoutExtraCameraCommands() async throws {
+        let context = try DiscoveryTestContext()
+        defer { context.close() }
+        try await context.start()
+        let park = try XCTUnwrap(context.model.parks.first)
+        let map = MotionRecordingMap(frame: CGRect(x: 0, y: 0, width: 390, height: 760))
+        map.setRegion(
+            .init(
+                center: .init(latitude: park.coordinate.latitude, longitude: park.coordinate.longitude),
+                span: .init(latitudeDelta: 1, longitudeDelta: 1)), animated: false)
+        let coordinator = MapCoordinator(model: context.model)
+        coordinator.apply(to: map)
+        context.model.selectPark(id: park.id, focusOnMap: false)
+        coordinator.apply(
+            to: map, detailPosition: .low, detailHeight: 200,
+            detailFramingHeight: 430, topObstruction: 100, reduceMotion: true)
+        let annotation = try XCTUnwrap(coordinator.annotations[park.id])
+        let anchor = map.convert(annotation.coordinate, toPointTo: map)
+        XCTAssertEqual(anchor.y, 290, accuracy: 1)
+        let camera = map.camera.centerCoordinateDistance
+        for (position, height) in [(ParkSheetPosition.low, 280.0), (.medium, 430), (.low, 200)] {
+            coordinator.apply(
+                to: map, detailPosition: position, detailHeight: height,
+                detailFramingHeight: 430, topObstruction: 100, reduceMotion: true)
+            XCTAssertEqual(map.convert(annotation.coordinate, toPointTo: map).x, anchor.x, accuracy: 1)
+            XCTAssertEqual(map.convert(annotation.coordinate, toPointTo: map).y, anchor.y, accuracy: 1)
+            XCTAssertEqual(map.camera.centerCoordinateDistance, camera, accuracy: 1)
+        }
+        XCTAssertEqual(map.centerAnimations.count, 1, "Low/medium resizing must not command another pan")
+    }
+
+    @MainActor
+    func testFramingPreservesZoomHeadingIdentityAndUserPanAcrossBrowsingDetents() throws {
         let coordinate = try XCTUnwrap(Coordinate(latitude: 44.4, longitude: -68.2))
         let park = Park(
             id: ParkID(rawValue: "acadia"), siteID: SiteID(rawValue: "acadia"),
@@ -160,7 +192,8 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
             framing.apply(
                 to: map, annotation: annotation, position: .medium, framingSheetHeight: 430,
                 topObstruction: 100)
-            XCTAssertLessThan(map.convert(annotation.coordinate, toPointTo: map).y, 314)
+            XCTAssertEqual(map.centerCoordinate.latitude, panned.latitude, accuracy: 0.000001)
+            XCTAssertEqual(map.centerCoordinate.longitude, panned.longitude, accuracy: 0.000001)
         }
         map.setCenter(annotation.coordinate, animated: false)
         framing.apply(

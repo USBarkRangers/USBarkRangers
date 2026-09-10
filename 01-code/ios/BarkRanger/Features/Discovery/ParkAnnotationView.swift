@@ -76,6 +76,7 @@ final class ParkAnnotationView: MKAnnotationView {
         setSelected(false, animated: false)
     }
     private func updateAppearance() {
+        transform = isSelected ? CGAffineTransform(scaleX: 1.12, y: 1.12) : .identity
         // No grouping means no collision-based hiding, including after deselection or reuse.
         displayPriority = isSelected || clusteringIdentifier == nil ? .required : .defaultHigh
         outline.fillColor = baseColor.cgColor

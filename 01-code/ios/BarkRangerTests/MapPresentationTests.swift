@@ -1,10 +1,71 @@
 import BarkDomain
 import MapKit
+import SwiftUI
 import XCTest
 
 @testable import BarkRanger
 
 nonisolated final class MapPresentationTests: XCTestCase {
+    @MainActor
+    func testDetailScrollLockLeavesHorizontalRowsEnabled() throws {
+        let model = ParkDetailModel(maps: MapsHandoff(open: { _ in true }))
+        model.show(try park())
+        let content = ParkDetailView(
+            model: model, position: .medium, allowsScrolling: false, bottomOverlap: 83,
+            expand: {}, dismiss: {}, atTopChanged: { _ in })
+        let host = UIHostingController(rootView: content)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        host.view.layoutIfNeeded()
+        func scrollViews(in view: UIView) -> [UIScrollView] {
+            (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        let outer = try XCTUnwrap(scrollViews(in: host.view).first)
+        let rows = outer.subviews.flatMap { scrollViews(in: $0) }
+        XCTAssertFalse(outer.isScrollEnabled)
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertTrue(rows.allSatisfy(\.isScrollEnabled), "Tags, actions and thumbnails remain swipeable")
+    }
+
+    @MainActor
+    func testTabBarSlideSharesSheetProgressAndRestoresNativeInteraction() {
+        let controller = MapTabBarTransition.Controller()
+        let tabs = UITabBarController()
+        tabs.viewControllers = [controller]
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = tabs
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        tabs.view.layoutIfNeeded()
+        controller.viewDidAppear(false)
+        let layout = ParkSheetLayout(availableHeight: 760, bottomOverlap: 83, searchHeight: 100)
+        let medium = layout.height(at: .medium)
+        let high = layout.height(at: .high)
+        XCTAssertEqual(layout.chromeProgress(at: medium - 50), 0)
+        controller.progress = layout.chromeProgress(at: (medium + high) / 2)
+        controller.apply()
+        XCTAssertEqual(controller.progress, 0.5, accuracy: 0.001)
+        XCTAssertEqual(tabs.tabBar.transform.ty, (tabs.tabBar.bounds.height + 32) / 2, accuracy: 0.001)
+        XCTAssertFalse(tabs.tabBar.isUserInteractionEnabled)
+        XCTAssertTrue(tabs.tabBar.accessibilityElementsHidden)
+        controller.progress = layout.chromeProgress(at: high + 50)
+        controller.apply()
+        XCTAssertEqual(controller.progress, 1)
+        XCTAssertGreaterThanOrEqual(tabs.tabBar.frame.minY, tabs.view.bounds.maxY)
+        controller.reduceMotion = true
+        controller.apply()
+        XCTAssertEqual(tabs.tabBar.transform, .identity)
+        XCTAssertEqual(tabs.tabBar.alpha, 0)
+        controller.viewWillDisappear(false)
+        XCTAssertEqual(tabs.tabBar.alpha, 1)
+        XCTAssertTrue(tabs.tabBar.isUserInteractionEnabled)
+        XCTAssertFalse(tabs.tabBar.accessibilityElementsHidden)
+        controller.apply()
+        XCTAssertEqual(tabs.tabBar.alpha, 1, "An offscreen map must not hide another tab's controls")
+    }
+
     @MainActor
     private func park(_ id: String = "test", category: ParkCategory = .national) throws -> Park {
         Park(

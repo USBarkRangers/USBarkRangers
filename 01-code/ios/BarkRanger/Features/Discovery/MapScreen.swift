@@ -11,13 +11,14 @@ struct MapScreen: View {
     @State private var detailHeight: CGFloat = 0
     @State private var searchHeight: CGFloat = 60
     @State private var tabBarOverlap: CGFloat = 0
-    @State private var aboveMedium = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geometry in
             let sheetLayout = ParkSheetLayout(
                 availableHeight: geometry.size.height + geometry.safeAreaInsets.bottom,
                 bottomOverlap: tabBarOverlap, searchHeight: searchHeight)
+            let chromeProgress = model.selectedID == nil ? 0 : sheetLayout.chromeProgress(at: detailHeight)
             ZStack(alignment: .top) {
                 NativeMapView(
                     model: model, detailPosition: detailPosition, detailHeight: detailHeight,
@@ -66,10 +67,14 @@ struct MapScreen: View {
                 } action: {
                     searchHeight = $0
                 }
-                .opacity(model.selectedID != nil && aboveMedium ? 0 : 1)
-                .allowsHitTesting(model.selectedID == nil || !aboveMedium)
-                .accessibilityHidden(model.selectedID != nil && aboveMedium)
+                .offset(
+                    y: reduceMotion ? 0 : -(searchHeight + geometry.safeAreaInsets.top + 16) * chromeProgress
+                )
+                .opacity(reduceMotion ? 1 - chromeProgress : 1)
+                .allowsHitTesting(chromeProgress == 0)
+                .accessibilityHidden(chromeProgress > 0)
             }
+            .background(MapTabBarTransition(progress: chromeProgress, reduceMotion: reduceMotion))
             .background(Color(uiColor: .systemBackground).ignoresSafeArea())
             .overlay(alignment: .bottomTrailing) {
                 if !searchFocused && model.selectedID == nil {
@@ -94,19 +99,17 @@ struct MapScreen: View {
                     ParkDetailSheet(
                         model: model.detail, position: $detailPosition, layout: sheetLayout,
                         dismiss: model.dismissPark
-                    ) { height, expanded in
+                    ) { height in
                         detailHeight = height
-                        aboveMedium = expanded
                     }
                     .offset(y: geometry.safeAreaInsets.bottom)
                 }
             }
             .onChange(of: geometry.safeAreaInsets.bottom, initial: true) { _, overlap in
-                // Keep detents stable when hiding the native tab bar changes the safe area mid-drag.
+                // Retain the resting overlap while the sheet and native bar move above it.
                 if model.selectedID == nil && !searchFocused { tabBarOverlap = overlap }
             }
         }
-        .toolbar(model.selectedID != nil && aboveMedium ? .hidden : .visible, for: .tabBar)
         .sheet(isPresented: $showsFilters) {
             FilterSheet(model: model, dismiss: { showsFilters = false })
         }
@@ -123,7 +126,6 @@ struct MapScreen: View {
             // Keep the user's low/medium browsing height across selections and dismissals.
             // A full-detail dismissal returns to compact browsing rather than hiding the next map.
             if detailPosition == .high { detailPosition = .low }
-            aboveMedium = false
             if id != nil { searchFocused = false }
         }
         .onChange(of: searchFocused) { _, focused in

@@ -9,6 +9,15 @@ public enum ParkFilter {
         public var swag: Set<Swag> = []
         public var personal: Personal = .all
         public init() {}
+        private enum CodingKeys: String, CodingKey { case search, categories, swag, personal }
+        public init(from decoder: any Decoder) throws {
+            self.init()
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            search = (try? values.decode(String.self, forKey: .search)) ?? search
+            categories = (try? values.decode(Set<ParkCategory>.self, forKey: .categories)) ?? categories
+            swag = (try? values.decode(Set<Swag>.self, forKey: .swag)) ?? swag
+            personal = (try? values.decode(Personal.self, forKey: .personal)) ?? personal
+        }
         public var isActive: Bool {
             !search.isEmpty || !categories.isEmpty || !swag.isEmpty || personal != .all
         }

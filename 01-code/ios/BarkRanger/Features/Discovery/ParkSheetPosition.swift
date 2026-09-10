@@ -30,6 +30,10 @@ struct ParkSheetLayout {
         if height > self.height(at: .medium) + 1 { return .high }
         return height > self.height(at: .low) + 1 ? .medium : .low
     }
+    func chromeProgress(at height: CGFloat) -> CGFloat {
+        let medium = self.height(at: .medium)
+        return min(1, max(0, (height - medium) / max(1, self.height(at: .high) - medium)))
+    }
     func nearest(to height: CGFloat) -> ParkSheetPosition {
         ParkSheetPosition.allCases.min {
             abs(self.height(at: $0) - height) < abs(self.height(at: $1) - height)

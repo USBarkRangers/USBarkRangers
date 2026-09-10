@@ -75,12 +75,17 @@ final class MapFeatureModel {
     /// Device settings can change from another tab while the map view is not mounted.
     private func observePreferences() {
         let generation = preferenceGeneration
+        let mapStyle = settings.value.mapStyle
         withObservationTracking {
             _ = settings.value.filters
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.preferenceGeneration == generation, self.observation != nil else {
                     return
+                }
+                // An explicit appearance change retries imagery after a prior tile-loading failure.
+                if !self.isOffline && self.settings.value.mapStyle != mapStyle {
+                    self.imageryUnavailable = false
                 }
                 self.refreshResults()
                 self.observePreferences()

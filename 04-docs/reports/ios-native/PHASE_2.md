@@ -1,6 +1,6 @@
 # Phase 2 — catalog and discovery
 
-September 10, 2026. Current build **0.2.6 (8)** adds native camera gliding, reliable grouping-setting changes, retained low/medium browsing height and lower selected-pin placement. It retains the 0.2.5 selection, background-result, marker-invalidation and catalog-diagnostic corrections. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
+September 10, 2026. Current build **0.2.7 (9)** fixes sheet-versus-content scrolling, adds coordinated search/tab travel and hardens local preferences. It retains 0.2.6 native camera gliding, grouping-setting fixes, low/medium browsing height and lower selected-pin placement. It retains the 0.2.5 selection, background-result, marker-invalidation and catalog-diagnostic corrections. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
 
 ## What you can use
 
@@ -45,6 +45,34 @@ The [implemented architecture and call map](../../../01-code/ios/ARCHITECTURE.md
 | Verification | Domain/app/UI tests plus publication/script tests; native iOS and catalog GitHub workflows. Neither workflow deploys. |
 
 The [publication runbook](../../operations/NATIVE_CATALOG_PUBLICATION.md) maps backend calls, local fixtures, eventual configuration and rollback. A deliberate refinement keeps the old CSV/fallback writer as its existing owner: native publication adds no second writer to old fallback storage. The public asset publisher uses immutable upload followed by a generation-conditioned manifest promotion. Memory adapters verify ordering/conflicts locally; they do not certify cloud IAM or actual storage preconditions.
+
+## Sheet motion and settings reliability — 0.2.7 (9)
+
+Below high, a vertical body drag now resizes the sheet without also scrolling its contents. Native vertical scrolling is enabled only at the settled high position when the gesture is not resizing. Horizontal tags/actions/thumbnails explicitly retain their own scrolling environment. Removing scroll-to-top resets at live content thresholds eliminates the scroll-then-correct effect. The existing high-detail scroll, top-edge collapse, handle resizing, cancelled-drag cleanup, dynamic text and working actions retain their owners.
+
+Between medium and high, actual measured sheet height supplies one clamped progress value. Search/chips travel upward; the existing native tab bar travels downward at the same time, including while the finger is held down. Reverse movement restores both. System Reduce Motion substitutes fading for those translations. The native bar's safe area stays stable. A 62-line MapTabBarTransition bridge applies only presentation properties through the parent UIKit controller and restores them when Map disappears or dismantles; it cannot keep changing another tab while inactive. It introduces no navigation store, observer, timer or duplicated preference.
+
+The settings review found and corrected these concrete issues:
+
+- Older or partly unsupported saved values could make synthesized decoding reject the entire settings document. AppSettings and filter Query now default missing/unsupported fields individually, retaining recognized choices and existing sanitization.
+- A prior map imagery failure could leave appearance changes stuck in offline overview. Explicit appearance changes while connected now allow a native imagery retry; disconnected/offline-overview behavior still applies.
+- Distance units were persisted but no implemented distance display used them. The control is visibly unavailable with a short explanation; existing stored values are retained for future consumers. No fake distance behavior was added.
+
+One typed device settings value and one repository remain appropriate for the current and planned map preferences. New fields need compatible defaults, validation, a real consumer, and persistence/invalidation regressions. Feature owners react to relevant values; buttons do not coordinate multiple systems. Reset clears saved preferences/filters/camera without commanding an immediate viewport jump. Account preferences and entitlements must remain separate from this device store. See the [updated code-health audit and growth priorities](FOLLOWUP_MAINTAINABILITY_AUDIT_2026-09-10.md) and [preference implementation contract](../../../01-code/ios/ARCHITECTURE.md#adding-a-device-preference).
+
+Verification:
+
+- Final Debug and Release builds passed with Swift warnings treated as errors. All **11 domain test functions** and **45 app functions** passed (38 Swift Testing functions and seven native XCTest cases). New cases cover per-field saved-data compatibility, successive edits/relaunch/reset, camera opt-out, native appearance/overview recovery, no extra query work, intermediate tab travel, reduced motion and inactive-map restoration.
+- All four Pro sheet scenarios passed: body dragging then high scrolling/tab recovery, three detents, exposed-map dismissal and dark landscape reachability. The final Settings UI relaunch/reset and disabled-distance-control checks pass, as does the repeated grouping-setting scenario on this build (`/tmp/BarkSheetSettingsFinalUI.xcresult`).
+- A native view-hierarchy regression verifies the outer vertical ScrollView is disabled while all three horizontal rows (tags, actions, thumbnails) remain enabled. That final nested-scroll correction and the body-drag UI pass are in `/tmp/BarkSheetScrollBoundary.xcresult`. The extended final body test also verifies high-to-medium collapse from the title area, re-expansion, high scrolling and tab recovery (`/tmp/BarkSheetBodyFinal.xcresult`).
+- The iPhone SE 3 simulator passes the new body-drag/high-scroll/tab-restoration case and largest-accessibility-text search/details (`/tmp/BarkSheetSettingsSE.xcresult`).
+- The held-body-drag recording shows title/actions remaining at the content top while the card resizes. Frame sequences show search moving up and tabs down together before finger lift. Evidence: `/tmp/bark-sheet-chrome-drag.mp4`, `/tmp/bark-sheet-chrome-start.png`, `/tmp/bark-sheet-chrome-progress.png`.
+- For 393 and 5,000 records, 300 geometry updates still cause **zero marker lookups and zero annotation additions/removals**. Debug totals: 43.43 ms and 46.43 ms. Background query medians: 3.08–4.39 ms and 12.67–30.28 ms; the concurrent MainActor progress check advances. This is not a physical-device frame-rate or memory-allocation certification.
+- Strict formatting passed across runtime/test Swift source, and whitespace checks passed. The unchanged package manifest has a pre-existing trailing-comma lint discrepancy when linted as well; it was left outside this focused runtime/test change.
+
+Evidence: `/tmp/BarkSheetSettingsRegression.xcresult`, `/tmp/bark-sheet-settings-domain.log`, `/tmp/bark-sheet-settings-final-build.log`, `/tmp/bark-sheet-settings-release-final.log`, `/tmp/bark-sheet-settings-format.log`. The full regression run preceded the disabled-distance-control clarification and two-line nested-scroll override; each received the focused follow-up checks above. The final counts combine those runs, rather than claiming one all-tests run on the final binary. No actual iOS 18.4 runtime, physical device or hosted-CI certification is claimed.
+
+User check: slowly drag upward from the park title/actions area, hold between detents, then reverse. Content should stay at the top until high; search and tabs should leave/return in opposite directions together. At high, scroll the facts, then close and switch tabs. In Home → Settings, change appearance/grouping, toggle remembered position, relaunch, and reset. Repeat motion with iPhone Reduce Motion enabled.
 
 ## Native camera glide — 0.2.6 (8)
 

@@ -6,7 +6,7 @@ struct ParkDetailSheet: View {
     @Binding var position: ParkSheetPosition
     let layout: ParkSheetLayout
     let dismiss: () -> Void
-    let heightChanged: (CGFloat, Bool) -> Void
+    let heightChanged: (CGFloat) -> Void
     @GestureState private var gestureActive = false
     @State private var translation: CGFloat = 0
     @State private var dragAllowed: Bool?
@@ -31,6 +31,7 @@ struct ParkDetailSheet: View {
                 }
             ParkDetailView(
                 model: model, position: layout.presentation(at: height),
+                allowsScrolling: position == .high && dragAllowed != true,
                 bottomOverlap: layout.bottomOverlap, expand: { move(to: .high) },
                 dismiss: dismiss, atTopChanged: { contentAtTop = $0 }
             )
@@ -49,7 +50,7 @@ struct ParkDetailSheet: View {
         .onGeometryChange(for: CGFloat.self) {
             $0.size.height
         } action: {
-            heightChanged($0, layout.presentation(at: $0) == .high)
+            heightChanged($0)
         }
         .onChange(of: position) { _, _ in translation = 0 }
         .onChange(of: gestureActive) { _, active in

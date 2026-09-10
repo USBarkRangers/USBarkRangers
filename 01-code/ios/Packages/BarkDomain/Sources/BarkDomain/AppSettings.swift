@@ -31,6 +31,22 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var camera: Camera?
     public var filters = ParkFilter.Query()
     public init() {}
+    private enum CodingKeys: String, CodingKey {
+        case mapStyle, units, clustering, rememberMapPosition, camera, filters
+    }
+    /// New or unrecognized preferences fall back individually, preserving other saved choices.
+    public init(from decoder: any Decoder) throws {
+        self.init()
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        mapStyle = (try? values.decode(MapStyle.self, forKey: .mapStyle)) ?? mapStyle
+        units = (try? values.decode(Units.self, forKey: .units)) ?? units
+        clustering = (try? values.decode(Bool.self, forKey: .clustering)) ?? clustering
+        rememberMapPosition =
+            (try? values.decode(Bool.self, forKey: .rememberMapPosition)) ?? rememberMapPosition
+        camera = try? values.decode(Camera.self, forKey: .camera)
+        filters = (try? values.decode(ParkFilter.Query.self, forKey: .filters)) ?? filters
+        self = sanitized()
+    }
     public func sanitized() -> Self {
         var copy = self
         copy.filters.search = String(filters.search.prefix(200))

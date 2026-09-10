@@ -2,6 +2,47 @@ import XCTest
 
 nonisolated final class ParkDetailSheetUITests: XCTestCase {
     @MainActor
+    func testBodyDragsResizeBeforeHighContentCanScrollAndTabsRecover() {
+        let app = openPark()
+        let name = app.staticTexts["park-detail-name"]
+        let handle = app.otherElements["park-sheet-handle"]
+        for (detent, distance) in [("Medium", 220.0), ("High", 360.0)] {
+            let start = app.coordinate(withNormalizedOffset: .zero).withOffset(
+                CGVector(dx: 32, dy: name.frame.midY))
+            start.press(
+                forDuration: 0.1,
+                thenDragTo: start.withOffset(CGVector(dx: 0, dy: -min(distance, name.frame.midY - 20))),
+                withVelocity: .slow, thenHoldForDuration: 2)
+            XCTAssertEqual(handle.value as? String, detent)
+            XCTAssertGreaterThanOrEqual(name.frame.minY, handle.frame.maxY)
+            XCTAssertLessThan(
+                name.frame.minY - handle.frame.maxY, 12, "Resizing must leave content at its top")
+            capture("Body drag to \(detent) keeps content at top", app)
+        }
+        let collapse = app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: 32, dy: name.frame.midY))
+        collapse.press(
+            forDuration: 0.1,
+            thenDragTo: collapse.withOffset(CGVector(dx: 0, dy: 220)),
+            withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertEqual(handle.value as? String, "Medium", "A downward body drag at the top can collapse high")
+        app.buttons["Park Info"].tap()
+        XCTAssertTrue(app.staticTexts["Updates and information"].waitForExistence(timeout: 3))
+        let sheet = app.scrollViews["park-detail-sheet"]
+        let titleY = name.frame.minY
+        sheet.swipeUp()
+        XCTAssertEqual(handle.value as? String, "High")
+        XCTAssertTrue(!name.isHittable || name.frame.minY < titleY - 20, "High content must scroll normally")
+        app.buttons["Close park details"].tap()
+        XCTAssertTrue(app.tabBars.buttons["Home"].isHittable)
+        app.tabBars.buttons["Home"].tap()
+        XCTAssertTrue(app.buttons["Settings"].isHittable)
+        app.tabBars.buttons["Map"].tap()
+        XCTAssertTrue(app.textFields["park-search"].isHittable)
+        XCTAssertTrue(app.tabBars.buttons["Home"].isHittable)
+    }
+
+    @MainActor
     func testThreeDetentsKeepSelectionVisibleAndRestoreDiscovery() {
         let app = openPark()
         let search = app.textFields["park-search"]

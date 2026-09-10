@@ -15,6 +15,9 @@ struct SettingsView: View {
                 Picker("Distance units", selection: preference(\.units)) {
                     ForEach(AppSettings.Units.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
+                .disabled(true)
+                Text("Distance measurements are not available yet.")
+                    .font(.footnote).foregroundStyle(.secondary)
                 Button("Location permission settings", action: model.openSystemSettings)
             }
             Section("Park catalog") {

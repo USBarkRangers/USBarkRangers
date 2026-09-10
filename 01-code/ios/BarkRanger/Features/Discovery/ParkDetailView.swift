@@ -5,6 +5,7 @@ import SwiftUI
 struct ParkDetailView: View {
     @Bindable var model: ParkDetailModel
     let position: ParkSheetPosition
+    let allowsScrolling: Bool
     let bottomOverlap: CGFloat
     let expand: () -> Void
     let dismiss: () -> Void
@@ -36,8 +37,11 @@ struct ParkDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20).padding(.top, 6)
                 .padding(.bottom, bottomOverlap + 24).id("top")
+                // Lock only the outer vertical scroll; tags/actions/photos still scroll horizontally.
+                .environment(\.isScrollEnabled, true)
             }
             .scrollBounceBehavior(.basedOnSize)
+            .scrollDisabled(!allowsScrolling)
             .onScrollGeometryChange(for: Bool.self) {
                 $0.contentOffset.y <= 0
             } action: { _, atTop in
@@ -62,7 +66,9 @@ struct ParkDetailView: View {
                 }
                 .tint(.primary).accessibilityLabel("Close park details").padding(.trailing, 12)
             }
-            .onChange(of: position) { _, _ in scroll.scrollTo("top", anchor: .top) }
+            .onChange(of: allowsScrolling) { _, enabled in
+                if !enabled { scroll.scrollTo("top", anchor: .top) }
+            }
             .onChange(of: model.park?.id) { _, _ in scroll.scrollTo("top", anchor: .top) }
         }
         .onAppear { if textSize.isAccessibilitySize { expand() } }

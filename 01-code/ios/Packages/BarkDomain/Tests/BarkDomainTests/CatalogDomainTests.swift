@@ -83,4 +83,23 @@ struct CatalogDomainTests {
         let coordinate = try #require(Coordinate(latitude: 0, longitude: 180))
         #expect(AppSettings.Camera(center: coordinate, latitudeDelta: .infinity, longitudeDelta: 20) == nil)
     }
+    @Test func olderAndFuturePreferencesPreserveRecognizedChoices() throws {
+        let data = Data(
+            #"{"units":"Kilometers","clustering":false,"filters":{"search":"acadia"},"futurePreference":true}"#
+                .utf8)
+        let settings = try JSONDecoder().decode(AppSettings.self, from: data)
+        #expect(settings.units == .kilometers && !settings.clustering)
+        #expect(settings.mapStyle == .standard && settings.rememberMapPosition)
+        #expect(settings.filters.search == "acadia" && settings.filters.categories.isEmpty)
+        #expect(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings)) == settings)
+    }
+    @Test func invalidPreferenceFieldsFallBackWithoutErasingOtherChoices() throws {
+        let data = Data(
+            #"{"units":"Kilometers","mapStyle":"Future style","clustering":"invalid","filters":{"search":"acadia","swag":["future swag"]},"camera":{"invalid":true}}"#
+                .utf8)
+        let settings = try JSONDecoder().decode(AppSettings.self, from: data)
+        #expect(settings.units == .kilometers && settings.mapStyle == .standard && settings.clustering)
+        #expect(settings.filters.search == "acadia" && settings.filters.swag.isEmpty)
+        #expect(settings.camera == nil)
+    }
 }

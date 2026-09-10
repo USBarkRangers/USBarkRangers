@@ -21,8 +21,8 @@ final class ParkAnnotationView: MKAnnotationView {
         displayPriority = .defaultHigh
         isAccessibilityElement = true
         // Smaller artwork keeps the original touch target, map anchor and clustering bounds.
-        let badgeBounds = CGRect(x: 3, y: 8, width: 38, height: 46)
-        let path = UIBezierPath(roundedRect: badgeBounds.insetBy(dx: 1, dy: 1), cornerRadius: 17)
+        let badgeBounds = CGRect(x: 5, y: 12, width: 34, height: 42)
+        let path = UIBezierPath(roundedRect: badgeBounds.insetBy(dx: 1, dy: 1), cornerRadius: 15)
         outline.path = path.cgPath
         layer.addSublayer(outline)
         layer.shadowColor = UIColor.black.cgColor
@@ -30,13 +30,13 @@ final class ParkAnnotationView: MKAnnotationView {
         layer.shadowRadius = 3
         layer.shadowOffset = CGSize(width: 0, height: 2)
         layer.shadowPath = path.cgPath
-        artwork.frame = CGRect(x: 8, y: 14, width: 28, height: 34)
+        artwork.frame = CGRect(x: 10, y: 18, width: 24, height: 30)
         artwork.contentMode = .scaleAspectFit
         artwork.layer.cornerRadius = 8
         artwork.clipsToBounds = true
         addSubview(artwork)
         for (index, badge) in [visitBadge, tripBadge].enumerated() {
-            badge.frame = CGRect(x: index == 0 ? 0 : 28, y: 4, width: 16, height: 16)
+            badge.frame = CGRect(x: index == 0 ? 2 : 26, y: 8, width: 16, height: 16)
             badge.contentMode = .scaleAspectFit
             badge.backgroundColor = .white
             badge.layer.cornerRadius = 8

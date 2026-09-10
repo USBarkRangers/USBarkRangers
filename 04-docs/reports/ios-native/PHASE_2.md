@@ -1,6 +1,6 @@
 # Phase 2 — catalog and discovery
 
-September 10, 2026. Current build **0.2.9 (11)** keeps a stable low/medium selected-pin position, enlarges selected pins slightly and uses a brisk reversible search/tab transition. It retains 0.2.8, which corrects the returning tab-bar position, prevents ungrouped pin collision hiding, isolates development/test storage and removes marker rescans caused only by result order. It retains 0.2.7 sheet-versus-content scrolling, coordinated search/tab travel and local-preference corrections. It retains 0.2.6 native camera gliding, grouping-setting fixes, low/medium browsing height and lower selected-pin placement. It retains the 0.2.5 selection, background-result, marker-invalidation and catalog-diagnostic corrections. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
+September 10, 2026. Current build **0.2.10 (12)** makes individual park badges about 10% smaller while retaining their touch targets and selected enlargement. Version 0.2.9 (11) keeps a stable low/medium selected-pin position, enlarges selected pins slightly and uses a brisk reversible search/tab transition. It retains 0.2.8, which corrects the returning tab-bar position, prevents ungrouped pin collision hiding, isolates development/test storage and removes marker rescans caused only by result order. It retains 0.2.7 sheet-versus-content scrolling, coordinated search/tab travel and local-preference corrections. It retains 0.2.6 native camera gliding, grouping-setting fixes, low/medium browsing height and lower selected-pin placement. It retains the 0.2.5 selection, background-result, marker-invalidation and catalog-diagnostic corrections. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
 
 ## What you can use
 
@@ -45,6 +45,12 @@ The [implemented architecture and call map](../../../01-code/ios/ARCHITECTURE.md
 | Verification | Domain/app/UI tests plus publication/script tests; native iOS and catalog GitHub workflows. Neither workflow deploys. |
 
 The [publication runbook](../../operations/NATIVE_CATALOG_PUBLICATION.md) maps backend calls, local fixtures, eventual configuration and rollback. A deliberate refinement keeps the old CSV/fallback writer as its existing owner: native publication adds no second writer to old fallback storage. The public asset publisher uses immutable upload followed by a generation-conditioned manifest promotion. Memory adapters verify ordering/conflicts locally; they do not certify cloud IAM or actual storage preconditions.
+
+## Smaller individual badges — 0.2.10 (12)
+
+`ParkAnnotationView` now draws a 34×42-point badge (previously 38×46) with proportionally smaller artwork and corners. Status accents move inward to match. The 44×54-point touch/collision bounds, bottom anchor, 1.12 selected scale, IDs, priorities and cluster design stay unchanged. This is four geometry edits in the existing view; no new runtime files or logic.
+
+Verification: Debug simulator build passed with Swift warnings treated as errors, the two existing annotation presentation/reuse tests passed, and their normal/selected/visited/in-trip/combined/cluster rendering was visually inspected. All 11 domain tests and strict formatting passed. Evidence: `/tmp/BarkSmallerPins.xcresult`, `/tmp/bark-smaller-pins.log`, `/tmp/bark-smaller-pins-domain.log`. The broader sheet/camera UI suite was not repeated for this artwork-only change. Installed on iPhone 17 Pro simulator for user testing. Physical-device appearance remains a user check.
 
 ## Stable browsing anchor and brisk controls — 0.2.9 (11)
 

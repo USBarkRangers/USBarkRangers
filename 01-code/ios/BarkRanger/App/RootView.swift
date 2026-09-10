@@ -15,7 +15,10 @@ struct RootView: View {
                         Tab(tab.title, systemImage: tab.symbol, value: tab) {
                             NavigationStack {
                                 destination(for: tab)
-                                    .navigationTitle(tab == .home ? "Bark Ranger" : tab.title)
+                                    .navigationTitle(
+                                        tab == .map ? "" : tab == .home ? "Bark Ranger" : tab.title
+                                    )
+                                    .toolbar(tab == .map ? .hidden : .visible, for: .navigationBar)
                             }
                         }
                     }

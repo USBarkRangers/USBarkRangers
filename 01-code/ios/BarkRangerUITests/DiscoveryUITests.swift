@@ -2,59 +2,109 @@ import XCTest
 
 nonisolated final class DiscoveryUITests: XCTestCase {
     @MainActor
-    func testOfflineDiscoverySearchFiltersDetailsAndPreferences() throws {
+    private func launch(largeText: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["BARK_TEST_PREFERENCES_SUITE"] = UUID().uuidString
         app.launchEnvironment["BARK_CATALOG_URL"] = ""
+        if largeText {
+            app.launchArguments = [
+                "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+            ]
+        }
         app.launch()
-        XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 5))
-        app.buttons["Settings"].tap()
-        app.swipeUp()
-        app.swipeUp()
-        app.buttons["Reset device preferences"].tap()
-        app.buttons["Done"].tap()
         app.tabBars.buttons["Map"].tap()
-        XCTAssertTrue(app.staticTexts["393 of 393 parks"].waitForExistence(timeout: 5))
-        let map = XCTAttachment(screenshot: app.screenshot())
-        map.name = "393-park native map"
-        map.lifetime = .keepAlways
-        add(map)
-        app.buttons["Filters"].tap()
-        app.switches["National"].coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
-        app.switches["Tag"].coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
-        XCTAssertEqual(app.switches["National"].value as? String, "1")
-        XCTAssertEqual(app.switches["Tag"].value as? String, "1")
+        XCTAssertTrue(app.textFields["park-search"].waitForExistence(timeout: 5))
+        return app
+    }
+
+    @MainActor
+    private func expectPins(_ count: Int, in app: XCUIApplication) {
+        let map = app.descendants(matching: .any).matching(identifier: "park-map").firstMatch
+        let matching = NSPredicate(format: "value == %@", "\(count) matching parks")
+        expectation(for: matching, evaluatedWith: map)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(app.staticTexts["park-count"].label, "\(count) of 393 parks")
+    }
+
+    @MainActor
+    private func capture(_ name: String, app: XCUIApplication) {
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = name
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
+    func testInlineSearchKeepsKeyboardAndMapResultsInSync() {
+        let app = launch()
+        let search = app.textFields["park-search"]
+        XCTAssertFalse(app.navigationBars["Map"].exists)
+        XCTAssertFalse(app.segmentedControls.firstMatch.exists)
+        let count = app.staticTexts["park-count"]
+        XCTAssertTrue(count.exists)
+        XCTAssertGreaterThanOrEqual(count.frame.minX, search.frame.maxX)
+        XCTAssertLessThanOrEqual(count.frame.maxX, app.buttons["Filters"].frame.minX)
+        expectPins(393, in: app)
+        capture("Map fills discovery", app: app)
+        search.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+        search.typeText("hulls")
+        XCTAssertTrue(
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "park-result-")).firstMatch
+                .waitForExistence(timeout: 3))
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        search.typeText(" cove")
+        expectPins(1, in: app)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        let result = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "park-result-"))
+            .firstMatch
+        XCTAssertTrue(result.label.contains("Acadia"))
+        XCTAssertGreaterThan(result.frame.minY, search.frame.maxY)
+        capture("Live search, keyboard and matching pin", app: app)
+        search.typeText("zzzzzz")
+        expectPins(0, in: app)
+        XCTAssertTrue(app.staticTexts["No matching parks"].exists)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        app.buttons["Clear search"].tap()
+        expectPins(393, in: app)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        search.typeText("hulls cove")
+        result.tap()
+        XCTAssertTrue(app.navigationBars["Park details"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
         app.buttons["Done"].tap()
-        app.buttons["Search parks"].tap()
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 3))
+        expectPins(1, in: app)
+    }
+
+    @MainActor
+    func testFiltersRemoveIndividuallyAndPersistWithOfflineDiscovery() {
+        let app = launch()
+        app.buttons["Filters"].tap()
+        for value in ["National", "Tag"] {
+            app.switches[value].coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+            XCTAssertEqual(app.switches[value].value as? String, "1")
+        }
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["Remove National category filter"].exists)
+        XCTAssertTrue(app.buttons["Remove Tag swag filter"].exists)
+        let search = app.textFields["park-search"]
         search.tap()
         search.typeText("hulls cove")
-        let acadia = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Acadia National Park"))
-            .firstMatch
-        XCTAssertTrue(acadia.waitForExistence(timeout: 3))
-        acadia.tap()
-        XCTAssertTrue(app.navigationBars["Park details"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Directions in Apple Maps"].exists)
-        let detail = XCTAttachment(screenshot: app.screenshot())
-        detail.name = "Offline park details"
-        detail.lifetime = .keepAlways
-        add(detail)
-        app.buttons["Done"].tap()
-        XCTAssertTrue(app.staticTexts["1 of 393 parks"].exists)
+        expectPins(1, in: app)
+        app.buttons["Remove National category filter"].tap()
+        XCTAssertFalse(app.buttons["Remove National category filter"].exists)
+        XCTAssertTrue(app.buttons["Remove Tag swag filter"].exists)
+        XCTAssertEqual(search.value as? String, "hulls cove")
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        capture("Removable filter chips", app: app)
         app.terminate()
         app.launch()
         app.tabBars.buttons["Map"].tap()
-        XCTAssertTrue(app.staticTexts["1 of 393 parks"].waitForExistence(timeout: 5))
-        app.buttons["Clear"].tap()
-        app.buttons["Search parks"].tap()
-        search.tap()
-        search.typeText("zzzzzzzzzzzz")
-        XCTAssertTrue(app.staticTexts["0 of 393 parks"].waitForExistence(timeout: 3))
-        app.buttons["Done"].tap()
-        XCTAssertTrue(app.staticTexts["No matching parks"].exists)
-        app.buttons["Clear filters"].tap()
-        XCTAssertTrue(app.staticTexts["393 of 393 parks"].exists)
+        expectPins(1, in: app)
+        XCTAssertTrue(app.buttons["Remove Tag swag filter"].exists)
+        app.buttons["Remove search filter"].tap()
+        app.buttons["Remove Tag swag filter"].tap()
+        expectPins(393, in: app)
         app.tabBars.buttons["Home"].tap()
         app.buttons["Settings"].tap()
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Map appearance,")).firstMatch.tap()
@@ -63,53 +113,39 @@ nonisolated final class DiscoveryUITests: XCTestCase {
         app.tabBars.buttons["Map"].tap()
         XCTAssertTrue(
             app.staticTexts["Offline geographic overview · Natural Earth"].waitForExistence(timeout: 3))
-        let overview = XCTAttachment(screenshot: app.screenshot())
-        overview.name = "Bundled offline overview"
-        overview.lifetime = .keepAlways
-        add(overview)
+        capture("Map-first offline overview", app: app)
     }
 
     @MainActor
-    func testFiltersAndDetailsRemainUsableAtLargestTextSize() throws {
-        let app = XCUIApplication()
-        app.launchEnvironment["BARK_TEST_PREFERENCES_SUITE"] = UUID().uuidString
-        app.launchEnvironment["BARK_CATALOG_URL"] = ""
-        app.launchArguments = [
-            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
-        ]
-        app.launch()
-        app.tabBars.buttons["Map"].tap()
+    func testFiltersAndSearchRemainUsableAtLargestTextSize() {
+        let app = launch(largeText: true)
         app.buttons["Filters"].tap()
         XCTAssertTrue(app.switches["National"].waitForExistence(timeout: 3))
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "Filters at largest text size"
-        screenshot.lifetime = .keepAlways
-        add(screenshot)
         app.buttons["Done"].tap()
-        app.segmentedControls.buttons["Results list"].tap()
-        XCTAssertTrue(app.cells.firstMatch.waitForExistence(timeout: 3))
-        app.cells.firstMatch.tap()
+        let search = app.textFields["park-search"]
+        search.tap()
+        search.typeText("hulls cove")
+        XCTAssertEqual(search.value as? String, "hulls cove")
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        expectPins(1, in: app)
+        capture("Search at largest text size", app: app)
+        let result = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "park-result-"))
+            .firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 3))
+        result.tap()
         XCTAssertTrue(app.buttons["Directions in Apple Maps"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["Done"].isHittable)
         app.buttons["Done"].tap()
     }
+
     @MainActor
-    func testLocationDenialAndAppleMapsReturnKeepDiscoveryUsable() throws {
-        let app = XCUIApplication()
-        app.launchEnvironment["BARK_TEST_PREFERENCES_SUITE"] = UUID().uuidString
-        app.launchEnvironment["BARK_CATALOG_URL"] = ""
+    func testLocationDenialAndAppleMapsReturnKeepDiscoveryUsable() {
+        let app = launch()
         app.resetAuthorizationStatus(for: .location)
-        app.launch()
-        XCTAssertTrue(app.navigationBars["Bark Ranger"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.alerts.firstMatch.exists)
-        app.tabBars.buttons["Map"].tap()
         let interruption = addUIInterruptionMonitor(withDescription: "Location permission") { alert in
-            if alert.buttons["Don’t Allow"].exists {
-                alert.buttons["Don’t Allow"].tap()
-                return true
-            }
-            if alert.buttons["Don't Allow"].exists {
-                alert.buttons["Don't Allow"].tap()
+            for title in ["Don’t Allow", "Don't Allow"] where alert.buttons[title].exists {
+                alert.buttons[title].tap()
                 return true
             }
             return false
@@ -119,16 +155,14 @@ nonisolated final class DiscoveryUITests: XCTestCase {
         app.tap()
         XCTAssertTrue(app.alerts["Location unavailable"].waitForExistence(timeout: 5))
         app.alerts["Location unavailable"].buttons["OK"].tap()
-        app.segmentedControls.buttons["Results list"].tap()
-        app.cells.firstMatch.tap()
-        XCTAssertTrue(app.buttons["Directions in Apple Maps"].waitForExistence(timeout: 5))
+        app.textFields["park-search"].tap()
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "park-result-")).firstMatch.tap()
         app.buttons["Directions in Apple Maps"].tap()
-        let maps = XCUIApplication(bundleIdentifier: "com.apple.Maps")
-        XCTAssertTrue(maps.wait(for: .runningForeground, timeout: 10))
+        XCTAssertTrue(
+            XCUIApplication(bundleIdentifier: "com.apple.Maps").wait(for: .runningForeground, timeout: 10))
         app.activate()
         XCTAssertTrue(app.navigationBars["Park details"].waitForExistence(timeout: 5))
         app.buttons["Done"].tap()
-        XCTAssertTrue(app.navigationBars["Map"].exists)
+        XCTAssertTrue(app.textFields["park-search"].exists)
     }
-
 }

@@ -1,10 +1,10 @@
 # Phase 2 — catalog and discovery
 
-September 10, 2026. Build **0.2.0 (2)**, implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
+September 10, 2026. Current build **0.2.1 (3)** includes the requested Discovery UI cleanup. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
 
 ## What you can use
 
-The app opens without an account, with **393 real bundled park records**. Map and Results list share one search/filter result and count. Search is local, including retained abbreviations, diacritics and bounded spelling tolerance. Category and swag filters persist through relaunch. Details show every supplied field, including fees, swag locations, approved trails, restrictions, hazards, extra swag and approved source links. Directions open Apple Maps; Locate Me requests permission only when tapped.
+The app opens without an account, with **393 real bundled park records**. The full-screen map and live search dropdown share one search/filter result. A wide search field, live matching/total count and trailing filter button float over the map; no Map title, count/status header or Map/Results switch takes up the screen. Typing and scrolling results keep the keyboard open. Active search/category/swag filters appear directly under the field as individually removable chips. Search is local, including retained abbreviations, diacritics and bounded spelling tolerance. Category and swag filters persist through relaunch. Details show every supplied field, including fees, swag locations, approved trails, restrictions, hazards, extra swag and approved source links. Directions open Apple Maps; Locate Me requests permission only when tapped.
 
 The native map reuses annotations and preserves selection, filters and camera across accepted updates. Native clustering avoids a custom clustering engine. The bundled Natural Earth outline and an opaque local background provide a geographic overview without downloaded imagery; local results/details remain available. Detailed Apple street imagery and Apple Maps routing are separate provider capabilities and are not guaranteed offline by Bark.
 
@@ -37,7 +37,7 @@ The [implemented architecture and call map](../../../01-code/ios/ARCHITECTURE.md
 | Catalog | Add `CatalogRepository`, `CatalogHTTPClient`, `CatalogDiskStore`, `CatalogValidator`. One writer, conditional bounded transport, atomic envelopes and whole-snapshot validation. |
 | Preferences | Add `SettingsRepository`, owning one encoded device-preferences value. No private store or migration framework yet. |
 | Platform | Add `NetworkMonitor`, `LocationClient`, `MapsHandoff`, `OfflineBasemapOverlay`; extend `Diagnostics` with separate catalog timings. |
-| Discovery | Add the 12 mapped files: `MapFeatureModel`, `MapScreen`, `NativeMapView`, `MapCoordinator`, `ParkAnnotation`, `MapOverlayRenderer`, `FilterSheet`, `FilterSummaryView`, `SearchModel`, `SearchSheet`, `ParkDetailModel`, `ParkDetailView`. |
+| Discovery | The 14 implemented files are: `MapFeatureModel`, `MapScreen`, `NativeMapView`, `MapCoordinator`, `ParkAnnotation`, `MapOverlayRenderer`, `FilterSheet`, `FilterSummaryView`, `SearchModel`, `MapSearchBar`, `MapSearchResults`, `FilterChipsView`, `ParkDetailModel`, `ParkDetailView`. The old `SearchSheet` is removed. |
 | Home/settings | Extend `HomeView`; add `SettingsModel` and `SettingsView`. Views render and forward actions. |
 | Resources | Public catalog/manifest/provenance, local land geometry/tile, education, retained legal text, approved community links and attribution. |
 | Local backend | Four catalog files: source adapter, schema, publisher, trigger handlers. The small registry/admin-write integration is in the retained `index.js`. |
@@ -46,7 +46,27 @@ The [implemented architecture and call map](../../../01-code/ios/ARCHITECTURE.md
 
 The [publication runbook](../../operations/NATIVE_CATALOG_PUBLICATION.md) maps backend calls, local fixtures, eventual configuration and rollback. A deliberate refinement keeps the old CSV/fallback writer as its existing owner: native publication adds no second writer to old fallback storage. The public asset publisher uses immutable upload followed by a generation-conditioned manifest promotion. Memory adapters verify ordering/conflicts locally; they do not certify cloud IAM or actual storage preconditions.
 
-## Verification evidence
+## UI cleanup — 0.2.1 (3)
+
+This follow-up changes presentation within Discovery and the shell’s per-tab navigation-bar visibility. `MapScreen` owns focus, layout and sheet presentation; three small child views own the search field, removable chips and scrollable dropdown. `MapFeatureModel`, `SearchModel`, the domain filter/index, catalog storage/transport, settings persistence and native map adapters are unchanged. The public catalog/backend are unchanged.
+
+Keyboard focus stays in the persistent field through query edits, clear-search, chip removal and results scrolling. Selecting a result opens existing details and dismisses the keyboard. Submitting search dismisses the dropdown while retaining its filter. Opening filters or leaving Map also dismisses focus. Empty results keep the existing clear-filter action available. Large text uses a flexible scrollable dropdown above the keyboard.
+
+The file/call map and UI tests follow this structure. The original 0.2.0 baseline table remains separate.
+
+| Cleanup check | Completed evidence |
+|---|---|
+| Debug and Release | Final builds passed with Swift warnings treated as errors; formatting lint and whitespace checks passed. |
+| App units | All 21 functions passed during this cleanup; catalog, model and persistence code did not change. |
+| iPhone 17 Pro | Seven functional UI tests passed. The final focused light/dark accessibility audit passed with the exceptions below; the strengthened largest-text typing check also passed. These are separate successful checks, not a claim that the earlier full wrapper passed. |
+| iPhone SE 3 | All four Discovery tests passed across the initial run and focused rerun: largest-text typing/results, removable/persisted filters, live count/dropdown/pin agreement, location denial and Maps return. An initial session returned duplicate accessibility elements and an unreachable control; after restarting the test device, both affected checks passed with no runtime changes. |
+| Visual review | Full-map layout, live count/search, filter chips, light/dark presentation and largest-text small-phone search were inspected. |
+
+Local evidence: `/tmp/BarkUICleanupCountPro.xcresult` (functional checks; superseded audit failure), `/tmp/BarkUICleanupAuditFinal.xcresult` (largest-text typing pass; superseded OCR audit failure), `/tmp/BarkUICleanupAuditVerified.xcresult` (final audit pass), `/tmp/BarkUICleanupSEFinal.xcresult` (two passing Discovery checks; initial simulator failures), `/tmp/BarkUICleanupSERetry.xcresult` (both affected checks passed), `/tmp/bark-ui-cleanup-pro.log` (21 app-unit functions passed), `/tmp/bark-ui-cleanup-build8.log` and `/tmp/bark-ui-cleanup-release-final.log`. Screenshot exports are in `/tmp/bark-ui-cleanup-count-pro-attachments/`, `/tmp/bark-ui-cleanup-se-final-attachments/` and `/tmp/bark-ui-cleanup-se-retry-attachments/`. These temporary machine-local artifacts are not committed.
+
+The Map accessibility audit retains contrast, hit-area, text-size and description checks, with three explicit native-control exceptions: MapKit’s small Legal link; map-image OCR reports with no corresponding accessibility element; and the horizontally scrolling single-line search field’s large-text clipping warning. No other field or app-owned button is excluded. Tests verify the full accessible search value, live count/pin agreement, keyboard focus and selectable results at the largest text size; screenshots receive visual review. Native cluster-count glyphs are avoided by auditing one matching park; the full map is exercised functionally. Human VoiceOver review remains a release prerequisite. Existing Home contrast coverage limits remain as documented in the baseline.
+
+## Original 0.2.0 verification evidence
 
 Toolchain: **Xcode 26.6 (17F113), Swift 6.3.3**, complete Swift 6 concurrency checks. Minimum iOS 18.4; installed simulator runtime iOS 26.5. Local Node 24.15.0; catalog CI targets the backend's declared Node 22 runtime. No physical iPhone/provider verification is claimed.
 
@@ -115,12 +135,12 @@ Change the destination to the available **BARK iPhone SE 3** for smaller-screen 
 
 Xcode is already open with **BarkRanger → iPhone 17 Pro**, the implemented architecture tab selected, and the app running on the full 393-park map. The simulator is back in light appearance and test display preferences have been reset. To run again, open `01-code/ios/BarkRanger.xcodeproj` and press **Command-R**.
 
-1. Open **Map**. Expect 393 parks, native pins/clusters and the same count in **Results list**. Zoom/pan, switch between map/list, and confirm the position stays sensible.
-2. Search **hulls cove**, open Acadia's details, and inspect the source fields. Try an abbreviation, then a nonsense query. Clear filters to return to all parks.
-3. Combine **National** and **Tag** filters, leave/relaunch the app, and confirm they persist. Reset device preferences from Home → Settings and confirm Map updates too.
+1. Open **Map**. Expect a full-screen map with native pins/clusters, a wide search bar, live matching/total count and a filter button on its right. Confirm there is no large Map title, count/status block or segmented switch. Zoom and pan; the map stays behind the controls down to the tab bar.
+2. Tap search and type **hulls cove** gradually. Results appear below search and update with the pins while the keyboard stays open. Scroll the dropdown, clear text, try a nonsense query, then select Acadia to inspect details. Submit search to dismiss the keyboard while retaining the filter.
+3. Combine **National** and **Tag** filters and a search. Remove one chip with its × and confirm the others remain. Leave/relaunch the app and confirm remaining filters persist. Remove the search/category/swag chips to return to all parks. Reset preferences from Home → Settings and confirm Map updates too.
 4. Choose **Offline overview** in Settings. Expect the bundled outline, pins and searchable records without requiring street imagery. Test an actual device in airplane mode once signing is available.
 5. Tap **Locate me**, deny permission and keep browsing. Open **Directions in Apple Maps**, then return to Bark. The same park details should remain open.
-6. Try light/dark appearance and the largest accessibility text size. Scroll Home, filters and details; check that Done, Clear and Directions remain reachable.
+6. Try light/dark appearance and the largest accessibility text size. On a small screen, keep the keyboard open and scroll the dropdown to a result. Scroll Home, filters and details; check that Done, Clear and Directions remain reachable. Return from Map to Home and confirm its navigation controls remain visible.
 7. For online-update testing, start the local fixture server, then add `BARK_CATALOG_URL=http://127.0.0.1:8787/active/manifest.json` in **Edit Scheme → Run → Arguments → Environment Variables**. Use the [runbook's scenario commands](../../operations/NATIVE_CATALOG_PUBLICATION.md#reproduce-locally). The `valid` case updates; `slow`/`stalled` keep loading bounded; malformed/shrunk/hash-mismatched data retain accepted parks. Settings → Check for updates requests the same shared refresh.
 
 Removing the local endpoint returns to saved/bundled-only mode; a newer accepted fixture remains saved, by design. The fixture's synthetic source label distinguishes it from live data. Do not use a 5,000-record fixture in a build intended for ordinary park-content testing.
@@ -131,13 +151,13 @@ Physical source lines include comments/blank lines and exclude generated builds,
 
 | Group | Files | Lines |
 |---|---:|---:|
-| App + domain runtime Swift | 37 | 2,453 |
-| App/UI/package test Swift | 6 | 732 |
+| App + domain runtime Swift | 39 | 2,558 |
+| App/UI/package test Swift | 6 | 778 |
 | New backend catalog JavaScript | 4 | 297 |
 | New backend/script test JavaScript | 2 | 221 |
 | Local fixture/build scripts + Apps Script source | 4 | 183 |
 | Native project/package/configuration + two CI workflows + Apps Script manifest | 11 | 838 |
 
-The largest Swift runtime file is **164 lines**. Phase 1 had 509 runtime lines; phase 2 adds a net **1,944 runtime Swift lines** and real catalog/discovery behavior. The retained backend registry gains 12 net physical lines. **Old web/backend runtime lines removed: 0.** No deployed cost reduction or final replacement saving is claimed while both apps remain supported. Retirement and the final line-cut comparison come after the replacement and separately approved rollout.
+The largest Swift runtime file remains **164 lines**. This cleanup adds **105 net runtime Swift lines** over 0.2.0: the obsolete 40-line SearchSheet is removed; MapScreen drops from 103 to 90 lines; MapSearchBar, FilterChipsView and MapSearchResults are 50, 52 and 53 lines respectively. No new model, repository or service is introduced. Phase 1 had 509 runtime lines; phase 2, including this UI cleanup, adds a net **2,049 runtime Swift lines** and real catalog/discovery behavior. The retained backend registry gains 12 net physical lines. **Old web/backend runtime lines removed: 0.** No deployed cost reduction or final replacement saving is claimed while both apps remain supported. Retirement and the final line-cut comparison come after the replacement and separately approved rollout.
 
 Remaining prerequisites: actual iOS 18.4 runtime and physical-device signing/trust; live public-asset/source/trigger configuration and provider checks; human VoiceOver review; native legal/privacy/App Store disclosure review before release. These do not authorize moving users or starting the next phase. The next step is user testing and Phase-2 fixes.

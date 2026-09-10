@@ -1,62 +1,77 @@
 import BarkDomain
 import SwiftUI
 
+/// Owns discovery presentation and focus; search/filter results still come from the feature model.
 struct MapScreen: View {
     @Bindable var model: MapFeatureModel
-    @State private var showsList = false
-    @State private var sheet: Sheet?
-    private enum Sheet: String, Identifiable {
-        case search, filters
-        var id: Self { self }
-    }
+    @FocusState private var searchFocused: Bool
+    @State private var showsFilters = false
+
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                FilterSummaryView(result: model.result, clear: { model.setFilters(.init()) })
-                Text(SettingsModel.statusText(model.catalogState)).font(.caption).foregroundStyle(
-                    Color.primary
-                ).fixedSize(horizontal: false, vertical: true)
-                Picker("Discovery display", selection: $showsList) {
-                    Text("Map").tag(false)
-                    Text("Results list").tag(true)
-                }.pickerStyle(.segmented)
-            }.padding(.horizontal).padding(.vertical, 10).background(.background)
-            if showsList {
-                if #available(iOS 26, *) {
-                    resultsList.scrollEdgeEffectHidden(for: .bottom)
-                } else {
-                    resultsList
-                }
-            } else {
-                ZStack(alignment: .bottomTrailing) {
-                    NativeMapView(model: model)
-                        .accessibilityLabel("Park map")
-                    Button(action: model.locateMe) {
-                        Label(model.isLocating ? "Locating…" : "Locate me", systemImage: "location.fill")
+        GeometryReader { geometry in
+            ZStack(alignment: .top) {
+                NativeMapView(model: model)
+                    .accessibilityLabel("Park map")
+                    .accessibilityValue("\(model.result.matchingCount) matching parks")
+                    .accessibilityIdentifier("park-map")
+                    .ignoresSafeArea(.container, edges: .top)
+                    .ignoresSafeArea(.keyboard)
+                VStack(spacing: 8) {
+                    MapSearchBar(
+                        text: Binding(
+                            get: { model.query.search },
+                            set: { text in
+                                var query = model.query
+                                query.search = text
+                                model.setFilters(query)
+                            }),
+                        focused: $searchFocused,
+                        result: model.result,
+                        openFilters: {
+                            searchFocused = false
+                            showsFilters = true
+                        })
+                    FilterChipsView(query: model.query, update: model.setFilters)
+                    if searchFocused || model.parks.isEmpty {
+                        MapSearchResults(
+                            parks: model.parks,
+                            maximumHeight: max(100, min(360, geometry.size.height * 0.55)),
+                            select: { id in
+                                searchFocused = false
+                                model.selectPark(id: id)
+                            },
+                            clear: { model.setFilters(.init()) })
                     }
-                    .buttonStyle(.borderedProminent).controlSize(.large).disabled(model.isLocating).padding()
-                    if model.parks.isEmpty { emptyResults.background(.background) }
+                    Spacer(minLength: 0)
                 }
-                if model.usesOfflineMap {
-                    Text("Offline geographic overview · Natural Earth").font(.caption).padding(6)
+                .padding(.horizontal, 12).padding(.top, 8)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if !searchFocused {
+                    Button(action: model.locateMe) {
+                        Image(systemName: "location.fill").frame(width: 48, height: 48)
+                    }
+                    .buttonStyle(.borderedProminent).buttonBorderShape(.circle)
+                    .accessibilityLabel(model.isLocating ? "Locating…" : "Locate me")
+                    .disabled(model.isLocating).padding(12)
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                if model.usesOfflineMap && !searchFocused {
+                    Text("Offline geographic overview · Natural Earth")
+                        .font(.caption2).foregroundStyle(Color.primary)
+                        .padding(6).background(.background, in: RoundedRectangle(cornerRadius: 8))
+                        .padding(.leading, 8).padding(.bottom, 76)
                 }
             }
         }
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button("Search parks", systemImage: "magnifyingglass") { sheet = .search }
-                Button("Filters", systemImage: "line.3.horizontal.decrease") { sheet = .filters }
-            }
-        }
-        .sheet(item: $sheet, onDismiss: {}) { item in
-            switch item {
-            case .search: SearchSheet(model: model, dismiss: { sheet = nil })
-            case .filters: FilterSheet(model: model, dismiss: { sheet = nil })
-            }
+        .sheet(isPresented: $showsFilters) {
+            FilterSheet(model: model, dismiss: { showsFilters = false })
         }
         .sheet(
             isPresented: Binding(
-                get: { model.selectedID != nil && sheet == nil }, set: { if !$0 { model.dismissPark() } })
+                get: { model.selectedID != nil && !showsFilters },
+                set: { if !$0 { model.dismissPark() } })
         ) {
             ParkDetailView(model: model.detail, dismiss: model.dismissPark).presentationDetents([.large])
         }
@@ -69,35 +84,7 @@ struct MapScreen: View {
         } message: {
             Text(model.locationMessage ?? "")
         }
-        .onChange(of: model.settings.value.filters) { _, _ in model.rebuild() }
-    }
-    private var resultsList: some View {
-        List(model.parks) { park in
-            Button {
-                model.selectPark(id: park.id)
-            } label: {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(park.name).foregroundStyle(Color.primary)
-                    Text("\(park.state) · \(park.swag.rawValue)").font(.subheadline).foregroundStyle(
-                        Color.primary)
-                }.fixedSize(horizontal: false, vertical: true).padding(.vertical, 5)
-            }
-        }.listStyle(.plain).clipped()
-            .overlay { if model.parks.isEmpty { emptyResults } }
-    }
-
-    private var emptyResults: some View {
-        ScrollView {
-            ContentUnavailableView {
-                Label("No matching parks", systemImage: "magnifyingglass")
-            } description: {
-                Text("Your saved catalog is still available. Try another search or clear the filters.")
-                    .foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
-            } actions: {
-                Button("Clear filters") { model.setFilters(.init()) }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
-            }
-            .padding(.vertical, 20)
-        }
+        .onChange(of: model.selectedID) { _, id in if id != nil { searchFocused = false } }
+        .onDisappear { searchFocused = false }
     }
 }

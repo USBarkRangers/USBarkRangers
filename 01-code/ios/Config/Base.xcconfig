@@ -15,3 +15,7 @@ SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES
 BARK_DEVELOPMENT_TEAM = V7Y6NA8G23
 // Optional developer-owned overrides; never checked in.
 #include? "Signing.local.xcconfig"
+
+// Set only after native catalog assets have been provisioned and verified.
+BARK_CATALOG_MANIFEST_URL =
+#include? "Catalog.local.xcconfig"

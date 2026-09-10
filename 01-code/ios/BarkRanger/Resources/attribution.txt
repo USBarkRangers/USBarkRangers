@@ -1,0 +1,19 @@
+PARK CATALOG
+Bundled from the approved Bark Ranger web fallback, bark-fallback-0.142.csv at commit f1bd2a0, September 2, 2026. 393 records. This build does not verify the latest live spreadsheet. Website and community reports remain attributed through each park’s source links.
+
+OFFLINE MAP
+Made with Natural Earth. Public-domain 1:110m land geometry. Downloaded September 10, 2026 from the maintainer’s repository:
+https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_land.geojson
+https://www.naturalearthdata.com/about/terms-of-use/
+This geographic overview is not a road or trail map. Small islands may not appear at this scale; park pins, coordinates and search results remain available.
+
+ONLINE MAP
+Apple Maps imagery and attribution are displayed by MapKit. No Apple or third-party tile downloads are bundled or separately cached by Bark Ranger.
+
+BRAND
+Original Bark Ranger badge reused from the existing app. The paw icon uses Apple’s SF Symbols as provisional development artwork.
+
+LEGAL DOCUMENTS
+Retained copies of the existing web-service privacy policy and terms are bundled for offline reading. Native privacy and App Store disclosures are a later release review.
+
+Offline land SHA-256: 9e0729ee253ca7d7a5c4ae9395fb1902264c5377c52e224d13dd85010e2835d9

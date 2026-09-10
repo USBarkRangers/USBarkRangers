@@ -2,6 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>BarkCatalogManifestURL</key><string>$(BARK_CATALOG_MANIFEST_URL)</string>
+    <key>NSLocationWhenInUseUsageDescription</key><string>Use your location when you tap Locate me to center the park map.</string>
+    <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
     <key>CFBundleDisplayName</key><string>Bark Ranger</string>
     <key>CFBundleURLTypes</key>
     <array><dict>

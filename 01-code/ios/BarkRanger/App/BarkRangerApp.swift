@@ -15,13 +15,16 @@ struct BarkRangerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(router: composition.router, startup: composition.startup)
-                .onChange(of: scenePhase, initial: true) { _, phase in
-                    composition.lifecycle.sceneChanged(phase)
-                }
-                .onOpenURL { url in
-                    composition.router.handle(url: url)
-                }
+            RootView(
+                router: composition.router, startup: composition.startup, discovery: composition.discovery,
+                settings: composition.settings
+            )
+            .onChange(of: scenePhase, initial: true) { _, phase in
+                composition.lifecycle.sceneChanged(phase)
+            }
+            .onOpenURL { url in
+                composition.router.handle(url: url)
+            }
         }
     }
 }

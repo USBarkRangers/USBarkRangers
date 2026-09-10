@@ -32,7 +32,7 @@ final class AppRouter {
     }
 
     enum Sheet: String, Identifiable {
-        case about
+        case about, settings
         var id: Self { self }
     }
 
@@ -67,15 +67,17 @@ final class AppRouter {
     @discardableResult
     func handle(url: URL) -> Bool {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.scheme?.lowercased() == "barkranger",
-              components.user == nil, components.password == nil,
-              components.port == nil, components.query == nil, components.fragment == nil,
-              components.percentEncodedPath.isEmpty || components.percentEncodedPath == "/"
+            components.scheme?.lowercased() == "barkranger",
+            components.user == nil, components.password == nil,
+            components.port == nil, components.query == nil, components.fragment == nil,
+            components.percentEncodedPath.isEmpty || components.percentEncodedPath == "/"
         else { return rejectLink() }
 
         switch components.host?.lowercased() {
         case "home": open(.tab(.home))
         case "about": open(.sheet(.about))
+        case "map": open(.tab(.map))
+        case "settings": open(.sheet(.settings))
         default: return rejectLink()
         }
         return true

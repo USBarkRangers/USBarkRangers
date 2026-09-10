@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import BarkDomain
 
 @Test(arguments: ["00042", "Acadia:site-2", "île / NORTH", " ID "])
@@ -21,8 +22,10 @@ func identityRoundTripsAsAnUnchangedJSONString(_ raw: String) throws {
 }
 
 @Test func coordinateRejectsNonFiniteAndOutOfRangeValues() {
-    for (latitude, longitude) in [(Double.nan, 0), (.infinity, 0), (0, -.infinity),
-                                  (90.001, 0), (-90.001, 0), (0, 180.001), (0, -180.001)] {
+    for (latitude, longitude) in [
+        (Double.nan, 0), (.infinity, 0), (0, -.infinity),
+        (90.001, 0), (-90.001, 0), (0, 180.001), (0, -180.001),
+    ] {
         #expect(Coordinate(latitude: latitude, longitude: longitude) == nil)
     }
     #expect(Coordinate(latitude: -90, longitude: -180) != nil)

@@ -4,6 +4,8 @@ import SwiftUI
 struct RootView: View {
     @Bindable var router: AppRouter
     let startup: StartupModel
+    let discovery: MapFeatureModel
+    let settings: SettingsModel
 
     var body: some View {
         Group {
@@ -21,6 +23,14 @@ struct RootView: View {
                 .sheet(item: $router.sheet) { sheet in
                     switch sheet {
                     case .about: aboutSheet
+                    case .settings:
+                        NavigationStack {
+                            SettingsView(model: settings).toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("Done", action: router.dismissSheet)
+                                }
+                            }
+                        }
                     }
                 }
             } else {
@@ -35,17 +45,19 @@ struct RootView: View {
         case .home:
             HomeView(open: router.open)
         case .map:
-            developmentScreen("Park discovery is on the way", symbol: tab.symbol,
-                              detail: "Offline parks, search and maps will arrive in phase 2.")
+            MapScreen(model: discovery)
         case .trips:
-            developmentScreen("Room for your next adventure", symbol: tab.symbol,
-                              detail: "Trip planning and saved routes will arrive in phase 4.")
+            developmentScreen(
+                "Room for your next adventure", symbol: tab.symbol,
+                detail: "Trip planning and saved routes will arrive in phase 4.")
         case .passport:
-            developmentScreen("Every visit tells a story", symbol: tab.symbol,
-                              detail: "Park visits, stamps and achievements will arrive in phase 4.")
+            developmentScreen(
+                "Every visit tells a story", symbol: tab.symbol,
+                detail: "Park visits, stamps and achievements will arrive in phase 4.")
         case .account:
-            developmentScreen("Your ranger profile starts here", symbol: tab.symbol,
-                              detail: "Sign-in and account settings will arrive in phase 3.")
+            developmentScreen(
+                "Your ranger profile starts here", symbol: tab.symbol,
+                detail: "Sign-in and account settings will arrive in phase 3.")
         }
     }
 
@@ -80,7 +92,9 @@ struct RootView: View {
                     Text("A new native home for US BARK Rangers.")
                     Text("Development preview")
                         .font(.headline)
-                    Text("This first build lets you explore the app’s navigation. Parks, accounts and adventure tools are still being built.")
+                    Text(
+                        "Explore offline park records, local search, filters and Apple Maps directions. Accounts and adventure tools are still being built."
+                    )
                     Text("Your existing Bark Ranger app is still available as usual.")
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -106,5 +120,7 @@ struct RootView: View {
 
 #Preview {
     let composition = AppComposition.makePreview()
-    RootView(router: composition.router, startup: composition.startup)
+    RootView(
+        router: composition.router, startup: composition.startup, discovery: composition.discovery,
+        settings: composition.settings)
 }

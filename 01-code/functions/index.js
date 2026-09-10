@@ -14,6 +14,7 @@ const costReporting = require("./costReporting.js");
 const healthMonitoring = require("./healthMonitoring.js");
 const dataIntegrity = require("./dataIntegrity.js");
 const catalogSnapshot = require("./catalogSnapshot.js");
+const { createCatalogTriggers } = require("./catalog/catalogTriggers.js");
 const feedbackAttachments = require("./feedbackAttachments.js");
 const supportDesk = require("./supportDesk.js");
 const routeRequestStrategy = require("./routeRequestStrategy.js");
@@ -102,7 +103,8 @@ const ADMIN_CALLABLE_OPTIONS = {};
 
 const ADMIN_RATE_LIMITS = {
     extractParkData: { maxRequests: 20, windowMs: 60 * 1000 },
-    syncToSpreadsheet: { maxRequests: 10, windowMs: 60 * 1000 }
+    syncToSpreadsheet: { maxRequests: 10, windowMs: 60 * 1000 },
+    publishNativeCatalog: { maxRequests: 2, windowMs: 60 * 1000 }
 };
 
 const FEEDBACK_RATE_LIMIT = {
@@ -4455,6 +4457,14 @@ exports.extractParkData = functions
 // ============================================================================
 // 2. SPREADSHEET BRIDGE: THE NEW SITE GUARDRAIL
 // ============================================================================
+// Native publication is opt-in and leaves all existing web catalog endpoints intact.
+const nativeCatalog = createCatalogTriggers({ admin, google, requireAdmin: requireAdminCallable });
+exports.nativeCatalogEditSignal = functions.runWith({ secrets: ["BARK_CATALOG_EDIT_SECRET"], timeoutSeconds: 120, maxInstances: 2 })
+    .https.onRequest(nativeCatalog.handleEditSignal);
+exports.publishNativeCatalog = functions.runWith(ADMIN_CALLABLE_OPTIONS).https.onCall(nativeCatalog.publishNow);
+exports.reconcileNativeCatalog = functions.runWith({ timeoutSeconds: 120, maxInstances: 1 })
+    .pubsub.schedule("every 6 hours").onRun(nativeCatalog.reconcileCatalog);
+
 exports.syncToSpreadsheet = functions
     .runWith(ADMIN_CALLABLE_OPTIONS)
     .https.onCall(async (data, context) => {
@@ -4598,6 +4608,7 @@ exports.syncToSpreadsheet = functions
                 valueInputOption: 'USER_ENTERED',
                 resource: { values: [updateData] }
             });
+            await nativeCatalog.afterAcceptedSheetWrite();
             return { success: true, action: 'updated', row: bestMatch.rowIndex, confidence: bestMatch.score, parkIdPreserved: existingParkId || null };
         } else {
             // NEW GUARDRAIL: Only append if the frontend explicitly gave permission
@@ -4625,6 +4636,7 @@ exports.syncToSpreadsheet = functions
                 insertDataOption: 'INSERT_ROWS',
                 resource: { values: [appendData] }
             });
+            await nativeCatalog.afterAcceptedSheetWrite();
             return { success: true, action: 'appended', parkId: appendParkId };
         }
     } catch (error) {

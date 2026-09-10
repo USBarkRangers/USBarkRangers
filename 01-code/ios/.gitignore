@@ -10,3 +10,5 @@ build/
 Config/*.local.xcconfig
 *.p12
 *.mobileprovision
+
+Config/Catalog.local.xcconfig

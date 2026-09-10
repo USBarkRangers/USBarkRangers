@@ -1,57 +1,70 @@
 # Bark Ranger for iPhone
 
-Phase 1 builds the native shell: Home, five native tabs, an About sheet, public deep-link validation, immediate local launch and a small shared domain package. Upcoming features are visibly marked as development previews. The old web app and backend continue unchanged.
+Phase 2 adds **393 bundled parks**, local search/filters, complete details, native MapKit, a geographic overview that works offline, one-shot Locate Me, Apple Maps directions and device settings. Accounts, trips and passport remain marked as future development features. The existing web app and deployed backend continue operating independently.
 
 ## Open and run
 
-Open `BarkRanger.xcodeproj`, select the shared **BarkRanger** scheme and **iPhone 17 Pro** simulator, then press **Command-R**. Home should appear immediately. Switch tabs or open the information button to test navigation. No account, network connection or permission prompt is needed.
+Open `BarkRanger.xcodeproj`, choose the shared **BarkRanger** scheme and **iPhone 17 Pro**, then press **Command-R**. Home opens without sign-in. Tap **Map** to explore or switch to **Results list**. Use **Home → Settings** for map appearance, offline overview, saved catalog status, permissions and local legal documents.
 
-Toolchain: **Xcode 26.6 (17F113), Swift 6.3.3**, Swift 6 language mode with complete concurrency checking. Minimum app deployment target: **iOS 18.4**. The installed/tested runtime is **iOS 26.5**. A physical iPhone requires a valid signing account/profile, device trust and Developer Mode; provisioning has not been verified. See [Config/README.md](Config/README.md).
+The default build loads the newest valid bundle/saved revision. **Live spreadsheet publication is not deployed or configured yet.** Local fixtures exercise refresh behavior; see the [simple local update instructions](../../04-docs/operations/NATIVE_CATALOG_PUBLICATION.md#reproduce-locally). A saved copy is never labeled fresh just because a network path exists.
 
-## Read the code
+Toolchain: **Xcode 26.6 (17F113), Swift 6.3.3**, Swift 6 language mode with complete concurrency checking. Minimum deployment target **iOS 18.4**; installed/tested simulator runtime **iOS 26.5**. Physical-device signing/trust and an actual iOS 18.4 runtime remain separate checks. See [Config/README.md](Config/README.md).
 
-Start with [ARCHITECTURE.md](ARCHITECTURE.md): it maps every implemented file, function boundary and direct call. `BarkRangerApp → AppComposition → RootView / AppLifecycle` is the entire assembly path. [CONTRIBUTING.md](CONTRIBUTING.md) explains where new work belongs.
+## Find the owner
 
-- `BarkRanger/App`: composition, navigation, scene handling and startup.
-- `BarkRanger/Features/Home`: welcome content and navigation actions.
-- `BarkRanger/Platform`: local diagnostics.
-- `Packages/BarkDomain`: Foundation-only, Sendable park identities/coordinates/basic value.
-- `BarkRangerTests`, `BarkRangerUITests` and package tests: behavior checks.
-- `Config`: platform/build configuration and minimal app metadata.
+[ARCHITECTURE.md](ARCHITECTURE.md) maps every implemented file, its functions and direct calls. Start with `BarkRangerApp → AppComposition → RootView / AppLifecycle`, then follow startup into `CatalogRepository`. The catalog is independent of accounts; one filter result drives both pins and counts.
 
-The original badge is reused unchanged. The teal paw icon is development artwork made with the native `pawprint.fill` symbol; final App Store artwork is a later release task. The English string catalog is ready for future translations, not a claim of localization coverage.
+- `BarkRanger/App`: assembly, navigation, lifecycle and startup.
+- `BarkRanger/Data/Catalog`: accepted revisions, HTTP, validation and atomic disk storage.
+- `BarkRanger/Data/User`: device preferences only in phase 2.
+- `BarkRanger/Features`: Home, Discovery and Settings views/models.
+- `BarkRanger/Platform`: native location/maps, offline geography, connectivity and redacted local diagnostics.
+- `Packages/BarkDomain`: immutable values and pure catalog/filter/search policies; Foundation only.
+- `Resources`: approved public snapshot, exact provenance, local geography and static education/legal content.
+- Matching test directories, `Config` and the shared Xcode scheme remain separate from runtime responsibilities.
+
+The original badge is unchanged. The paw development icon uses SF Symbols; final App Store artwork is a release task. Strings remain English; the string catalog is a future translation boundary, not a claim of complete localization. Native privacy/App Store disclosures will be reviewed before release; current legal text is explicitly identified as retained web-service content.
 
 ## Reproduce checks
 
-Run these commands from the repository root. The temporary directory is newly created; no existing simulator or user files are erased.
+From the repository root, keep the local fixture server running in a separate terminal while app unit tests run:
+
+```sh
+node 05-tools/scripts/serve-ios-catalog.js
+```
+
+Then:
 
 ```sh
 swift test --package-path 01-code/ios/Packages/BarkDomain
+NODE_ENV=test node --test 01-code/functions/tests/native-catalog.test.js 01-code/functions/tests/catalog-publication-script.test.js
+npm test --prefix 01-code/functions
+node --test 03-tests/firebase-project-isolation.test.cjs
 
 BARK_CHECK_DIR=$(mktemp -d /tmp/bark-native-check.XXXXXX)
 xcodebuild -project 01-code/ios/BarkRanger.xcodeproj -scheme BarkRanger \
   -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
   -derivedDataPath "$BARK_CHECK_DIR/DerivedData" \
-  CODE_SIGNING_ALLOWED=NO build-for-testing
+  CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build-for-testing
 
 xcodebuild -project 01-code/ios/BarkRanger.xcodeproj -scheme BarkRanger \
   -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
   -derivedDataPath "$BARK_CHECK_DIR/DerivedData" \
-  -resultBundlePath "$BARK_CHECK_DIR/ShellTests.xcresult" \
+  -resultBundlePath "$BARK_CHECK_DIR/CatalogTests.xcresult" \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test-without-building
 ```
 
-Use Xcode **Product → Test** (Command-U) for app unit/UI targets. Run `swift test` separately for the domain package. UI automation covers navigation, sheet dismissal, background/relaunch, deep links and accessibility. The phase report records actual simulator results and remaining manual checks. Xcode's skipped AppIntents metadata notice is expected because the shell has no AppIntents feature.
+Use **Product → Test** in Xcode for app unit/UI checks, with the fixture server running. Package tests run separately. The server uses only public/synthetic local fixtures; it cannot publish data. UI tests isolate device preferences in a Debug-only UUID-named suite, preserving normal development preferences and testing persistence through relaunch within the same suite.
 
-[Native CI](../../.github/workflows/ios-checks.yml) runs the same commands on `macos-26` with Xcode 26.6 selected explicitly. Action revisions are pinned, permissions are read-only, test evidence is retained for seven days, and no deployment occurs. Changing the toolchain requires rechecking its installed simulator runtime.
+The native workflow pins Xcode 26.6 and starts its own loopback server. The catalog workflow uses Node 22 (the backend's declared runtime); local checks currently run on Node 24.15.0. Both workflows are read-only with respect to production and contain no deployment. Refer to the phase report for actual completed run evidence and remaining checks.
 
-## Current phase and boundaries
+## Phase handoff
 
-- [Phase 1 report and your testing checklist](../../04-docs/reports/ios-native/PHASE_1.md)
+- [Phase 2 report and testing checklist](../../04-docs/reports/ios-native/PHASE_2.md)
 - [Six-phase execution contract](../../04-docs/plans/ios-native-2026-09-09/IMPLEMENTATION_PHASES.md)
-- [Full proposed Swift map](../../04-docs/plans/ios-native-2026-09-09/SWIFT_FILE_MAP.md)
-- [Architecture decision](../../04-docs/adr/0001-native-ios-and-firebase.md)
+- [Complete proposed Swift map](../../04-docs/plans/ios-native-2026-09-09/SWIFT_FILE_MAP.md)
+- [Catalog publisher and rollback runbook](../../04-docs/operations/NATIVE_CATALOG_PUBLICATION.md)
 
-Planning documents remain in Xcode's Planning group as documentation, not bundled resources. Phase 2 starts only on explicit instruction after your phase-1 testing. Parks/maps arrive in 2, accounts/sync in 3, visits/trips/passport in 4, recording/native activities in 5 and purchases/integration in 6. User transfer is a separate later plan.
+Phase 3 starts only on the user's explicit instruction after phase-2 testing/fixes. No users, purchases or cloud records move during these build phases.
 
-GitHub destination: [USBarkRangers/USBarkRangers](https://github.com/USBarkRangers/USBarkRangers), branch `codex/ios-native-setup`, remote `usbarkrangers`. The `both` alias pushes to multiple repositories and is not used for this native branch. Do not deploy the old web app as a side effect of a native push.
+GitHub destination: [USBarkRangers/USBarkRangers](https://github.com/USBarkRangers/USBarkRangers), branch `codex/ios-native-setup`, remote `usbarkrangers`. Never push this native work through the multi-remote `both` alias or deploy the old web app as a side effect.

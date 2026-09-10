@@ -1,67 +1,98 @@
-# Native architecture — implemented phase 1
+# Implemented native architecture — phases 1–2
 
-This is the current code, not the future inventory. One iPhone app and one Foundation-only Swift package are sufficient. No backend or cloud dependency is initialized by this build.
+This document maps **implemented** responsibilities. Future files remain proposals in [the full file map](../../04-docs/plans/ios-native-2026-09-09/SWIFT_FILE_MAP.md). Build each phase only after the user explicitly starts it. The app uses Swift 6, iOS 18.4 minimum, SwiftUI, a Foundation-only BarkDomain package and native MapKit. No Firebase SDK, personal store, migration framework, background location mode or custom tile downloader exists in this build.
 
-```text
-BarkRangerApp
-  └─ AppComposition.makeLive()       creates one graph
-       ├─ AppRouter                 tabs, sheet, validated public links
-       ├─ StartupModel              synchronous shell readiness
-       └─ AppLifecycle              scene transitions → StartupModel
+## Read this path first
 
-RootView(router, startup)
-  ├─ HomeView(open:)                 content → supplied router action
-  ├─ native tabs + About sheet      navigation bindings → AppRouter
-  └─ StartupView(model:)            renders launch state
+`BarkRangerApp → AppComposition → AppLifecycle / RootView`
 
-Router / Startup / Lifecycle → Diagnostics → local OSLog
-BarkDomain: Park / ParkID / SiteID / Coordinate → Foundation only
-```
+Startup follows `StartupModel → CatalogRepository → CatalogDiskStore / CatalogHTTPClient / CatalogValidator`. The repository publishes immutable accepted revisions to discovery and settings. Discovery follows `MapFeatureModel → ParkSearchIndex + ParkFilter → one matching-ID result → MapScreen / NativeMapView → MapCoordinator`. Details and directions use `ParkDetailModel → CatalogRepository / MapsHandoff`. Views never fetch catalog bytes, count map clusters, or write persistence directly.
 
-The app target links `BarkDomain`; the shell does not invent park data just to use it. The first consumer will be the phase-2 catalog. Swift 6 checks immutable domain values as `Sendable`. App navigation and startup use `@MainActor @Observable`; SwiftUI stores the composition in app-owned `@State` and receives individual dependencies through initializers. No view retrieves a global container.
+## App assembly and lifecycle
 
-## File ownership and calls
+Paths are relative to `BarkRanger/App/`.
 
-Paths are relative to this directory. Closely related enums and private layout stay with their owner.
-
-| File | Responsibility and operations | Direct calls / callers |
+| File | Owned functions and behavior | Direct calls / callers |
 |---|---|---|
-| `BarkRanger/App/BarkRangerApp.swift` | Sole `@main`; owns graph, forwards scene and URL events. | Creates AppComposition; presents RootView; calls lifecycle.sceneChanged and router.handle. |
-| `App/AppComposition.swift` (under `BarkRanger/`) | `makeLive`, `makePreview`, private `assemble`; constructs only the three shell owners and diagnostics. | Constructors only; app/previews call it. Never a service locator. |
-| `App/AppLifecycle.swift` | `sceneChanged` ignores duplicates, starts shell on active; `stop` records background once. No async task exists to cancel yet. | StartupModel.start, Diagnostics.record; app calls it. Foreground task cancellation will be added with real phase-2 work. |
-| `App/AppRouter.swift` | Typed Tab/Sheet/Destination; `open`, `dismissSheet`, `handle(url:)`; private rejection logging. A tab navigation action dismisses an existing sheet. | Diagnostics; RootView/Home actions and app URL forwarding call it. No domain/service calls yet. |
-| `App/StartupModel.swift` | `start` moves loading → ready synchronously once, returning whether it did work. State is read-only outside its owner. | Diagnostics.measure; lifecycle calls start; RootView/StartupView observe. No timer or networking. |
-| `App/StartupView.swift` | Loading/recovery presentation only; ready renders nothing. Recovery is previewable but cannot occur in phase 1 because no fallible work runs. | Reads StartupModel; no fake retry. A real retry belongs with phase-2 loading failures. |
-| `App/RootView.swift` | Native TabView/NavigationStacks; chooses StartupView or shell; private development placeholders and About sheet. | HomeView and StartupView; router state/actions. Future feature files are not created empty. |
-| `Features/Home/HomeView.swift` | Brand/welcome and Explore parks/About actions. | Supplied `(AppRouter.Destination) -> Void`; no side effects. |
-| `Platform/Diagnostics.swift` | `record` accepts fixed event enums only; `measure` uses ContinuousClock and preserves returns/errors. Disabled instance for tests/previews. | Foundation/OSLog; shell owners call it. Logs never accept a URL, UID, location or arbitrary user text. |
-| `Packages/BarkDomain/Sources/BarkDomain/Park.swift` | Exact string identities with single-string Codable; distinct site identity; finite, bounded Coordinate; immutable basic Park. | Foundation only. Catalog validation/aliases/display fields remain phase 2. Empty IDs are not normalized here; the future publisher/validator owns catalog validity. |
+| `BarkRangerApp.swift` | Retains one composition in SwiftUI state. `body` creates the root and forwards scene changes and incoming URLs. | `AppComposition.makeLive`, `RootView`, `AppLifecycle.sceneChanged`, `AppRouter.handle`. No account dependency. |
+| `AppComposition.swift` | `makeLive` constructs the graph once; `makePreview` uses disabled diagnostics, no HTTP and separate preferences. Private `assemble` resolves bundle/disk paths and the configured endpoint, then injects dependencies. Debug-only environment configuration supplies a local fixture URL and optional UUID-named UI-test preferences suite. | Constructs catalog adapters/repository, router, network/location/handoff, settings repository/model, discovery and startup/lifecycle. No feature looks up this composition globally. |
+| `AppLifecycle.swift` | `sceneChanged` starts catalog observers, path monitoring, startup and one foreground polling task. Reconnect after an unavailable path requests refresh even with existing parks. `stop` cancels observation, polling, startup and locate work; asks the catalog to cancel its request. Inactive/active transitions do not duplicate tasks. | Startup, CatalogRepository, NetworkMonitor, MapFeatureModel, SettingsModel, Diagnostics. Only app entry calls lifecycle. |
+| `AppRouter.swift` | `open` changes typed tabs/sheets; changing tabs clears a sheet. `dismissSheet` leaves tab selection intact. `handle` accepts implemented public home/about/map/settings links; rejects private routes, credentials, queries, fragments, ports and extra/encoded paths. | Root/tab actions and app URL events call it. Calls fixed diagnostics events only; never logs URLs. |
+| `StartupModel.swift` | `start` loads local candidates first and separately runs a network-decision task. Local-ready time and cover-dismissal time are measured separately. A good update before three seconds is shown at dismissal; otherwise saved records open while the update continues. Offline/configuration-free startup can finish immediately. `retry`, `stop` and private reveal logic retain validated data and cancel obsolete work. | CatalogRepository, NetworkMonitor, Diagnostics, ContinuousClock. Called by lifecycle/startup view. No artificial progress percentage or minimum spinner time. |
+| `StartupView.swift` | Renders reading/checking/recovery states and the real Retry action. Ready state has no loading content. | StartupModel only. |
+| `RootView.swift` | Assembles native Home/Map/Trips/Passport/Account tabs and About/Settings sheets. Keeps small local development placeholders only for later features. About remains local layout in this owner. | Router, startup and injected discovery/settings models plus child views. It does not initialize repositories. |
 
-## Lifecycle and navigation decisions
+## Pure domain values and policies
 
-There is no network request, disk read, permission prompt, database, recurring task or minimum loading interval in phase 1. The first active scene makes the shell ready immediately. Returning from background retains the same router/startup objects and selected tab. A new process begins on Home; persistent navigation is not implemented.
+Paths are relative to `Packages/BarkDomain/Sources/BarkDomain/`. These files import Foundation only; all cross-actor data is Sendable.
 
-Only `barkranger://home` and `barkranger://about` (optionally a trailing slash) are accepted. Scheme/host casing is ignored. User info, ports, queries, fragments, encoded paths, additional path segments and unimplemented hosts are rejected without changing navigation. This custom scheme is a public navigation convenience, never proof of authentication. Universal links require later domain/entitlement setup.
+| File | Owned functions and behavior | Direct calls / callers |
+|---|---|---|
+| `Park.swift` | Exact string `ParkID`/`SiteID` Codable boundaries; finite/bounded Coordinate initialization and decoding; category/swag values; immutable Park with every approved catalog field, links, state codes, aliases and retirement status. `matchesIdentity` uses canonical IDs/declared aliases; `displayLocation` is presentation text. | Values only. Used by schema decoding, search/filter, details, map and handoff. Identity never comes from a name or coordinate. |
+| `CatalogSnapshot.swift` | Immutable manifest and snapshot metadata; `park(id:)`, `resolveAlias` and `isNewer` inspect accepted data. Revision order is publisher order; `CatalogSource` distinguishes bundle/saved/online provenance. | Park values. Repository/validator and consumers use it. |
+| `AppSettings.swift` | Typed map style, distance units, clustering, remembered position and filters. Camera bounds and `sanitized` reject invalid preferences and cap query length. No paid-access flag, account identifier or private mutation. | Coordinate/ParkFilter. SettingsRepository and map/settings screens use it. |
+| `ParkFilter.swift` | Query and coherent Result values; `apply` computes matching IDs, matching/total active-record counts and filter labels in one pass. Category/swag empty sets mean all; personal filters take visited/trip ID sets. An omitted search-ID projection is derived locally. `reset` returns defaults. | Park/CatalogSnapshot/ParkSearchIndex. MapFeatureModel supplies its per-revision index result. UI personal controls wait for phase 4. |
+| `ParkSearchIndex.swift` | Builds a normalized immutable index once per accepted revision. `normalize` folds case/diacritics and retained abbreviations. `search` ranks exact/prefix/token matches and bounded single-letter edits. Numeric tokens are not fuzzily changed into other numbered sites. Limits never cap the map's total-result count. | Park values/Foundation. SearchModel and the pure filter fallback call it. No geocoder or server search. |
 
-Recovery currently exists solely as a presentation preview. It has no invented error trigger or retry that pretends to repair nonexistent data. Phase 2 adds actual catalog startup states and recovery operations in these same owners.
+## Catalog and preferences storage
 
-## Supporting files
+| File under `BarkRanger/` | Owned functions and behavior | Direct calls / callers |
+|---|---|---|
+| `Data/Catalog/CatalogRepository.swift` | Actor owns accepted revision, search index, status and subscribers. `loadLocal` chooses the newest valid current/previous/bundle candidate. `updates` yields current state and accepted changes. `refresh` coalesces requests and enforces cadence/backoff/Retry-After; private refresh logic validates, commits, then publishes. `current`, `noteOffline`, `cancelRefresh` expose bounded operations. `nextRefreshDelay` gives lifecycle the next permitted request time, keeping retry policy in this owner. | HTTPClient, DiskStore, Validator, domain values. Startup/lifecycle, discovery/settings and details call it. It never requests authentication. |
+| `Data/Catalog/CatalogHTTPClient.swift` | `fetchManifest` uses ETag and returns unchanged/metadata. `download` accepts only the validated relative revision path. Private `request` enforces allowed endpoints, status/MIME/size, streaming body cap and monotonic deadline, including stalled bodies. Private stateless `RejectRedirects` refuses redirection before another endpoint is contacted. | URLSession/clock/domain manifest. Only repository and transport tests call it. Release accepts HTTPS; Debug additionally allows loopback/private-LAN fixture HTTP. |
+| `Data/Catalog/CatalogDiskStore.swift` | `loadCandidates` bounded-reads current, previous and bundle envelopes. `commit` atomically writes manifest+exact payload bytes as one value and preserves the last validated revision first. Partial temporary files are never candidates; two accepted envelopes bound retention. Catalog files are excluded from backup. | FileManager/JSONEncoder/Decoder. Repository owns calls. No personal data directory is cleared. |
+| `Data/Catalog/CatalogValidator.swift` | `validateManifest` checks supported metadata, paths, date/hash syntax and bounds. `decodeAndValidate` checks bytes/hash, matching schema/revision/count, coordinates, identities, aliases, links, text/state fields and removal history. Rejects the whole update on failure. Static hash/link helpers are shared by tests and the decoder boundary. | CryptoKit/Foundation/domain only. Repository calls it before any disk acceptance or publication. |
+| `Data/User/SettingsRepository.swift` | `load`, `update`, `resetPreferences` own one encoded device-preferences value in UserDefaults. Observable state is sanitized and only written when changed. | AppSettings/UserDefaults. MapFeatureModel/SettingsModel call it. Cloud fields and account scope arrive in phase 3; no second persistence system is scaffolded. |
 
-| Path | Purpose |
-|---|---|
-| `BarkRanger.xcodeproj/project.pbxproj` | App/unit/UI targets, local package link and folder-based target membership. Source folders map to matching targets. Config stays outside app resources. |
-| `BarkRanger.xcodeproj/xcshareddata/xcschemes/BarkRanger.xcscheme` | Shared run/build/profile and app/unit/UI test actions. |
-| `BarkRanger.xcodeproj/project.xcworkspace/contents.xcworkspacedata` | Xcode's project workspace reference. |
-| `Packages/BarkDomain/Package.swift` | Swift 6 library plus its pure unit test target; no downloaded packages. |
-| `Config/{Base,Debug,Release}.xcconfig` | Shared platform/concurrency values and explicit debug/release overrides. |
-| `Config/Info.plist` | Display name, public URL scheme, supported orientations; explicit single-scene/launch metadata plus bundle fields generated by Xcode. No permissions or capabilities. |
-| `BarkRanger/Assets.xcassets` | Original Bark badge copied unchanged from web assets; adaptive teal accent; opaque 1024px native paw development icon. SF Symbols artwork is provisional release artwork. No personal images. |
-| `BarkRanger/Localizable.xcstrings` | English source strings and future translation boundary. No claim of completed translations. |
-| `BarkRangerTests/AppShellTests.swift` | Route validation/no-navigation on rejection, one-time startup, lifecycle identity, independent app scopes, diagnostics result/error behavior. |
-| `BarkRangerUITests/AppShellUITests.swift` | Actual app navigation, URL delivery, sheet dismissal, relaunch/background and full accessibility audits in light/dark mode, plus largest-text scrolling and action reachability. |
-| `Packages/BarkDomain/Tests/BarkDomainTests/ParkTests.swift` | Exact identity serialization, non-coercion and coordinate limits. |
-| `.gitignore` | Generated Xcode/SPM output, user state and local signing overrides stay untracked. |
-| `README.md`, `CONTRIBUTING.md`, `Config/README.md` | Run instructions, change boundaries and configuration ownership. |
-| `../../.github/workflows/ios-checks.yml` (repository root) | Hosted simulator checks only, no deploy/signing secrets. |
+## Native adapters
 
-The full proposed file map lives in [SWIFT_FILE_MAP.md](../../04-docs/plans/ios-native-2026-09-09/SWIFT_FILE_MAP.md). Its future APIs are not an instruction to add unused methods now. The implemented map above is authoritative for this build.
+Paths are relative to `BarkRanger/Platform/`.
+
+| File | Owned functions and behavior | Direct calls / callers |
+|---|---|---|
+| `NetworkMonitor.swift` | `start` returns path hints through an AsyncStream; generation checks discard callbacks from a stopped monitor. `stop` cancels the monitor and finishes the stream. Path availability never proves server reachability. | NWPathMonitor; AppLifecycle consumes hints and startup reads the last hint. |
+| `LocationClient.swift` | `authorization`, bounded/cancellable `currentFix` and CLLocationManager delegate methods. Requests when-in-use access only after Locate Me, accepts a recent usable fix, handles denial/error/timeout and resumes each continuation once. | CoreLocation; MapFeatureModel. One-shot API here is deliberately smaller than the future continuous recording contract. |
+| `MapsHandoff.swift` | `navigationURL` builds Apple Maps query items from canonical coordinates/name. `openPark` uses an injected native URL-opening action and returns success/failure. It neither computes routes nor claims offline routing availability. | URLComponents/UIApplication/Park; ParkDetailModel calls it, tests inject the open result. |
+| `OfflineBasemapOverlay.swift` | Opaque locally generated tile, `loadTile` with no network, and `loadOutlines` through MKGeoJSONDecoder. The neutral background replaces provider imagery in offline/overview mode. | Bundle/MapKit; MapCoordinator owns its lifetime. No tile download/cache service. |
+| `Diagnostics.swift` | Fixed event/operation vocabulary, synchronous `measure`, explicit `duration` for local-ready/dismissal timings. Disabled instances for tests/previews. | OSLog/Foundation; lifecycle/startup. No arbitrary URLs, account data, GPS or remote analytics. |
+
+## Discovery, settings and Home
+
+Paths are relative to `BarkRanger/Features/`.
+
+| File | Owned functions and behavior | Direct calls / callers |
+|---|---|---|
+| `Discovery/MapFeatureModel.swift` | `start` consumes catalog revisions and observes device filters even when its view is unmounted. `setFilters`/`rebuild` derive one result and ordered park array. `selectPark` retains canonical identity; catalog refreshes update details without moving the camera. `locateMe`, `cameraChanged`, connectivity/imagery-failure handlers and `stop` own explicit actions. Saves camera after region changes, not animation frames; remembers visible region across map/list recreation. | CatalogRepository, SettingsRepository, SearchModel, ParkFilter, ParkDetailModel, LocationClient. Injected into discovery views and coordinator. |
+| `Discovery/MapScreen.swift` | Map/results-list layout, controls, status, empty state, filter/search/detail presentation and location messages. Native large-text layouts scroll; an opaque empty state remains readable when map imagery is missing. | MapFeatureModel and its child views. Does not compute park predicates/counts. |
+| `Discovery/NativeMapView.swift` | The only UIViewRepresentable bridge. `makeUIView` configures MapKit and restores the visible region; `updateUIView` forwards immutable presentation; `dismantleUIView` removes the delegate. Filter/revision changes keep the same MKMapView instance. | MapCoordinator/MapFeatureModel/MapKit. Called by MapScreen. |
+| `Discovery/MapCoordinator.swift` | `apply`/`updateAnnotations` reconcile by canonical IDs, reuse unchanged annotation objects and apply selection/camera requests once. Private overlay update installs/removes local geography. Delegate methods render, select parks, expand clusters, handle imagery failure and report camera changes. | ParkAnnotation, MapOverlayRenderer, OfflineBasemapOverlay, MapFeatureModel, MapKit. No filtering, network or persistence implementation. |
+| `Discovery/ParkAnnotation.swift` | MKAnnotation identity/coordinate/title and update behavior; `configure` resets reusable marker styling, clustering and accessibility for the current park. Cluster titles are omitted to avoid repeating arbitrary member names across the overview. | Park/MapKit; coordinator only. |
+| `Discovery/MapOverlayRenderer.swift` | Renderer factory styles the local opaque tile and polygon/multipolygon geography. | MapKit; coordinator. It does not own overlay lifetime or implement later trip/recording geometry. |
+| `Discovery/FilterSheet.swift` | Category/swag toggles, reset, count summary and truthful deferred personal-filter explanation. | MapFeatureModel/ParkFilter. All actions call the model. |
+| `Discovery/FilterSummaryView.swift` | Matching/total active-record counts, active labels, clear action and accessibility identifier. | Result value/injected action. No notification, Live Activity or second counter. |
+| `Discovery/SearchModel.swift` | `install` accepts the current immutable index; `updateQuery` bounds the text and produces ranked local IDs. | ParkSearchIndex. MapFeatureModel owns it; no town search or asynchronous geocoder exists yet. |
+| `Discovery/SearchSheet.swift` | Search field and the same model's filtered results/count. Done remains available while typing. Selection opens details and closes search. | MapFeatureModel/SearchModel projection. Search text never leaves the device. |
+| `Discovery/ParkDetailModel.swift` | `load` uses a request identity to discard obsolete lookups; `navigate` opens Apple Maps and exposes launch failures; `cancel` invalidates an old lookup. | CatalogRepository/MapsHandoff. No fake visit/check-in/trip success. |
+| `Discovery/ParkDetailView.swift` | Every supplied catalog detail field, approved website/picture/video links, retirement notice and directions action. Empty source fields are omitted without inventing facts. Scrolls and keeps directions/Done reachable. | ParkDetailModel/Park. No fetching/media download engine. |
+| `Settings/SettingsModel.swift` | `load` subscribes to status; `update`/`resetPreferences` delegate persistence; `refreshCatalog` requests the shared refresh; `openSystemSettings` and `openLegalDocument` handle explicit actions. `statusText` is one presentation mapping for settings/map. | SettingsRepository/CatalogRepository/Bundle/UIApplication. `stop` ends observation. |
+| `Settings/SettingsView.swift` | Typed device preferences, catalog count/publication/last-checked status, manual refresh, permission settings and bundled legal/attribution documents. | SettingsModel/AppSettings. Does not present cloud sync or accounts as operational. |
+| `Home/HomeView.swift` | Static welcome, B.A.R.K. education, original badge, approved community/resource links and map/settings/about actions. Small resource-value decoding stays here; no unnecessary HomeModel. | Bundle and injected router action. QR/watermark tools remain later-phase work. |
+
+## Resource, test and configuration owners
+
+- `Resources/catalog.json`, `catalog-manifest.json`, `catalog-provenance.txt`: reproduced by `05-tools/scripts/build-ios-catalog.js` using the publisher's schema and the checked-in 393-row source. Provenance states the exact source commit/hash/date; it is not labeled the latest live sheet.
+- `Resources/offline-land.geojson`: exact downloaded public-domain Natural Earth geometry. `attribution.txt` records source URL, hash, date, limitations and other content sources. The overview includes geography at a continental scale; small islands rely on pins/results rather than invented detailed coastlines.
+- `Resources/offline-tile.png`: opaque solid-color tile generated by `build-ios-content.py`. `privacy.txt` and `terms.txt` are retained web text, identified as such; `community-links.json` preserves approved Home links through the same reproducible builder. `education.txt` contains static B.A.R.K. guidance.
+- Existing assets/string catalog/project/shared scheme retain their phase-1 owners. Folder-based membership includes only app files in the app target; config stays outside resources. `.swift-format` records four-space indentation and a 110-column formatting guide without adding a runtime dependency.
+- `Config`: iOS 18.4/Swift 6, location-on-action wording, Debug-only local network/test endpoint configuration; no signing or live catalog secret is committed. `Catalog.local.xcconfig` remains ignored. No background capabilities are added.
+- `BarkDomainTests/ParkTests.swift` and `CatalogDomainTests.swift`: exact identities, coordinate validation, source decoding, pure filter/search/personal-ID inputs, preferences and 5,000-record/antimeridian cases.
+- `BarkRangerTests/AppShellTests.swift` and `CatalogTests.swift`: navigation/lifecycle plus validation, real loopback transport/deadlines, disk interruption/rollback, accepted updates/reconnect, annotation identity and safe Maps handoff.
+- `BarkRangerUITests/AppShellUITests.swift` and `DiscoveryUITests.swift`: actual launch/navigation, accessibility/large text, filters/search/counts, details, persisted preferences and offline overview. UI tests use separate Debug preference suites, preserving the normal development app's preferences.
+- `.github/workflows/ios-checks.yml`: pinned toolchain/actions, domain/app/unit/UI checks and loopback fixtures. `.github/workflows/catalog-checks.yml`: publisher/script tests, deterministic bundle rebuild, retained backend and project-isolation tests. Neither workflow deploys.
+- `01-code/functions/catalog/*`, the narrow `index.js` hook, Apps Script and server fixture are mapped in [the publication runbook](../../04-docs/operations/NATIVE_CATALOG_PUBLICATION.md). No private source or live cloud writes are needed for local checks.
+
+## Deliberate boundaries
+
+The app's live manifest URL is empty until authorized provisioning. Local fixtures verify updates; that is not proof of live sheet triggers, IAM, public object delivery or cellular latency. While the app is active, successful regular freshness checks occur at most once per minute; reconnect/manual requests obey coalescing/backoff/Retry-After. iOS suspension is not a background polling promise.
+
+The 3-second startup decision is separate from the 10-second request deadline. The stream's accepted state is published only after complete validation and atomic commit. Camera, filter choices and selected identity do not reset when catalog metadata changes. Retired/unresolved records are never silently reassigned by coordinates. The native catalog has no personal-data dependency, and phase 2 does not move users or change deployed web/backend behavior.

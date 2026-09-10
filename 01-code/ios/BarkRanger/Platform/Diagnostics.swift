@@ -2,13 +2,13 @@ import Foundation
 import OSLog
 
 /// Local logs accept fixed event names only: no URLs, account IDs or user text.
-struct Diagnostics {
+nonisolated struct Diagnostics: Sendable {
     enum Event: String {
         case enteredForeground, enteredBackground, unsupportedLink
     }
 
     enum Operation: String {
-        case shellStartup
+        case shellStartup, catalogLocalReady, catalogLoaderDismissed
     }
 
     private let logger = Logger(subsystem: "swarm.USBARKRANGERS", category: "Shell")
@@ -30,9 +30,16 @@ struct Diagnostics {
         defer {
             if enabled {
                 let elapsed = start.duration(to: clock.now)
-                logger.info("\(operation.rawValue, privacy: .public) duration=\(String(describing: elapsed), privacy: .public)")
+                logger.info(
+                    "\(operation.rawValue, privacy: .public) duration=\(String(describing: elapsed), privacy: .public)"
+                )
             }
         }
         return try action()
     }
+    func duration(_ operation: Operation, milliseconds: Double) {
+        guard enabled else { return }
+        logger.info("\(operation.rawValue, privacy: .public) milliseconds=\(milliseconds, privacy: .public)")
+    }
+
 }

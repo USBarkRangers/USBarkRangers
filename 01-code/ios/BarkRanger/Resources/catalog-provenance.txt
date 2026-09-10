@@ -1,0 +1,8 @@
+Bark Ranger bundled catalog
+393 records.
+Source: 01-code/app/assets/data/bark-fallback-0.142.csv
+Source commit: f1bd2a0 (September 2, 2026)
+CSV SHA-256: 82149db8f49581aefc2e59f02a5788b06aab4946000673c6baa3c8ba73df7638
+Conversion: node 05-tools/scripts/build-ios-catalog.js
+This is the approved checked-in fallback, not a verification of the latest live spreadsheet.
+Park information remains subject to change; consult each park before travel.

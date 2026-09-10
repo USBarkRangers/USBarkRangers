@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Testing
+
 @testable import BarkRanger
 
 @MainActor
@@ -37,10 +38,10 @@ struct AppShellTests {
     }
 
     @Test(arguments: [
-        "https://home", "barkranger://account", "barkranger://map", "barkranger://parks/42",
+        "https://home", "barkranger://account", "barkranger://parks/42",
         "barkranger://home/private", "barkranger://home?token=secret", "barkranger://home#private",
         "barkranger://user:password@home", "barkranger://home:443", "barkranger:home",
-        "barkranger://home/%2F", "barkranger://home//", "barkranger://"
+        "barkranger://home/%2F", "barkranger://home//", "barkranger://",
     ])
     func invalidLinksLeaveExistingNavigationAlone(_ value: String) throws {
         let router = AppRouter(diagnostics: diagnostics)
@@ -51,17 +52,10 @@ struct AppShellTests {
         #expect(router.sheet == .about)
     }
 
-    @Test func startupIsSynchronousAndIdempotent() {
-        let startup = StartupModel(diagnostics: diagnostics)
-        #expect(startup.state == .loading)
-        #expect(startup.start())
-        #expect(startup.state == .ready)
-        #expect(!startup.start())
-    }
-
-    @Test func sceneTransitionsReuseTheSameStateWithoutRestarting() {
+    @Test func sceneTransitionsReuseTheSameStateWithoutRestarting() async throws {
         let composition = AppComposition.makeLive()
         composition.lifecycle.sceneChanged(.active)
+        try await Task.sleep(for: .milliseconds(200))
         composition.router.open(.tab(.passport))
         for _ in 0..<3 {
             composition.lifecycle.sceneChanged(.active)
@@ -74,6 +68,7 @@ struct AppShellTests {
         #expect(composition.startup.state == .ready)
         #expect(!composition.startup.start())
         #expect(composition.router.selectedTab == .passport)
+        composition.lifecycle.stop()
     }
 
     @Test func previewAndNewAppLifetimesDoNotShareNavigation() {

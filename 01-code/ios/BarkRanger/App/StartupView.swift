@@ -1,30 +1,26 @@
 import SwiftUI
 
-/// Presentation only. Recovery gets a real retry action with fallible loading in phase 2.
 struct StartupView: View {
     let model: StartupModel
-
     var body: some View {
         switch model.state {
-        case .loading:
-            ProgressView("Opening Bark Ranger…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .loading, .checkingUpdate:
+            VStack(spacing: 20) {
+                Image("BarkBadge").resizable().scaledToFit().frame(width: 130).accessibilityHidden(true)
+                ProgressView(model.state == .loading ? "Opening saved parks…" : "Checking for park updates…")
+                Text("Your saved parks stay available offline.").font(.subheadline).foregroundStyle(
+                    .secondary)
+            }
+            .padding().frame(maxWidth: .infinity, maxHeight: .infinity)
         case .recovery:
-            ContentUnavailableView(
-                "Unable to open Bark Ranger",
-                systemImage: "exclamationmark.triangle",
-                description: Text("Please close the app and try opening it again.")
-            )
-        case .ready:
-            EmptyView()
+            ContentUnavailableView {
+                Label("Unable to open park data", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text("The saved catalog could not be read. Try again when a connection is available.")
+            } actions: {
+                Button("Try again", action: model.retry).buttonStyle(.borderedProminent)
+            }
+        case .ready: EmptyView()
         }
     }
-}
-
-#Preview("Loading") {
-    StartupView(model: StartupModel(diagnostics: Diagnostics(enabled: false)))
-}
-
-#Preview("Recovery presentation") {
-    StartupView(model: StartupModel(diagnostics: Diagnostics(enabled: false), state: .recovery))
 }

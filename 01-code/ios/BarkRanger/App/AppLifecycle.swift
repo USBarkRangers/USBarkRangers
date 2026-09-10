@@ -1,17 +1,29 @@
 import SwiftUI
 
-/// Owns scene transitions. Phase 1 has no asynchronous work to cancel.
+/// Owns foreground polling and connectivity observation. No timer survives the background transition.
 @MainActor
 final class AppLifecycle {
     private let startup: StartupModel
+    private let catalog: CatalogRepository
+    private let network: NetworkMonitor
+    private let discovery: MapFeatureModel
+    private let settings: SettingsModel
     private let diagnostics: Diagnostics
+    private var connectivity: Task<Void, Never>?
+    private var polling: Task<Void, Never>?
     private(set) var phase: ScenePhase?
 
-    init(startup: StartupModel, diagnostics: Diagnostics) {
+    init(
+        startup: StartupModel, catalog: CatalogRepository, network: NetworkMonitor,
+        discovery: MapFeatureModel, settings: SettingsModel, diagnostics: Diagnostics
+    ) {
         self.startup = startup
+        self.catalog = catalog
+        self.network = network
+        self.discovery = discovery
+        self.settings = settings
         self.diagnostics = diagnostics
     }
-
     func sceneChanged(_ newPhase: ScenePhase) {
         guard phase != newPhase else { return }
         if newPhase == .background {
@@ -19,16 +31,50 @@ final class AppLifecycle {
             return
         }
         phase = newPhase
-        if newPhase == .active {
-            diagnostics.record(.enteredForeground)
-            startup.start()
+        guard newPhase == .active, polling == nil else { return }
+        diagnostics.record(.enteredForeground)
+        discovery.start()
+        settings.load()
+        let previousConnection = network.isConnected
+        let changes = network.start()
+        connectivity = Task {
+            var wasConnected = previousConnection
+            for await connected in changes {
+                guard !Task.isCancelled else { return }
+                discovery.connectivityChanged(connected)
+                if connected && wasConnected == false { scheduleRefresh(reason: .reconnect) }
+                if !connected { await catalog.noteOffline() }
+                wasConnected = connected
+            }
+        }
+        startup.start()
+        scheduleRefresh(reason: .foreground)
+    }
+    private func scheduleRefresh(reason: CatalogRepository.Reason) {
+        polling?.cancel()
+        polling = Task {
+            if network.isConnected != false { await catalog.refresh(reason: reason) }
+            while !Task.isCancelled {
+                let delay =
+                    network.isConnected == false ? Duration.seconds(60) : await catalog.nextRefreshDelay()
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+                if network.isConnected != false { await catalog.refresh(reason: .regular) }
+            }
         }
     }
-
-    /// The future foreground refresh task will be cancelled here, not in a view.
     func stop() {
         guard phase != .background else { return }
         phase = .background
         diagnostics.record(.enteredBackground)
+        connectivity?.cancel()
+        connectivity = nil
+        polling?.cancel()
+        polling = nil
+        network.stop()
+        startup.stop()
+        discovery.stop()
+        settings.stop()
+        Task { await catalog.cancelRefresh() }
     }
 }

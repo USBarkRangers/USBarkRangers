@@ -1,0 +1,78 @@
+import BarkDomain
+import SwiftUI
+
+struct ParkDetailView: View {
+    @Bindable var model: ParkDetailModel
+    let dismiss: () -> Void
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                if let park = model.park {
+                    VStack(alignment: .leading, spacing: 22) {
+                        Text(park.name).font(.title.bold()).accessibilityAddTraits(.isHeader)
+                        Text("\(park.state) · \(park.sourceType)").foregroundStyle(.secondary)
+                        if park.isRetired {
+                            Label("This listing has been retired", systemImage: "archivebox")
+                        }
+                        section(
+                            "Swag",
+                            "\(park.swag.rawValue) · \(park.swagCost.isEmpty ? "Cost not listed" : park.swagCost)"
+                        )
+                        section("Updates and information", park.info)
+                        section("Entrance fees", park.entranceFees)
+                        section("Where to find swag", park.swagLocation)
+                        section("Approved areas and trails", park.approvedTrails)
+                        section("Restrictions", park.restrictions)
+                        section("Hazards and safety", park.hazards)
+                        section("Extra swag", park.extraSwag)
+                        links("Source website", urls: park.websites)
+                        links("Swag picture", urls: park.pictures)
+                        links("Swearing-in video", urls: park.videos)
+                        Text(
+                            "Park information and swag availability can change. Confirm details with the park before traveling."
+                        )
+                        .font(.footnote).foregroundStyle(.secondary)
+                        if let message = model.message { Text(message).foregroundStyle(.red) }
+                    }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ProgressView("Opening park details…").padding()
+                }
+            }
+            .navigationTitle("Park details").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", action: dismiss) } }
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    Task { await model.navigate() }
+                } label: {
+                    Label(
+                        "Directions in Apple Maps", systemImage: "arrow.triangle.turn.up.right.diamond.fill"
+                    )
+                    .frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
+                }.buttonStyle(.borderedProminent).controlSize(.large)
+                    .disabled(model.park == nil || model.isOpeningMaps).padding().background(.background)
+            }
+        }
+    }
+    @ViewBuilder private func section(_ title: String, _ text: String) -> some View {
+        if !text.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title).font(.headline).accessibilityAddTraits(.isHeader)
+                Text(text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+    @ViewBuilder private func links(_ title: String, urls: [URL]) -> some View {
+        if !urls.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(urls.enumerated()), id: \.offset) { index, url in
+                    Link(destination: url) {
+                        Label(
+                            urls.count == 1 ? title : "\(title) \(index + 1)",
+                            systemImage: "arrow.up.right.square"
+                        ).padding(.vertical, 4)
+                    }
+                }
+            }
+        }
+    }
+}

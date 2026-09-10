@@ -1,6 +1,6 @@
 # Six implementation prompts and the testing handoff
 
-Revised September 10, 2026. Status: **phase 1 awaiting user testing**, explicitly started by the user on September 10, 2026 ("do phase 1"). This is the current execution contract. It replaces the former foundation/catalog phase 1 and the former migration/rollout phase 7. The user explicitly requested "do phase 1" on September 10, 2026. That instruction authorizes phase 1 only; phase 2 still requires a separate explicit start.
+Revised September 10, 2026. Status: **phase 2 implementation and verification**. The user reported that phase 1 works well and explicitly started phase 2: “ok, lets do phase 2 now, let me know when done”. This authorizes phase 2 only. The implementation/testing/fix loop below remains the execution contract; phase 3 requires its own explicit start. This contract replaces the former combined foundation/catalog phase 1 and the former migration/rollout phase 7.
 
 ## Workspace preparation
 
@@ -14,14 +14,14 @@ Do not begin the next phase merely because tests pass, because the user asks a q
 
 | Phase | Reusable AI prompt | What the user gets to test | Implementation status | User acceptance |
 |---|---|---|---|---|
-| 1 | [Foundation and app shell](prompts/PHASE_1_FOUNDATION.md) | A native app that builds, launches, navigates and has a documented structure. | Awaiting user testing — 0.1.0 (1), `f055492` | Pending |
-| 2 | [Catalog and discovery](prompts/PHASE_2_CATALOG_DISCOVERY.md) | Real offline parks, refresh/reconnect behavior, map, search, filters and details. | Not started | Pending |
+| 1 | [Foundation and app shell](prompts/PHASE_1_FOUNDATION.md) | A native app that builds, launches, navigates and has a documented structure. | Complete — 0.1.0 (1), `f055492` | User reports “phase 1 seems to work well”; explicitly proceeded to phase 2 September 10, 2026 |
+| 2 | [Catalog and discovery](prompts/PHASE_2_CATALOG_DISCOVERY.md) | Real offline parks, refresh/reconnect behavior, map, search, filters and details. | In progress | Pending |
 | 3 | [Accounts, persistence and sync](prompts/PHASE_3_ACCOUNTS_SYNC.md) | Test-account sign-in, current-format data reads, memberships, persistent settings/profile edits and account isolation. | Not started | Pending |
 | 4 | [Visits, trips and passport](prompts/PHASE_4_VISITS_TRIPS.md) | Durable visits, itinerary planning, saved trips, passport, achievements and leaderboard. | Not started | Pending |
 | 5 | [Expeditions and native capabilities](prompts/PHASE_5_EXPEDITIONS_NATIVE.md) | Recording/recovery, expedition progress, Live Activities, sharing and support. | Not started | Pending |
 | 6 | [Purchases and integration hardening](prompts/PHASE_6_PURCHASES_INTEGRATION.md) | StoreKit test purchasing, provider-aware access and a complete integrated development build. | Not started | Pending |
 
-Phase 1 was completed September 10 with Xcode 26.6 (17F113), Swift 6.3.3, iOS 26.5 simulator checks on iPhone 17 Pro and iPhone SE (3rd generation), a Release build, and a [successful GitHub run](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34438297644). See [the testing handoff](../../reports/ios-native/PHASE_1.md). Physical-device provisioning and iOS 18.4 runtime checks remain unverified; no user acceptance or phase-2 start has been given.
+Phase 1 was completed September 10 with Xcode 26.6 (17F113), Swift 6.3.3, iOS 26.5 simulator checks on iPhone 17 Pro and iPhone SE (3rd generation), a Release build, and a [successful GitHub run](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34438297644). See [the testing handoff](../../reports/ios-native/PHASE_1.md). Physical-device provisioning and iOS 18.4 runtime checks remain unverified; the user has now explicitly started phase 2 following phase-1 testing.
 
 Status updates should include the build identifier/commit if available, checked devices/toolchain, unresolved issues and the user's acceptance wording/date. Do not create empty phase reports or runtime files now. During implementation, keep one report per phase under `04-docs/reports/ios-native/PHASE_N.md`; update that report for fixes instead of generating a new report for every small change.
 

@@ -1,6 +1,6 @@
 # Phase 2 — catalog and discovery
 
-September 10, 2026. Build **0.2.0 (2)**, implementation commit `4084569`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
+September 10, 2026. Build **0.2.0 (2)**, implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
 
 ## What you can use
 
@@ -62,7 +62,7 @@ Toolchain: **Xcode 26.6 (17F113), Swift 6.3.3**, complete Swift 6 concurrency ch
 | iPhone 17 Pro UI | All 7 UI tests passed across the full functional run and subsequent focused accessibility run. The full wrapper had an interrupted audit host; it is not reported as an overall pass. The focused final appearance/audit run exited successfully. |
 | iPhone SE (3rd generation) | Overall run passed: 21 app-unit + 7 UI functions, 43 device cases, zero failures/skips on iOS 26.5. Map, offline overview, details and largest-text filter screenshots were inspected. |
 | Hosted catalog workflow | [Passed on Node 22](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34444717992): 18 publication/script checks, deterministic bundle rebuild, 378 retained backend tests and 2 project-isolation tests. |
-| Hosted native workflow | [Implementation run](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34444717894); final result recorded after completion. |
+| Hosted native workflow | [Passed on implementation commit `4084569`](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34444717894): clean package/app build, all 21 app-unit functions and all 7 UI tests. The subsequent `ba8aa68` follow-up changes test launch ordering, extracted English strings and handoff documentation; its focused appearance test passed locally, and pushing it starts a fresh hosted rerun. Runtime Swift is unchanged. |
 
 The automated Home contrast audit reports both text beneath iOS 26's translucent bars and visibly black paragraphs on an opaque system background. **Home contrast is excluded from the automated audit and reviewed visually; this is a known automation coverage limitation.** Other Home audit types remain enabled, and the other audited screens retain all issue types. Map contrast is audited with one fully visible filtered result; the full 393-record map/list is exercised separately. Largest accessibility text, light/dark screenshots and actual control reachability are additional checks, not a claim of complete human VoiceOver review.
 
@@ -113,7 +113,7 @@ Change the destination to the available **BARK iPhone SE 3** for smaller-screen 
 
 ## Your testing checklist
 
-Open `01-code/ios/BarkRanger.xcodeproj`, select **BarkRanger → iPhone 17 Pro**, and press **Command-R**.
+Xcode is already open with **BarkRanger → iPhone 17 Pro**, the implemented architecture tab selected, and the app running on the full 393-park map. The simulator is back in light appearance and test display preferences have been reset. To run again, open `01-code/ios/BarkRanger.xcodeproj` and press **Command-R**.
 
 1. Open **Map**. Expect 393 parks, native pins/clusters and the same count in **Results list**. Zoom/pan, switch between map/list, and confirm the position stays sensible.
 2. Search **hulls cove**, open Acadia's details, and inspect the source fields. Try an abbreviation, then a nonsense query. Clear filters to return to all parks.

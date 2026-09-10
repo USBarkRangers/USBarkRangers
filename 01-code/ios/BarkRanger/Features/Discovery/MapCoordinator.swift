@@ -16,6 +16,7 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
     private let outlines = OfflineBasemapOverlay.loadOutlines()
     private var applying = false
     private var reduceMotion = false
+    private var dismissesSelectionOnTap = false
     private let selectionFraming = MapSelectionFraming()
     init(model: MapFeatureModel) {
         self.model = model
@@ -142,18 +143,36 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
     }
     // All touches collapse search; only a completed background tap dismisses park selection.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        dismissesSelectionOnTap = false
         interactionBegan()
         var view = touch.view
         while let current = view {
             if current is MKAnnotationView || current is UIControl { return false }
             view = current.superview
         }
+        // Capture this touch's intent before dismissal clears selection. Consuming its first tap
+        // stops MapKit from treating the next quick drag as the second half of one-finger zoom.
+        dismissesSelectionOnTap = model.selectedID != nil
         return true
     }
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-    ) -> Bool { true }
+    ) -> Bool { !dismissesSelectionOnTap }
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        // Continuous navigation must start immediately rather than waiting for tap tolerance.
+        if otherGestureRecognizer is UIPanGestureRecognizer
+            || otherGestureRecognizer is UIPinchGestureRecognizer
+            || otherGestureRecognizer is UIRotationGestureRecognizer
+        {
+            return false
+        }
+        guard dismissesSelectionOnTap, let map = gestureRecognizer.view else { return false }
+        return otherGestureRecognizer.view?.isDescendant(of: map) == true
+    }
     @objc func mapTapped(_ recognizer: UITapGestureRecognizer) {
         if recognizer.state == .ended {
             model.dismissPark()

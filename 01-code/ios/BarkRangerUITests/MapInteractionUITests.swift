@@ -2,6 +2,58 @@ import XCTest
 
 nonisolated final class MapInteractionUITests: XCTestCase {
     @MainActor
+    func testDismissalTapDoesNotSeedZoomAndNormalMapGesturesStillWork() {
+        let app = XCUIApplication()
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
+        app.launchEnvironment["BARK_CATALOG_URL"] = ""
+        app.launch()
+        app.tabBars.buttons["Map"].tap()
+        let search = app.textFields["park-search"]
+        search.tap()
+        search.typeText("Indiana Dunes")
+        app.buttons["park-result-6e813bbd-50b1-45e7-8bfa-9a64f1104595"].tap()
+        let pins = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "park-pin-"))
+        XCTAssertEqual(pins.count, 2)
+        let first = pins.element(boundBy: 0)
+        let second = pins.element(boundBy: 1)
+        func separation() -> CGFloat {
+            hypot(first.frame.midX - second.frame.midX, first.frame.midY - second.frame.midY)
+        }
+        let selected = first.isSelected ? first : second
+        waitForPinToSettle(selected, in: app)
+        let background = app.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.4))
+        let initialDistance = separation()
+        let selectedY = selected.frame.midY
+        background.press(
+            forDuration: 0.05, thenDragTo: background.withOffset(CGVector(dx: 0, dy: 60)),
+            withVelocity: .slow, thenHoldForDuration: 0.1)
+        XCTAssertGreaterThan(abs(selected.frame.midY - selectedY), 25)
+        XCTAssertEqual(separation(), initialDistance, accuracy: 3)
+        XCTAssertTrue(app.scrollViews["park-detail-sheet"].exists)
+        XCTAssertTrue(selected.isSelected, "Panning while details are open must preserve selection")
+        let distance = separation()
+        // One continuous synthesized double tap tests the real native interval, without XCTest's
+        // idle wait between separate taps. The first tap belongs only to dismissal.
+        background.doubleTap()
+        XCTAssertTrue(app.scrollViews["park-detail-sheet"].waitForNonExistence(timeout: 3))
+        XCTAssertFalse(first.isSelected || second.isSelected)
+        XCTAssertEqual(separation(), distance, accuracy: 3, "A dismissal tap must not seed double-tap zoom")
+        let beforePan = first.frame.midY
+        background.press(
+            forDuration: 0.05, thenDragTo: background.withOffset(CGVector(dx: 0, dy: 80)),
+            withVelocity: .slow, thenHoldForDuration: 0.1)
+        XCTAssertGreaterThan(abs(first.frame.midY - beforePan), 25)
+        XCTAssertEqual(separation(), distance, accuracy: 3, "An ordinary drag must pan without zooming")
+        background.doubleTap()
+        let zoomed = NSPredicate { _, _ in MainActor.assumeIsolated { separation() > distance * 1.4 } }
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: zoomed, object: nil)], timeout: 4),
+            .completed, "Intentional double-tap zoom remains available without a popup")
+        XCTAssertEqual(app.staticTexts["park-count"].label, "2 of 393 parks")
+        XCTAssertEqual(search.value as? String, "Indiana Dunes")
+    }
+
+    @MainActor
     func testGroupingPreferenceChangesNativeClustersInTheSameSession() {
         let app = XCUIApplication()
         app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString

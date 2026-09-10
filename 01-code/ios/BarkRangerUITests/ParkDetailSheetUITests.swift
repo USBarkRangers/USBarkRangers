@@ -106,10 +106,28 @@ nonisolated final class ParkDetailSheetUITests: XCTestCase {
         assertVisiblePin(app)
         capture("Low — name and real actions", app)
 
+        let pin = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "park-pin-"))
+            .firstMatch
+        let anchor = pin.frame
+        for lift: CGFloat in [20, 40] {
+            dragHandle(app, by: -lift, hold: 1)
+            XCTAssertEqual(app.otherElements["park-sheet-handle"].value as? String, "Low")
+            XCTAssertFalse(app.staticTexts["Park photos coming soon"].exists)
+            XCTAssertTrue(app.buttons["Directions in Apple Maps"].isHittable)
+            XCTAssertLessThan(app.staticTexts["park-detail-name"].frame.height, 30)
+            XCTAssertEqual(pin.frame.midY, anchor.midY, accuracy: 1)
+        }
+
         let lowTop = app.otherElements["park-sheet-handle"].frame.midY
         dragHandle(app, by: -220)
         XCTAssertTrue(app.staticTexts["Park photos coming soon"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["park-swag-cost"].exists)
+        let metadata = app.scrollViews["park-detail-metadata"]
+        XCTAssertEqual(metadata.staticTexts.matching(identifier: "National").count, 1)
+        XCTAssertTrue(metadata.staticTexts["Maine"].isHittable)
+        XCTAssertEqual(
+            metadata.staticTexts["Maine"].frame.midY, metadata.staticTexts["National"].frame.midY,
+            accuracy: 1, "Location and category share the same tag row")
         XCTAssertFalse(app.staticTexts["Updates and information"].exists)
         assertVisiblePin(app)
         XCTAssertTrue(search.isHittable)

@@ -31,6 +31,10 @@ struct ParkSheetLayout {
         if height > self.height(at: .medium) + 1 { return .high }
         return height > self.height(at: .low) + 1 ? .medium : .low
     }
+    func expansion(at height: CGFloat) -> CGFloat {
+        let low = self.height(at: .low)
+        return min(1, max(0, (height - low) / max(1, self.height(at: .medium) - low)))
+    }
     func hidesChrome(at height: CGFloat) -> Bool {
         // Cross a small threshold, then finish the short animation even if the finger pauses.
         height > self.height(at: .medium) + 8

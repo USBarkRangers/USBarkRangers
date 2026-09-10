@@ -7,11 +7,65 @@ import XCTest
 
 nonisolated final class MapPresentationTests: XCTestCase {
     @MainActor
+    func testDetailRevealGrowsGraduallyAndReversesWithoutScrolling() async throws {
+        let model = ParkDetailModel(maps: MapsHandoff(open: { _ in true }))
+        model.show(try park(name: "Acadia National Park Hulls Cove Visitor Center"))
+        let layout = ParkSheetLayout(availableHeight: 760, bottomOverlap: 83, searchHeight: 100)
+        func content(_ fraction: CGFloat) -> some View {
+            let height =
+                layout.height(at: .low)
+                + (layout.height(at: .medium) - layout.height(at: .low)) * fraction
+            return ParkDetailView(
+                model: model, position: layout.presentation(at: height),
+                expansion: layout.expansion(at: height), allowsScrolling: false,
+                bottomOverlap: 83, expand: {}, dismiss: {}, atTopChanged: { _ in }
+            ).frame(height: height - 32).frame(maxHeight: .infinity, alignment: .bottom)
+        }
+        let host = UIHostingController(rootView: content(0))
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 760)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousWindow?.makeKeyAndVisible()
+        }
+        func outerScroll(in view: UIView) -> UIScrollView? {
+            (view as? UIScrollView) ?? view.subviews.lazy.compactMap { outerScroll(in: $0) }.first
+        }
+        var heights: [CGFloat] = []
+        for fraction: CGFloat in [0, 0.02, 0.15, 0.4, 0.7, 1, 0.4, 0] {
+            host.rootView = content(fraction)
+            host.view.setNeedsLayout()
+            host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(20))
+            let scroll = try XCTUnwrap(outerScroll(in: host.view))
+            heights.append(scroll.contentSize.height)
+            XCTAssertEqual(scroll.contentOffset.y, 0, accuracy: 1)
+            XCTAssertFalse(scroll.isScrollEnabled)
+            let image = UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
+                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "Detail reveal \(fraction)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        XCTAssertLessThan(heights[1] - heights[0], 10, "A small lift must not install the full medium layout")
+        for index in 1..<6 { XCTAssertGreaterThan(heights[index], heights[index - 1]) }
+        XCTAssertEqual(heights[6], heights[3], accuracy: 1, "Reversing has no separate reveal state")
+        XCTAssertEqual(heights[7], heights[0], accuracy: 1)
+    }
+
+    @MainActor
     func testDetailScrollLockLeavesHorizontalRowsEnabled() throws {
         let model = ParkDetailModel(maps: MapsHandoff(open: { _ in true }))
         model.show(try park())
         let content = ParkDetailView(
-            model: model, position: .medium, allowsScrolling: false, bottomOverlap: 83,
+            model: model, position: .medium, expansion: 1, allowsScrolling: false, bottomOverlap: 83,
             expand: {}, dismiss: {}, atTopChanged: { _ in })
         let host = UIHostingController(rootView: content)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
@@ -123,9 +177,11 @@ nonisolated final class MapPresentationTests: XCTestCase {
     }
 
     @MainActor
-    private func park(_ id: String = "test", category: ParkCategory = .national) throws -> Park {
+    private func park(
+        _ id: String = "test", category: ParkCategory = .national, name: String = "Test park"
+    ) throws -> Park {
         Park(
-            id: ParkID(rawValue: id), siteID: SiteID(rawValue: id), name: "Test park",
+            id: ParkID(rawValue: id), siteID: SiteID(rawValue: id), name: name,
             coordinate: try XCTUnwrap(Coordinate(latitude: 44, longitude: -68)), category: category)
     }
 

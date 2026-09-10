@@ -31,6 +31,7 @@ struct ParkDetailSheet: View {
                 }
             ParkDetailView(
                 model: model, position: layout.presentation(at: height),
+                expansion: layout.expansion(at: height),
                 allowsScrolling: position == .high && dragAllowed != true,
                 bottomOverlap: layout.bottomOverlap, expand: { move(to: .high) },
                 dismiss: dismiss, atTopChanged: { contentAtTop = $0 }

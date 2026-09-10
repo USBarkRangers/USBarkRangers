@@ -36,7 +36,49 @@ struct SettingsTests {
         #expect(SettingsRepository(defaults: defaults).value == AppSettings())
     }
 
-    @Test func appearanceRetryAndOfflineFallbackDoNotRecomputeParks() async throws {
+    @Test func mapLoadingErrorsCannotDeclareTheDeviceOffline() async throws {
+        let probe = ControlledParkResults()
+        let context = try DiscoveryTestContext(compute: probe.compute)
+        defer { context.close() }
+        try await context.start()
+        let model = context.model
+        model.connectivityChanged(true)
+        model.selectPark(id: try #require(model.parks.first).id, focusOnMap: false)
+        let selected = model.selectedID
+        let map = MKMapView(frame: CGRect(x: 0, y: 0, width: 390, height: 760))
+        let coordinator = MapCoordinator(model: model)
+        let delegate: any MKMapViewDelegate = coordinator
+        coordinator.apply(to: map, reduceMotion: true)
+        let version = model.annotationVersion
+        let camera = map.centerCoordinate
+        let result = model.result
+        let errors = [
+            NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled),
+            NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut),
+            NSError(domain: MKErrorDomain, code: Int(MKError.loadingThrottled.rawValue)),
+            NSError(domain: MKErrorDomain, code: Int(MKError.serverFailure.rawValue)),
+        ]
+        for error in errors {
+            delegate.mapViewDidFailLoadingMap?(map, withError: error)
+            coordinator.apply(to: map, reduceMotion: true)
+            #expect(!model.isOffline && !model.usesOfflineMap)
+            #expect(map.overlays.isEmpty)
+            #expect(model.selectedID == selected && model.result == result)
+            #expect(model.annotationVersion == version)
+            #expect(map.centerCoordinate.latitude == camera.latitude)
+            #expect(map.centerCoordinate.longitude == camera.longitude)
+        }
+        // Real connection changes still control fallback and recover the chosen appearance.
+        model.connectivityChanged(false)
+        coordinator.apply(to: map, reduceMotion: true)
+        #expect(model.usesOfflineMap && !map.overlays.isEmpty)
+        model.connectivityChanged(true)
+        coordinator.apply(to: map, reduceMotion: true)
+        #expect(!model.usesOfflineMap && map.overlays.isEmpty)
+        #expect(await probe.inputs.count == 1)
+    }
+
+    @Test func appearanceAndConnectionChangesDoNotRecomputeParks() async throws {
         let probe = ControlledParkResults()
         let context = try DiscoveryTestContext(compute: probe.compute)
         defer { context.close() }
@@ -46,12 +88,9 @@ struct SettingsTests {
         let selected = model.selectedID
         let map = MKMapView(frame: CGRect(x: 0, y: 0, width: 390, height: 760))
         let coordinator = MapCoordinator(model: model)
-        model.imageryFailed()
-        #expect(model.usesOfflineMap)
         var settings = context.settings.value
         settings.mapStyle = .satellite
         context.settings.update(settings)
-        try await eventually { !model.usesOfflineMap }
         coordinator.apply(to: map, reduceMotion: true)
         #expect(map.mapType == .satellite && map.overlays.isEmpty)
         model.connectivityChanged(false)
@@ -60,6 +99,8 @@ struct SettingsTests {
         coordinator.apply(to: map, reduceMotion: true)
         #expect(model.usesOfflineMap && !map.overlays.isEmpty)
         model.connectivityChanged(true)
+        coordinator.apply(to: map, reduceMotion: true)
+        #expect(!model.usesOfflineMap && map.mapType == .standard && map.overlays.isEmpty)
         settings.mapStyle = .overview
         context.settings.update(settings)
         coordinator.apply(to: map, reduceMotion: true)

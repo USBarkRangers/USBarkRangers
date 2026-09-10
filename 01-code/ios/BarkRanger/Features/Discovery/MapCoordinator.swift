@@ -191,7 +191,6 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
             model.dismissPark()
         }
     }
-    func mapViewDidFailLoadingMap(_ mapView: MKMapView, withError error: any Error) { model.imageryFailed() }
     func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
         model.cameraChanged(mapView.region)
     }

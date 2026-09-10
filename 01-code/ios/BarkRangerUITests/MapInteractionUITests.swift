@@ -5,9 +5,11 @@ nonisolated final class MapInteractionUITests: XCTestCase {
     func testDismissalTapDoesNotSeedZoomAndNormalMapGesturesStillWork() {
         let app = XCUIApplication()
         app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
-        app.launchEnvironment["BARK_CATALOG_URL"] = ""
+        app.launchEnvironment["BARK_CATALOG_URL"] = "http://127.0.0.1:8787/unchanged/manifest.json"
         app.launch()
         app.tabBars.buttons["Map"].tap()
+        let overview = app.staticTexts["Offline geographic overview · Natural Earth"]
+        XCTAssertFalse(overview.exists, "This fixture has a connected network path")
         let search = app.textFields["park-search"]
         search.tap()
         search.typeText("Indiana Dunes")
@@ -45,10 +47,13 @@ nonisolated final class MapInteractionUITests: XCTestCase {
         XCTAssertGreaterThan(abs(first.frame.midY - beforePan), 25)
         XCTAssertEqual(separation(), distance, accuracy: 3, "An ordinary drag must pan without zooming")
         background.doubleTap()
+        background.press(forDuration: 0.2)
         let zoomed = NSPredicate { _, _ in MainActor.assumeIsolated { separation() > distance * 1.4 } }
         XCTAssertEqual(
             XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: zoomed, object: nil)], timeout: 4),
             .completed, "Intentional double-tap zoom remains available without a popup")
+        XCTAssertFalse(app.scrollViews["park-detail-sheet"].exists)
+        XCTAssertFalse(overview.exists, "Zoom followed by a press must not switch to offline overview")
         XCTAssertEqual(app.staticTexts["park-count"].label, "2 of 393 parks")
         XCTAssertEqual(search.value as? String, "Indiana Dunes")
     }

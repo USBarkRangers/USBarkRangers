@@ -20,7 +20,6 @@ final class MapFeatureModel {
     var selectedID: ParkID? { detail.park?.id }
     private(set) var cameraRequest: CameraRequest?
     private(set) var isOffline = false
-    private(set) var imageryUnavailable = false
     private(set) var isLocating = false
     var locationMessage: String?
     let settings: SettingsRepository
@@ -35,7 +34,8 @@ final class MapFeatureModel {
     @ObservationIgnored private(set) var resultTask: Task<Void, Never>?
     private var requestedInput: ParkResults.Input?
     var query: ParkFilter.Query { settings.value.filters }
-    var usesOfflineMap: Bool { isOffline || imageryUnavailable || settings.value.mapStyle == .overview }
+    // Tile requests can fail during zoom/pan; only connectivity or a user choice selects overview.
+    var usesOfflineMap: Bool { isOffline || settings.value.mapStyle == .overview }
 
     init(
         catalog: CatalogRepository, settings: SettingsRepository, location: LocationClient, maps: MapsHandoff,
@@ -75,17 +75,12 @@ final class MapFeatureModel {
     /// Device settings can change from another tab while the map view is not mounted.
     private func observePreferences() {
         let generation = preferenceGeneration
-        let mapStyle = settings.value.mapStyle
         withObservationTracking {
             _ = settings.value.filters
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.preferenceGeneration == generation, self.observation != nil else {
                     return
-                }
-                // An explicit appearance change retries imagery after a prior tile-loading failure.
-                if !self.isOffline && self.settings.value.mapStyle != mapStyle {
-                    self.imageryUnavailable = false
                 }
                 self.refreshResults()
                 self.observePreferences()
@@ -142,9 +137,7 @@ final class MapFeatureModel {
     func dismissPark() { detail.show(nil) }
     func connectivityChanged(_ connected: Bool) {
         isOffline = !connected
-        if connected { imageryUnavailable = false }
     }
-    func imageryFailed() { imageryUnavailable = true }
     func locateMe() {
         guard locateTask == nil else { return }
         isLocating = true

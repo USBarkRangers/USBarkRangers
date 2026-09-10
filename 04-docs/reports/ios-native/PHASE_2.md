@@ -1,6 +1,6 @@
 # Phase 2 — catalog and discovery
 
-September 10, 2026. Current build **0.2.4 (6)** refines the three-position park sheet, preserves zoom on pin selection, and adds map-background dismissal. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
+September 10, 2026. Current build **0.2.5 (7)** adds the focused maintainability corrections: coherent selection/action ownership, deduplicated background park results, separate marker invalidation, and bounded catalog failure diagnostics. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
 
 ## What you can use
 
@@ -46,7 +46,36 @@ The [implemented architecture and call map](../../../01-code/ios/ARCHITECTURE.md
 
 The [publication runbook](../../operations/NATIVE_CATALOG_PUBLICATION.md) maps backend calls, local fixtures, eventual configuration and rollback. A deliberate refinement keeps the old CSV/fallback writer as its existing owner: native publication adds no second writer to old fallback storage. The public asset publisher uses immutable upload followed by a generation-conditioned manifest promotion. Memory adapters verify ordering/conflicts locally; they do not certify cloud IAM or actual storage preconditions.
 
-## Sheet and selection refinements — 0.2.4 (6)
+## Focused maintainability corrections — 0.2.5 (7)
+
+The requested audit corrections are implemented without starting Phase 3. SearchModel’s duplicate mutable query is removed. SettingsRepository remains the editable query/filter authority; ParkDetailModel.park remains the selection authority. Directions captures the displayed Park synchronously and owns its cancellable handoff task. Selection changes, dismissal and background stop invalidate queued work and obsolete completion/error state.
+
+One revision/query gate owns asynchronous result projection. `ParkResults.compute` explicitly leaves MainActor and produces one immutable count/list/pin projection; old completions cannot overwrite newer input. Camera, distance units, map style, clustering, status-only changes and unchanged filters do not rerun matching. MapCoordinator reconciles annotations only when the published catalog/matching IDs or clustering actually change. Sheet/camera geometry updates return through the annotation gate without scanning parks or reconfiguring markers. Native annotation identity, clustering and existing UI behavior are retained.
+
+Catalog read, decode, validation, transport, timeout, throttling, storage and cancellation failures now produce fixed local reason/stage codes. No raw URL, query, user identifier or error description enters the logger. The existing simple saved-data fallback is unchanged. Error classification stays with the catalog owners; Diagnostics does not refer back to services.
+
+The task review also closes related lifetime gaps: queued manual refresh has a SettingsModel owner; foreground startup/polling waits for the preceding catalog cancellation; repository completion clears only its own request; startup rechecks cancellation after its actor read; location cancellation carries its request identity and old locate cleanup cannot clear a replacement.
+
+The [rerun maintainability audit](MAINTAINABILITY_AUDIT_2026-09-10.md) records the corrected findings, current sources of truth, remaining non-blocking work and revised scores. **No architecture blocker was found before Phase 3.** Optional view-file colocation and small bundled-read housekeeping were left alone. Accounts, sync, visits, trips, scoring and purchases remain unimplemented.
+
+Verification:
+
+- Final Debug and optimized Release builds passed with Swift warnings treated as errors. Release used `-O -whole-module-optimization`; ENABLE_TESTABILITY was enabled solely to run internal regression measurements.
+- Nine domain functions passed. All 39 app tests passed: 36 Swift Testing functions plus three native map XCTest cases. New coverage includes exact computation counts, controlled late completions, selection/catalog-refresh/directions agreement, stale handoff failure, queued manual refresh, rapid foreground restart, catalog diagnostic categories/fallback and location cancellation/replacement.
+- Nine relevant Pro UI scenarios passed: navigation/relaunch/background return, live search/count/pins, persisted filters, largest text, location denial/Apple Maps return, map gestures, sheet detents, dark landscape details and exposed-map dismissal. The navigation/lifecycle scenario passed again after the last lifetime guard changes. Existing Home-wide accessibility audit and SE geometry checks were not rerun for this nonvisual correction; their prior evidence remains below.
+- Strict formatting checked every runtime and test Swift file; whitespace checks passed.
+- For both 393 and 5,000 records, 300 sheet-geometry updates made **zero marker lookups and zero annotation add/remove calls**. Debug totals were 45.99 ms and 57.53 ms respectively (about 0.15/0.19 ms per update). Real filter, catalog and clustering changes still reconcile and retain annotation objects.
+- Five samples for empty, broad, specific, no-match and exact-synthetic queries measured background projection medians of 3.15–4.43 ms for 393 records and 12.99–29.30 ms for 5,000 in Debug. A concurrent main-actor progress task advanced in every case. These are simulator measurements; initial MapKit rendering remains native main-actor work and physical-frame-rate performance is not certified.
+
+Optimized Release verification also passed the two count cases. Per-query medians were **1.52–2.26 ms (393 records)** and **6.74–15.73 ms (5,000 records)**; largest individual samples were 3.02/17.00 ms, off MainActor. Evidence: `/tmp/BarkCleanupReleasePerformance.xcresult` and `/tmp/bark-cleanup-release-performance.log`.
+
+Local evidence: `/tmp/BarkCleanupComplete.xcresult`, `/tmp/BarkCleanupUIVerified.xcresult`, `/tmp/bark-cleanup-complete.log`, `/tmp/bark-cleanup-ui-verified.log`, `/tmp/bark-cleanup-build-complete.log`, `/tmp/bark-cleanup-release.log`, `/tmp/bark-cleanup-domain.log`, `/tmp/bark-cleanup-format.log`. The earlier `/tmp/BarkCleanupUIFinal.xcresult` was deliberately interrupted after a test-build issue and is not passing evidence. Final source uses Debug derived data `/tmp/BarkFocusedCleanupFinal` and Release `/tmp/BarkFocusedCleanupRelease`.
+
+Reproduce with the fixture server and commands below. Select `BarkRangerTests` for app regressions; select DiscoveryUITests, MapInteractionUITests, ParkDetailSheetUITests and AppShellUITests/testTabsSheetAndRelaunch for the relevant UI run. Optimized measurements select `BarkRangerTests/DiscoveryPerformanceTests/projectionTimingsAndMainActorResponsiveness(count:)` with configuration Release and ENABLE_TESTABILITY=YES. No fixture server is needed for that synthetic projection timing test. Do not run concurrent UI sessions against the same simulator.
+
+User check: type and edit a search, toggle filters, reset preferences from Home → Settings, and verify count/list/pins agree. Change units or move the map; matching results should stay the same. Change selected parks quickly and use Directions; close/reopen details and drag the sheet. Background/foreground the app during a local fixture update and confirm saved parks remain usable and subsequent refresh still works.
+
+## Sheet and selection refinements — 0.2.4 (6) — historical behavior
 
 The high sheet now stops at the search bar’s outer top edge, leaving the upper map visible and tappable. Tapping map background dismisses details and clears the pin highlight while retaining the query, filters and result count. Individual pin selection keeps the current zoom; selecting a search result retains the existing camera-focus behavior. Cluster taps keep their existing zoom behavior.
 
@@ -207,13 +236,13 @@ Physical source lines include comments/blank lines and exclude generated builds,
 
 | Group | Files | Lines |
 |---|---:|---:|
-| App + domain runtime Swift | 48 | 3,065 |
-| App/UI/package test Swift | 10 | 1,189 |
+| App + domain runtime Swift | 48 | 3,237 |
+| App/UI/package test Swift | 15 | 1,759 |
 | New backend catalog JavaScript | 4 | 297 |
 | New backend/script test JavaScript | 2 | 221 |
 | Local fixture/build scripts + Apps Script source | 4 | 183 |
 | Native project/package/configuration + two CI workflows + Apps Script manifest | 11 | 838 |
 
-The largest Swift runtime file is **162 lines**. The 0.2.4 refinement adds **19 net runtime Swift lines and no runtime files** over 0.2.3. The original detail sheet added seven small runtime files and **341 net runtime Swift lines** over 0.2.2; source line changes describe added presentation, not a claim of web-code retirement. The earlier 0.2.1 cleanup added **105 net runtime Swift lines** over 0.2.0: the obsolete 40-line SearchSheet is removed; MapScreen dropped from 103 to 90 lines; MapSearchBar, FilterChipsView and MapSearchResults are 50, 52 and 53 lines respectively. No new model, repository or service is introduced. Phase 1 had 509 runtime lines; phase 2, including its UI follow-ups, adds a net **2,556 runtime Swift lines** and real catalog/discovery behavior. The retained backend registry gains 12 net physical lines. **Old web/backend runtime lines removed: 0.** No deployed cost reduction or final replacement saving is claimed while both apps remain supported. Retirement and the final line-cut comparison come after the replacement and separately approved rollout.
+The largest Swift runtime file is **207 lines** (CatalogRepository); MapFeatureModel is 191. The 0.2.5 corrections add **172 net runtime lines and no net runtime files**: SearchModel is removed, ParkResults replaces it, and the other changes make existing task/error ownership explicit. The 0.2.4 refinement adds **19 net runtime Swift lines and no runtime files** over 0.2.3. The original detail sheet added seven small runtime files and **341 net runtime Swift lines** over 0.2.2; source line changes describe added presentation, not a claim of web-code retirement. The earlier 0.2.1 cleanup added **105 net runtime Swift lines** over 0.2.0: the obsolete 40-line SearchSheet is removed; MapScreen dropped from 103 to 90 lines; MapSearchBar, FilterChipsView and MapSearchResults are 50, 52 and 53 lines respectively. No new model, repository or service is introduced. Phase 1 had 509 runtime lines; phase 2, including its UI follow-ups, adds a net **2,728 runtime Swift lines** and real catalog/discovery behavior. The retained backend registry gains 12 net physical lines. **Old web/backend runtime lines removed: 0.** No deployed cost reduction or final replacement saving is claimed while both apps remain supported. Retirement and the final line-cut comparison come after the replacement and separately approved rollout.
 
 Remaining prerequisites: actual iOS 18.4 runtime and physical-device signing/trust; live public-asset/source/trigger configuration and provider checks; human VoiceOver review; native legal/privacy/App Store disclosure review before release. These do not authorize moving users or starting the next phase. The next step is user testing and Phase-2 fixes.

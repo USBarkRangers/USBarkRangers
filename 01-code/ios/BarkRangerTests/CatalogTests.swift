@@ -160,7 +160,8 @@ struct CatalogTests {
         #expect(components.queryItems?.first(where: { $0.name == "q" })?.value == maliciousName)
         let detail = ParkDetailModel(maps: MapsHandoff(open: { _ in false }))
         detail.show(source)
-        await detail.navigate()
+        detail.navigate()
+        await detail.navigation?.value
         #expect(detail.message != nil && !detail.isOpeningMaps)
     }
     @Test func pinSelectionPreservesZoomAndUpdatesDetailsAndDirectionsTogether() async throws {
@@ -197,7 +198,8 @@ struct CatalogTests {
         #expect(model.cameraRequest?.id == cameraRequest)
         coordinator.apply(to: map)
         #expect(abs(map.camera.centerCoordinateDistance - distance) < 10)
-        await model.detail.navigate()
+        model.detail.navigate()
+        await model.detail.navigation?.value
         #expect(opened == MapsHandoff.navigationURL(for: second))
         model.dismissPark()
         model.stop()
@@ -311,6 +313,7 @@ struct CatalogTests {
         var query = model.query
         query.search = "zzzzzzzzz"
         model.setFilters(query)
+        try await eventually { model.projection?.input.query == query }
         #expect(model.result.matchingCount == 0)
         preferences.resetPreferences()
         try await Task.sleep(for: .milliseconds(50))

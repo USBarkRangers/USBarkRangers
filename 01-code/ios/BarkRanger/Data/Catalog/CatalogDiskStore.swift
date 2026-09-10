@@ -3,6 +3,7 @@ import Foundation
 
 /// One atomic envelope pairs the manifest with its exact bytes; interrupted commits cannot mix revisions.
 nonisolated struct CatalogDiskStore: Sendable {
+    enum Failure: Error { case size }
     struct Envelope: Codable, Sendable {
         let manifest: CatalogManifest
         let payload: Data
@@ -14,26 +15,28 @@ nonisolated struct CatalogDiskStore: Sendable {
     let directory: URL
     let bundleDirectory: URL
 
-    func loadCandidates() -> [Candidate] {
+    func loadCandidates(diagnostics: Diagnostics = Diagnostics()) -> [Candidate] {
         var candidates: [Candidate] = []
         for name in ["current.json", "previous.json"] {
-            if let data = boundedRead(
-                directory.appendingPathComponent(name), maximum: CatalogValidator.maximumBytes * 2),
-                let envelope = try? JSONDecoder().decode(Envelope.self, from: data)
-            {
+            do {
+                let data = try boundedRead(
+                    directory.appendingPathComponent(name), maximum: CatalogValidator.maximumBytes * 2)
+                let envelope = try JSONDecoder().decode(Envelope.self, from: data)
                 candidates.append(Candidate(envelope: envelope, source: .saved))
-            }
+            } catch CocoaError.fileReadNoSuchFile {
+                // An absent cache is normal on first launch; corruption and other read failures are not.
+            } catch { diagnostics.catalogFailure(readFailure(error), at: .cacheRead) }
         }
-        if let metadata = boundedRead(
-            bundleDirectory.appendingPathComponent("catalog-manifest.json"), maximum: 16_384),
-            let manifest = try? JSONDecoder().decode(CatalogManifest.self, from: metadata),
-            let payload = boundedRead(
+        do {
+            let metadata = try boundedRead(
+                bundleDirectory.appendingPathComponent("catalog-manifest.json"), maximum: 16_384)
+            let manifest = try JSONDecoder().decode(CatalogManifest.self, from: metadata)
+            let payload = try boundedRead(
                 bundleDirectory.appendingPathComponent("catalog.json"), maximum: CatalogValidator.maximumBytes
             )
-        {
             candidates.append(
                 Candidate(envelope: Envelope(manifest: manifest, payload: payload), source: .bundle))
-        }
+        } catch { diagnostics.catalogFailure(readFailure(error), at: .bundleRead) }
         return candidates
     }
 
@@ -51,10 +54,15 @@ nonisolated struct CatalogDiskStore: Sendable {
         values.isExcludedFromBackup = true
         try? location.setResourceValues(values)
     }
-    private func boundedRead(_ url: URL, maximum: Int) -> Data? {
-        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= maximum else {
-            return nil
+    private func readFailure(_ error: any Error) -> Diagnostics.CatalogFailure {
+        if error is DecodingError { return .decoding }
+        if case Failure.size = error { return .size }
+        return .storage
+    }
+    private func boundedRead(_ url: URL, maximum: Int) throws -> Data {
+        guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= maximum else {
+            throw Failure.size
         }
-        return try? Data(contentsOf: url)
+        return try Data(contentsOf: url)
     }
 }

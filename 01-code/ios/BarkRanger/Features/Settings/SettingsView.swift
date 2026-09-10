@@ -27,7 +27,7 @@ struct SettingsView: View {
                     LabeledContent(
                         "Last checked", value: checkedAt.formatted(date: .abbreviated, time: .shortened))
                 }
-                Button("Check for updates") { Task { await model.refreshCatalog() } }
+                Button("Check for updates", action: model.refreshCatalog)
                     .disabled(
                         model.catalogState.status == .checking || model.catalogState.status == .notConfigured)
                 Text(

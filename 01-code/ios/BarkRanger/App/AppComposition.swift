@@ -28,7 +28,7 @@ struct AppComposition {
             ? URL(string: endpoint).flatMap {
                 CatalogHTTPClient.allowedEndpoint($0) ? CatalogHTTPClient(manifestURL: $0) : nil
             } : nil
-        let catalog = CatalogRepository(disk: disk, client: client)
+        let catalog = CatalogRepository(disk: disk, client: client, diagnostics: diagnostics)
         var defaults = preview ? (UserDefaults(suiteName: "bark.preview.\(UUID())") ?? .standard) : .standard
         #if DEBUG
             // XCTest gives each UI test a separate non-private preferences suite; relaunches reuse it.

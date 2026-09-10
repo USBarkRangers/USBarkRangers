@@ -22,7 +22,7 @@ struct ParkDetailView: View {
                             .accessibilityIdentifier("park-detail-name")
                         if position != .low { ParkDetailMetadata(park: park) }
                         ParkDetailActions(isOpeningMaps: model.isOpeningMaps) {
-                            Task { await model.navigate() }
+                            model.navigate()
                         } showInfo: {
                             expand()
                         }

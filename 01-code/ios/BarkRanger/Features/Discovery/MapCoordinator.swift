@@ -8,6 +8,8 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
     private(set) var annotations: [ParkID: ParkAnnotation] = [:]
     private var visible = Set<ParkID>()
     private var cameraID: UUID?
+    private var annotationVersion: UInt64?
+    private var clustering: Bool?
     private var overview: Bool?
     private let basemap = OfflineBasemapOverlay(urlTemplate: nil)
     private let outlines = OfflineBasemapOverlay.loadOutlines()
@@ -46,10 +48,14 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
             for annotation in map.selectedAnnotations { map.deselectAnnotation(annotation, animated: false) }
         }
     }
-    func updateAnnotations(on map: MKMapView) {
+    private func updateAnnotations(on map: MKMapView) {
+        guard annotationVersion != model.annotationVersion || clustering != model.settings.value.clustering
+        else { return }
+        annotationVersion = model.annotationVersion
+        clustering = model.settings.value.clustering
         let next = Set(model.result.matchingIDs)
         map.removeAnnotations(visible.subtracting(next).compactMap { annotations[$0] })
-        let knownIDs = Set(model.catalogState.snapshot?.parks.map(\.id) ?? [])
+        let knownIDs = model.projection?.catalogIDs ?? []
         annotations = annotations.filter { knownIDs.contains($0.key) }
         for park in model.parks {
             if let annotation = annotations[park.id] {

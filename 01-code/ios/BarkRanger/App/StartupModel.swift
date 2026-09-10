@@ -49,6 +49,7 @@ final class StartupModel {
                 try? await ContinuousClock().sleep(until: began.advanced(by: decisionBudget))
                 guard !Task.isCancelled else { return }
                 let current = await catalog.current()
+                guard !Task.isCancelled else { return }
                 revealWhenReady(hasCatalog: current.snapshot != nil)
             }
             if network.isConnected != false { await catalog.refresh(reason: .startup) }

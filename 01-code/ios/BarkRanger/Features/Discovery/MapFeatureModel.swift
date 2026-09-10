@@ -11,8 +11,12 @@ final class MapFeatureModel {
         let region: MKCoordinateRegion
     }
     private(set) var catalogState = CatalogRepository.State()
-    private(set) var result = ParkFilter.Result(matchingIDs: [], totalCount: 0, labels: [])
-    private(set) var parks: [Park] = []
+    private(set) var projection: ParkResults?
+    private(set) var annotationVersion: UInt64 = 0
+    var result: ParkFilter.Result {
+        projection?.result ?? ParkFilter.Result(matchingIDs: [], totalCount: 0, labels: [])
+    }
+    var parks: [Park] { projection?.parks ?? [] }
     var selectedID: ParkID? { detail.park?.id }
     private(set) var cameraRequest: CameraRequest?
     private(set) var isOffline = false
@@ -20,7 +24,6 @@ final class MapFeatureModel {
     private(set) var isLocating = false
     var locationMessage: String?
     let settings: SettingsRepository
-    let search: SearchModel
     let detail: ParkDetailModel
     private let catalog: CatalogRepository
     private let location: LocationClient
@@ -28,17 +31,20 @@ final class MapFeatureModel {
     private var preferenceGeneration = UUID()
     private(set) var lastRegion: MKCoordinateRegion?
     private var locateTask: Task<Void, Never>?
-    private var byID: [ParkID: Park] = [:]
+    private let computeResults: ParkResults.Compute
+    @ObservationIgnored private(set) var resultTask: Task<Void, Never>?
+    private var requestedInput: ParkResults.Input?
     var query: ParkFilter.Query { settings.value.filters }
     var usesOfflineMap: Bool { isOffline || imageryUnavailable || settings.value.mapStyle == .overview }
 
     init(
-        catalog: CatalogRepository, settings: SettingsRepository, location: LocationClient, maps: MapsHandoff
+        catalog: CatalogRepository, settings: SettingsRepository, location: LocationClient, maps: MapsHandoff,
+        computeResults: @escaping ParkResults.Compute = ParkResults.compute
     ) {
         self.catalog = catalog
         self.settings = settings
         self.location = location
-        search = SearchModel()
+        self.computeResults = computeResults
         detail = ParkDetailModel(maps: maps)
         if let camera = settings.value.camera, settings.value.rememberMapPosition {
             cameraRequest = CameraRequest(
@@ -58,13 +64,11 @@ final class MapFeatureModel {
                 let changed = catalogState.snapshot?.revision != state.snapshot?.revision
                 catalogState = state
                 if changed, let snapshot = state.snapshot {
-                    byID = Dictionary(uniqueKeysWithValues: snapshot.parks.map { ($0.id, $0) })
                     if let selectedID {
                         detail.show(snapshot.park(id: selectedID))
                     }
-                    search.install(snapshot: snapshot, index: state.index)
-                    rebuild()
                 }
+                refreshResults()
             }
         }
     }
@@ -78,7 +82,7 @@ final class MapFeatureModel {
                 guard let self, self.preferenceGeneration == generation, self.observation != nil else {
                     return
                 }
-                self.rebuild()
+                self.refreshResults()
                 self.observePreferences()
             }
         }
@@ -89,14 +93,36 @@ final class MapFeatureModel {
         // Personal state is not connected until phase 4; the pure policy already accepts those ID sets.
         preferences.filters.personal = .all
         settings.update(preferences)
-        rebuild()
     }
-    func rebuild() {
+    private func refreshResults() {
         guard let snapshot = catalogState.snapshot else { return }
-        search.updateQuery(query.search)
-        let ids = search.matchingIDs
-        result = ParkFilter.apply(catalog: snapshot, query: query, searchIDs: ids)
-        parks = result.matchingIDs.compactMap { byID[$0] }
+        let input = ParkResults.Input(revision: snapshot.revision, query: query)
+        guard requestedInput != input else { return }
+        requestedInput = input
+        resultTask?.cancel()
+        let index = catalogState.index
+        resultTask = Task {
+            guard !Task.isCancelled else { return }
+            do {
+                let next = try await computeResults(snapshot, index, input.query)
+                guard !Task.isCancelled, input == requestedInput, input.query == query,
+                    input.revision == catalogState.snapshot?.revision
+                else { return }
+                if projection?.input.revision != input.revision
+                    || result.matchingIDs != next.result.matchingIDs
+                {
+                    annotationVersion &+= 1
+                }
+                projection = next
+                resultTask = nil
+            } catch {
+                // Only the still-current request may clear its ownership; cancelled work cannot publish.
+                if !Task.isCancelled {
+                    requestedInput = projection?.input
+                    resultTask = nil
+                }
+            }
+        }
     }
     func selectPark(id: ParkID, focusOnMap: Bool = true) {
         guard let park = catalogState.snapshot?.park(id: id) else { return }
@@ -156,7 +182,10 @@ final class MapFeatureModel {
         preferenceGeneration = UUID()
         observation?.cancel()
         observation = nil
+        resultTask?.cancel()
+        resultTask = nil
+        requestedInput = projection?.input
+        detail.cancelNavigation()
         locateTask?.cancel()
-        locateTask = nil
     }
 }

@@ -1,5 +1,76 @@
 # Native iOS maintainability audit — September 10, 2026
 
+**Current assessment: build 0.2.5 (7), after the focused correction pass. No remaining blocker from this review before Phase 3.** Phase 3 itself has not started. The original 0.2.3 inspection and the 0.2.4 ranking are preserved below as historical evidence.
+
+| Assessment | Current score | Reason |
+|---|---:|---|
+| Overall code quality | 8.5 / 10 | Corrected state/task ownership and measured update boundaries; no broad rewrite. |
+| Spaghetti-code risk | 2 / 10 | Low current tangling. Ten means severely tangled. Future features must keep their own business owners. |
+| Maintainability | 8.5 / 10 | One explicit query source, one selected Park, bounded task ownership and regression coverage. |
+| Architecture clarity | 8.5 / 10 | Mutable authorities and derived projections are now distinguishable; no new global service or event framework. |
+| Performance / efficiency | 8 / 10 | Search/filter computation is off MainActor; geometry-only map work is constant with respect to catalog size. Physical-device rendering remains unprofiled. |
+
+Scores are engineering judgments, not production certification. The implemented runtime is 48 Swift files / 3,237 physical lines; the largest file is CatalogRepository at 207 lines, followed by MapFeatureModel at 191. This is 172 net runtime lines over 0.2.4, mostly explicit cancellation/diagnostic handling and the immutable background projection. SearchModel was removed and ParkResults added: no net runtime-file increase. Test code is 15 files / 1,759 lines. A strict line ceiling would have made these corrections harder to follow; no coherent owner was split merely to reduce its line count.
+
+## Focused findings and resolution
+
+| Finding | Correction and regression evidence | Status |
+|---|---|---|
+| Selected identity/details/Directions could diverge or outlive their selection. | ParkDetailModel.park remains the sole selected Park; selectedID derives from it. Directions captures that Park synchronously, owns its task, and cancels queued work/late completions when selection changes, closes or stops. Tests cover A→B, queued dismissal, accepted catalog facts changing while selected, and an old handoff failure arriving while a newer action is busy. | Corrected |
+| Search/filter work had duplicate paths and reacted to camera/units writes. | setFilters only writes SettingsRepository. The settings/catalog observers feed one revision+query gate. An owned task computes one immutable ParkResults off MainActor; obsolete/cancelled completions cannot publish. SearchModel’s copied mutable query is gone. Tests count exactly one computation per effective changed input, no extra computation for camera/units/map style/clustering/status/unchanged query, and correct reset/restart behavior. | Corrected |
+| Sheet geometry entered full marker reconciliation. | MapCoordinator checks an annotation version and clustering before touching park arrays or marker views. A new catalog revision or changed matching IDs advances the version; a labels-only change does not. Selection, camera, attribution and sheet geometry remain independent native presentation work. Actual MapKit lookup/mutation counts verify the boundary at 393 and 5,000 records; identity survives filtering and refresh. | Corrected |
+| Failures all looked alike internally. | Diagnostics accepts only fixed stage/reason enums. Disk read/decode, validation, transport, timeout, Retry-After, commit and cancellation categories retain the current simple fallback. Missing first-launch cache files are quiet. Catalog-specific classification stays in the catalog owner; the logger does not depend back on services. Tests verify emitted categories and retained accepted records. | Corrected |
+| Stop/restart ownership had cancellation gaps. | AppLifecycle retains and orders catalog-stop completion before new foreground startup/polling. CatalogRepository clears only the matching request and refuses already-cancelled callers. SettingsModel owns queued manual refresh. Startup rechecks cancellation after its catalog read. Locate cleanup retains ownership until completion, and cancellation carries its request identity. Rapid lifecycle restart, manual-refresh cancellation and location replacement tests pass. | Corrected |
+
+An Apple Maps request already handed to iOS cannot be recalled. The guarantee is that the action uses the Park displayed at invocation, queued cancelled work never submits it, and an obsolete completion cannot alter the current selection or action state.
+
+## Authoritative state and call paths
+
+- **Query/filter source:** SettingsRepository.value.filters. The view forwards edits; it does not hold another editable query. ParkResults.Input and requestedInput are immutable provenance/comparison keys, not independent writers.
+- **Selection source:** ParkDetailModel.park. MapFeatureModel.selectedID is computed. Annotation/framing identifiers are native presentation caches and do not persist another selected Park.
+- **Catalog source:** CatalogRepository’s validated accepted snapshot. Search indexes, catalog-ID sets, result arrays and map annotations remain derived values.
+- **Result path:** settings/catalog change → effective-input comparison → owned task → ParkResults.compute → one atomic projection publication → count/list/pins.
+- **Geometry path:** sheet height/camera/selection → MapCoordinator.apply → native presentation. The annotation gate returns before scanning/reconfiguring unchanged markers.
+- **Directions path:** button intent → ParkDetailModel.navigate captures Park → owned task → MapsHandoff. The SwiftUI view no longer creates an unowned task.
+
+No duplicate editable source of truth remains for selected park or search state. While a new background query computes, the previous complete projection remains visible briefly; it is replaced atomically only if its revision and query are still current. Cancellation checks occur between bounded computation stages; this is cooperative cancellation, not an attempt to interrupt a sort midway.
+
+## Performance verification
+
+The source uses the explicit [Swift `@concurrent` execution contract](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md). A plain async function would not be sufficient with this project’s approachable-concurrency configuration. Search, filtering, sorting and lookup construction execute off MainActor. MainActor still publishes the result and performs native MapKit work when marker inputs actually change.
+
+Final Debug simulator measurements, with a main-actor progress task running during the computation:
+
+| Records | Median projection time across tested queries | 300 geometry-only updates | Marker lookups / add-remove calls during those updates |
+|---|---:|---:|---:|
+| 393 bundled records | 3.15–4.43 ms | 45.99 ms total (about 0.15 ms/update) | 0 / 0 |
+| 5,000 synthetic/public records | 12.99–29.30 ms | 57.53 ms total (about 0.19 ms/update) | 0 / 0 |
+
+Queries include empty, broad “park”, “hulls cove”, no match and exact synthetic identity. Each query has five timing samples; matching counts and ordered IDs are checked against the returned parks. MainActor made progress for every case. These are simulator computation/update timings, not physical iPhone frame rates, network benchmarks or proof that rendering 5,000 markers never drops a frame. Initial/changed marker reconciliation remains an O(n) native main-actor operation; this pass removes repeated unrelated work rather than claiming that operation is free.
+
+The optimized Release run also passed both record-count cases (`-O -whole-module-optimization`, with testability enabled): per-query medians were **1.52–2.26 ms for 393** and **6.74–15.73 ms for 5,000**. The largest individual sample was 3.02/17.00 ms respectively, off MainActor. Evidence: `/tmp/BarkCleanupReleasePerformance.xcresult` and `/tmp/bark-cleanup-release-performance.log`.
+
+## Remaining concerns — none blocks the next phase
+
+1. **Keep new feature ownership out of Discovery (ongoing design constraint).** MapFeatureModel and MapCoordinator remain the main growth watchpoints. Visits, scoring, trips, purchases and sync must have their own owners; none exists here yet.
+2. **Physical-device profiling before release (4/10).** The automated checks cover result responsiveness and avoided annotation work. Initial MapKit rendering, older-phone GPU/frame behavior, actual iOS 18.4 and real cellular/provider performance remain separate device work.
+3. **Optional colocation of sole-use views (3/10).** FilterSummaryView can live in FilterSheet; ParkDetailActions/Metadata can live in ParkDetailView. Keeping separate types is useful, but separate files are not required. No correctness issue justifies sweeping consolidation now. MapOverlayRenderer’s small styling boundary is defensible.
+4. **Small synchronous bundled reads (2/10).** Home content and offline geography still read small local resources at construction. Avoid a caching/service framework unless profiling finds a meaningful delay. Existing bounded catalog reads/validation run in their actor.
+5. **Minor test/API housekeeping (2/10).** Older unrelated tests still use a few fixed sleeps and do not consistently remove every temporary preference suite. New delayed-completion regressions use controlled continuations and owned-task completion; new shared fixtures clean up their resources. Unused small domain helpers can be removed when their owners are touched.
+
+The composition root, Foundation-only domain, typed IDs, one settings store, actor-isolated catalog acceptance, atomic saved envelopes, native map identity/clustering, thumbnail replacement boundary and safe Maps URL construction should remain as they are. No mutable global, custom singleton, circular feature dependency, force unwrap, try!, fatalError, Firebase-in-view access, generic manager hierarchy, or multi-system button orchestration was found in the reviewed runtime.
+
+## Verification and scope
+
+Strict formatting and whitespace checks passed. Nine domain tests and 39 app tests passed (36 Swift Testing functions plus three XCTest cases). Nine relevant Pro UI scenarios passed, including live search/count/pins, filter persistence, large text, Apple Maps return, map gestures, three detents, background dismissal and navigation/relaunch. The final lifecycle UI rerun passed; optimized results are recorded in the current Phase 2 report. An earlier UI invocation was deliberately interrupted after discovering a test-build issue; it is not counted as passing evidence.
+
+Reviewed the changed owners and their callers, then rechecked runtime state/task/platform-access patterns and unchanged shell/settings/map boundaries. No backend, live spreadsheet, customer, payment, deployment, migration or Phase 3 work was performed. Physical/provider certification and user acceptance remain pending as documented in Phase 2.
+
+---
+
+## Original 0.2.3 audit and 0.2.4 ranking — historical record
+
+
 **Verdict:** the core architecture remains sound, but Discovery is beginning to accumulate unnecessary state coordination and file fragmentation. It is not spaghetti code. It does need a small corrective pass before adding accounts and personal data. Short files alone are not evidence of good separation.
 
 The original audit is an inspection of build 0.2.3, not authorization to implement its recommendations. No app, test, project, backend, or deployment code was changed for that inspection. The final section records the subsequent user-requested UI work in 0.2.4, the related selection fix, and the remaining cleanup priorities.

@@ -5,10 +5,12 @@ import CoreLocation
 @MainActor
 final class LocationClient: NSObject, CLLocationManagerDelegate {
     enum Failure: Error { case denied, unavailable, timedOut, busy }
-    private let manager = CLLocationManager()
+    private let manager: CLLocationManager
     private var pending: CheckedContinuation<Coordinate, any Error>?
     private var timeout: Task<Void, Never>?
-    override init() {
+    private var requestID: UUID?
+    init(manager: CLLocationManager = CLLocationManager()) {
+        self.manager = manager
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
@@ -16,10 +18,12 @@ final class LocationClient: NSObject, CLLocationManagerDelegate {
     func authorization() -> CLAuthorizationStatus { manager.authorizationStatus }
     func currentFix(deadline: Duration = .seconds(15)) async throws -> Coordinate {
         guard pending == nil else { throw Failure.busy }
+        let id = UUID()
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
             return try await withCheckedThrowingContinuation { continuation in
                 pending = continuation
+                requestID = id
                 timeout = Task {
                     try? await Task.sleep(for: deadline)
                     guard !Task.isCancelled else { return }
@@ -32,7 +36,10 @@ final class LocationClient: NSObject, CLLocationManagerDelegate {
                 }
             }
         } onCancel: {
-            Task { @MainActor in self.finish(.failure(CancellationError())) }
+            Task { @MainActor in
+                guard self.requestID == id else { return }
+                self.finish(.failure(CancellationError()))
+            }
         }
     }
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -63,6 +70,7 @@ final class LocationClient: NSObject, CLLocationManagerDelegate {
         manager.stopUpdatingLocation()
         let continuation = pending
         pending = nil
+        requestID = nil
         continuation?.resume(with: result)
     }
 }

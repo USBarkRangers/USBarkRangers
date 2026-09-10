@@ -23,6 +23,7 @@ final class SettingsModel {
     private(set) var documentText = ""
     private let catalog: CatalogRepository
     private var observation: Task<Void, Never>?
+    @ObservationIgnored private(set) var refreshTask: Task<Void, Never>?
     init(preferences: SettingsRepository, catalog: CatalogRepository) {
         self.preferences = preferences
         self.catalog = catalog
@@ -38,7 +39,14 @@ final class SettingsModel {
     }
     func update(_ value: AppSettings) { preferences.update(value) }
     func resetPreferences() { preferences.resetPreferences() }
-    func refreshCatalog() async { await catalog.refresh(reason: .manual) }
+    func refreshCatalog() {
+        guard refreshTask == nil else { return }
+        refreshTask = Task {
+            guard !Task.isCancelled else { return }
+            await catalog.refresh(reason: .manual)
+            if !Task.isCancelled { refreshTask = nil }
+        }
+    }
     func openSystemSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url)
@@ -55,6 +63,8 @@ final class SettingsModel {
     func stop() {
         observation?.cancel()
         observation = nil
+        refreshTask?.cancel()
+        refreshTask = nil
     }
     static func statusText(_ state: CatalogRepository.State) -> String {
         switch state.status {

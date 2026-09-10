@@ -15,21 +15,26 @@ actor CatalogRepository {
     private let disk: CatalogDiskStore
     private let client: CatalogHTTPClient?
     private let validator: CatalogValidator
+    private let diagnostics: Diagnostics
     private var accepted: CatalogDiskStore.Envelope?
     private var state = State()
     private var observers: [UUID: AsyncStream<State>.Continuation] = [:]
     private var inFlight: Task<Void, Never>?
+    private var refreshID: UUID?
     private var etag: String?
     private var nextRegular = ContinuousClock.now
     private var nextRetry = ContinuousClock.now
     private var serverRetry = ContinuousClock.now
     private var failures = 0
 
-    init(disk: CatalogDiskStore, client: CatalogHTTPClient?, validator: CatalogValidator = CatalogValidator())
-    {
+    init(
+        disk: CatalogDiskStore, client: CatalogHTTPClient?, validator: CatalogValidator = CatalogValidator(),
+        diagnostics: Diagnostics = Diagnostics()
+    ) {
         self.disk = disk
         self.client = client
         self.validator = validator
+        self.diagnostics = diagnostics
     }
     func current() -> State { state }
     /// The lifecycle sleeps until this owner's next permitted request, not a separate retry policy.
@@ -51,18 +56,21 @@ actor CatalogRepository {
     @discardableResult
     func loadLocal() -> State {
         guard state.snapshot == nil else { return state }
-        for candidate in disk.loadCandidates().sorted(by: {
+        for candidate in disk.loadCandidates(diagnostics: diagnostics).sorted(by: {
             $0.envelope.manifest.revision > $1.envelope.manifest.revision
         }) {
-            guard
-                let snapshot = try? validator.decodeAndValidate(
+            do {
+                let snapshot = try validator.decodeAndValidate(
                     bytes: candidate.envelope.payload, manifest: candidate.envelope.manifest)
-            else { continue }
-            accepted = candidate.envelope
-            state.snapshot = snapshot
-            state.index = ParkSearchIndex(parks: snapshot.parks)
-            state.source = candidate.source
-            break
+                accepted = candidate.envelope
+                state.snapshot = snapshot
+                state.index = ParkSearchIndex(parks: snapshot.parks)
+                state.source = candidate.source
+                break
+            } catch {
+                diagnostics.catalogFailure(
+                    Self.failureReason(error, at: .localValidation), at: .localValidation)
+            }
         }
         state.status = client == nil ? .notConfigured : .saved
         publish()
@@ -75,6 +83,7 @@ actor CatalogRepository {
         }
     }
     func refresh(reason: Reason) async {
+        guard !Task.isCancelled else { return }
         if let inFlight {
             await inFlight.value
             return
@@ -89,17 +98,33 @@ actor CatalogRepository {
         if reason != .manual && reason != .reconnect && reason != .startup && now < nextRegular { return }
         if now < nextRetry { return }
         // Reconnect can bypass regular cadence, but never a server Retry-After or rapid failure loop.
+        let id = UUID()
         let task = Task { await self.performRefresh(client) }
+        refreshID = id
         inFlight = task
         await task.value
-        inFlight = nil
+        if refreshID == id {
+            inFlight = nil
+            refreshID = nil
+        }
     }
-    func cancelRefresh() { inFlight?.cancel() }
+    func cancelRefresh() async {
+        guard let task = inFlight else { return }
+        let id = refreshID
+        task.cancel()
+        await task.value
+        if refreshID == id {
+            inFlight = nil
+            refreshID = nil
+        }
+    }
 
     private func performRefresh(_ client: CatalogHTTPClient) async {
+        guard !Task.isCancelled else { return }
         _ = loadLocal()
         state.status = .checking
         publish()
+        var stage = Diagnostics.CatalogStage.manifest
         do {
             let deadline = ContinuousClock.now.advanced(by: .seconds(10))
             switch try await client.fetchManifest(etag: etag, deadline: deadline) {
@@ -113,11 +138,13 @@ actor CatalogRepository {
                     if let accepted, manifest.revision < accepted.manifest.revision {
                         throw CatalogValidator.Rejection.revision
                     }
+                    stage = .payload
                     let bytes = try await client.download(manifest, deadline: deadline)
                     let snapshot = try validator.decodeAndValidate(
                         bytes: bytes, manifest: manifest, baseline: state.snapshot)
                     try Task.checkCancellation()
                     let envelope = CatalogDiskStore.Envelope(manifest: manifest, payload: bytes)
+                    stage = .commit
                     try disk.commit(envelope, previous: accepted)
                     accepted = envelope
                     state.snapshot = snapshot
@@ -133,6 +160,8 @@ actor CatalogRepository {
             nextRegular = .now.advanced(by: .seconds(60))
             nextRetry = .now
         } catch {
+            diagnostics.catalogFailure(
+                Self.failureReason(Task.isCancelled ? CancellationError() : error, at: stage), at: stage)
             if Task.isCancelled {
                 state.status = .saved
                 publish()
@@ -148,5 +177,31 @@ actor CatalogRepository {
             state.status = .unavailable
         }
         publish()
+    }
+    /// Catalog-specific errors are classified here; the logger never depends on catalog services.
+    nonisolated static func failureReason(_ error: any Error, at stage: Diagnostics.CatalogStage)
+        -> Diagnostics.CatalogFailure
+    {
+        let reason: Diagnostics.CatalogFailure
+        switch error {
+        case is CancellationError: reason = .cancelled
+        case let error as URLError:
+            reason = error.code == .cancelled ? .cancelled : error.code == .timedOut ? .deadline : .network
+        case CatalogHTTPClient.Failure.deadline: reason = .deadline
+        case CatalogHTTPClient.Failure.response: reason = .response
+        case CatalogHTTPClient.Failure.size: reason = .size
+        case CatalogHTTPClient.Failure.retryAfter: reason = .retryAfter
+        case CatalogHTTPClient.Failure.unavailable: reason = .network
+        case CatalogValidator.Rejection.metadata: reason = .metadata
+        case CatalogValidator.Rejection.hash: reason = .hash
+        case CatalogValidator.Rejection.identity: reason = .identity
+        case CatalogValidator.Rejection.fields: reason = .fields
+        case CatalogValidator.Rejection.links: reason = .links
+        case CatalogValidator.Rejection.removedIdentity: reason = .removedIdentity
+        case CatalogValidator.Rejection.revision: reason = .revision
+        case is DecodingError: reason = .decoding
+        default: reason = stage == .commit ? .storage : .unknown
+        }
+        return reason
     }
 }

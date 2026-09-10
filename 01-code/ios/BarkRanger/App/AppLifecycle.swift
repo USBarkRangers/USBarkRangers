@@ -11,6 +11,7 @@ final class AppLifecycle {
     private let diagnostics: Diagnostics
     private var connectivity: Task<Void, Never>?
     private var polling: Task<Void, Never>?
+    private var catalogStop: Task<Void, Never>?
     private(set) var phase: ScenePhase?
 
     init(
@@ -47,12 +48,16 @@ final class AppLifecycle {
                 wasConnected = connected
             }
         }
-        startup.start()
         scheduleRefresh(reason: .foreground)
     }
     private func scheduleRefresh(reason: CatalogRepository.Reason) {
         polling?.cancel()
+        let stopping = catalogStop
         polling = Task {
+            // A foreground request cannot be cancelled by an older queued background stop.
+            await stopping?.value
+            guard !Task.isCancelled else { return }
+            startup.start()
             if network.isConnected != false { await catalog.refresh(reason: reason) }
             while !Task.isCancelled {
                 let delay =
@@ -75,6 +80,10 @@ final class AppLifecycle {
         startup.stop()
         discovery.stop()
         settings.stop()
-        Task { await catalog.cancelRefresh() }
+        let previousStop = catalogStop
+        catalogStop = Task {
+            await previousStop?.value
+            await catalog.cancelRefresh()
+        }
     }
 }

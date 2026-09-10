@@ -12,10 +12,29 @@ nonisolated struct Diagnostics: Sendable {
     }
 
     private let logger = Logger(subsystem: "swarm.USBARKRANGERS", category: "Shell")
+    enum CatalogStage: String, Sendable {
+        case cacheRead, bundleRead, localValidation, manifest, payload, commit
+    }
+    enum CatalogFailure: String, Sendable {
+        case decoding, metadata, hash, identity, fields, links, removedIdentity, revision
+        case deadline, response, size, network, retryAfter, storage, cancelled, unknown
+    }
+    private let catalogLogger = Logger(subsystem: "swarm.USBARKRANGERS", category: "Catalog")
+    private let catalogSink: (@Sendable (CatalogStage, CatalogFailure) -> Void)?
     private let enabled: Bool
 
-    init(enabled: Bool = true) {
+    init(
+        enabled: Bool = true,
+        catalogSink: (@Sendable (CatalogStage, CatalogFailure) -> Void)? = nil
+    ) {
         self.enabled = enabled
+        self.catalogSink = catalogSink
+    }
+    func catalogFailure(_ reason: CatalogFailure, at stage: CatalogStage) {
+        catalogSink?(stage, reason)
+        guard enabled else { return }
+        catalogLogger.notice(
+            "failure stage=\(stage.rawValue, privacy: .public) reason=\(reason.rawValue, privacy: .public)")
     }
 
     func record(_ event: Event) {

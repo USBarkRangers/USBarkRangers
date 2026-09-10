@@ -1,6 +1,6 @@
 # Native iOS maintainability audit — September 10, 2026
 
-**Current assessment: build 0.2.5 (7), after the focused correction pass. No remaining blocker from this review before Phase 3.** Phase 3 itself has not started. The original 0.2.3 inspection and the 0.2.4 ranking are preserved below as historical evidence.
+**Focused-correction assessment: build 0.2.5 (7).** The later [deep follow-up audit](FOLLOWUP_MAINTAINABILITY_AUDIT_2026-09-10.md) independently rechecks this implementation, documents two smaller map issues and test limitations, revises overall/maintainability scores to 8/10, and retains the go recommendation for Phase 3 development. The correction-pass assessment below and the original 0.2.3 inspection/0.2.4 ranking remain historical evidence. Phase 3 has not started.
 
 | Assessment | Current score | Reason |
 |---|---:|---|

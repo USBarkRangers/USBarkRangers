@@ -135,7 +135,8 @@ struct DiscoveryStateTests {
         let context = try DiscoveryTestContext(scenario: "valid")
         defer { context.close() }
         _ = await context.catalog.loadLocal()
-        let settings = SettingsModel(preferences: context.settings, catalog: context.catalog)
+        let settings = SettingsModel(
+            preferences: context.settings, catalog: context.catalog, openSettings: {})
         settings.refreshCatalog()
         let queued = settings.refreshTask
         settings.stop()
@@ -150,13 +151,14 @@ struct DiscoveryStateTests {
     @Test func immediateForegroundRestartWaitsForOldCatalogCancellation() async throws {
         let context = try DiscoveryTestContext(scenario: "slow")
         defer { context.close() }
-        let network = NetworkMonitor()
+        let network = NetworkMonitor(fixedConnection: true)
         let diagnostics = Diagnostics(enabled: false)
         let startup = StartupModel(catalog: context.catalog, network: network, diagnostics: diagnostics)
         let lifecycle = AppLifecycle(
             startup: startup, catalog: context.catalog, network: network,
             discovery: context.model,
-            settings: SettingsModel(preferences: context.settings, catalog: context.catalog),
+            settings: SettingsModel(
+                preferences: context.settings, catalog: context.catalog, openSettings: {}),
             diagnostics: diagnostics)
         defer { lifecycle.stop() }
         lifecycle.sceneChanged(.active)

@@ -59,7 +59,7 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
         let groupingChanged = clustering != nil && clustering != model.settings.value.clustering
         annotationVersion = model.annotationVersion
         clustering = model.settings.value.clustering
-        let next = Set(model.result.matchingIDs)
+        let next = model.projection?.matchingIDs ?? []
         // Re-enroll the same objects when grouping changes; changing only materialized views leaves
         // MapKit's existing clusters and offscreen members using the previous grouping policy.
         map.removeAnnotations(

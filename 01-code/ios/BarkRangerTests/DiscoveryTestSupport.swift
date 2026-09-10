@@ -30,7 +30,7 @@ final class DiscoveryTestContext {
             }, diagnostics: Diagnostics(enabled: false))
         settings = SettingsRepository(defaults: defaults)
         model = MapFeatureModel(
-            catalog: catalog, settings: settings, location: LocationClient(), maps: maps,
+            catalog: catalog, settings: settings, location: LocationClient(manager: nil), maps: maps,
             computeResults: compute)
     }
     func start() async throws {

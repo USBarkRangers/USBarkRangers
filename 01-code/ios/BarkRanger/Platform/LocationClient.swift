@@ -5,18 +5,19 @@ import CoreLocation
 @MainActor
 final class LocationClient: NSObject, CLLocationManagerDelegate {
     enum Failure: Error { case denied, unavailable, timedOut, busy }
-    private let manager: CLLocationManager
+    private let manager: CLLocationManager?
     private var pending: CheckedContinuation<Coordinate, any Error>?
     private var timeout: Task<Void, Never>?
     private var requestID: UUID?
-    init(manager: CLLocationManager = CLLocationManager()) {
+    init(manager: CLLocationManager? = CLLocationManager()) {
         self.manager = manager
         super.init()
-        manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        manager?.delegate = self
+        manager?.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
-    func authorization() -> CLAuthorizationStatus { manager.authorizationStatus }
+    func authorization() -> CLAuthorizationStatus { manager?.authorizationStatus ?? .restricted }
     func currentFix(deadline: Duration = .seconds(15)) async throws -> Coordinate {
+        guard let manager else { throw Failure.unavailable }
         guard pending == nil else { throw Failure.busy }
         let id = UUID()
         return try await withTaskCancellationHandler {
@@ -67,7 +68,7 @@ final class LocationClient: NSObject, CLLocationManagerDelegate {
     private func finish(_ result: Result<Coordinate, any Error>) {
         timeout?.cancel()
         timeout = nil
-        manager.stopUpdatingLocation()
+        manager?.stopUpdatingLocation()
         let continuation = pending
         pending = nil
         requestID = nil

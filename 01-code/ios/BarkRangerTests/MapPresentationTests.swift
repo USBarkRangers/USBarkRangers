@@ -39,7 +39,10 @@ nonisolated final class MapPresentationTests: XCTestCase {
         window.makeKeyAndVisible()
         defer { window.isHidden = true }
         tabs.view.layoutIfNeeded()
-        controller.viewDidAppear(false)
+        controller.beginAppearanceTransition(true, animated: false)
+        controller.endAppearanceTransition()
+        let restingFrame = tabs.tabBar.frame
+        let restingInsets = controller.view.safeAreaInsets
         let layout = ParkSheetLayout(availableHeight: 760, bottomOverlap: 83, searchHeight: 100)
         let medium = layout.height(at: .medium)
         let high = layout.height(at: .high)
@@ -47,18 +50,34 @@ nonisolated final class MapPresentationTests: XCTestCase {
         controller.progress = layout.chromeProgress(at: (medium + high) / 2)
         controller.apply()
         XCTAssertEqual(controller.progress, 0.5, accuracy: 0.001)
-        XCTAssertEqual(tabs.tabBar.transform.ty, (tabs.tabBar.bounds.height + 32) / 2, accuracy: 0.001)
+        XCTAssertEqual(
+            tabs.tabBar.layer.sublayerTransform.m42, (tabs.tabBar.bounds.height + 32) / 2, accuracy: 0.001)
+        XCTAssertEqual(tabs.tabBar.frame, restingFrame, "Visual travel must never move UIKit’s layout frame")
         XCTAssertFalse(tabs.tabBar.isUserInteractionEnabled)
         XCTAssertTrue(tabs.tabBar.accessibilityElementsHidden)
         controller.progress = layout.chromeProgress(at: high + 50)
         controller.apply()
         XCTAssertEqual(controller.progress, 1)
-        XCTAssertGreaterThanOrEqual(tabs.tabBar.frame.minY, tabs.view.bounds.maxY)
+        XCTAssertGreaterThanOrEqual(
+            tabs.tabBar.frame.minY + tabs.tabBar.layer.sublayerTransform.m42, tabs.view.bounds.maxY)
+        for _ in 0..<6 {
+            // UIKit can re-layout while details scroll. Returning to medium must not accumulate offsets.
+            tabs.view.setNeedsLayout()
+            tabs.view.layoutIfNeeded()
+            controller.progress = 0
+            controller.apply()
+            XCTAssertEqual(tabs.tabBar.frame, restingFrame)
+            XCTAssertEqual(controller.view.safeAreaInsets, restingInsets)
+            XCTAssertTrue(CATransform3DIsIdentity(tabs.tabBar.layer.sublayerTransform))
+            controller.progress = 1
+            controller.apply()
+        }
         controller.reduceMotion = true
         controller.apply()
-        XCTAssertEqual(tabs.tabBar.transform, .identity)
+        XCTAssertTrue(CATransform3DIsIdentity(tabs.tabBar.layer.sublayerTransform))
         XCTAssertEqual(tabs.tabBar.alpha, 0)
-        controller.viewWillDisappear(false)
+        controller.beginAppearanceTransition(false, animated: false)
+        controller.endAppearanceTransition()
         XCTAssertEqual(tabs.tabBar.alpha, 1)
         XCTAssertTrue(tabs.tabBar.isUserInteractionEnabled)
         XCTAssertFalse(tabs.tabBar.accessibilityElementsHidden)
@@ -96,6 +115,12 @@ nonisolated final class MapPresentationTests: XCTestCase {
         XCTAssertEqual(view.accessibilityValue, "")
         XCTAssertEqual(view.accessibilityIdentifier, "park-pin-next")
         XCTAssertNil(view.clusteringIdentifier)
+        XCTAssertEqual(view.displayPriority, .required)
+        view.setSelected(true, animated: false)
+        view.setSelected(false, animated: false)
+        XCTAssertEqual(view.displayPriority, .required, "Ungrouped pins stay visible after deselection")
+        view.configure(park: next, clustering: true)
+        XCTAssertEqual(view.displayPriority, .defaultHigh)
     }
 
     @MainActor

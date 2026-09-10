@@ -20,6 +20,19 @@ struct DiscoveryPerformanceTests {
         let map = CountingMapView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let coordinator = MapCoordinator(model: model)
         coordinator.apply(to: map)
+        let initialOrder = model.result.matchingIDs
+        let originalAnnotations = coordinator.annotations
+        map.clearCounts()
+        var reorderedQuery = model.query
+        reorderedQuery.search = " "
+        model.setFilters(reorderedQuery)
+        try await eventually { model.projection?.input.query == reorderedQuery }
+        #expect(model.result.matchingIDs != initialOrder)
+        #expect(Set(model.result.matchingIDs) == Set(initialOrder))
+        coordinator.apply(to: map)
+        #expect(map.markerLookups == 0 && map.mutations == 0)
+        #expect(Set(map.annotations.compactMap { ($0 as? ParkAnnotation)?.park.id }) == Set(initialOrder))
+        #expect(originalAnnotations.allSatisfy { coordinator.annotations[$0.key] === $0.value })
         let selected = try #require(model.parks.first { $0.name.contains("Hulls Cove") })
         let annotation = try #require(coordinator.annotations[selected.id])
         model.selectPark(id: selected.id, focusOnMap: false)
@@ -45,13 +58,14 @@ struct DiscoveryPerformanceTests {
         context.settings.update(preferences)
         coordinator.apply(to: map)
         #expect(map.markerLookups >= count)
-        #expect(await probe.inputs.count == 1)
+        #expect(await probe.inputs.count == 2)
         var query = model.query
         query.search = "hulls cove"
         model.setFilters(query)
         try await eventually { model.projection?.input.query == query }
         coordinator.apply(to: map)
         #expect(model.parks.count == 1)
+        #expect(Set(map.annotations.compactMap { ($0 as? ParkAnnotation)?.park.id }) == [selected.id])
         #expect(coordinator.annotations[selected.id] === annotation)
         map.clearCounts()
         query.categories = [.national]

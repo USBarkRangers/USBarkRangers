@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// The single construction point. Catalog startup is independent of any future account scope.
 @MainActor
@@ -9,41 +10,55 @@ struct AppComposition {
     let discovery: MapFeatureModel
     let settings: SettingsModel
 
-    static func makeLive() -> AppComposition { assemble(diagnostics: Diagnostics(), preview: false) }
-    static func makePreview() -> AppComposition {
-        assemble(diagnostics: Diagnostics(enabled: false), preview: true)
+    static func makeApp() -> AppComposition {
+        #if DEBUG
+            let environment = ProcessInfo.processInfo.environment
+            if let scope = environment["BARK_TEST_SCOPE"] {
+                // Even malformed test configuration stays isolated; it never falls through to live.
+                return AppSandbox(scope: UUID(uuidString: scope) ?? UUID()).makeComposition(
+                    manifestURL: environment["BARK_CATALOG_URL"].flatMap(URL.init(string:)))
+            }
+            if environment["BARK_ISOLATED_APP"] == "1"
+                || environment["XCTestConfigurationFilePath"] != nil
+                || environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+            {
+                return AppSandbox().makeComposition()
+            }
+        #endif
+        return makeLive()
     }
 
-    private static func assemble(diagnostics: Diagnostics, preview: Bool) -> AppComposition {
-        let network = NetworkMonitor()
+    private static func makeLive() -> AppComposition {
+        let diagnostics = Diagnostics()
         let resources = Bundle.main.resourceURL ?? Bundle.main.bundleURL
         let support = URL.applicationSupportDirectory.appendingPathComponent("BarkCatalog", isDirectory: true)
-        let disk = CatalogDiskStore(directory: support, bundleDirectory: resources)
         var endpoint = Bundle.main.object(forInfoDictionaryKey: "BarkCatalogManifestURL") as? String ?? ""
         #if DEBUG
             endpoint = ProcessInfo.processInfo.environment["BARK_CATALOG_URL"] ?? endpoint
         #endif
-        let client =
-            !preview
-            ? URL(string: endpoint).flatMap {
-                CatalogHTTPClient.allowedEndpoint($0) ? CatalogHTTPClient(manifestURL: $0) : nil
-            } : nil
-        let catalog = CatalogRepository(disk: disk, client: client, diagnostics: diagnostics)
-        var defaults = preview ? (UserDefaults(suiteName: "bark.preview.\(UUID())") ?? .standard) : .standard
-        #if DEBUG
-            // XCTest gives each UI test a separate non-private preferences suite; relaunches reuse it.
-            if let testScope = ProcessInfo.processInfo.environment["BARK_TEST_PREFERENCES_SUITE"],
-                UUID(uuidString: testScope) != nil
-            {
-                defaults = UserDefaults(suiteName: "bark.ui-test.\(testScope)") ?? .standard
-            }
-        #endif
-        let preferences = SettingsRepository(defaults: defaults)
+        let client = URL(string: endpoint).flatMap {
+            CatalogHTTPClient.allowedEndpoint($0) ? CatalogHTTPClient(manifestURL: $0) : nil
+        }
+        let catalog = CatalogRepository(
+            disk: CatalogDiskStore(directory: support, bundleDirectory: resources), client: client,
+            diagnostics: diagnostics)
+        let settings = SettingsModel(preferences: SettingsRepository(defaults: .standard), catalog: catalog) {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            UIApplication.shared.open(url)
+        }
+        return assemble(
+            catalog: catalog, network: NetworkMonitor(), location: LocationClient(), maps: MapsHandoff(),
+            settings: settings, diagnostics: diagnostics)
+    }
+
+    static func assemble(
+        catalog: CatalogRepository, network: NetworkMonitor, location: LocationClient, maps: MapsHandoff,
+        settings: SettingsModel, diagnostics: Diagnostics, initialState: StartupModel.State = .loading
+    ) -> AppComposition {
         let discovery = MapFeatureModel(
-            catalog: catalog, settings: preferences, location: LocationClient(), maps: MapsHandoff())
-        let settings = SettingsModel(preferences: preferences, catalog: catalog)
+            catalog: catalog, settings: settings.preferences, location: location, maps: maps)
         let startup = StartupModel(
-            catalog: catalog, network: network, diagnostics: diagnostics, state: preview ? .ready : .loading)
+            catalog: catalog, network: network, diagnostics: diagnostics, state: initialState)
         return AppComposition(
             router: AppRouter(diagnostics: diagnostics), startup: startup,
             lifecycle: AppLifecycle(

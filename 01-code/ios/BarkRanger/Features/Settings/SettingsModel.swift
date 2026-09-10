@@ -1,7 +1,6 @@
 import BarkDomain
 import Foundation
 import Observation
-import UIKit
 
 @MainActor @Observable
 final class SettingsModel {
@@ -22,11 +21,13 @@ final class SettingsModel {
     private(set) var catalogState = CatalogRepository.State()
     private(set) var documentText = ""
     private let catalog: CatalogRepository
+    private let openSettings: () -> Void
     private var observation: Task<Void, Never>?
     @ObservationIgnored private(set) var refreshTask: Task<Void, Never>?
-    init(preferences: SettingsRepository, catalog: CatalogRepository) {
+    init(preferences: SettingsRepository, catalog: CatalogRepository, openSettings: @escaping () -> Void) {
         self.preferences = preferences
         self.catalog = catalog
+        self.openSettings = openSettings
     }
     func load() {
         guard observation == nil else { return }
@@ -48,8 +49,7 @@ final class SettingsModel {
         }
     }
     func openSystemSettings() {
-        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-        UIApplication.shared.open(url)
+        openSettings()
     }
     func openLegalDocument(_ document: Document) {
         guard let url = Bundle.main.url(forResource: document.resource, withExtension: "txt"),

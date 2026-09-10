@@ -4,7 +4,7 @@ nonisolated final class SettingsUITests: XCTestCase {
     @MainActor
     func testMapPreferencesPersistAcrossRelaunchAndResetTogether() {
         let app = XCUIApplication()
-        app.launchEnvironment["BARK_TEST_PREFERENCES_SUITE"] = UUID().uuidString
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
         app.launchEnvironment["BARK_CATALOG_URL"] = ""
         app.launch()
         app.buttons["Settings"].tap()

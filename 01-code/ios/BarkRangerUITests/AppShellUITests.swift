@@ -4,7 +4,7 @@ nonisolated final class AppShellUITests: XCTestCase {
     @MainActor
     func testTabsSheetAndRelaunch() throws {
         let app = XCUIApplication()
-        app.launchEnvironment["BARK_TEST_PREFERENCES_SUITE"] = UUID().uuidString
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
         app.launch()
         XCTAssertTrue(app.navigationBars["Bark Ranger"].waitForExistence(timeout: 5))
         app.buttons["About Bark Ranger"].tap()
@@ -37,7 +37,7 @@ nonisolated final class AppShellUITests: XCTestCase {
     @MainActor
     func testAccessibilityInBothAppearances() throws {
         let app = XCUIApplication()
-        app.launchEnvironment["BARK_TEST_PREFERENCES_SUITE"] = UUID().uuidString
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
         let originalAppearance = XCUIDevice.shared.appearance
         defer { XCUIDevice.shared.appearance = originalAppearance }
         for appearance in [XCUIDevice.Appearance.light, .dark] {
@@ -86,7 +86,7 @@ nonisolated final class AppShellUITests: XCTestCase {
     @MainActor
     func testLargestTextKeepsScrollableContentAndActionsReachable() {
         let app = XCUIApplication()
-        app.launchEnvironment["BARK_TEST_PREFERENCES_SUITE"] = UUID().uuidString
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
         app.launchArguments = [
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
         ]
@@ -105,7 +105,7 @@ nonisolated final class AppShellUITests: XCTestCase {
     @MainActor
     func testPublicDeepLinkAndUnsupportedAccountLink() throws {
         let app = XCUIApplication()
-        app.launchEnvironment["BARK_TEST_PREFERENCES_SUITE"] = UUID().uuidString
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
         app.launch()
         app.tabBars.buttons["Trips"].tap()
         XCUIDevice.shared.system.open(try XCTUnwrap(URL(string: "barkranger://account")))

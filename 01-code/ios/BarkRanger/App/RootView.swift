@@ -121,9 +121,12 @@ struct RootView: View {
     }
 }
 
-#Preview {
-    let composition = AppComposition.makePreview()
-    RootView(
-        router: composition.router, startup: composition.startup, discovery: composition.discovery,
-        settings: composition.settings)
-}
+#if DEBUG
+    #Preview {
+        let composition = AppSandbox().makeComposition(preview: true)
+        RootView(
+            router: composition.router, startup: composition.startup, discovery: composition.discovery,
+            settings: composition.settings)
+    }
+
+#endif

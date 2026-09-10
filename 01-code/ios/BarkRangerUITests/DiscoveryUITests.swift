@@ -4,7 +4,7 @@ nonisolated final class DiscoveryUITests: XCTestCase {
     @MainActor
     private func launch(largeText: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchEnvironment["BARK_TEST_PREFERENCES_SUITE"] = UUID().uuidString
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
         app.launchEnvironment["BARK_CATALOG_URL"] = ""
         if largeText {
             app.launchArguments = [

@@ -11,6 +11,7 @@ nonisolated struct ParkResults: Sendable {
     let input: Input
     let result: ParkFilter.Result
     let parks: [Park]
+    let matchingIDs: Set<ParkID>
     let catalogIDs: Set<ParkID>
 
     /// Explicitly leave the caller's actor, including with approachable concurrency enabled.
@@ -27,6 +28,7 @@ nonisolated struct ParkResults: Sendable {
         try Task.checkCancellation()
         return Self(
             input: Input(revision: snapshot.revision, query: query), result: result,
-            parks: result.matchingIDs.compactMap { byID[$0] }, catalogIDs: Set(byID.keys))
+            parks: result.matchingIDs.compactMap { byID[$0] },
+            matchingIDs: Set(result.matchingIDs), catalogIDs: Set(byID.keys))
     }
 }

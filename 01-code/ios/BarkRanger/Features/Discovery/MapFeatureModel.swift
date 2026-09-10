@@ -114,7 +114,7 @@ final class MapFeatureModel {
                     input.revision == catalogState.snapshot?.revision
                 else { return }
                 if projection?.input.revision != input.revision
-                    || result.matchingIDs != next.result.matchingIDs
+                    || projection?.matchingIDs != next.matchingIDs
                 {
                     annotationVersion &+= 1
                 }

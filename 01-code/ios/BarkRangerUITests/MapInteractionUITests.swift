@@ -4,7 +4,7 @@ nonisolated final class MapInteractionUITests: XCTestCase {
     @MainActor
     func testGroupingPreferenceChangesNativeClustersInTheSameSession() {
         let app = XCUIApplication()
-        app.launchEnvironment["BARK_TEST_PREFERENCES_SUITE"] = UUID().uuidString
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
         app.launchEnvironment["BARK_CATALOG_URL"] = ""
         app.launch()
         app.tabBars.buttons["Map"].tap()
@@ -54,7 +54,7 @@ nonisolated final class MapInteractionUITests: XCTestCase {
     @MainActor
     func testPinToPinSelectionKeepsZoomAndShowsTheLatestPark() {
         let app = XCUIApplication()
-        app.launchEnvironment["BARK_TEST_PREFERENCES_SUITE"] = UUID().uuidString
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
         app.launchEnvironment["BARK_CATALOG_URL"] = ""
         app.launch()
         app.buttons["Settings"].tap()
@@ -131,7 +131,7 @@ nonisolated final class MapInteractionUITests: XCTestCase {
     @MainActor
     func testMapTouchesCollapseAndRestoreSearchWithoutClearingItsResults() {
         let app = XCUIApplication()
-        app.launchEnvironment["BARK_TEST_PREFERENCES_SUITE"] = UUID().uuidString
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
         app.launchEnvironment["BARK_CATALOG_URL"] = ""
         app.launch()
         app.tabBars.buttons["Map"].tap()

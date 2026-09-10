@@ -1,6 +1,6 @@
 # Phase 2 — catalog and discovery
 
-September 10, 2026. Current build **0.2.7 (9)** fixes sheet-versus-content scrolling, adds coordinated search/tab travel and hardens local preferences. It retains 0.2.6 native camera gliding, grouping-setting fixes, low/medium browsing height and lower selected-pin placement. It retains the 0.2.5 selection, background-result, marker-invalidation and catalog-diagnostic corrections. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
+September 10, 2026. Current build **0.2.8 (10)** corrects the returning tab-bar position, prevents ungrouped pin collision hiding, isolates development/test storage and removes marker rescans caused only by result order. It retains 0.2.7 sheet-versus-content scrolling, coordinated search/tab travel and local-preference corrections. It retains 0.2.6 native camera gliding, grouping-setting fixes, low/medium browsing height and lower selected-pin placement. It retains the 0.2.5 selection, background-result, marker-invalidation and catalog-diagnostic corrections. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
 
 ## What you can use
 
@@ -45,6 +45,33 @@ The [implemented architecture and call map](../../../01-code/ios/ARCHITECTURE.md
 | Verification | Domain/app/UI tests plus publication/script tests; native iOS and catalog GitHub workflows. Neither workflow deploys. |
 
 The [publication runbook](../../operations/NATIVE_CATALOG_PUBLICATION.md) maps backend calls, local fixtures, eventual configuration and rollback. A deliberate refinement keeps the old CSV/fallback writer as its existing owner: native publication adds no second writer to old fallback storage. The public asset publisher uses immutable upload followed by a generation-conditioned manifest promotion. Memory adapters verify ordering/conflicts locally; they do not certify cloud IAM or actual storage preconditions.
+
+## Focused interaction and pre-Phase-3 corrections — 0.2.8 (10)
+
+- Tab movement changes only rendered sublayers, not the native layout frame. Repeated high-detail scrolling/collapse therefore keeps the bottom bar at its original resting height. Search/tabs continue moving together; the system Reduce Motion behavior and other-tab restoration are preserved.
+- With grouping off, all ungrouped markers use required display priority. Zooming out cannot hide them merely because they collide. Grouping on retains the existing native clusters; IDs, reuse, selection, filters and camera policy remain intact.
+- Search results retain their list order, but marker invalidation compares membership and catalog revision. A different order of the same matching parks does no annotation reconciliation.
+- Debug-only AppSandbox gives tests/previews independent catalog caches/preferences and inert location/Maps/Settings actions. The Test scheme isolates the host; UI tests use BARK_TEST_SCOPE and loopback fixtures. Release contains no sandbox implementation or test-entry override. The normal app retains real Maps/Location/Settings behavior.
+- Relevant regressions now inspect actual native marker membership/visibility, assert the precise timeout error and await observed completion instead of fixed catalog/lifecycle sleeps. App-level isolated-store cleanup awaits shutdown even after a thrown test failure.
+
+The source count is 50 files / 3,478 lines (+87), including the 45-line Debug-only sandbox. Discovery remains 24 files / 1,515 lines (+8). The [current maintainability review](FOLLOWUP_MAINTAINABILITY_AUDIT_2026-09-10.md) finds no remaining cleanup blocker to Phase 3; there is no Phase 3 implementation in this patch.
+
+User acceptance checks:
+
+1. Open a park at medium, expand high, scroll the details, and drag the handle back to medium/low several times. The bottom tabs return to their original height and remain tappable; dismissing or switching tabs restores them too.
+2. Turn “Group nearby pins” off. Zoom repeatedly out and in over a dense area: pins remain visible instead of silently disappearing. Some badges will overlap at wide zoom. Turn grouping on again and confirm clusters return.
+3. Recheck search/filter preservation, switching between pins at low/medium, Park Info, normal-app Apple Maps handoff and settings persistence. Repeat the sheet interaction with iPhone Reduce Motion enabled.
+
+Completed verification:
+
+- 11 domain test functions passed (`/tmp/bark-phase2-fixes-domain.log`).
+- All 48 app test functions passed: 40 Swift Testing + 8 native XCTest (`/tmp/BarkPhase2FixesNative.xcresult`, then final test-harness revisions in `/tmp/BarkPhase2FixesFinalNative.xcresult`). The final run used the small-screen simulator; the first used iPhone 17 Pro.
+- Nine iPhone 17 Pro UI scenarios passed (`/tmp/BarkPhase2FixesUI.xcresult`): grouping toggles, pin-to-pin selection, search gestures, sheet body dragging, repeated scrolled-high collapse, three detents, exposed-map dismissal, dark landscape and settings persistence/reset. Two sheet regressions also passed on iPhone SE 3 (`/tmp/BarkPhase2FixesSE.xcresult`). High/medium screenshots from both sizes were visually inspected. The UI runs used identical runtime Swift sources before the version-only bump/final test cleanup.
+- Debug test build and Release build passed with Swift warnings treated as errors; strict formatting and diff checks passed. Logs: `/tmp/bark-phase2-fixes-build-final.log`, `/tmp/bark-phase2-fixes-release.log`.
+- At 393 and synthetic 5,000 records, changed result ordering caused **zero annotation lookups/add-remove calls** while actual native membership and canonical objects stayed unchanged. A separate 300-update sheet-geometry pass also caused zero marker work (44.60/48.13 ms aggregate Debug time). Off-MainActor projection medians were 2.94–4.07 ms / 12.32–28.12 ms respectively, with MainActor heartbeat progress throughout. These are regression observations, not hardware frame-rate or allocation certification.
+- Version 0.2.8 (10) was installed/launched normally on iPhone 17 Pro after test completion, with normal native app configuration rather than a sandbox launch.
+
+Physical-device/iOS 18.4, Instruments, human VoiceOver and hosted-CI verification remain uncompleted release checks. No claim is made that this patch tests unimplemented account/provider isolation; Phase 3 must extend the now-isolated construction boundary before attaching those providers.
 
 ## Sheet motion and settings reliability — 0.2.7 (9)
 

@@ -63,7 +63,6 @@ final class ParkAnnotationView: MKAnnotationView {
     }
     override func setSelected(_ selected: Bool, animated: Bool) {
         super.setSelected(selected, animated: animated)
-        displayPriority = selected ? .required : .defaultHigh
         updateAppearance()
     }
     override func prepareForReuse() {
@@ -77,6 +76,8 @@ final class ParkAnnotationView: MKAnnotationView {
         setSelected(false, animated: false)
     }
     private func updateAppearance() {
+        // No grouping means no collision-based hiding, including after deselection or reuse.
+        displayPriority = isSelected || clusteringIdentifier == nil ? .required : .defaultHigh
         outline.fillColor = baseColor.cgColor
         outline.strokeColor =
             (isSelected ? UIColor.systemYellow : isVisited ? .systemGreen : isInTrip ? .systemPurple : .white)

@@ -43,6 +43,32 @@ nonisolated final class ParkDetailSheetUITests: XCTestCase {
     }
 
     @MainActor
+    func testScrolledHighSheetReturnsTabsToTheirRestingPositionRepeatedly() {
+        let app = openPark()
+        let home = app.tabBars.buttons["Home"]
+        let resting = home.frame
+        dragHandle(app, by: -220)
+        let mediumTop = app.otherElements["park-sheet-handle"].frame.midY
+        for cycle in 0..<3 {
+            app.buttons["Park Info"].tap()
+            XCTAssertTrue(app.staticTexts["Updates and information"].waitForExistence(timeout: 3))
+            app.scrollViews["park-detail-sheet"].swipeUp()
+            let highTop = app.otherElements["park-sheet-handle"].frame.midY
+            dragHandle(app, by: mediumTop - highTop)
+            XCTAssertEqual(app.otherElements["park-sheet-handle"].value as? String, "Medium")
+            XCTAssertTrue(home.isHittable)
+            XCTAssertEqual(
+                home.frame.minY, resting.minY, accuracy: 2, "Cycle \(cycle) must restore the baseline")
+            XCTAssertEqual(home.frame.height, resting.height, accuracy: 2)
+        }
+        capture("Tabs stay at their resting height after repeated high scrolling", app)
+        app.buttons["Close park details"].tap()
+        XCTAssertEqual(home.frame.minY, resting.minY, accuracy: 2)
+        home.tap()
+        XCTAssertTrue(app.buttons["Settings"].isHittable)
+    }
+
+    @MainActor
     func testThreeDetentsKeepSelectionVisibleAndRestoreDiscovery() {
         let app = openPark()
         let search = app.textFields["park-search"]
@@ -148,7 +174,7 @@ nonisolated final class ParkDetailSheetUITests: XCTestCase {
     @MainActor
     private func openPark() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchEnvironment["BARK_TEST_PREFERENCES_SUITE"] = UUID().uuidString
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
         app.launchEnvironment["BARK_CATALOG_URL"] = ""
         app.launch()
         app.tabBars.buttons["Map"].tap()

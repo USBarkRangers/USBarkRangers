@@ -1,3 +1,4 @@
+import BarkDomain
 import Foundation
 import SwiftUI
 import Testing
@@ -53,30 +54,96 @@ struct AppShellTests {
     }
 
     @Test func sceneTransitionsReuseTheSameStateWithoutRestarting() async throws {
-        let composition = AppComposition.makeLive()
-        composition.lifecycle.sceneChanged(.active)
-        try await Task.sleep(for: .milliseconds(200))
-        composition.router.open(.tab(.passport))
-        for _ in 0..<3 {
+        try await withSandbox { _, composition in
             composition.lifecycle.sceneChanged(.active)
-            composition.lifecycle.sceneChanged(.inactive)
-            composition.lifecycle.sceneChanged(.background)
-            composition.lifecycle.stop()
-            composition.lifecycle.sceneChanged(.active)
+            try await eventually { composition.startup.state == .ready }
+            composition.router.open(.tab(.passport))
+            for _ in 0..<3 {
+                composition.lifecycle.sceneChanged(.active)
+                composition.lifecycle.sceneChanged(.inactive)
+                composition.lifecycle.sceneChanged(.background)
+                composition.lifecycle.stop()
+                composition.lifecycle.sceneChanged(.active)
+            }
+            #expect(composition.lifecycle.phase == .active)
+            #expect(composition.startup.state == .ready)
+            #expect(!composition.startup.start())
+            #expect(composition.router.selectedTab == .passport)
         }
-        #expect(composition.lifecycle.phase == .active)
-        #expect(composition.startup.state == .ready)
-        #expect(!composition.startup.start())
-        #expect(composition.router.selectedTab == .passport)
-        composition.lifecycle.stop()
     }
 
     @Test func previewAndNewAppLifetimesDoNotShareNavigation() {
-        let first = AppComposition.makePreview()
-        let second = AppComposition.makePreview()
+        let first = AppSandbox().makeComposition(preview: true)
+        let second = AppSandbox().makeComposition(preview: true)
         first.router.open(.tab(.account))
         #expect(second.router.selectedTab == .home)
         #expect(second.startup.state == .ready)
+    }
+
+    @Test func sandboxesKeepPreferencesCatalogAndExternalActionsIsolated() async throws {
+        try await withSandbox { first, composition in
+            let other = AppSandbox()
+            defer { try? other.removeArtifacts() }
+            let second = other.makeComposition()
+            var value = composition.settings.preferences.value
+            value.clustering = false
+            composition.settings.update(value)
+            #expect(!first.makeComposition().settings.preferences.value.clustering)
+            #expect(second.settings.preferences.value.clustering)
+            let envelope = try #require(first.disk.loadCandidates().first?.envelope)
+            try first.disk.commit(envelope, previous: nil)
+            #expect(first.disk.loadCandidates().contains { $0.source == .saved })
+            #expect(!other.disk.loadCandidates().contains { $0.source == .saved })
+            composition.lifecycle.sceneChanged(.active)
+            try await eventually {
+                composition.startup.state == .ready && !composition.discovery.parks.isEmpty
+            }
+            composition.discovery.selectPark(id: try #require(composition.discovery.parks.first).id)
+            composition.discovery.detail.navigate()
+            await composition.discovery.detail.navigation?.value
+            #expect(composition.discovery.detail.message != nil, "Sandbox handoffs cannot launch another app")
+            composition.discovery.locateMe()
+            try await eventually { !composition.discovery.isLocating }
+            #expect(
+                composition.discovery.locationMessage != nil, "Sandbox location cannot request permission")
+            await composition.lifecycle.stopAndWait()
+            // Reopen the same sandbox, just like a UI test relaunch, without deleting its stored copy.
+            try await withSandbox(first) { _, restarted in
+                restarted.lifecycle.sceneChanged(.active)
+                try await eventually {
+                    restarted.startup.state == .ready && !restarted.discovery.parks.isEmpty
+                }
+                #expect(!restarted.settings.preferences.value.clustering)
+                #expect(restarted.discovery.catalogState.source == .saved)
+            }
+        }
+    }
+
+    @Test func sandboxRefusesRemoteCatalogConfiguration() async throws {
+        try await withSandbox(endpoint: URL(string: "https://example.com/manifest.json")) { _, composition in
+            composition.lifecycle.sceneChanged(.active)
+            try await eventually {
+                composition.startup.state == .ready && !composition.discovery.parks.isEmpty
+            }
+            #expect(composition.discovery.catalogState.source == .bundle)
+            #expect(composition.discovery.isOffline)
+        }
+    }
+
+    private func withSandbox(
+        _ sandbox: AppSandbox = AppSandbox(), endpoint: URL? = nil,
+        body: (AppSandbox, AppComposition) async throws -> Void
+    ) async throws {
+        let composition = sandbox.makeComposition(manifestURL: endpoint)
+        do {
+            try await body(sandbox, composition)
+        } catch {
+            await composition.lifecycle.stopAndWait()
+            try? sandbox.removeArtifacts()
+            throw error
+        }
+        await composition.lifecycle.stopAndWait()
+        try sandbox.removeArtifacts()
     }
 
     @Test func durationMeasurementPreservesReturnValuesAndErrors() throws {

@@ -5,7 +5,7 @@
       <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="8B2A66BB2FD504090093FDAD" BuildableName="BarkRanger.app" BlueprintName="BarkRanger" ReferencedContainer="container:BarkRanger.xcodeproj"/>
     </BuildActionEntry></BuildActionEntries>
   </BuildAction>
-  <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES"><Testables>
+  <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="NO"><EnvironmentVariables><EnvironmentVariable key="BARK_ISOLATED_APP" value="1" isEnabled="YES"/></EnvironmentVariables><Testables>
     <TestableReference skipped="NO" parallelizable="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="BA4C10000000000000000022" BuildableName="BarkRangerTests.xctest" BlueprintName="BarkRangerTests" ReferencedContainer="container:BarkRanger.xcodeproj"/></TestableReference>
     <TestableReference skipped="NO" parallelizable="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="BA4C1000000000000000002D" BuildableName="BarkRangerUITests.xctest" BlueprintName="BarkRangerUITests" ReferencedContainer="container:BarkRanger.xcodeproj"/></TestableReference>
   </Testables></TestAction>

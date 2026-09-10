@@ -38,6 +38,52 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
     }
 
     @MainActor
+    func testUngroupedNativePinsStayMaterializedAtSuccessiveZoomLevels() async throws {
+        let context = try DiscoveryTestContext()
+        defer { context.close() }
+        try await context.start()
+        var settings = context.settings.value
+        settings.clustering = false
+        context.settings.update(settings)
+        let map = MKMapView(frame: CGRect(x: 0, y: 0, width: 390, height: 760))
+        map.register(ParkAnnotationView.self, forAnnotationViewWithReuseIdentifier: "park")
+        map.register(ParkClusterView.self, forAnnotationViewWithReuseIdentifier: "cluster")
+        let coordinator = MapCoordinator(model: context.model)
+        map.delegate = coordinator
+        let host = UIViewController()
+        host.view = map
+        let window = UIWindow(frame: map.frame)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            map.delegate = nil
+            window.isHidden = true
+        }
+        coordinator.apply(to: map)
+        let original = coordinator.annotations
+        for span in [3.0, 15, 60, 3] {
+            map.setRegion(
+                .init(
+                    center: .init(latitude: 41, longitude: -74),
+                    span: .init(latitudeDelta: span, longitudeDelta: span)), animated: false)
+            map.layoutIfNeeded()
+            let inside = original.values.filter {
+                map.bounds.insetBy(dx: 50, dy: 80).contains(map.convert($0.coordinate, toPointTo: map))
+            }
+            XCTAssertGreaterThan(inside.count, 1)
+            try await eventually {
+                inside.allSatisfy { annotation in
+                    guard let view = map.view(for: annotation) else { return false }
+                    return view.window != nil && !view.isHidden && view.alpha > 0
+                        && view.displayPriority == .required && view.clusteringIdentifier == nil
+                }
+            }
+            XCTAssertFalse(map.annotations.contains { $0 is MKClusterAnnotation })
+            XCTAssertTrue(original.allSatisfy { coordinator.annotations[$0.key] === $0.value })
+        }
+    }
+
+    @MainActor
     func testCoordinatorRetargetsLatestSelectionAndHonorsReduceMotionWithoutGeometryReplays() async throws {
         let context = try DiscoveryTestContext()
         defer { context.close() }

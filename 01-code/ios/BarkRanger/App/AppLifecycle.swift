@@ -86,4 +86,9 @@ final class AppLifecycle {
             await catalog.cancelRefresh()
         }
     }
+    /// Teardown can await outstanding disk work before removing an isolated store.
+    func stopAndWait() async {
+        stop()
+        await catalogStop?.value
+    }
 }

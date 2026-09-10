@@ -81,18 +81,23 @@ struct CatalogTests {
         do {
             _ = try await http.download(manifest, deadline: .now.advanced(by: .milliseconds(150)))
             Issue.record("Expected deadline")
-        } catch { #expect(began.duration(to: .now) < .seconds(2)) }
+        } catch CatalogHTTPClient.Failure.deadline {
+            #expect(began.duration(to: .now) < .seconds(2))
+        } catch {
+            Issue.record("Expected the whole-request deadline, received \(type(of: error))")
+        }
     }
     @Test func loaderRevealsSavedDataWhileSlowUpdateContinues() async throws {
         let disk = try disk()
         defer { try? FileManager.default.removeItem(at: disk.directory) }
         let catalog = CatalogRepository(disk: disk, client: try client("slow"))
         let startup = StartupModel(
-            catalog: catalog, network: NetworkMonitor(), diagnostics: Diagnostics(enabled: false),
+            catalog: catalog, network: NetworkMonitor(fixedConnection: true),
+            diagnostics: Diagnostics(enabled: false),
             decisionBudget: .milliseconds(150))
         #expect(startup.start())
         #expect(!startup.start())
-        try await Task.sleep(for: .milliseconds(400))
+        try await eventually { startup.state == .ready }
         #expect(startup.state == .ready)
         #expect(try #require(startup.dismissalMilliseconds) < 1000)
         #expect(await catalog.current().source == .bundle)
@@ -106,9 +111,10 @@ struct CatalogTests {
         defer { try? FileManager.default.removeItem(at: disk.directory) }
         let catalog = CatalogRepository(disk: disk, client: try client("valid"))
         let startup = StartupModel(
-            catalog: catalog, network: NetworkMonitor(), diagnostics: Diagnostics(enabled: false))
+            catalog: catalog, network: NetworkMonitor(fixedConnection: true),
+            diagnostics: Diagnostics(enabled: false))
         startup.start()
-        try await Task.sleep(for: .seconds(2))
+        try await eventually { startup.state == .ready }
         #expect(startup.state == .ready)
         #expect(await catalog.current().status == .fresh)
         #expect(try #require(startup.localReadyMilliseconds) < #require(startup.dismissalMilliseconds))
@@ -119,12 +125,16 @@ struct CatalogTests {
         defer { try? FileManager.default.removeItem(at: disk.directory) }
         let catalog = CatalogRepository(disk: disk, client: try client("valid"))
         _ = await catalog.loadLocal()
-        let defaults = try #require(UserDefaults(suiteName: UUID().uuidString))
+        let suite = "bark.catalog-test.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
         let model = MapFeatureModel(
-            catalog: catalog, settings: SettingsRepository(defaults: defaults), location: LocationClient(),
+            catalog: catalog, settings: SettingsRepository(defaults: defaults),
+            location: LocationClient(manager: nil),
             maps: MapsHandoff(open: { _ in false }))
         model.start()
-        try await Task.sleep(for: .milliseconds(50))
+        defer { model.stop() }
+        try await eventually { model.projection != nil }
         let park = try #require(model.parks.first)
         model.selectPark(id: park.id)
         var filter = model.query
@@ -137,7 +147,10 @@ struct CatalogTests {
         let annotation = try #require(coordinator.annotations[park.id])
         await catalog.noteOffline()
         await catalog.refresh(reason: .reconnect)
-        try await Task.sleep(for: .milliseconds(100))
+        try await eventually {
+            model.catalogState.status == .fresh && model.projection?.input.query == filter
+                && model.projection?.input.revision == model.catalogState.snapshot?.revision
+        }
         coordinator.apply(to: map)
         #expect(model.catalogState.status == .fresh)
         #expect(model.query == filter && model.selectedID == park.id && model.cameraRequest?.id == camera)
@@ -147,6 +160,7 @@ struct CatalogTests {
     }
     @Test func appleMapsURLCannotInjectQueryFieldsAndFailureIsPresented() async throws {
         let disk = try disk()
+        defer { try? FileManager.default.removeItem(at: disk.directory) }
         let catalog = CatalogRepository(disk: disk, client: nil)
         let state = await catalog.loadLocal()
         let source = try #require(state.snapshot?.parks.first)
@@ -172,7 +186,8 @@ struct CatalogTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         var opened: URL?
         let model = MapFeatureModel(
-            catalog: catalog, settings: SettingsRepository(defaults: defaults), location: LocationClient(),
+            catalog: catalog, settings: SettingsRepository(defaults: defaults),
+            location: LocationClient(manager: nil),
             maps: MapsHandoff(open: {
                 opened = $0
                 return true
@@ -260,7 +275,7 @@ struct CatalogTests {
         defer { try? FileManager.default.removeItem(at: otherDisk.directory) }
         let other = CatalogRepository(disk: otherDisk, client: try client("stalled"))
         let task = Task { await other.refresh(reason: .startup) }
-        try await Task.sleep(for: .milliseconds(100))
+        try await eventually { await other.current().status == .checking }
         let began = ContinuousClock.now
         await other.cancelRefresh()
         await task.value
@@ -269,6 +284,7 @@ struct CatalogTests {
     }
     @Test func retryAfterBlocksManualAndReconnectRequests() async throws {
         let disk = try disk()
+        defer { try? FileManager.default.removeItem(at: disk.directory) }
         let catalog = CatalogRepository(disk: disk, client: try client("throttled"))
         await catalog.refresh(reason: .startup)
         #expect(await catalog.current().status == .unavailable)
@@ -301,23 +317,26 @@ struct CatalogTests {
 
     @Test func settingsChangesRebuildResultsWithoutAMountedMapView() async throws {
         let disk = try disk()
+        defer { try? FileManager.default.removeItem(at: disk.directory) }
         let catalog = CatalogRepository(disk: disk, client: nil)
-        let defaults = try #require(UserDefaults(suiteName: UUID().uuidString))
+        let suite = "bark.catalog-test.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
         let preferences = SettingsRepository(defaults: defaults)
         let model = MapFeatureModel(
-            catalog: catalog, settings: preferences, location: LocationClient(),
+            catalog: catalog, settings: preferences, location: LocationClient(manager: nil),
             maps: MapsHandoff(open: { _ in false }))
         _ = await catalog.loadLocal()
         model.start()
-        try await Task.sleep(for: .milliseconds(50))
+        defer { model.stop() }
+        try await eventually { model.projection != nil }
         var query = model.query
         query.search = "zzzzzzzzz"
         model.setFilters(query)
         try await eventually { model.projection?.input.query == query }
         #expect(model.result.matchingCount == 0)
         preferences.resetPreferences()
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(model.result.matchingCount == 393)
+        try await eventually { model.result.matchingCount == 393 }
         let region = MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: 13.4, longitude: 144.7),
             span: MKCoordinateSpan(latitudeDelta: 1, longitudeDelta: 2))

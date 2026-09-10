@@ -8,11 +8,21 @@ final class NetworkMonitor {
     private var monitor: NWPathMonitor?
     private var continuation: AsyncStream<Bool>.Continuation?
     private(set) var isConnected: Bool?
+    private let fixedConnection: Bool?
+
+    init(fixedConnection: Bool? = nil) {
+        self.fixedConnection = fixedConnection
+        isConnected = fixedConnection
+    }
 
     func start() -> AsyncStream<Bool> {
         stop()
         let (stream, continuation) = AsyncStream<Bool>.makeStream(bufferingPolicy: .bufferingNewest(1))
         self.continuation = continuation
+        if let fixedConnection {
+            continuation.yield(fixedConnection)
+            return stream
+        }
         let monitor = NWPathMonitor()
         let generation = UUID()
         self.generation = generation

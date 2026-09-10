@@ -11,7 +11,7 @@ import SwiftUI
 @main
 struct BarkRangerApp: App {
     @Environment(\.scenePhase) private var scenePhase
-    @State private var composition = AppComposition.makeLive()
+    @State private var composition = AppComposition.makeApp()
 
     var body: some Scene {
         WindowGroup {

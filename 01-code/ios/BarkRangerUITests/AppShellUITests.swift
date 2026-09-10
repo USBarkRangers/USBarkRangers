@@ -37,9 +37,10 @@ nonisolated final class AppShellUITests: XCTestCase {
         let originalAppearance = XCUIDevice.shared.appearance
         defer { XCUIDevice.shared.appearance = originalAppearance }
         for appearance in [XCUIDevice.Appearance.light, .dark] {
-            app.launch()
+            app.terminate()
             XCUIDevice.shared.appearance = appearance
             XCTAssertEqual(XCUIDevice.shared.appearance, appearance)
+            app.launch()
             XCTAssertTrue(app.navigationBars["Bark Ranger"].waitForExistence(timeout: 5))
             let screenshot = XCTAttachment(screenshot: app.screenshot())
             screenshot.name = "Home appearance \(appearance.rawValue)"

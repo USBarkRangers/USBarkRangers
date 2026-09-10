@@ -1,6 +1,6 @@
 # Phase 2 — catalog and discovery
 
-September 10, 2026. Build **0.2.0 (2)** on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete; final verification evidence is being recorded below. User acceptance remains pending. Phase 3 has not started.
+September 10, 2026. Build **0.2.0 (2)**, implementation commit `4084569`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
 
 ## What you can use
 
@@ -59,18 +59,29 @@ Toolchain: **Xcode 26.6 (17F113), Swift 6.3.3**, complete Swift 6 concurrency ch
 | Project isolation | 2 tests passed, preserving project ownership/predeploy boundaries. |
 | Debug compilation | App and test targets build with Swift warnings treated as errors. |
 | Release compilation | Passed with Swift warnings treated as errors, Debug-only fixture overrides excluded. |
-| iPhone UI and small-screen checks | Final results recorded after the current run completes. |
-| Hosted workflows | Run links recorded after publishing the development branch. |
+| iPhone 17 Pro UI | All 7 UI tests passed across the full functional run and subsequent focused accessibility run. The full wrapper had an interrupted audit host; it is not reported as an overall pass. The focused final appearance/audit run exited successfully. |
+| iPhone SE (3rd generation) | Overall run passed: 21 app-unit + 7 UI functions, 43 device cases, zero failures/skips on iOS 26.5. Map, offline overview, details and largest-text filter screenshots were inspected. |
+| Hosted catalog workflow | [Passed on Node 22](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34444717992): 18 publication/script checks, deterministic bundle rebuild, 378 retained backend tests and 2 project-isolation tests. |
+| Hosted native workflow | [Implementation run](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34444717894); final result recorded after completion. |
 
 The automated Home contrast audit reports both text beneath iOS 26's translucent bars and visibly black paragraphs on an opaque system background. **Home contrast is excluded from the automated audit and reviewed visually; this is a known automation coverage limitation.** Other Home audit types remain enabled, and the other audited screens retain all issue types. Map contrast is audited with one fully visible filtered result; the full 393-record map/list is exercised separately. Largest accessibility text, light/dark screenshots and actual control reachability are additional checks, not a claim of complete human VoiceOver review.
 
-Repairs found during verification include filter reset while Map was unmounted, reconnect backoff waiting behind a longer regular timer, list/map camera recreation, search dismissal while the keyboard is active, numeric fuzzy searches returning adjacent numbered parks, clipped large-text summaries and low-contrast/short-hit-area controls. An overlapping local simulator audit run caused a test-host interruption; interrupted runs are not counted as successful overall runs.
+Repairs found during verification include filter reset while Map was unmounted, reconnect backoff waiting behind a longer regular timer, list/map camera recreation, search dismissal while the keyboard is active, numeric fuzzy searches returning adjacent numbered parks, clipped large-text summaries and low-contrast/short-hit-area controls. An overlapping local simulator audit run caused a test-host interruption; interrupted runs are not counted as successful overall runs. A stale simulator appearance state also produced a light screenshot after requesting dark. After restarting the simulator, the final audit sets appearance before launching; the exported dark screenshot was visually verified as dark.
 
 ### Timing evidence
 
 Measurements use the app's separate monotonic local-ready and cover-dismissal timings. They exclude process launch before `StartupModel.start`; simulator timings are not a physical-device or cellular benchmark.
 
-Final timing values are recorded after device verification. A completed iPhone 17 Pro unit run accepted, validated, saved and indexed the 5,000-record HTTP fixture and checked its filtered result in **389 ms**. This is a local loopback measurement, not a live spreadsheet publication measurement.
+| Simulator / actual captured launch | Local catalog ready | Loading cover dismissed |
+|---|---:|---:|
+| iPhone 17 Pro, initial composition in final app-unit run | 60.94 ms | 61.08 ms |
+| iPhone 17 Pro, subsequent composition | 20.72 ms | 20.80 ms |
+| iPhone SE 3, initial composition | 27.59 ms | 27.73 ms |
+| iPhone SE 3, subsequent composition | 20.17 ms | 20.24 ms |
+
+The default endpoint was unconfigured, so these measure validated local startup, not an online check. Small-phone 5,000-record acceptance measured 394 ms. A completed iPhone 17 Pro unit run accepted, validated, saved and indexed the 5,000-record HTTP fixture and checked its filtered result in **389 ms**. This is a local loopback measurement, not a live spreadsheet publication measurement.
+
+Local evidence is outside Git: `/tmp/BarkPhase2FinalSE.xcresult` (overall pass), `/tmp/BarkPhase2FinalPro.xcresult` (passing unit/functional tests but interrupted audit host), `/tmp/BarkPhase2Appearance.xcresult` (final focused audit pass), `/tmp/bark-phase2-domain-final.log`, `/tmp/bark-phase2-backend-final.log`, `/tmp/bark-phase2-backend-regressions.log` and `/tmp/bark-phase2-release-final.log`. Screenshot exports are in `/tmp/bark-phase2-se-attachments/` and `/tmp/bark-phase2-appearance-attachments/`. Temporary machine-local evidence may eventually be cleared; CI retains its test bundle for seven days. Xcode's AppIntents metadata notices and simulator system accessibility/debugger diagnostics are distinct from Swift compiler warnings.
 
 ### Reproduce checks
 
@@ -121,7 +132,7 @@ Physical source lines include comments/blank lines and exclude generated builds,
 | Group | Files | Lines |
 |---|---:|---:|
 | App + domain runtime Swift | 37 | 2,453 |
-| App/UI/package test Swift | 6 | 731 |
+| App/UI/package test Swift | 6 | 732 |
 | New backend catalog JavaScript | 4 | 297 |
 | New backend/script test JavaScript | 2 | 221 |
 | Local fixture/build scripts + Apps Script source | 4 | 183 |

@@ -1,0 +1,12 @@
+# Local Xcode state and generated build output
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+.build/
+.swiftpm/
+*.xcresult
+# Device-local configuration and signing materials
+Config/*.local.xcconfig
+*.p12
+*.mobileprovision

@@ -13,6 +13,8 @@ struct ParkDetailMetadata: View {
                 HStack(spacing: 8) {
                     tag(park.category.rawValue)
                     tag(park.swag.rawValue)
+                    tag(park.swagCost.isEmpty ? "Cost not listed" : park.swagCost)
+                        .accessibilityIdentifier("park-swag-cost")
                     if park.isRetired { tag("Retired listing") }
                 }
             }
@@ -21,7 +23,7 @@ struct ParkDetailMetadata: View {
     }
     private func tag(_ text: String) -> some View {
         Text(text).font(.caption.weight(.semibold))
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+            .padding(.horizontal, 10).frame(minHeight: 32)
+            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 6))
     }
 }

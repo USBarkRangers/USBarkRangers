@@ -10,12 +10,14 @@ struct MapScreen: View {
     @State private var detailPosition = ParkSheetPosition.low
     @State private var detailHeight: CGFloat = 0
     @State private var searchHeight: CGFloat = 60
+    @State private var tabBarOverlap: CGFloat = 0
+    @State private var aboveMedium = false
 
     var body: some View {
         GeometryReader { geometry in
             let sheetLayout = ParkSheetLayout(
                 availableHeight: geometry.size.height + geometry.safeAreaInsets.bottom,
-                bottomOverlap: geometry.safeAreaInsets.bottom, searchHeight: searchHeight)
+                bottomOverlap: tabBarOverlap, searchHeight: searchHeight)
             ZStack(alignment: .top) {
                 NativeMapView(
                     model: model, detailPosition: detailPosition, detailHeight: detailHeight,
@@ -28,8 +30,6 @@ struct MapScreen: View {
                 .accessibilityLabel("Park map")
                 .accessibilityValue("\(model.result.matchingCount) matching parks")
                 .accessibilityIdentifier("park-map")
-                .opacity(model.selectedID != nil && detailPosition == .high ? 0 : 1)
-                .accessibilityHidden(model.selectedID != nil && detailPosition == .high)
                 .ignoresSafeArea(.container, edges: [.top, .bottom])
                 .ignoresSafeArea(.keyboard)
                 VStack(spacing: 8) {
@@ -60,15 +60,15 @@ struct MapScreen: View {
                             clear: { model.setFilters(.init()) })
                     }
                 }
-                .padding(.horizontal, 12).padding(.top, 8)
+                .padding(.horizontal, 12).padding(.top, ParkSheetLayout.topInset)
                 .onGeometryChange(for: CGFloat.self) {
                     $0.size.height
                 } action: {
                     searchHeight = $0
                 }
-                .opacity(model.selectedID != nil && detailPosition == .high ? 0 : 1)
-                .allowsHitTesting(model.selectedID == nil || detailPosition != .high)
-                .accessibilityHidden(model.selectedID != nil && detailPosition == .high)
+                .opacity(model.selectedID != nil && aboveMedium ? 0 : 1)
+                .allowsHitTesting(model.selectedID == nil || !aboveMedium)
+                .accessibilityHidden(model.selectedID != nil && aboveMedium)
             }
             .background(Color(uiColor: .systemBackground).ignoresSafeArea())
             .overlay(alignment: .bottomTrailing) {
@@ -94,12 +94,19 @@ struct MapScreen: View {
                     ParkDetailSheet(
                         model: model.detail, position: $detailPosition, layout: sheetLayout,
                         dismiss: model.dismissPark
-                    ) { detailHeight = $0 }
+                    ) { height, expanded in
+                        detailHeight = height
+                        aboveMedium = expanded
+                    }
                     .offset(y: geometry.safeAreaInsets.bottom)
                 }
             }
+            .onChange(of: geometry.safeAreaInsets.bottom, initial: true) { _, overlap in
+                // Keep detents stable when hiding the native tab bar changes the safe area mid-drag.
+                if model.selectedID == nil && !searchFocused { tabBarOverlap = overlap }
+            }
         }
-        .toolbar(model.selectedID != nil && detailPosition == .high ? .hidden : .visible, for: .tabBar)
+        .toolbar(model.selectedID != nil && aboveMedium ? .hidden : .visible, for: .tabBar)
         .sheet(isPresented: $showsFilters) {
             FilterSheet(model: model, dismiss: { showsFilters = false })
         }
@@ -114,6 +121,7 @@ struct MapScreen: View {
         }
         .onChange(of: model.selectedID) { _, id in
             detailPosition = .low
+            aboveMedium = false
             if id != nil { searchFocused = false }
         }
         .onChange(of: searchFocused) { _, focused in

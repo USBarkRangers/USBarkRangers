@@ -9,10 +9,6 @@ struct ParkDetailContent: View {
             if park.isRetired {
                 Label("This listing has been retired", systemImage: "archivebox")
             }
-            section(
-                "Swag",
-                "\(park.swag.rawValue) · \(park.swagCost.isEmpty ? "Cost not listed" : park.swagCost)"
-            )
             section("Updates and information", park.info)
             section("Entrance fees", park.entranceFees)
             section("Where to find swag", park.swagLocation)

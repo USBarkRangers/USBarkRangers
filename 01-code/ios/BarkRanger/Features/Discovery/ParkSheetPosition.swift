@@ -13,6 +13,7 @@ enum ParkSheetPosition: Int, CaseIterable {
 
 /// Sheet geometry is local presentation state, independent of catalog and camera persistence.
 struct ParkSheetLayout {
+    static let topInset: CGFloat = 8
     let availableHeight: CGFloat
     let bottomOverlap: CGFloat
     let searchHeight: CGFloat
@@ -22,8 +23,12 @@ struct ParkSheetLayout {
         case .low: min(bottomOverlap + 142, availableHeight * 0.4)
         case .medium:
             min(440 + bottomOverlap, max(height(at: .low) + 50, availableHeight - searchHeight - 100))
-        case .high: availableHeight
+        case .high: max(0, availableHeight - Self.topInset)
         }
+    }
+    func presentation(at height: CGFloat) -> ParkSheetPosition {
+        if height > self.height(at: .medium) + 1 { return .high }
+        return height > self.height(at: .low) + 1 ? .medium : .low
     }
     func nearest(to height: CGFloat) -> ParkSheetPosition {
         ParkSheetPosition.allCases.min {

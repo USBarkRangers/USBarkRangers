@@ -13,7 +13,7 @@ final class MapFeatureModel {
     private(set) var catalogState = CatalogRepository.State()
     private(set) var result = ParkFilter.Result(matchingIDs: [], totalCount: 0, labels: [])
     private(set) var parks: [Park] = []
-    private(set) var selectedID: ParkID?
+    var selectedID: ParkID? { detail.park?.id }
     private(set) var cameraRequest: CameraRequest?
     private(set) var isOffline = false
     private(set) var imageryUnavailable = false
@@ -39,7 +39,7 @@ final class MapFeatureModel {
         self.settings = settings
         self.location = location
         search = SearchModel()
-        detail = ParkDetailModel(catalog: catalog, maps: maps)
+        detail = ParkDetailModel(maps: maps)
         if let camera = settings.value.camera, settings.value.rememberMapPosition {
             cameraRequest = CameraRequest(
                 region: MKCoordinateRegion(
@@ -60,8 +60,7 @@ final class MapFeatureModel {
                 if changed, let snapshot = state.snapshot {
                     byID = Dictionary(uniqueKeysWithValues: snapshot.parks.map { ($0.id, $0) })
                     if let selectedID {
-                        self.selectedID = snapshot.resolveAlias(selectedID)
-                        await detail.load(id: selectedID)
+                        detail.show(snapshot.park(id: selectedID))
                     }
                     search.install(snapshot: snapshot, index: state.index)
                     rebuild()
@@ -99,17 +98,17 @@ final class MapFeatureModel {
         result = ParkFilter.apply(catalog: snapshot, query: query, searchIDs: ids)
         parks = result.matchingIDs.compactMap { byID[$0] }
     }
-    func selectPark(id: ParkID) {
+    func selectPark(id: ParkID, focusOnMap: Bool = true) {
         guard let park = catalogState.snapshot?.park(id: id) else { return }
-        selectedID = park.id
+        detail.show(park)
+        guard focusOnMap else { return }
         cameraRequest = CameraRequest(
             region: MKCoordinateRegion(
                 center: CLLocationCoordinate2D(
                     latitude: park.coordinate.latitude, longitude: park.coordinate.longitude),
                 span: MKCoordinateSpan(latitudeDelta: 0.12, longitudeDelta: 0.12)))
-        Task { await detail.load(id: park.id) }
     }
-    func dismissPark() { selectedID = nil }
+    func dismissPark() { detail.show(nil) }
     func connectivityChanged(_ connected: Bool) {
         isOffline = !connected
         if connected { imageryUnavailable = false }
@@ -159,6 +158,5 @@ final class MapFeatureModel {
         observation = nil
         locateTask?.cancel()
         locateTask = nil
-        detail.cancel()
     }
 }

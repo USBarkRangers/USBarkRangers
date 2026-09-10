@@ -1,6 +1,6 @@
 # Phase 2 — catalog and discovery
 
-September 10, 2026. Current build **0.2.3 (5)** adds the three-position park detail sheet to the existing branded map/search UI. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
+September 10, 2026. Current build **0.2.4 (6)** refines the three-position park sheet, preserves zoom on pin selection, and adds map-background dismissal. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
 
 ## What you can use
 
@@ -46,7 +46,25 @@ The [implemented architecture and call map](../../../01-code/ios/ARCHITECTURE.md
 
 The [publication runbook](../../operations/NATIVE_CATALOG_PUBLICATION.md) maps backend calls, local fixtures, eventual configuration and rollback. A deliberate refinement keeps the old CSV/fallback writer as its existing owner: native publication adds no second writer to old fallback storage. The public asset publisher uses immutable upload followed by a generation-conditioned manifest promotion. Memory adapters verify ordering/conflicts locally; they do not certify cloud IAM or actual storage preconditions.
 
-## Park detail sheet — 0.2.3 (5)
+## Sheet and selection refinements — 0.2.4 (6)
+
+The high sheet now stops at the search bar’s outer top edge, leaving the upper map visible and tappable. Tapping map background dismisses details and clears the pin highlight while retaining the query, filters and result count. Individual pin selection keeps the current zoom; selecting a search result retains the existing camera-focus behavior. Cluster taps keep their existing zoom behavior.
+
+Search and the native bottom tab bar disappear as the live sheet height passes medium, before the drag ends. The measured tab overlap is retained while details are open so hiding the bar cannot move the detents during a gesture. Keyboard spacing is excluded from that retained measurement. Low still contains the single-line name and working Directions/Park Info actions; medium still shows the selected pin above the sheet.
+
+Individual artwork is slightly smaller (38×46-point visual badge inside the existing 44×54-point annotation bounds). IDs, touch targets, anchor, native clustering, cluster-pill styling and state colors are retained. Category, swag type and supplied cost now appear together in rounded rectangular tags. The repeated high-detail Swag section is removed; no supplied information is lost. Thumbnail placeholders and the data/catalog architecture are unchanged.
+
+The related selection fix also resolves the audit’s strongest correctness finding: `detail.park` is the authoritative selection, supplied synchronously from the accepted snapshot. `selectedID` derives from it, and dismissal clears it. There is no second asynchronous detail read or queued detail-load task. A regression test verifies immediate A→B selection/detail/Directions agreement, native-pin zoom preservation, and deselection after stop. The [maintainability audit](MAINTAINABILITY_AUDIT_2026-09-10.md) preserves the original findings and adds a ranked, current cleanup decision. Broad audit refactoring has not been performed.
+
+Final Debug and Release builds passed with Swift warnings treated as errors; strict formatting and whitespace checks passed. All nine domain tests passed. All 25 final Pro app tests (22 Swift Testing functions and three XCTest cases) and all eight relevant UI tests passed across the final regression and sheet runs. The three sheet tests cover: detent layout/restore, map-background dismissal/deselection, and dark landscape detail-link reachability. A simulator recording of the held upward drag confirms the tab bar is already hidden while the finger is still down. No automated contrast certification, physical-device result, minimum-iOS-runtime result or new hosted-CI result is claimed.
+
+Local evidence: `/tmp/BarkDetailRefinementSheetFinal.xcresult`, `/tmp/bark-detail-refinement-build-final.log`, `/tmp/bark-detail-refinement-release.log`, `/tmp/bark-detail-refinement-domain.log`, `/tmp/bark-detail-refinement-format-final.log`, and `/tmp/bark-detail-refinement-final.mp4`. Sheet captures are in `/tmp/bark-refinement-sheet-final-images/`. The final regression evidence is `/tmp/BarkDetailRefinementRemainingFinal.xcresult` and `/tmp/bark-detail-refinement-remaining-final.log`. All four selected SE 3 checks passed: the three sheet scenarios plus largest-text search/details. Evidence: `/tmp/BarkDetailRefinementSEFinal.xcresult` and `/tmp/bark-detail-refinement-se-final.log`; captures are under `/tmp/bark-refinement-se-final-images/`. Landscape rendering was additionally inspected from simulator recordings, since the rotated app-only XCTest capture is cropped incorrectly.
+
+Reproduction uses the existing fixture-server/project/scheme commands below with derived data `/tmp/BarkDetailRefinement`. Select `BarkRangerTests`, `BarkRangerUITests/DiscoveryUITests`, `BarkRangerUITests/MapInteractionUITests` and `BarkRangerUITests/ParkDetailSheetUITests`, with parallel UI testing disabled. Pro destination: `platform=iOS Simulator,id=3363BA1A-47D8-45F1-B1A1-CD7FEB8E2F40`; SE destination: `platform=iOS Simulator,id=A6B8C5BD-31C4-41F4-92BF-CF25F1A9AADA`.
+
+User testing: tap a pin at your chosen zoom, drag low→medium→high while watching the bottom tabs, and confirm the sheet stops at the former search-bar top edge. Tap the narrow map strip to close and deselect. Reopen a pin and tap ordinary map background to dismiss. Check the compact category/swag/cost tags, both working actions, smaller marker styling and unchanged query/chips/count after dismissal.
+
+## Park detail sheet — 0.2.3 (5) — historical behavior
 
 The user's final layout replaces the initial all-detents-pin-visible concept:
 
@@ -173,7 +191,7 @@ Change the destination to the available **BARK iPhone SE 3** for smaller-screen 
 
 Xcode is already open with **BarkRanger → iPhone 17 Pro**, the implemented architecture tab selected, and the app running on the full 393-park map. The simulator is back in light appearance and test display preferences have been reset. To run again, open `01-code/ios/BarkRanger.xcodeproj` and press **Command-R**.
 
-1. Open **Map**. Expect a full-screen map with native pins/clusters, a wide search bar, live matching/total count and a filter button on its right. Confirm there is no large Map title, count/status block or segmented switch. Expect BARK badge pins and larger black logo/count clusters. Tap a cluster to zoom and a pin to open details. Zoom and pan; the map stays behind the controls down to the tab bar.
+1. Open **Map**. Expect a full-screen map with native pins/clusters, a wide search bar, live matching/total count and a filter button on its right. Confirm there is no large Map title, count/status block or segmented switch. Expect BARK badge pins and larger black logo/count clusters. Tap a cluster to zoom and a pin to open details at the current zoom. Tap map background to dismiss details and deselect. Zoom and pan; the map stays behind the controls down to the tab bar.
 2. Tap search and type **hulls cove** gradually. Results appear below search and update with the pins while the keyboard stays open. Scroll the dropdown, clear text, try a nonsense query, then select Acadia to inspect details. Submit search to dismiss the keyboard while retaining the filter. Then tap search again, touch or drag the map, and confirm the keyboard/dropdown disappear while the text, chips, count and pins remain. Tap search to restore matching results; repeat with zero matches.
 3. Combine **National** and **Tag** filters and a search. Remove one chip with its × and confirm the others remain. Leave/relaunch the app and confirm remaining filters persist. Remove the search/category/swag chips to return to all parks. Reset preferences from Home → Settings and confirm Map updates too.
 4. Choose **Offline overview** in Settings. Expect the bundled outline, pins and searchable records without requiring street imagery. Test an actual device in airplane mode once signing is available.
@@ -189,13 +207,13 @@ Physical source lines include comments/blank lines and exclude generated builds,
 
 | Group | Files | Lines |
 |---|---:|---:|
-| App + domain runtime Swift | 48 | 3,046 |
-| App/UI/package test Swift | 10 | 1,118 |
+| App + domain runtime Swift | 48 | 3,065 |
+| App/UI/package test Swift | 10 | 1,189 |
 | New backend catalog JavaScript | 4 | 297 |
 | New backend/script test JavaScript | 2 | 221 |
 | Local fixture/build scripts + Apps Script source | 4 | 183 |
 | Native project/package/configuration + two CI workflows + Apps Script manifest | 11 | 838 |
 
-The largest Swift runtime file remains **164 lines**. The detail sheet adds seven small runtime files and **341 net runtime Swift lines** over 0.2.2; source line changes describe added presentation, not a claim of web-code retirement. The earlier 0.2.1 cleanup added **105 net runtime Swift lines** over 0.2.0: the obsolete 40-line SearchSheet is removed; MapScreen dropped from 103 to 90 lines; MapSearchBar, FilterChipsView and MapSearchResults are 50, 52 and 53 lines respectively. No new model, repository or service is introduced. Phase 1 had 509 runtime lines; phase 2, including its UI follow-ups, adds a net **2,537 runtime Swift lines** and real catalog/discovery behavior. The retained backend registry gains 12 net physical lines. **Old web/backend runtime lines removed: 0.** No deployed cost reduction or final replacement saving is claimed while both apps remain supported. Retirement and the final line-cut comparison come after the replacement and separately approved rollout.
+The largest Swift runtime file is **162 lines**. The 0.2.4 refinement adds **19 net runtime Swift lines and no runtime files** over 0.2.3. The original detail sheet added seven small runtime files and **341 net runtime Swift lines** over 0.2.2; source line changes describe added presentation, not a claim of web-code retirement. The earlier 0.2.1 cleanup added **105 net runtime Swift lines** over 0.2.0: the obsolete 40-line SearchSheet is removed; MapScreen dropped from 103 to 90 lines; MapSearchBar, FilterChipsView and MapSearchResults are 50, 52 and 53 lines respectively. No new model, repository or service is introduced. Phase 1 had 509 runtime lines; phase 2, including its UI follow-ups, adds a net **2,556 runtime Swift lines** and real catalog/discovery behavior. The retained backend registry gains 12 net physical lines. **Old web/backend runtime lines removed: 0.** No deployed cost reduction or final replacement saving is claimed while both apps remain supported. Retirement and the final line-cut comparison come after the replacement and separately approved rollout.
 
 Remaining prerequisites: actual iOS 18.4 runtime and physical-device signing/trust; live public-asset/source/trigger configuration and provider checks; human VoiceOver review; native legal/privacy/App Store disclosure review before release. These do not authorize moving users or starting the next phase. The next step is user testing and Phase-2 fixes.

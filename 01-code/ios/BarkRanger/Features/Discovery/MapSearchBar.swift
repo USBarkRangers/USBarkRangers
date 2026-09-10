@@ -46,5 +46,7 @@ struct MapSearchBar: View {
         .foregroundStyle(Color.primary)
         .background(.background, in: RoundedRectangle(cornerRadius: 20))
         .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("park-search-bar")
     }
 }

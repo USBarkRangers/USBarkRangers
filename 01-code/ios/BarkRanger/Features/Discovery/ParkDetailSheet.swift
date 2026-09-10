@@ -6,7 +6,7 @@ struct ParkDetailSheet: View {
     @Binding var position: ParkSheetPosition
     let layout: ParkSheetLayout
     let dismiss: () -> Void
-    let heightChanged: (CGFloat) -> Void
+    let heightChanged: (CGFloat, Bool) -> Void
     @GestureState private var gestureActive = false
     @State private var translation: CGFloat = 0
     @State private var dragAllowed: Bool?
@@ -30,7 +30,8 @@ struct ParkDetailSheet: View {
                             ?? position)
                 }
             ParkDetailView(
-                model: model, position: $position, bottomOverlap: layout.bottomOverlap,
+                model: model, position: layout.presentation(at: height),
+                bottomOverlap: layout.bottomOverlap, expand: { move(to: .high) },
                 dismiss: dismiss, atTopChanged: { contentAtTop = $0 }
             )
             .simultaneousGesture(drag(fromHandle: false))
@@ -39,21 +40,16 @@ struct ParkDetailSheet: View {
         .background(
             Color(uiColor: .systemBackground),
             in: UnevenRoundedRectangle(
-                topLeadingRadius: position == .high ? 0 : 28,
+                topLeadingRadius: 28,
                 bottomLeadingRadius: 0, bottomTrailingRadius: 0,
-                topTrailingRadius: position == .high ? 0 : 28)
+                topTrailingRadius: 28)
         )
-        .background {
-            if position == .high {
-                Color(uiColor: .systemBackground).ignoresSafeArea(.container, edges: .top)
-            }
-        }
         .clipped()
         .shadow(color: .black.opacity(0.12), radius: 12, y: -3)
         .onGeometryChange(for: CGFloat.self) {
             $0.size.height
         } action: {
-            heightChanged($0)
+            heightChanged($0, layout.presentation(at: $0) == .high)
         }
         .onChange(of: position) { _, _ in translation = 0 }
         .onChange(of: gestureActive) { _, active in

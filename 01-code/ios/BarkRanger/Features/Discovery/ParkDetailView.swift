@@ -4,11 +4,11 @@ import SwiftUI
 /// Scrollable facts and working actions, with a compact single-line preview at the low position.
 struct ParkDetailView: View {
     @Bindable var model: ParkDetailModel
-    @Binding var position: ParkSheetPosition
+    let position: ParkSheetPosition
     let bottomOverlap: CGFloat
+    let expand: () -> Void
     let dismiss: () -> Void
     let atTopChanged: (Bool) -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var textSize
 
     var body: some View {
@@ -24,7 +24,7 @@ struct ParkDetailView: View {
                         ParkDetailActions(isOpeningMaps: model.isOpeningMaps) {
                             Task { await model.navigate() }
                         } showInfo: {
-                            withAnimation(reduceMotion ? nil : .snappy) { position = .high }
+                            expand()
                         }
                         if let message = model.message { Text(message).foregroundStyle(.red) }
                         if position != .low { ParkThumbnailStrip() }
@@ -65,6 +65,6 @@ struct ParkDetailView: View {
             .onChange(of: position) { _, _ in scroll.scrollTo("top", anchor: .top) }
             .onChange(of: model.park?.id) { _, _ in scroll.scrollTo("top", anchor: .top) }
         }
-        .onAppear { if textSize.isAccessibilitySize { position = .high } }
+        .onAppear { if textSize.isAccessibilitySize { expand() } }
     }
 }

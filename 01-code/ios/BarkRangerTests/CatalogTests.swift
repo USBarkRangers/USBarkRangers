@@ -158,11 +158,55 @@ struct CatalogTests {
         #expect(components.host == "maps.apple.com")
         #expect(components.queryItems?.count == 3)
         #expect(components.queryItems?.first(where: { $0.name == "q" })?.value == maliciousName)
-        let detail = ParkDetailModel(catalog: catalog, maps: MapsHandoff(open: { _ in false }))
-        await detail.load(id: source.id)
+        let detail = ParkDetailModel(maps: MapsHandoff(open: { _ in false }))
+        detail.show(source)
         await detail.navigate()
         #expect(detail.message != nil && !detail.isOpeningMaps)
     }
+    @Test func pinSelectionPreservesZoomAndUpdatesDetailsAndDirectionsTogether() async throws {
+        let catalog = CatalogRepository(disk: try disk(), client: nil)
+        _ = await catalog.loadLocal()
+        let suite = "bark.test.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var opened: URL?
+        let model = MapFeatureModel(
+            catalog: catalog, settings: SettingsRepository(defaults: defaults), location: LocationClient(),
+            maps: MapsHandoff(open: {
+                opened = $0
+                return true
+            }))
+        model.start()
+        defer { model.stop() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while model.parks.isEmpty && ContinuousClock.now < deadline { await Task.yield() }
+        let first = try #require(model.parks.first)
+        let second = try #require(model.parks.dropFirst().first)
+        let map = MKMapView(frame: CGRect(x: 0, y: 0, width: 390, height: 760))
+        map.setRegion(
+            .init(
+                center: .init(latitude: 40, longitude: -80),
+                span: .init(latitudeDelta: 5, longitudeDelta: 5)), animated: false)
+        let coordinator = MapCoordinator(model: model)
+        coordinator.apply(to: map)
+        model.selectPark(id: first.id, focusOnMap: false)
+        let cameraRequest = model.cameraRequest?.id
+        let distance = map.camera.centerCoordinateDistance
+        coordinator.mapView(map, didSelect: try #require(coordinator.annotations[second.id]))
+        #expect(model.selectedID == second.id && model.detail.park?.id == second.id)
+        #expect(model.cameraRequest?.id == cameraRequest)
+        coordinator.apply(to: map)
+        #expect(abs(map.camera.centerCoordinateDistance - distance) < 10)
+        await model.detail.navigate()
+        #expect(opened == MapsHandoff.navigationURL(for: second))
+        model.dismissPark()
+        model.stop()
+        await Task.yield()
+        coordinator.apply(to: map)
+        #expect(model.selectedID == nil && model.detail.park == nil)
+        #expect(map.selectedAnnotations.isEmpty)
+    }
+
     @Test func offlineGeographyIsActuallyBundled() {
         #expect(!OfflineBasemapOverlay.loadOutlines().isEmpty)
         let overlay = OfflineBasemapOverlay(urlTemplate: nil)

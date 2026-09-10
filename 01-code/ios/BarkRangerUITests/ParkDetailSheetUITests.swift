@@ -6,6 +6,7 @@ nonisolated final class ParkDetailSheetUITests: XCTestCase {
         let app = openPark()
         let search = app.textFields["park-search"]
         let sheet = app.scrollViews["park-detail-sheet"]
+        let searchTop = app.otherElements["park-search-bar"].frame.minY
         XCTAssertTrue(sheet.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Directions in Apple Maps"].isHittable)
         XCTAssertTrue(app.buttons["Park Info"].isHittable)
@@ -13,12 +14,14 @@ nonisolated final class ParkDetailSheetUITests: XCTestCase {
         XCTAssertTrue(search.isHittable)
         XCTAssertTrue(app.tabBars.buttons["Map"].isHittable)
         XCTAssertLessThan(app.staticTexts["park-detail-name"].frame.height, 30)
+        XCTAssertLessThan(app.frame.maxY - app.otherElements["park-sheet-handle"].frame.minY, 280)
         assertVisiblePin(app)
         capture("Low — name and real actions", app)
 
         let lowTop = app.otherElements["park-sheet-handle"].frame.midY
         dragHandle(app, by: -220)
         XCTAssertTrue(app.staticTexts["Park photos coming soon"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["park-swag-cost"].exists)
         XCTAssertFalse(app.staticTexts["Updates and information"].exists)
         assertVisiblePin(app)
         XCTAssertTrue(search.isHittable)
@@ -26,10 +29,11 @@ nonisolated final class ParkDetailSheetUITests: XCTestCase {
         capture("Medium — metadata, actions and neutral thumbnails", app)
 
         let mediumTop = app.otherElements["park-sheet-handle"].frame.midY
-        dragHandle(app, by: -app.frame.height * 0.6)
+        dragHandle(app, by: -app.frame.height * 0.6, hold: 2)
         XCTAssertTrue(app.staticTexts["Updates and information"].waitForExistence(timeout: 3))
         XCTAssertFalse(search.isHittable)
         XCTAssertFalse(app.tabBars.buttons["Map"].isHittable)
+        XCTAssertEqual(app.otherElements["park-sheet-handle"].frame.minY, searchTop, accuracy: 4)
         capture("High — full scrollable details", app)
         let highTop = app.otherElements["park-sheet-handle"].frame.midY
         sheet.swipeUp()
@@ -50,6 +54,29 @@ nonisolated final class ParkDetailSheetUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Remove search filter"].exists)
         search.tap()
         XCTAssertTrue(app.scrollViews["park-results"].exists)
+    }
+
+    @MainActor
+    func testExposedMapDismissesHighSheetAndDeselectsPin() {
+        let app = openPark()
+        let pin = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "park-pin-"))
+            .firstMatch
+        XCTAssertTrue(pin.isSelected)
+        app.buttons["Park Info"].tap()
+        let handle = app.otherElements["park-sheet-handle"]
+        XCTAssertTrue(app.staticTexts["Updates and information"].waitForExistence(timeout: 3))
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: 16, dy: handle.frame.minY - 4)).tap()
+        XCTAssertTrue(app.scrollViews["park-detail-sheet"].waitForNonExistence(timeout: 3))
+        XCTAssertFalse(pin.isSelected)
+        XCTAssertTrue(app.tabBars.buttons["Map"].isHittable)
+        XCTAssertEqual(app.textFields["park-search"].value as? String, "hulls cove")
+        pin.tap()
+        XCTAssertTrue(app.scrollViews["park-detail-sheet"].waitForExistence(timeout: 3))
+        XCTAssertTrue(pin.isSelected)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.4)).tap()
+        XCTAssertTrue(app.scrollViews["park-detail-sheet"].waitForNonExistence(timeout: 3))
+        XCTAssertFalse(pin.isSelected)
     }
 
     @MainActor
@@ -95,13 +122,13 @@ nonisolated final class ParkDetailSheetUITests: XCTestCase {
     }
 
     @MainActor
-    private func dragHandle(_ app: XCUIApplication, by delta: CGFloat) {
+    private func dragHandle(_ app: XCUIApplication, by delta: CGFloat, hold: TimeInterval = 0.3) {
         let top = app.otherElements["park-sheet-handle"].frame.midY
         let start = app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: app.frame.midX, dy: top))
         let end = start.withOffset(
             CGVector(dx: 0, dy: max(15, min(app.frame.height - 15, top + delta)) - top))
-        start.press(forDuration: 0.1, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.3)
+        start.press(forDuration: 0.1, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: hold)
     }
 
     @MainActor

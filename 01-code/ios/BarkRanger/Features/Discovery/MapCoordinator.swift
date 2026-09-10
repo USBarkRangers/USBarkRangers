@@ -100,15 +100,27 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
     func mapView(_ mapView: MKMapView, didSelect annotation: any MKAnnotation) {
         guard !applying else { return }
         if let park = annotation as? ParkAnnotation {
-            model.selectPark(id: park.park.id)
+            model.selectPark(id: park.park.id, focusOnMap: false)
         } else if let cluster = annotation as? MKClusterAnnotation {
             mapView.showAnnotations(cluster.memberAnnotations, animated: true)
         }
     }
-    // Observe touch-down, then decline recognition so native pan, zoom and pin taps continue normally.
+    // All touches collapse search; only a completed background tap dismisses park selection.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         interactionBegan()
-        return false
+        var view = touch.view
+        while let current = view {
+            if current is MKAnnotationView || current is UIControl { return false }
+            view = current.superview
+        }
+        return true
+    }
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool { true }
+    @objc func mapTapped(_ recognizer: UITapGestureRecognizer) {
+        if recognizer.state == .ended { model.dismissPark() }
     }
     func mapViewDidFailLoadingMap(_ mapView: MKMapView, withError error: any Error) { model.imageryFailed() }
     func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {

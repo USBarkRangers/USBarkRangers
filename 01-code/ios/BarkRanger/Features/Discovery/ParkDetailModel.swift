@@ -8,26 +8,22 @@ final class ParkDetailModel {
     private(set) var park: Park?
     private(set) var isOpeningMaps = false
     var message: String?
-    private let catalog: CatalogRepository
     private let maps: MapsHandoff
-    private var requestID = UUID()
-    init(catalog: CatalogRepository, maps: MapsHandoff) {
-        self.catalog = catalog
+    init(maps: MapsHandoff) {
         self.maps = maps
     }
-    func load(id: ParkID) async {
-        let request = UUID()
-        requestID = request
-        let state = await catalog.current()
-        guard request == requestID else { return }
-        park = state.snapshot?.park(id: id)
+    /// Selection already has validated catalog data; publish its identity and actions together.
+    func show(_ park: Park?) {
+        self.park = park
         message = nil
     }
     func navigate() async {
         guard let park, !isOpeningMaps else { return }
         isOpeningMaps = true
         defer { isOpeningMaps = false }
-        if !(await maps.openPark(park)) { message = "Apple Maps could not be opened. Please try again." }
+        let opened = await maps.openPark(park)
+        if !opened, self.park?.id == park.id {
+            message = "Apple Maps could not be opened. Please try again."
+        }
     }
-    func cancel() { requestID = UUID() }
 }

@@ -22,8 +22,10 @@ struct NativeMapView: UIViewRepresentable {
                 ?? MKCoordinateRegion(
                     center: CLLocationCoordinate2D(latitude: 38, longitude: -105),
                     span: MKCoordinateSpan(latitudeDelta: 60, longitudeDelta: 110)), animated: false)
-        let touchObserver = UITapGestureRecognizer()
+        let touchObserver = UITapGestureRecognizer(
+            target: context.coordinator, action: #selector(MapCoordinator.mapTapped(_:)))
         touchObserver.cancelsTouchesInView = false
+        touchObserver.delaysTouchesEnded = false
         touchObserver.delegate = context.coordinator
         map.addGestureRecognizer(touchObserver)
         context.coordinator.interactionBegan = interactionBegan

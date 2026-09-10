@@ -4,7 +4,7 @@ Phase 2 adds **393 bundled parks**, local search/filters, complete details, nati
 
 ## Open and run
 
-Open `BarkRanger.xcodeproj`, choose the shared **BarkRanger** scheme and **iPhone 17 Pro**, then press **Command-R**. Home opens without sign-in. Tap **Map** for the full-screen map. Tap the wide search bar to browse results; its inline matching/total count, dropdown and pins update together while the keyboard stays open. Active filters appear as removable chips beneath search. Use **Home → Settings** for map appearance, offline overview, saved catalog status, permissions and local legal documents.
+Open `BarkRanger.xcodeproj`, choose the shared **BarkRanger** scheme and **iPhone 17 Pro**, then press **Command-R**. Home opens without sign-in. Tap **Map** for the full-screen map. Tap the wide search bar to browse results; its inline matching/total count, dropdown and pins update together while the keyboard stays open. Active filters appear as removable chips beneath search. Touch or drag the map to collapse search while keeping its text, filters and count; tap the field to reopen the same results. Pins use the approved BARK artwork, and larger dark clusters pair the logo with their park count. Use **Home → Settings** for map appearance, offline overview, saved catalog status, permissions and local legal documents.
 
 The default build loads the newest valid bundle/saved revision. **Live spreadsheet publication is not deployed or configured yet.** Local fixtures exercise refresh behavior; see the [simple local update instructions](../../04-docs/operations/NATIVE_CATALOG_PUBLICATION.md#reproduce-locally). A saved copy is never labeled fresh just because a network path exists.
 

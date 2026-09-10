@@ -21,19 +21,4 @@ final class ParkAnnotation: NSObject, MKAnnotation {
             coordinate = next
         }
     }
-    static func configure(_ view: MKMarkerAnnotationView, park: Park, clustering: Bool) {
-        view.clusteringIdentifier = clustering ? "parks" : nil
-        view.canShowCallout = false
-        view.displayPriority = .defaultHigh
-        view.glyphImage = UIImage(systemName: "pawprint.fill")
-        view.glyphText = nil
-        switch park.swag {
-        case .tag: view.markerTintColor = .systemBlue
-        case .bandana: view.markerTintColor = .systemOrange
-        case .certificate: view.markerTintColor = .systemGreen
-        case .other: view.markerTintColor = .systemGray
-        }
-        view.accessibilityLabel = "\(park.name), \(park.state), \(park.swag.rawValue)"
-        view.accessibilityHint = "Opens park details"
-    }
 }

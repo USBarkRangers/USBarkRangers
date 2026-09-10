@@ -2,7 +2,8 @@ import BarkDomain
 import MapKit
 
 /// Reconciles annotations by canonical ID; catalog updates never refit the camera or clear filters.
-final class MapCoordinator: NSObject, MKMapViewDelegate {
+final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
+    var interactionBegan: () -> Void = {}
     let model: MapFeatureModel
     private(set) var annotations: [ParkID: ParkAnnotation] = [:]
     private var visible = Set<ParkID>()
@@ -48,9 +49,9 @@ final class MapCoordinator: NSObject, MKMapViewDelegate {
                 annotations[park.id] = ParkAnnotation(park: park)
             }
             if let annotation = annotations[park.id],
-                let view = map.view(for: annotation) as? MKMarkerAnnotationView
+                let view = map.view(for: annotation) as? ParkAnnotationView
             {
-                ParkAnnotation.configure(view, park: park, clustering: model.settings.value.clustering)
+                view.configure(park: park, clustering: model.settings.value.clustering)
             }
         }
         map.addAnnotations(next.subtracting(visible).compactMap { annotations[$0] })
@@ -73,22 +74,16 @@ final class MapCoordinator: NSObject, MKMapViewDelegate {
     func mapView(_ mapView: MKMapView, viewFor annotation: any MKAnnotation) -> MKAnnotationView? {
         if let park = annotation as? ParkAnnotation,
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: "park", for: park)
-                as? MKMarkerAnnotationView
+                as? ParkAnnotationView
         {
-            ParkAnnotation.configure(view, park: park.park, clustering: model.settings.value.clustering)
+            view.configure(park: park.park, clustering: model.settings.value.clustering)
             return view
         }
         if let cluster = annotation as? MKClusterAnnotation,
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: "cluster", for: cluster)
-                as? MKMarkerAnnotationView
+                as? ParkClusterView
         {
-            view.glyphImage = nil
-            view.glyphText = String(cluster.memberAnnotations.count)
-            view.markerTintColor = .systemTeal
-            view.clusteringIdentifier = nil
-            view.titleVisibility = .hidden
-            view.subtitleVisibility = .hidden
-            view.accessibilityLabel = "\(cluster.memberAnnotations.count) parks. Double tap to zoom."
+            view.configure(cluster)
             return view
         }
         return nil
@@ -100,6 +95,11 @@ final class MapCoordinator: NSObject, MKMapViewDelegate {
         } else if let cluster = annotation as? MKClusterAnnotation {
             mapView.showAnnotations(cluster.memberAnnotations, animated: true)
         }
+    }
+    // Observe touch-down, then decline recognition so native pan, zoom and pin taps continue normally.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        interactionBegan()
+        return false
     }
     func mapViewDidFailLoadingMap(_ mapView: MKMapView, withError error: any Error) { model.imageryFailed() }
     func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {

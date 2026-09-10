@@ -6,16 +6,20 @@ struct MapScreen: View {
     @Bindable var model: MapFeatureModel
     @FocusState private var searchFocused: Bool
     @State private var showsFilters = false
+    @State private var resultsCollapsed = false
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
-                NativeMapView(model: model)
-                    .accessibilityLabel("Park map")
-                    .accessibilityValue("\(model.result.matchingCount) matching parks")
-                    .accessibilityIdentifier("park-map")
-                    .ignoresSafeArea(.container, edges: .top)
-                    .ignoresSafeArea(.keyboard)
+                NativeMapView(model: model) {
+                    resultsCollapsed = true
+                    searchFocused = false
+                }
+                .accessibilityLabel("Park map")
+                .accessibilityValue("\(model.result.matchingCount) matching parks")
+                .accessibilityIdentifier("park-map")
+                .ignoresSafeArea(.container, edges: .top)
+                .ignoresSafeArea(.keyboard)
                 VStack(spacing: 8) {
                     MapSearchBar(
                         text: Binding(
@@ -32,7 +36,7 @@ struct MapScreen: View {
                             showsFilters = true
                         })
                     FilterChipsView(query: model.query, update: model.setFilters)
-                    if searchFocused || model.parks.isEmpty {
+                    if searchFocused || (model.parks.isEmpty && !resultsCollapsed) {
                         MapSearchResults(
                             parks: model.parks,
                             maximumHeight: max(100, min(360, geometry.size.height * 0.55)),
@@ -85,6 +89,8 @@ struct MapScreen: View {
             Text(model.locationMessage ?? "")
         }
         .onChange(of: model.selectedID) { _, id in if id != nil { searchFocused = false } }
+        .onChange(of: searchFocused) { _, focused in if focused { resultsCollapsed = false } }
+        .onChange(of: model.query) { _, _ in resultsCollapsed = false }
         .onDisappear { searchFocused = false }
     }
 }

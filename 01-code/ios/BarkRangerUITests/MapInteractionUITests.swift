@@ -12,7 +12,7 @@ nonisolated final class MapInteractionUITests: XCTestCase {
         XCTAssertTrue(cluster.waitForExistence(timeout: 5))
         capture("Branded map clusters", app)
         cluster.tap()
-        XCTAssertFalse(app.navigationBars["Park details"].exists)
+        XCTAssertFalse(app.scrollViews["park-detail-sheet"].exists)
         XCTAssertEqual(app.staticTexts["park-count"].label, "393 of 393 parks")
         let search = app.textFields["park-search"]
         search.tap()
@@ -20,8 +20,8 @@ nonisolated final class MapInteractionUITests: XCTestCase {
         let results = app.scrollViews["park-results"]
         XCTAssertTrue(results.waitForExistence(timeout: 3))
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "park-result-")).firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["Park details"].waitForExistence(timeout: 3))
-        app.buttons["Done"].tap()
+        XCTAssertTrue(app.scrollViews["park-detail-sheet"].waitForExistence(timeout: 3))
+        app.buttons["Close park details"].tap()
         search.tap()
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.52)).tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
@@ -32,8 +32,8 @@ nonisolated final class MapInteractionUITests: XCTestCase {
             .firstMatch
         XCTAssertTrue(pin.waitForExistence(timeout: 3))
         pin.tap()
-        XCTAssertTrue(app.navigationBars["Park details"].waitForExistence(timeout: 3))
-        app.buttons["Done"].tap()
+        XCTAssertTrue(app.scrollViews["park-detail-sheet"].waitForExistence(timeout: 3))
+        app.buttons["Close park details"].tap()
         search.tap()
         XCTAssertTrue(results.waitForExistence(timeout: 2))
         XCTAssertTrue(app.keyboards.firstMatch.exists)

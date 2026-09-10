@@ -1,78 +1,70 @@
 import BarkDomain
 import SwiftUI
 
+/// Scrollable facts and working actions, with a compact single-line preview at the low position.
 struct ParkDetailView: View {
     @Bindable var model: ParkDetailModel
+    @Binding var position: ParkSheetPosition
+    let bottomOverlap: CGFloat
     let dismiss: () -> Void
+    let atTopChanged: (Bool) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var textSize
+
     var body: some View {
-        NavigationStack {
+        ScrollViewReader { scroll in
             ScrollView {
-                if let park = model.park {
-                    VStack(alignment: .leading, spacing: 22) {
-                        Text(park.name).font(.title.bold()).accessibilityAddTraits(.isHeader)
-                        Text("\(park.state) · \(park.sourceType)").foregroundStyle(.secondary)
-                        if park.isRetired {
-                            Label("This listing has been retired", systemImage: "archivebox")
+                VStack(alignment: .leading, spacing: 12) {
+                    if let park = model.park {
+                        Text(park.name).font(position == .low ? .headline : .title2.bold())
+                            .lineLimit(position == .low ? 1 : nil)
+                            .padding(.trailing, 48).accessibilityAddTraits(.isHeader)
+                            .accessibilityIdentifier("park-detail-name")
+                        if position != .low { ParkDetailMetadata(park: park) }
+                        ParkDetailActions(isOpeningMaps: model.isOpeningMaps) {
+                            Task { await model.navigate() }
+                        } showInfo: {
+                            withAnimation(reduceMotion ? nil : .snappy) { position = .high }
                         }
-                        section(
-                            "Swag",
-                            "\(park.swag.rawValue) · \(park.swagCost.isEmpty ? "Cost not listed" : park.swagCost)"
-                        )
-                        section("Updates and information", park.info)
-                        section("Entrance fees", park.entranceFees)
-                        section("Where to find swag", park.swagLocation)
-                        section("Approved areas and trails", park.approvedTrails)
-                        section("Restrictions", park.restrictions)
-                        section("Hazards and safety", park.hazards)
-                        section("Extra swag", park.extraSwag)
-                        links("Source website", urls: park.websites)
-                        links("Swag picture", urls: park.pictures)
-                        links("Swearing-in video", urls: park.videos)
-                        Text(
-                            "Park information and swag availability can change. Confirm details with the park before traveling."
-                        )
-                        .font(.footnote).foregroundStyle(.secondary)
                         if let message = model.message { Text(message).foregroundStyle(.red) }
-                    }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    ProgressView("Opening park details…").padding()
+                        if position != .low { ParkThumbnailStrip() }
+                        if position == .high { ParkDetailContent(park: park) }
+                    } else {
+                        ProgressView("Opening park details…")
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20).padding(.top, 6)
+                .padding(.bottom, bottomOverlap + 24).id("top")
             }
-            .navigationTitle("Park details").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", action: dismiss) } }
-            .safeAreaInset(edge: .bottom) {
-                Button {
-                    Task { await model.navigate() }
-                } label: {
-                    Label(
-                        "Directions in Apple Maps", systemImage: "arrow.triangle.turn.up.right.diamond.fill"
-                    )
-                    .frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
-                }.buttonStyle(.borderedProminent).controlSize(.large)
-                    .disabled(model.park == nil || model.isOpeningMaps).padding().background(.background)
+            .scrollBounceBehavior(.basedOnSize)
+            .onScrollGeometryChange(for: Bool.self) {
+                $0.contentOffset.y <= 0
+            } action: { _, atTop in
+                atTopChanged(atTop)
             }
-        }
-    }
-    @ViewBuilder private func section(_ title: String, _ text: String) -> some View {
-        if !text.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(title).font(.headline).accessibilityAddTraits(.isHeader)
-                Text(text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-    @ViewBuilder private func links(_ title: String, urls: [URL]) -> some View {
-        if !urls.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(urls.enumerated()), id: \.offset) { index, url in
-                    Link(destination: url) {
-                        Label(
-                            urls.count == 1 ? title : "\(title) \(index + 1)",
-                            systemImage: "arrow.up.right.square"
-                        ).padding(.vertical, 4)
+            .accessibilityIdentifier("park-detail-sheet")
+            .mask {
+                VStack(spacing: 0) {
+                    Rectangle()
+                    if position != .high {
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: max(24, bottomOverlap))
                     }
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                Button(action: dismiss) {
+                    Image(systemName: "xmark").font(.system(size: 17, weight: .semibold)).frame(
+                        width: 44, height: 44
+                    )
+                    .background(Color(uiColor: .tertiarySystemFill), in: Circle())
+                }
+                .tint(.primary).accessibilityLabel("Close park details").padding(.trailing, 12)
+            }
+            .onChange(of: position) { _, _ in scroll.scrollTo("top", anchor: .top) }
+            .onChange(of: model.park?.id) { _, _ in scroll.scrollTo("top", anchor: .top) }
         }
+        .onAppear { if textSize.isAccessibilitySize { position = .high } }
     }
 }

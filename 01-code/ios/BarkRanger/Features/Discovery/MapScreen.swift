@@ -7,18 +7,30 @@ struct MapScreen: View {
     @FocusState private var searchFocused: Bool
     @State private var showsFilters = false
     @State private var resultsCollapsed = false
+    @State private var detailPosition = ParkSheetPosition.low
+    @State private var detailHeight: CGFloat = 0
+    @State private var searchHeight: CGFloat = 60
 
     var body: some View {
         GeometryReader { geometry in
+            let sheetLayout = ParkSheetLayout(
+                availableHeight: geometry.size.height + geometry.safeAreaInsets.bottom,
+                bottomOverlap: geometry.safeAreaInsets.bottom, searchHeight: searchHeight)
             ZStack(alignment: .top) {
-                NativeMapView(model: model) {
+                NativeMapView(
+                    model: model, detailPosition: detailPosition, detailHeight: detailHeight,
+                    detailMaximumHeight: sheetLayout.height(at: .medium),
+                    topObstruction: geometry.safeAreaInsets.top + searchHeight
+                ) {
                     resultsCollapsed = true
                     searchFocused = false
                 }
                 .accessibilityLabel("Park map")
                 .accessibilityValue("\(model.result.matchingCount) matching parks")
                 .accessibilityIdentifier("park-map")
-                .ignoresSafeArea(.container, edges: .top)
+                .opacity(model.selectedID != nil && detailPosition == .high ? 0 : 1)
+                .accessibilityHidden(model.selectedID != nil && detailPosition == .high)
+                .ignoresSafeArea(.container, edges: [.top, .bottom])
                 .ignoresSafeArea(.keyboard)
                 VStack(spacing: 8) {
                     MapSearchBar(
@@ -33,6 +45,7 @@ struct MapScreen: View {
                         result: model.result,
                         openFilters: {
                             searchFocused = false
+                            model.dismissPark()
                             showsFilters = true
                         })
                     FilterChipsView(query: model.query, update: model.setFilters)
@@ -46,12 +59,20 @@ struct MapScreen: View {
                             },
                             clear: { model.setFilters(.init()) })
                     }
-                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 12).padding(.top, 8)
+                .onGeometryChange(for: CGFloat.self) {
+                    $0.size.height
+                } action: {
+                    searchHeight = $0
+                }
+                .opacity(model.selectedID != nil && detailPosition == .high ? 0 : 1)
+                .allowsHitTesting(model.selectedID == nil || detailPosition != .high)
+                .accessibilityHidden(model.selectedID != nil && detailPosition == .high)
             }
+            .background(Color(uiColor: .systemBackground).ignoresSafeArea())
             .overlay(alignment: .bottomTrailing) {
-                if !searchFocused {
+                if !searchFocused && model.selectedID == nil {
                     Button(action: model.locateMe) {
                         Image(systemName: "location.fill").frame(width: 48, height: 48)
                     }
@@ -61,23 +82,26 @@ struct MapScreen: View {
                 }
             }
             .overlay(alignment: .bottomLeading) {
-                if model.usesOfflineMap && !searchFocused {
+                if model.usesOfflineMap && !searchFocused && model.selectedID == nil {
                     Text("Offline geographic overview · Natural Earth")
                         .font(.caption2).foregroundStyle(Color.primary)
                         .padding(6).background(.background, in: RoundedRectangle(cornerRadius: 8))
                         .padding(.leading, 8).padding(.bottom, 76)
                 }
             }
+            .overlay(alignment: .bottom) {
+                if model.selectedID != nil && !showsFilters {
+                    ParkDetailSheet(
+                        model: model.detail, position: $detailPosition, layout: sheetLayout,
+                        dismiss: model.dismissPark
+                    ) { detailHeight = $0 }
+                    .offset(y: geometry.safeAreaInsets.bottom)
+                }
+            }
         }
+        .toolbar(model.selectedID != nil && detailPosition == .high ? .hidden : .visible, for: .tabBar)
         .sheet(isPresented: $showsFilters) {
             FilterSheet(model: model, dismiss: { showsFilters = false })
-        }
-        .sheet(
-            isPresented: Binding(
-                get: { model.selectedID != nil && !showsFilters },
-                set: { if !$0 { model.dismissPark() } })
-        ) {
-            ParkDetailView(model: model.detail, dismiss: model.dismissPark).presentationDetents([.large])
         }
         .alert(
             "Location unavailable",
@@ -88,8 +112,16 @@ struct MapScreen: View {
         } message: {
             Text(model.locationMessage ?? "")
         }
-        .onChange(of: model.selectedID) { _, id in if id != nil { searchFocused = false } }
-        .onChange(of: searchFocused) { _, focused in if focused { resultsCollapsed = false } }
+        .onChange(of: model.selectedID) { _, id in
+            detailPosition = .low
+            if id != nil { searchFocused = false }
+        }
+        .onChange(of: searchFocused) { _, focused in
+            if focused {
+                resultsCollapsed = false
+                model.dismissPark()
+            }
+        }
         .onChange(of: model.query) { _, _ in resultsCollapsed = false }
         .onDisappear { searchFocused = false }
     }

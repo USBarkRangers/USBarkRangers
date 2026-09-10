@@ -12,19 +12,24 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
     private let basemap = OfflineBasemapOverlay(urlTemplate: nil)
     private let outlines = OfflineBasemapOverlay.loadOutlines()
     private var applying = false
+    private let selectionFraming = MapSelectionFraming()
     init(model: MapFeatureModel) {
         self.model = model
         cameraID = model.cameraRequest?.id
     }
 
-    func apply(to map: MKMapView) {
+    func apply(
+        to map: MKMapView, detailPosition: ParkSheetPosition = .low, detailHeight: CGFloat = 0,
+        detailMaximumHeight: CGFloat = 0, topObstruction: CGFloat = 0
+    ) {
         applying = true
         defer { applying = false }
         updateAnnotations(on: map)
         updateOverlays(on: map)
         map.mapType =
             model.settings.value.mapStyle == .satellite && !model.usesOfflineMap ? .satellite : .standard
-        if let request = model.cameraRequest, request.id != cameraID {
+        let cameraChanged = model.cameraRequest?.id != cameraID
+        if let request = model.cameraRequest, cameraChanged {
             cameraID = request.id
             map.setRegion(request.region, animated: false)
         }
@@ -33,6 +38,10 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
         {
             map.selectAnnotation(annotation, animated: false)
         }
+        selectionFraming.apply(
+            to: map, annotation: model.selectedID.flatMap { annotations[$0] },
+            position: detailPosition, sheetHeight: detailHeight, cameraChanged: cameraChanged,
+            maximumSheetHeight: detailMaximumHeight, topObstruction: topObstruction)
         if model.selectedID == nil {
             for annotation in map.selectedAnnotations { map.deselectAnnotation(annotation, animated: false) }
         }

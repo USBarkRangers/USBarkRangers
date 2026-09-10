@@ -70,9 +70,9 @@ nonisolated final class DiscoveryUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         search.typeText("hulls cove")
         result.tap()
-        XCTAssertTrue(app.navigationBars["Park details"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.scrollViews["park-detail-sheet"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.keyboards.firstMatch.exists)
-        app.buttons["Done"].tap()
+        app.buttons["Close park details"].tap()
         expectPins(1, in: app)
     }
 
@@ -134,8 +134,9 @@ nonisolated final class DiscoveryUITests: XCTestCase {
         XCTAssertTrue(result.waitForExistence(timeout: 3))
         result.tap()
         XCTAssertTrue(app.buttons["Directions in Apple Maps"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["Done"].isHittable)
-        app.buttons["Done"].tap()
+        capture("Park sheet at largest text size", app: app)
+        XCTAssertTrue(app.buttons["Close park details"].isHittable)
+        app.buttons["Close park details"].tap()
     }
 
     @MainActor
@@ -161,8 +162,8 @@ nonisolated final class DiscoveryUITests: XCTestCase {
         XCTAssertTrue(
             XCUIApplication(bundleIdentifier: "com.apple.Maps").wait(for: .runningForeground, timeout: 10))
         app.activate()
-        XCTAssertTrue(app.navigationBars["Park details"].waitForExistence(timeout: 5))
-        app.buttons["Done"].tap()
+        XCTAssertTrue(app.scrollViews["park-detail-sheet"].waitForExistence(timeout: 5))
+        app.buttons["Close park details"].tap()
         XCTAssertTrue(app.textFields["park-search"].exists)
     }
 }

@@ -1,6 +1,6 @@
 # Phase 2 — catalog and discovery
 
-September 10, 2026. Current build **0.2.2 (4)** includes branded pins/clusters and the map/search interaction fix. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
+September 10, 2026. Current build **0.2.3 (5)** adds the three-position park detail sheet to the existing branded map/search UI. Original 0.2.0 implementation commit `4084569`, verification/string-catalog follow-up `ba8aa68`, on `codex/ios-native-setup`, GitHub destination `USBarkRangers/USBarkRangers`. Phase 2 implementation is complete and is **awaiting user testing**, with the verification limits below. User acceptance remains pending. Phase 3 has not started.
 
 ## What you can use
 
@@ -37,7 +37,7 @@ The [implemented architecture and call map](../../../01-code/ios/ARCHITECTURE.md
 | Catalog | Add `CatalogRepository`, `CatalogHTTPClient`, `CatalogDiskStore`, `CatalogValidator`. One writer, conditional bounded transport, atomic envelopes and whole-snapshot validation. |
 | Preferences | Add `SettingsRepository`, owning one encoded device-preferences value. No private store or migration framework yet. |
 | Platform | Add `NetworkMonitor`, `LocationClient`, `MapsHandoff`, `OfflineBasemapOverlay`; extend `Diagnostics` with separate catalog timings. |
-| Discovery | The 16 implemented files are: `MapFeatureModel`, `MapScreen`, `NativeMapView`, `MapCoordinator`, `ParkAnnotation`, `ParkAnnotationView`, `ParkClusterView`, `MapOverlayRenderer`, `FilterSheet`, `FilterSummaryView`, `SearchModel`, `MapSearchBar`, `MapSearchResults`, `FilterChipsView`, `ParkDetailModel`, `ParkDetailView`. The old `SearchSheet` is removed. |
+| Discovery | The original 16 implemented files are: `MapFeatureModel`, `MapScreen`, `NativeMapView`, `MapCoordinator`, `ParkAnnotation`, `ParkAnnotationView`, `ParkClusterView`, `MapOverlayRenderer`, `FilterSheet`, `FilterSummaryView`, `SearchModel`, `MapSearchBar`, `MapSearchResults`, `FilterChipsView`, `ParkDetailModel`, `ParkDetailView`. The old `SearchSheet` is removed. The detail-sheet follow-up adds `ParkSheetPosition`, `ParkDetailSheet`, `ParkDetailActions`, `ParkDetailMetadata`, `ParkThumbnailStrip`, `ParkDetailContent` and `MapSelectionFraming`; the implemented call map documents each. |
 | Home/settings | Extend `HomeView`; add `SettingsModel` and `SettingsView`. Views render and forward actions. |
 | Resources | Public catalog/manifest/provenance, local land geometry/tile, education, retained legal text, approved community links and attribution. |
 | Local backend | Four catalog files: source adapter, schema, publisher, trigger handlers. The small registry/admin-write integration is in the retained `index.js`. |
@@ -45,6 +45,32 @@ The [implemented architecture and call map](../../../01-code/ios/ARCHITECTURE.md
 | Verification | Domain/app/UI tests plus publication/script tests; native iOS and catalog GitHub workflows. Neither workflow deploys. |
 
 The [publication runbook](../../operations/NATIVE_CATALOG_PUBLICATION.md) maps backend calls, local fixtures, eventual configuration and rollback. A deliberate refinement keeps the old CSV/fallback writer as its existing owner: native publication adds no second writer to old fallback storage. The public asset publisher uses immutable upload followed by a generation-conditioned manifest promotion. Memory adapters verify ordering/conflicts locally; they do not certify cloud IAM or actual storage preconditions.
+
+## Park detail sheet — 0.2.3 (5)
+
+The user's final layout replaces the initial all-detents-pin-visible concept:
+
+- **Low:** one condensed park-name line, Directions and Park Info. Search remains visible, most of the map is exposed, and the sheet continues beneath the real bottom tab bar. Content fades toward the tab overlap.
+- **Medium:** expanded name, supplied metadata/tags, the same actions and a horizontal strip of neutral 4:3 photo placeholders. Search/tabs remain visible. The selected badge is framed below search and above the sheet.
+- **High:** the available screen belongs to park details, actions, placeholders and all existing facts/links. Search/map presentation and bottom tabs are hidden; no map band is reserved to display the selected pin. Close and the drag handle remain reachable while facts scroll.
+
+The sheet lives inside Discovery so the actual native tab bar can sit above low/medium content. SwiftUI's drag gesture uses global coordinates, projected end translation and three geometry-derived snap heights with a spring (or no animation with Reduce Motion). The handle always resizes and has a larger touch area at high. Cancelled gestures reset temporary translation so the card cannot remain between detents. Body gestures resize low/medium and can collapse high from the top; scrolling farther down high stays normal. VoiceOver has an adjustable size handle. Dark-mode Directions uses a dark label on the existing light brand accent for readable contrast. Largest accessibility text opens high so the complete name/actions can scroll.
+
+`Park Info` expands to the supplied full details. Directions uses the unchanged Apple Maps handoff and error state. Existing approved source website, picture and video links are retained. No visit, trip, check-in, recording or fake action is added. The 144×108-point placeholders use a system-neutral fill and photo icon, with no black asset backing, invented URL, download/cache or catalog field. Future real image content has one view owner to replace.
+
+MapScreen assembles presentation; ParkDetailSheet owns drag/snapping; ParkDetailView composes the four small content views; ParkSheetLayout owns geometry; MapSelectionFraming owns only native viewport/attribution placement. Catalog/domain/search/filter models, ParkDetailModel, annotation IDs/reuse/clustering, pin artwork/states, backend and existing web code are unchanged. The implemented ownership/call map and README match these responsibilities.
+
+Final Debug and Release builds passed with Swift warnings treated as errors; formatting/whitespace checks passed. The nine domain tests passed. The final iPhone 17 Pro run passed all 21 app/catalog tests, three map-presentation/framing tests and seven UI tests (four Discovery, retained map-touch behavior and both sheet scenarios). The UI run verifies low/medium search/tab visibility, a single-line low title with real actions, medium pin visibility, high search/tab hiding, snapping back through all positions, unchanged search/filter results after close, dark mode, scrollable landscape links and Apple Maps return.
+
+The small-phone three-detent check passed after increasing the high grabber hit area and handling gesture cancellation. The earlier SE run passed largest text, Apple Maps return and dark landscape link/close reachability.
+
+The raw contrast audit flagged a white-on-black heading and mint-on-charcoal Park Info label; inspected element captures show 21:1 and approximately 8.15:1 respectively. A subsequent SE audit inconsistently flagged a semantic metadata label as well. The unstable contrast assertion was removed from the functional landscape test instead of accumulating per-label exceptions. Contrast is assessed from the captured renders; no automated sheet-contrast pass is claimed. Human VoiceOver and physical-device review remain pending. The final SE dark/landscape functional rerun passed. The earlier raw SE contrast failures remain in `BarkDetailSheetSEFinal.xcresult` and `BarkDetailSheetSEAudit.xcresult` for transparency; their functional drag/landscape assertions passed.
+
+Final local evidence: `/tmp/BarkDetailSheetComplete.xcresult`, `/tmp/BarkDetailSheetSEFinal.xcresult`, `/tmp/BarkDetailSheetSEAudit.xcresult`, `/tmp/BarkDetailSheetSEFunctional.xcresult`, `/tmp/bark-detail-complete-build.log`, `/tmp/bark-detail-functional-build.log`, `/tmp/bark-detail-complete-release.log`, `/tmp/bark-detail-domain.log` and `/tmp/bark-detail-format-final.log`. Screenshots are exported under `/tmp/bark-detail-complete-images/` and `/tmp/bark-detail-se-final-images/`. All evidence is local; no new hosted-CI result or physical-device certification is claimed.
+
+Reproduction uses the project/scheme/fixture-server commands below, with derived data `/tmp/BarkDetailSheet`. The final Pro test selection was `-only-testing:BarkRangerTests -only-testing:BarkRangerUITests/DiscoveryUITests -only-testing:BarkRangerUITests/MapInteractionUITests -only-testing:BarkRangerUITests/ParkDetailSheetUITests`, `-parallel-testing-enabled NO`, destination `platform=iOS Simulator,id=3363BA1A-47D8-45F1-B1A1-CD7FEB8E2F40`. Small-phone runs use destination `platform=iOS Simulator,id=A6B8C5BD-31C4-41F4-92BF-CF25F1A9AADA`; the final functional rerun selects `BarkRangerUITests/ParkDetailSheetUITests/testDarkLandscapeKeepsFullDetailsReachable`.
+
+User testing: choose a long-name park, check low's condensed title/actions and visible search/tabs, drag to medium and confirm tags/photos/pin, then expand high and scroll through real details/links. Drag back through both positions and close; the same query, chips and count should remain. Try Directions and return from Apple Maps, horizontal thumbnail/action scrolling, VoiceOver sizing, large text, dark mode and both phone orientations. The current bottom tab bar's appearance remains system-native.
 
 ## Map polish — 0.2.2 (4)
 
@@ -163,13 +189,13 @@ Physical source lines include comments/blank lines and exclude generated builds,
 
 | Group | Files | Lines |
 |---|---:|---:|
-| App + domain runtime Swift | 41 | 2,705 |
-| App/UI/package test Swift | 8 | 936 |
+| App + domain runtime Swift | 48 | 3,046 |
+| App/UI/package test Swift | 10 | 1,118 |
 | New backend catalog JavaScript | 4 | 297 |
 | New backend/script test JavaScript | 2 | 221 |
 | Local fixture/build scripts + Apps Script source | 4 | 183 |
 | Native project/package/configuration + two CI workflows + Apps Script manifest | 11 | 838 |
 
-The largest Swift runtime file remains **164 lines**. The earlier 0.2.1 cleanup added **105 net runtime Swift lines** over 0.2.0: the obsolete 40-line SearchSheet is removed; MapScreen dropped from 103 to 90 lines; MapSearchBar, FilterChipsView and MapSearchResults are 50, 52 and 53 lines respectively. No new model, repository or service is introduced. Phase 1 had 509 runtime lines; phase 2, including both UI follow-ups, adds a net **2,196 runtime Swift lines** and real catalog/discovery behavior. The retained backend registry gains 12 net physical lines. **Old web/backend runtime lines removed: 0.** No deployed cost reduction or final replacement saving is claimed while both apps remain supported. Retirement and the final line-cut comparison come after the replacement and separately approved rollout.
+The largest Swift runtime file remains **164 lines**. The detail sheet adds seven small runtime files and **341 net runtime Swift lines** over 0.2.2; source line changes describe added presentation, not a claim of web-code retirement. The earlier 0.2.1 cleanup added **105 net runtime Swift lines** over 0.2.0: the obsolete 40-line SearchSheet is removed; MapScreen dropped from 103 to 90 lines; MapSearchBar, FilterChipsView and MapSearchResults are 50, 52 and 53 lines respectively. No new model, repository or service is introduced. Phase 1 had 509 runtime lines; phase 2, including its UI follow-ups, adds a net **2,537 runtime Swift lines** and real catalog/discovery behavior. The retained backend registry gains 12 net physical lines. **Old web/backend runtime lines removed: 0.** No deployed cost reduction or final replacement saving is claimed while both apps remain supported. Retirement and the final line-cut comparison come after the replacement and separately approved rollout.
 
 Remaining prerequisites: actual iOS 18.4 runtime and physical-device signing/trust; live public-asset/source/trigger configuration and provider checks; human VoiceOver review; native legal/privacy/App Store disclosure review before release. These do not authorize moving users or starting the next phase. The next step is user testing and Phase-2 fixes.

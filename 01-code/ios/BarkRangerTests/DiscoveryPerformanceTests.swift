@@ -36,12 +36,12 @@ struct DiscoveryPerformanceTests {
         let selected = try #require(model.parks.first { $0.name.contains("Hulls Cove") })
         let annotation = try #require(coordinator.annotations[selected.id])
         model.selectPark(id: selected.id, focusOnMap: false)
-        coordinator.apply(to: map, detailPosition: .medium, detailFramingHeight: 440, topObstruction: 130)
+        coordinator.apply(to: map, detailFramingHeight: 440, topObstruction: 130)
         map.clearCounts()
         let begin = ContinuousClock.now
         for height in 200..<500 {
             coordinator.apply(
-                to: map, detailPosition: .medium, detailHeight: CGFloat(height), detailFramingHeight: 440,
+                to: map, detailFramingHeight: CGFloat(height),
                 topObstruction: 130)
         }
         print(

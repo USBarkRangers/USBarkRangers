@@ -5,8 +5,6 @@ import SwiftUI
 struct NativeMapView: UIViewRepresentable {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let model: MapFeatureModel
-    var detailPosition = ParkSheetPosition.low
-    var detailHeight: CGFloat = 0
     var detailFramingHeight: CGFloat = 0
     var topObstruction: CGFloat = 0
     var interactionBegan: () -> Void = {}
@@ -32,16 +30,14 @@ struct NativeMapView: UIViewRepresentable {
         context.coordinator.interactionBegan = interactionBegan
         map.delegate = context.coordinator
         context.coordinator.apply(
-            to: map, detailPosition: detailPosition, detailHeight: detailHeight,
-            detailFramingHeight: detailFramingHeight, topObstruction: topObstruction,
+            to: map, detailFramingHeight: detailFramingHeight, topObstruction: topObstruction,
             reduceMotion: reduceMotion)
         return map
     }
     func updateUIView(_ map: MKMapView, context: Context) {
         context.coordinator.interactionBegan = interactionBegan
         context.coordinator.apply(
-            to: map, detailPosition: detailPosition, detailHeight: detailHeight,
-            detailFramingHeight: detailFramingHeight, topObstruction: topObstruction,
+            to: map, detailFramingHeight: detailFramingHeight, topObstruction: topObstruction,
             reduceMotion: reduceMotion)
     }
     static func dismantleUIView(_ map: MKMapView, coordinator: MapCoordinator) { map.delegate = nil }

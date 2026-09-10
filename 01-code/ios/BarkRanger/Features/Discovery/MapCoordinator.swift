@@ -24,8 +24,8 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
     }
 
     func apply(
-        to map: MKMapView, detailPosition: ParkSheetPosition = .low, detailHeight: CGFloat = 0,
-        detailFramingHeight: CGFloat = 0, topObstruction: CGFloat = 0, reduceMotion: Bool = false
+        to map: MKMapView, detailFramingHeight: CGFloat = 0, topObstruction: CGFloat = 0,
+        reduceMotion: Bool = false
     ) {
         self.reduceMotion = reduceMotion
         applying = true
@@ -47,7 +47,7 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
         }
         selectionFraming.apply(
             to: map, annotation: model.selectedID.flatMap { annotations[$0] },
-            position: detailPosition, sheetHeight: detailHeight, cameraChanged: cameraChanged,
+            cameraChanged: cameraChanged,
             framingSheetHeight: detailFramingHeight, topObstruction: topObstruction,
             animated: !reduceMotion)
         if model.selectedID == nil {

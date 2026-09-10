@@ -65,6 +65,9 @@ nonisolated final class ParkDetailSheetUITests: XCTestCase {
         let resting = home.frame
         dragHandle(app, by: -220)
         let mediumTop = app.otherElements["park-sheet-handle"].frame.midY
+        let pin = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "park-pin-"))
+            .firstMatch
+        let anchor = pin.frame
         for cycle in 0..<3 {
             app.buttons["Park Info"].tap()
             XCTAssertTrue(app.staticTexts["Updates and information"].waitForExistence(timeout: 3))
@@ -76,6 +79,8 @@ nonisolated final class ParkDetailSheetUITests: XCTestCase {
             XCTAssertEqual(
                 home.frame.minY, resting.minY, accuracy: 2, "Cycle \(cycle) must restore the baseline")
             XCTAssertEqual(home.frame.height, resting.height, accuracy: 2)
+            XCTAssertEqual(pin.frame.midX, anchor.midX, accuracy: 1)
+            XCTAssertEqual(pin.frame.midY, anchor.midY, accuracy: 1, "Returning from high must never pan")
         }
         capture("Tabs stay at their resting height after repeated high scrolling", app)
         app.buttons["Close park details"].tap()

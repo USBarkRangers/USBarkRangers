@@ -21,8 +21,7 @@ struct MapScreen: View {
             let hidesChrome = model.selectedID != nil && sheetLayout.hidesChrome(at: detailHeight)
             ZStack(alignment: .top) {
                 NativeMapView(
-                    model: model, detailPosition: detailPosition, detailHeight: detailHeight,
-                    detailFramingHeight: sheetLayout.height(at: .medium),
+                    model: model, detailFramingHeight: sheetLayout.height(at: .medium),
                     topObstruction: geometry.safeAreaInsets.top + searchHeight
                 ) {
                     resultsCollapsed = true
@@ -34,22 +33,29 @@ struct MapScreen: View {
                 .ignoresSafeArea(.container, edges: [.top, .bottom])
                 .ignoresSafeArea(.keyboard)
                 VStack(spacing: 8) {
-                    MapSearchBar(
-                        text: Binding(
-                            get: { model.query.search },
-                            set: { text in
-                                var query = model.query
-                                query.search = text
-                                model.setFilters(query)
-                            }),
-                        focused: $searchFocused,
-                        result: model.result,
-                        openFilters: {
-                            searchFocused = false
-                            model.dismissPark()
-                            showsFilters = true
-                        })
-                    FilterChipsView(query: model.query, update: model.setFilters)
+                    VStack(spacing: 8) {
+                        MapSearchBar(
+                            text: Binding(
+                                get: { model.query.search },
+                                set: { text in
+                                    var query = model.query
+                                    query.search = text
+                                    model.setFilters(query)
+                                }),
+                            focused: $searchFocused,
+                            result: model.result,
+                            openFilters: {
+                                searchFocused = false
+                                model.dismissPark()
+                                showsFilters = true
+                            })
+                        FilterChipsView(query: model.query, update: model.setFilters)
+                    }
+                    .onGeometryChange(for: CGFloat.self) {
+                        $0.size.height
+                    } action: {
+                        searchHeight = $0 + ParkSheetLayout.topInset
+                    }
                     if searchFocused || (model.parks.isEmpty && !resultsCollapsed) {
                         MapSearchResults(
                             parks: model.parks,
@@ -62,11 +68,6 @@ struct MapScreen: View {
                     }
                 }
                 .padding(.horizontal, 12).padding(.top, ParkSheetLayout.topInset)
-                .onGeometryChange(for: CGFloat.self) {
-                    $0.size.height
-                } action: {
-                    searchHeight = $0
-                }
                 .offset(
                     y: reduceMotion || !hidesChrome ? 0 : -(searchHeight + geometry.safeAreaInsets.top + 16)
                 )
@@ -105,13 +106,10 @@ struct MapScreen: View {
                             detailHeight = height
                         }
                         .offset(y: geometry.safeAreaInsets.bottom)
-                        .transition(
-                            .asymmetric(
-                                insertion: .identity,
-                                removal: reduceMotion ? .opacity : .move(edge: .bottom)))
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom))
                     }
                 }
-                .animation(.easeIn(duration: 0.26), value: model.selectedID != nil)
+                .animation(.easeInOut(duration: 0.26), value: model.selectedID != nil)
             }
             .onChange(of: geometry.safeAreaInsets.bottom, initial: true) { _, overlap in
                 // Retain the resting overlap while the sheet and native bar move above it.
@@ -136,6 +134,8 @@ struct MapScreen: View {
             if id != nil {
                 if detailPosition == .high { detailPosition = .low }
                 searchFocused = false
+            } else {
+                detailHeight = 0
             }
         }
         .onChange(of: searchFocused) { _, focused in

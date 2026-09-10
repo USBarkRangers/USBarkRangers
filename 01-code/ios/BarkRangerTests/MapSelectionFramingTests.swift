@@ -98,15 +98,16 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
             // Select again before any queued work can run; only the latest identity may remain selected.
             model.selectPark(id: park.id, focusOnMap: false)
             coordinator.apply(
-                to: map, detailPosition: .medium, detailFramingHeight: 430, topObstruction: 100,
+                to: map, detailFramingHeight: 430, topObstruction: 100,
                 reduceMotion: index == 2)
             XCTAssertEqual((map.selectedAnnotations.first as? ParkAnnotation)?.park.id, park.id)
             XCTAssertEqual(model.detail.park?.id, park.id)
         }
         XCTAssertEqual(map.centerAnimations, [true, true, false])
+        XCTAssertEqual(map.centerDurations, [0.3, 0.3, 0])
         for height in 200..<500 {
             coordinator.apply(
-                to: map, detailPosition: .medium, detailHeight: CGFloat(height), detailFramingHeight: 430,
+                to: map, detailFramingHeight: CGFloat(height),
                 topObstruction: 100, reduceMotion: true)
         }
         XCTAssertEqual(map.centerAnimations, [true, true, false], "Sheet movement must not restart a glide")
@@ -114,7 +115,7 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
         coordinator.mapView(map, didSelect: cluster)
         XCTAssertEqual(map.clusterAnimations, [false])
         coordinator.apply(
-            to: map, detailPosition: .medium, detailFramingHeight: 430, topObstruction: 100,
+            to: map, detailFramingHeight: 430, topObstruction: 100,
             reduceMotion: false)
         coordinator.mapView(map, didSelect: cluster)
         XCTAssertEqual(map.clusterAnimations, [false, true])
@@ -123,7 +124,7 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
     }
 
     @MainActor
-    func testLowAndMediumKeepOneScreenAnchorWithoutExtraCameraCommands() async throws {
+    func testLayoutChangesKeepCameraAndMarginsFixedAfterSelection() async throws {
         let context = try DiscoveryTestContext()
         defer { context.close() }
         try await context.start()
@@ -137,21 +138,22 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
         coordinator.apply(to: map)
         context.model.selectPark(id: park.id, focusOnMap: false)
         coordinator.apply(
-            to: map, detailPosition: .low, detailHeight: 200,
-            detailFramingHeight: 430, topObstruction: 100, reduceMotion: true)
+            to: map, detailFramingHeight: 430, topObstruction: 100, reduceMotion: true)
         let annotation = try XCTUnwrap(coordinator.annotations[park.id])
         let anchor = map.convert(annotation.coordinate, toPointTo: map)
         XCTAssertEqual(anchor.y, 290, accuracy: 1)
         let camera = map.camera.centerCoordinateDistance
-        for (position, height) in [(ParkSheetPosition.low, 280.0), (.medium, 430), (.low, 200)] {
+        let margins = map.layoutMargins
+        for height in [280.0, 430, 752, 430, 200] {
             coordinator.apply(
-                to: map, detailPosition: position, detailHeight: height,
-                detailFramingHeight: 430, topObstruction: 100, reduceMotion: true)
+                to: map, detailFramingHeight: height, topObstruction: 100, reduceMotion: true)
             XCTAssertEqual(map.convert(annotation.coordinate, toPointTo: map).x, anchor.x, accuracy: 1)
             XCTAssertEqual(map.convert(annotation.coordinate, toPointTo: map).y, anchor.y, accuracy: 1)
             XCTAssertEqual(map.camera.centerCoordinateDistance, camera, accuracy: 1)
         }
-        XCTAssertEqual(map.centerAnimations.count, 1, "Low/medium resizing must not command another pan")
+        XCTAssertEqual(map.layoutMargins, margins)
+        XCTAssertEqual(
+            map.centerAnimations.count, 1, "Presentation layout changes must not command another pan")
     }
 
     @MainActor
@@ -167,16 +169,17 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
                 center: annotation.coordinate,
                 span: .init(latitudeDelta: 0.12, longitudeDelta: 0.12)), animated: false)
         map.addAnnotation(annotation)
+        let margins = map.layoutMargins
         let framing = MapSelectionFraming()
         for heading in [0.0, 38.0] {
             framing.apply(
-                to: map, annotation: nil, position: .low, framingSheetHeight: 430, topObstruction: 100)
+                to: map, annotation: nil, framingSheetHeight: 430, topObstruction: 100)
             let camera = map.camera
             camera.heading = heading
             map.setCamera(camera, animated: false)
             let distance = map.camera.centerCoordinateDistance
             framing.apply(
-                to: map, annotation: annotation, position: .low, framingSheetHeight: 430, topObstruction: 100)
+                to: map, annotation: annotation, framingSheetHeight: 430, topObstruction: 100)
             let point = map.convert(annotation.coordinate, toPointTo: map)
             XCTAssertLessThan(point.y, 314)
             XCTAssertGreaterThan(point.y, 164)
@@ -186,18 +189,18 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
             map.setCenter(.init(latitude: 44.5, longitude: -68.3), animated: false)
             let panned = map.centerCoordinate
             framing.apply(
-                to: map, annotation: annotation, position: .low, framingSheetHeight: 430, topObstruction: 100)
+                to: map, annotation: annotation, framingSheetHeight: 430, topObstruction: 100)
             XCTAssertEqual(map.centerCoordinate.latitude, panned.latitude, accuracy: 0.000001)
             XCTAssertEqual(map.centerCoordinate.longitude, panned.longitude, accuracy: 0.000001)
             framing.apply(
-                to: map, annotation: annotation, position: .medium, framingSheetHeight: 430,
+                to: map, annotation: annotation, framingSheetHeight: 430,
                 topObstruction: 100)
             XCTAssertEqual(map.centerCoordinate.latitude, panned.latitude, accuracy: 0.000001)
             XCTAssertEqual(map.centerCoordinate.longitude, panned.longitude, accuracy: 0.000001)
         }
         map.setCenter(annotation.coordinate, animated: false)
         framing.apply(
-            to: map, annotation: annotation, position: .medium, cameraChanged: true, framingSheetHeight: 430,
+            to: map, annotation: annotation, cameraChanged: true, framingSheetHeight: 430,
             topObstruction: 100)
         XCTAssertLessThan(map.convert(annotation.coordinate, toPointTo: map).y, 314)
         annotation.update(
@@ -205,14 +208,14 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
                 id: park.id, siteID: park.siteID, name: park.name,
                 coordinate: try XCTUnwrap(Coordinate(latitude: 45, longitude: -69))))
         framing.apply(
-            to: map, annotation: annotation, position: .medium, framingSheetHeight: 430, topObstruction: 100)
+            to: map, annotation: annotation, framingSheetHeight: 430, topObstruction: 100)
         XCTAssertEqual(
             map.convert(annotation.coordinate, toPointTo: map).y, 290, accuracy: 1,
             "A corrected coordinate must reframe even when the selected ID is unchanged")
         let distance = map.camera.centerCoordinateDistance
-        framing.apply(to: map, annotation: annotation, position: .high)
+        framing.apply(to: map, annotation: annotation)
         XCTAssertEqual(map.camera.centerCoordinateDistance, distance, accuracy: 10)
-        XCTAssertEqual(map.layoutMargins.bottom, 8)
+        XCTAssertEqual(map.layoutMargins, margins)
     }
 }
 
@@ -220,6 +223,7 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
 @MainActor
 private final class MotionRecordingMap: MKMapView {
     var centerAnimations: [Bool] = []
+    var centerDurations: [TimeInterval] = []
     var clusterAnimations: [Bool] = []
     var enrolled: Set<ParkID> = []
     var removed: Set<ParkID> = []
@@ -233,6 +237,7 @@ private final class MotionRecordingMap: MKMapView {
     }
     override func setCenter(_ coordinate: CLLocationCoordinate2D, animated: Bool) {
         centerAnimations.append(animated)
+        centerDurations.append(UIView.inheritedAnimationDuration)
         super.setCenter(coordinate, animated: false)
     }
     override func showAnnotations(_ annotations: [any MKAnnotation], animated: Bool) {

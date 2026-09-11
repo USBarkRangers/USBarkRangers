@@ -48,13 +48,13 @@ Completed core checks:
 | Real native transaction/rules emulator suite | **7 passed**, including a fresh emulator start |
 | Firebase project isolation | **2 passed** |
 | Ordinary UI interaction coverage | 19 tests exercised; initial map-caption accessibility and outdated external-handoff expectations corrected and their tests rerun successfully |
-| Workflow/configuration syntax and whitespace | Passed locally; hosted CI status is separate |
+| Workflow/configuration syntax and whitespace | Passed locally; hosted backend/catalog checks passed for `297076a`; hosted iOS checks were still running at handoff |
 
 The first broad UI run passed grouping toggles, pin-to-pin zoom/selection, search/keyboard behavior, the sheet’s three detents, scroll locking, dismissal, tab restoration, landscape, preferences/reset and large-text discovery. The existing Maps test wrongly expected an external app launch from the Phase 2 sandbox, which deliberately injects a failed handoff; it now verifies the real failure message and continued discovery. Real Maps return remains a physical/manual check.
 
 The actual Firebase SDK test exercises email sign-in, local offline save/reopen/reconnect, UID switching and rejection of wrong-account cloud/provider requests. The Account UI test exercises real taps, name save, relaunch and sign-out. On iPhone 17 Pro and iPhone SE (3rd generation), the SDK and Account UI tests pass, including contrast/semantic/hit-target audits before and after scrolling, plus direct checks that the name field and Save button grow and remain reachable at the largest Dynamic Type size. The destructive-action color now has readable light/dark variants. The automatic audit excludes Dynamic Type/text-clipping heuristics for lazy Form rows in favor of the direct largest-size test; disabled controls and content in the system bar/fade area are excluded from contrast sampling. Those obscured rows are checked again after scrolling into view. This is focused coverage, not a claim that every account/provider state has passed a complete accessibility audit.
 
-The final three-detent/discovery restoration test also passed on iPhone SE. The current-source signed Debug build and unsigned generic-device Release compile both passed. Xcode is set to **BarkRanger Local Accounts → iPhone 17 Pro**; its per-user build location reuses `/tmp/BarkStableAnchor` to avoid duplicate build storage.
+The final three-detent/discovery restoration test also passed on iPhone SE. The current-source signed Debug build and unsigned generic-device Release compile both passed. Xcode is set to **BarkRanger Local Accounts → iPhone 17 Pro**; its per-user build location is under `/tmp/BarkStableAnchor`. Xcode adds a workspace-named subfolder; the obsolete default-location cache was reclaimed after checking it was unused.
 
 A concurrency test exposed an intermittent emulator transaction-initialization error when several first reads were launched independently. The dispatcher now batches its initial reads with transaction.getAll; fresh-emulator contract tests pass. Native transport failures retain the same durable operation for retry.
 

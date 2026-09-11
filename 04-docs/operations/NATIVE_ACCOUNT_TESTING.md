@@ -30,7 +30,7 @@ Do not start another copy if these ports are already serving this project. Resta
 
 Open `01-code/ios/BarkRanger.xcodeproj`. Choose **BarkRanger Local Accounts → iPhone 17 Pro → Run**. This separate shared scheme supplies a stable disposable account/catalog/preferences scope and loopback endpoints. Ordinary **BarkRanger** Run keeps normal development data separate. Account shows a prominent local-test label. Do not install this fixture scheme as a customer build.
 
-This Mac is set to the local-account scheme and iPhone 17 Pro simulator. Its per-user Project Settings reuse `/tmp/BarkStableAnchor` for build products to avoid a duplicate dependency build while disk space is low. This local setting is ignored by Git and does not affect another developer.
+This Mac is set to the local-account scheme and iPhone 17 Pro simulator. Its per-user Project Settings put build products under `/tmp/BarkStableAnchor`; Xcode adds its workspace-named subfolder, while the command-line verification products are at the root. The superseded default-location cache was removed after confirming it was no longer in use. This local setting is ignored by Git and does not affect another developer.
 
 ## Test accounts
 

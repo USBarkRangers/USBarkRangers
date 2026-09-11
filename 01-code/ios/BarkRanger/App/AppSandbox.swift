@@ -16,7 +16,9 @@
 
         init(scope: UUID = UUID()) { self.scope = scope }
 
-        func makeComposition(manifestURL: URL? = nil, preview: Bool = false) -> AppComposition {
+        func makeComposition(manifestURL: URL? = nil, preview: Bool = false, accountEmulators: Bool = false)
+            -> AppComposition
+        {
             let client = manifestURL.flatMap { url -> CatalogHTTPClient? in
                 guard ["localhost", "127.0.0.1", "::1"].contains(url.host ?? ""),
                     CatalogHTTPClient.allowedEndpoint(url)
@@ -26,12 +28,18 @@
             let diagnostics = Diagnostics(enabled: false)
             let catalog = CatalogRepository(disk: disk, client: client, diagnostics: diagnostics)
             // A failed suite remains in memory; there is deliberately no standard-defaults fallback.
-            let preferences = SettingsRepository(defaults: preview ? nil : UserDefaults(suiteName: suite))
+            let accounts =
+                accountEmulators && !preview
+                ? AccountAssembly.emulator(
+                    directory: directory.appendingPathComponent("Accounts"), scope: scope)
+                : AccountAssembly.unavailable(directory: directory.appendingPathComponent("Accounts"))
+            let preferences = SettingsRepository(
+                defaults: preview ? nil : UserDefaults(suiteName: suite), account: accounts.session)
             return AppComposition.assemble(
                 catalog: catalog, network: NetworkMonitor(fixedConnection: client != nil),
                 location: LocationClient(manager: nil), maps: MapsHandoff(open: { _ in false }),
                 settings: SettingsModel(preferences: preferences, catalog: catalog, openSettings: {}),
-                diagnostics: diagnostics, initialState: preview ? .ready : .loading)
+                diagnostics: diagnostics, accounts: accounts, initialState: preview ? .ready : .loading)
         }
 
         /// Call only after awaiting lifecycle shutdown. Other scopes and normal app storage are untouched.

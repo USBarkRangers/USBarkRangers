@@ -1,6 +1,8 @@
 # Bark Ranger for iPhone
 
-Phase 2 adds **393 bundled parks**, local search/filters, complete details, native MapKit, a geographic overview that works offline, one-shot Locate Me, Apple Maps directions and device settings. Accounts, trips and passport remain marked as future development features. The existing web app and deployed backend continue operating independently.
+Version **0.3.0 (19)** adds Phase 3 accounts, account-scoped SwiftData storage, offline profile/map-appearance edits, exact server receipts, existing membership access and native auth adapters. Use **BarkRanger Local Accounts** for the isolated emulator testing build; [start here](../../04-docs/operations/NATIVE_ACCOUNT_TESTING.md). Live Apple/Google setup still requires a registered Firebase iOS app. Trips/passport actions remain later phases. The existing web app and deployed backend continue operating independently.
+
+Phase 2 retains **393 bundled parks**, local search/filters, full details, native MapKit, offline geographic overview, Locate Me, Apple Maps directions and device settings.
 
 The 0.2.5 cleanup makes selection/directions share one Park, deduplicates catalog/query projection off the main actor, and keeps sheet/camera geometry out of marker reconciliation. Internal catalog failure categories preserve the same saved-data fallback. Version 0.2.6 added native pin-to-pin camera gliding, reliable grouping-setting changes and remembered low/medium sheet height. Selection sits lower above the sheet. Camera and sheet motion honor the system Reduce Motion preference. Version **0.2.7 (9)** keeps detail scrolling locked until high, slides search/tabs with the sheet, preserves saved choices as preference fields evolve, and retries imagery after an explicit appearance change. Distance units are visibly unavailable until distance measurements exist. See the [follow-up maintainability audit and growth priorities](../../04-docs/reports/ios-native/FOLLOWUP_MAINTAINABILITY_AUDIT_2026-09-10.md).
 
@@ -36,8 +38,8 @@ Toolchain: **Xcode 26.6 (17F113), Swift 6.3.3**, Swift 6 language mode with comp
 
 - `BarkRanger/App`: assembly, navigation, lifecycle and startup.
 - `BarkRanger/Data/Catalog`: accepted revisions, HTTP, validation and atomic disk storage.
-- `BarkRanger/Data/User`: device preferences only in phase 2.
-- `BarkRanger/Features`: Home, Discovery and Settings views/models.
+- `BarkRanger/Data/User`: scoped personal store, decoder, sync/receipts, membership and device/account preference boundary.
+- `BarkRanger/Features`: Home, Discovery, Settings and Account views/models.
 - `BarkRanger/Platform`: native location/maps, offline geography, connectivity and redacted local diagnostics.
 - `Packages/BarkDomain`: immutable values and pure catalog/filter/search policies; Foundation only.
 - `Resources`: approved public snapshot, exact provenance, local geography and static education/legal content.
@@ -65,13 +67,13 @@ BARK_CHECK_DIR=$(mktemp -d /tmp/bark-native-check.XXXXXX)
 xcodebuild -project 01-code/ios/BarkRanger.xcodeproj -scheme BarkRanger \
   -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
   -derivedDataPath "$BARK_CHECK_DIR/DerivedData" \
-  CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build-for-testing
+  CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES build-for-testing
 
 xcodebuild -project 01-code/ios/BarkRanger.xcodeproj -scheme BarkRanger \
   -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
   -derivedDataPath "$BARK_CHECK_DIR/DerivedData" \
   -resultBundlePath "$BARK_CHECK_DIR/CatalogTests.xcresult" \
-  -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test-without-building
+  -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES test-without-building
 ```
 
 Use **Product → Test** in Xcode for app unit/UI checks, with the fixture server running. Package tests run separately. The server uses only public/synthetic local fixtures; it cannot publish data. The shared Test action isolates the hosted app. UI tests supply `BARK_TEST_SCOPE`, a Debug-only UUID for both catalog cache and preferences; relaunch reuses that scope. Fixtures accept loopback URLs only. Tests/previews disable location requests and Maps/Settings handoffs; app tests await shutdown and delete their scoped artifacts. UI test sandboxes remain disposable Caches data, separate from normal development storage.
@@ -80,11 +82,13 @@ The native workflow pins Xcode 26.6 and starts its own loopback server. The cata
 
 ## Phase handoff
 
+- [Phase 3 report and testing checklist](../../04-docs/reports/ios-native/PHASE_3.md)
+- [Local account/emulator instructions](../../04-docs/operations/NATIVE_ACCOUNT_TESTING.md)
 - [Phase 2 report and testing checklist](../../04-docs/reports/ios-native/PHASE_2.md)
 - [Six-phase execution contract](../../04-docs/plans/ios-native-2026-09-09/IMPLEMENTATION_PHASES.md)
 - [Complete proposed Swift map](../../04-docs/plans/ios-native-2026-09-09/SWIFT_FILE_MAP.md)
 - [Catalog publisher and rollback runbook](../../04-docs/operations/NATIVE_CATALOG_PUBLICATION.md)
 
-Phase 3 starts only on the user's explicit instruction after phase-2 testing/fixes. No users, purchases or cloud records move during these build phases.
+Phase 3 is ready for the user's testing/fixes. Phase 4 requires a separate explicit start. No users, purchases or cloud records move during these build phases.
 
 GitHub destination: [USBarkRangers/USBarkRangers](https://github.com/USBarkRangers/USBarkRangers), branch `codex/ios-native-setup`, remote `usbarkrangers`. Never push this native work through the multi-remote `both` alias or deploy the old web app as a side effect.

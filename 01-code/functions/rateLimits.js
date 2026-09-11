@@ -25,6 +25,7 @@ const RATE_LIMIT_DAY_MS = 24 * 60 * 60 * 1000;
 // window and, where appropriate, a daily budget. Environment overrides keep
 // operational tuning out of the handler layer.
 const BOUNDED_CALLABLE_RATE_LIMITS = Object.freeze({
+    applyUserMutation: Object.freeze({ shortMax: 128, shortWindowMs: 60 * 60 * 1000, dailyMax: 256 }),
     getPremiumRouteBurst: Object.freeze({ shortMax: 12, shortWindowMs: 10 * 60 * 1000 }),
     getPremiumGeocodeBurst: Object.freeze({ shortMax: 30, shortWindowMs: 5 * 60 * 1000 }),
     createCheckoutSession: Object.freeze({ shortMax: 5, shortWindowMs: 15 * 60 * 1000, dailyMax: 20 }),

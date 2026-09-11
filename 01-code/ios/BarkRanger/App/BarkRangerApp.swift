@@ -17,13 +17,13 @@ struct BarkRangerApp: App {
         WindowGroup {
             RootView(
                 router: composition.router, startup: composition.startup, discovery: composition.discovery,
-                settings: composition.settings
+                settings: composition.settings, account: composition.account
             )
             .onChange(of: scenePhase, initial: true) { _, phase in
                 composition.lifecycle.sceneChanged(phase)
             }
             .onOpenURL { url in
-                composition.router.handle(url: url)
+                if composition.account.google?.handle(url) != true { composition.router.handle(url: url) }
             }
         }
     }

@@ -19,3 +19,10 @@ BARK_DEVELOPMENT_TEAM = V7Y6NA8G23
 // Set only after native catalog assets have been provisioned and verified.
 BARK_CATALOG_MANIFEST_URL =
 #include? "Catalog.local.xcconfig"
+
+// Native provider callback is developer-owned until Firebase iOS registration is supplied.
+BARK_GOOGLE_REVERSED_CLIENT_ID = barkranger-google-unconfigured
+#include? "Accounts.local.xcconfig"
+
+// Apply to our targets only; third-party packages may intentionally suppress their own warnings.
+SWIFT_TREAT_WARNINGS_AS_ERRORS = YES

@@ -7,9 +7,20 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Map") {
-                Picker("Map appearance", selection: preference(\.mapStyle)) {
+                Picker(
+                    "Map appearance",
+                    selection: Binding(
+                        get: { model.preferences.value.mapStyle }, set: { model.setMapStyle($0) })
+                ) {
                     ForEach(AppSettings.MapStyle.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
+                .disabled(model.isSavingPreference)
+                if model.preferences.account?.entitlement.access?.premium == true {
+                    Text(
+                        "Standard and Satellite sync with your account. Offline overview stays on this iPhone."
+                    ).font(.footnote)
+                }
+                if let notice = model.preferenceNotice { Text(notice).font(.footnote) }
                 Toggle("Group nearby pins", isOn: preference(\.clustering))
                 Toggle("Remember map position", isOn: preference(\.rememberMapPosition))
                 Picker("Distance units", selection: preference(\.units)) {
@@ -44,8 +55,10 @@ struct SettingsView: View {
                         document = item
                     }
                 }
-                Text("Settings are saved on this iPhone. Account sign-in and cloud sync arrive in phase 3.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                Text(
+                    "Device preferences stay on this iPhone. Signed-in Premium accounts also sync Standard or Satellite appearance."
+                )
+                .font(.footnote).foregroundStyle(.secondary)
             }
             Section { Button("Reset device preferences", action: model.resetPreferences) }
         }

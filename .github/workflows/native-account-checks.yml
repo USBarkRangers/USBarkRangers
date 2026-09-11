@@ -1,0 +1,37 @@
+name: Native account backend checks
+on:
+  push:
+    paths: ['01-code/functions/**', '03-tests/ios-native-emulators.test.cjs', '03-tests/fixtures/ios/**', '05-tools/ios-emulator-functions/**', '05-tools/scripts/seed-ios-emulators.cjs', '06-config/firestore.rules', 'firebase.ios-emulators.json', '.github/workflows/native-account-checks.yml']
+  pull_request:
+    paths: ['01-code/functions/**', '03-tests/ios-native-emulators.test.cjs', '03-tests/fixtures/ios/**', '05-tools/ios-emulator-functions/**', '05-tools/scripts/seed-ios-emulators.cjs', '06-config/firestore.rules', 'firebase.ios-emulators.json', '.github/workflows/native-account-checks.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  accounts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install pinned test and backend dependencies
+        run: |
+          npm ci --ignore-scripts
+          npm ci --prefix 01-code/functions --ignore-scripts
+      - name: Retained backend and project boundaries
+        run: |
+          npm test --prefix 01-code/functions
+          node --test 03-tests/firebase-project-isolation.test.cjs
+      - name: Exact receipts, conflicts, rules, account isolation and test-only deletion
+        run: >-
+          node_modules/.bin/firebase emulators:exec --config firebase.ios-emulators.json
+          --project demo-barkranger-ios --only auth,firestore,functions
+          'node 05-tools/scripts/seed-ios-emulators.cjs && node --test 03-tests/ios-native-emulators.test.cjs'

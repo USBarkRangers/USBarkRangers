@@ -1,6 +1,6 @@
 # Six implementation prompts and the testing handoff
 
-Revised September 10, 2026. Status: **phase 2 built; awaiting user testing**. The user reported that phase 1 works well and explicitly started phase 2: “ok, lets do phase 2 now, let me know when done”. This authorizes phase 2 only. The implementation/testing/fix loop below remains the execution contract; phase 3 requires its own explicit start. This contract replaces the former combined foundation/catalog phase 1 and the former migration/rollout phase 7.
+Revised September 10, 2026. Status: **Phase 3 implementation complete — user testing pending**, explicitly authorized by the user: “ok, lets start building phase 3, let me know when done”. Phase 4 is not authorized. The implementation → user testing → fixes → explicit next-phase loop below remains the execution contract. No customer migration or production rollout occurs during these build phases.
 
 ## Workspace preparation
 
@@ -15,8 +15,8 @@ Do not begin the next phase merely because tests pass, because the user asks a q
 | Phase | Reusable AI prompt | What the user gets to test | Implementation status | User acceptance |
 |---|---|---|---|---|
 | 1 | [Foundation and app shell](prompts/PHASE_1_FOUNDATION.md) | A native app that builds, launches, navigates and has a documented structure. | Complete — 0.1.0 (1), `f055492` | User reports “phase 1 seems to work well”; explicitly proceeded to phase 2 September 10, 2026 |
-| 2 | [Catalog and discovery](prompts/PHASE_2_CATALOG_DISCOVERY.md) | Real offline parks, refresh/reconnect behavior, map, search, filters and details. | Complete — map polish 0.2.2 (4), original implementation `4084569`; [testing handoff](../../reports/ios-native/PHASE_2.md) | Pending |
-| 3 | [Accounts, persistence and sync](prompts/PHASE_3_ACCOUNTS_SYNC.md) | Test-account sign-in, current-format data reads, memberships, persistent settings/profile edits and account isolation. | Not started | Pending |
+| 2 | [Catalog and discovery](prompts/PHASE_2_CATALOG_DISCOVERY.md) | Real offline parks, refresh/reconnect behavior, map, search, filters and details. | Complete — 0.2.16 (18), `e4d5756`; [testing handoff](../../reports/ios-native/PHASE_2.md) | User explicitly started Phase 3 September 10, 2026 after the Phase 2 audit/fixes |
+| 3 | [Accounts, persistence and sync](prompts/PHASE_3_ACCOUNTS_SYNC.md) | Test-account sign-in, current-format data reads, memberships, persistent settings/profile edits and account isolation. | Complete — 0.3.0 (19); [testing handoff](../../reports/ios-native/PHASE_3.md) | Pending — local simulator testing; live provider/device prerequisites remain |
 | 4 | [Visits, trips and passport](prompts/PHASE_4_VISITS_TRIPS.md) | Durable visits, itinerary planning, saved trips, passport, achievements and leaderboard. | Not started | Pending |
 | 5 | [Expeditions and native capabilities](prompts/PHASE_5_EXPEDITIONS_NATIVE.md) | Recording/recovery, expedition progress, Live Activities, sharing and support. | Not started | Pending |
 | 6 | [Purchases and integration hardening](prompts/PHASE_6_PURCHASES_INTEGRATION.md) | StoreKit test purchasing, provider-aware access and a complete integrated development build. | Not started | Pending |

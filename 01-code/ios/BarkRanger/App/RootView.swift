@@ -6,6 +6,7 @@ struct RootView: View {
     let startup: StartupModel
     let discovery: MapFeatureModel
     let settings: SettingsModel
+    var account: AccountModel? = nil
 
     var body: some View {
         Group {
@@ -58,9 +59,12 @@ struct RootView: View {
                 "Every visit tells a story", symbol: tab.symbol,
                 detail: "Park visits, stamps and achievements will arrive in phase 4.")
         case .account:
-            developmentScreen(
-                "Your ranger profile starts here", symbol: tab.symbol,
-                detail: "Sign-in and account settings will arrive in phase 3.")
+            if let account {
+                AccountView(model: account)
+            } else {
+                ContentUnavailableView(
+                    "Account unavailable in this preview", systemImage: "person.crop.circle")
+            }
         }
     }
 
@@ -96,7 +100,7 @@ struct RootView: View {
                     Text("Development preview")
                         .font(.headline)
                     Text(
-                        "Explore offline park records, local search, filters and Apple Maps directions. Accounts and adventure tools are still being built."
+                        "Explore offline park records, local search, filters and Apple Maps directions. Account testing is available in this development build; adventure tools are still being built."
                     )
                     Text("Your existing Bark Ranger app is still available as usual.")
                         .fixedSize(horizontal: false, vertical: true)
@@ -126,7 +130,7 @@ struct RootView: View {
         let composition = AppSandbox().makeComposition(preview: true)
         RootView(
             router: composition.router, startup: composition.startup, discovery: composition.discovery,
-            settings: composition.settings)
+            settings: composition.settings, account: composition.account)
     }
 
 #endif

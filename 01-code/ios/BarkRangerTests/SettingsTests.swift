@@ -7,6 +7,15 @@ import Testing
 
 @MainActor
 struct SettingsTests {
+    @Test func stoppingSettingsCancelsAQueuedPreferenceBeforeItWrites() async throws {
+        let app = AppSandbox().makeComposition(preview: true)
+        app.settings.setMapStyle(.satellite)
+        app.settings.stop()
+        try await eventually { !app.settings.isSavingPreference }
+        #expect(app.settings.preferences.value.mapStyle == .standard)
+        #expect(app.settings.preferenceNotice == nil)
+        await app.lifecycle.stopAndWait()
+    }
     @Test func successiveEditsRelaunchAndResetKeepOneSanitizedValue() throws {
         let suite = "bark.settings-test.\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))

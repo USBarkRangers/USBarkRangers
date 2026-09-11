@@ -1,11 +1,23 @@
 # Native configuration
 
-`Base.xcconfig` pins iPhone/iOS 18.4/Swift 6 and complete concurrency checks. Debug enables development fixture overrides; Release removes them. Xcode 26.6/Swift 6.3.3 is the verified toolchain. The bundle ID is `swarm.USBARKRANGERS`; automatic device signing uses the existing `BARK_DEVELOPMENT_TEAM` value or your ignored `Signing.local.xcconfig` override. No provisioning/registration is performed by phase 2.
+Base.xcconfig pins iPhone/iOS 18.4, Swift 6 and complete concurrency checking. Xcode 26.6/Swift 6.3.3 is the verified toolchain. Bundle ID is `swarm.USBARKRANGERS`; device signing uses the existing BARK_DEVELOPMENT_TEAM or ignored Signing.local.xcconfig override. Phase 3 has not provisioned a production native Firebase app or device profile.
 
-`Info.plist` declares public home/about/map/settings URLs and location wording for **Locate Me**. Browsing never asks for location. Debug includes local-network wording for an explicitly configured local fixture server. There are no background location, HealthKit, Live Activity, push, Sign in with Apple, Associated Domains or StoreKit capabilities yet.
+Info.plist declares public navigation, location-on-action wording and the separate Google callback scheme. BarkRanger.entitlements declares the application Keychain group and Sign in with Apple. Simulator Auth tests require an ad-hoc signature (`CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES`); no signing certificate is needed for that local simulator test. Physical Apple sign-in still needs genuine registered identifiers/capabilities and provisioning. No background location, HealthKit, Live Activity, push, associated-domain or StoreKit integration is added.
 
-The checked-in `BARK_CATALOG_MANIFEST_URL` is empty because the native publisher/public assets are not deployed. An approved HTTPS endpoint can later be set in ignored `Catalog.local.xcconfig`. In xcconfig syntax write the URL as `https:/$()/host/path/manifest.json` so `//` is not a comment. Do not add credentials to URLs. Release accepts HTTPS only.
+## Catalog
 
-For local tests, add **Run → Arguments → Environment Variables → `BARK_CATALOG_URL=http://127.0.0.1:8787/active/manifest.json`** in the Xcode scheme. This override exists in Debug only. Start the checked-in fixture server as described in [the runbook](../../../04-docs/operations/NATIVE_CATALOG_PUBLICATION.md). The normal shared scheme remains free of a developer-specific endpoint. A Debug-only `BARK_TEST_PREFERENCES_SUITE` UUID is used by UI tests to isolate non-private preferences; it is not an account/access override.
+BARK_CATALOG_MANIFEST_URL remains empty until the native publisher/public assets are deployed and verified. Later, set an approved HTTPS endpoint in ignored Catalog.local.xcconfig. Use `https:/$()/host/path/manifest.json` so xcconfig does not treat `//` as a comment. Release accepts HTTPS only. Debug supports the existing explicit BARK_CATALOG_URL loopback fixture override. Normal browsing never asks for location.
 
-The app has no Firebase SDK or GoogleService-Info.plist in phase 2. Existing production services belong only to `barkrangermap-auth`. Future account/provider setup requires a verified registered iOS app and its real configuration; an example identifier is never sufficient evidence of registration. No JDDM resources are used.
+## Accounts
+
+Firebase **12.19.1** and GoogleSignIn **10.0.0** are pinned in the project and committed Package.resolved. The app links Auth, Firestore and Functions; no Analytics product is linked. AccountAssembly configures Firestore memory cache; SwiftData owns durable personal data and pending writes.
+
+Live setup later requires the genuine `GoogleService-Info.plist` for an iOS app registered under **barkrangermap-auth** with the matching bundle ID. Place it in the app folder so Xcode includes it; it is ignored by Git. AccountAssembly validates project/bundle/native app-ID shape and otherwise leaves account sign-in unavailable while public discovery continues. A web app ID is not a native configuration. Read-only Phase 3 inspection found only a web app registered; this prerequisite remains outstanding.
+
+For Google, set `BARK_GOOGLE_REVERSED_CLIENT_ID` to the genuine REVERSED_CLIENT_ID from that plist in ignored `Accounts.local.xcconfig`. Its checked-in value is an intentionally unconfigured non-provider scheme. The adapter is only enabled if the actual client ID matches the app's URL schemes. Real Apple/Google linking, credential cancellation and Apple revocation must be verified later on the properly configured device build.
+
+## Local testing
+
+The separate **BarkRanger Local Accounts** shared scheme enables the explicit Debug-only demo emulator assembly and stable disposable sandbox. Normal **BarkRanger** Run remains separate. Ordinary Test uses inert accounts; the opt-in emulator test helper selects actual SDK/UI contracts. Release ignores all test launch flags. See [the setup/test checklist](../../../04-docs/operations/NATIVE_ACCOUNT_TESTING.md).
+
+Never add production customer credentials, fake provider registrations or JDDM configuration here. No production setup/deployment or customer migration is part of this phase.

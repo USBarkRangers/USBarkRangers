@@ -1,0 +1,47 @@
+{
+  "functions": [
+    {
+      "source": "05-tools/ios-emulator-functions",
+      "codebase": "native-test",
+      "predeploy": [
+        "node \"$PROJECT_DIR/05-tools/scripts/check-firebase-project.cjs\" \"$GCLOUD_PROJECT\"",
+        "node -e \"throw new Error('Emulator-only configuration: deployment is disabled.')\""
+      ]
+    }
+  ],
+  "firestore": {
+    "rules": "06-config/firestore.rules",
+    "predeploy": [
+      "node \"$PROJECT_DIR/05-tools/scripts/check-firebase-project.cjs\" \"$GCLOUD_PROJECT\"",
+      "node -e \"throw new Error('Emulator-only configuration: deployment is disabled.')\""
+    ]
+  },
+  "emulators": {
+    "auth": {
+      "host": "127.0.0.1",
+      "port": 9098
+    },
+    "firestore": {
+      "host": "127.0.0.1",
+      "port": 8088
+    },
+    "functions": {
+      "host": "127.0.0.1",
+      "port": 5008
+    },
+    "ui": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 4008
+    },
+    "hub": {
+      "host": "127.0.0.1",
+      "port": 4408
+    },
+    "logging": {
+      "host": "127.0.0.1",
+      "port": 4508
+    },
+    "singleProjectMode": true
+  }
+}

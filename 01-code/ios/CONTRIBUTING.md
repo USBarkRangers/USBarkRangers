@@ -16,6 +16,6 @@ Swift 6 strict concurrency and the app's default MainActor isolation are enabled
 
 Keep logs constrained to the fixed event/operation vocabulary in Diagnostics. Do not add raw URLs, UIDs, GPS samples, tokens or free-form error descriptions to logs. No remote diagnostics transport is present.
 
-Phase 2 has public/synthetic catalog fixtures and no personal-data emulator setup. Native refresh tests require the local fixture server described in the README. Phase 3 will use synthetic emulator accounts and provider adapters that prevent real billing/support side effects. Follow the Firebase ownership guide before any future infrastructure change.
+Native refresh tests use the local catalog fixture server described in the README. Phase 3 adds synthetic emulator accounts and provider adapters that prevent real billing/support side effects; follow the [account testing runbook](../../04-docs/operations/NATIVE_ACCOUNT_TESTING.md). Ordinary tests keep accounts unavailable unless explicitly opted into that workflow. Follow the Firebase ownership guide before any future infrastructure change.
 
 Use Xcode’s bundled `swift-format` with `.swift-format` for formatting; keep coherent operations together rather than splitting files to reduce physical line counts. Run catalog schema parity tests whenever the bundle or its publisher contract changes.

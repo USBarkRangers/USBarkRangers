@@ -19,9 +19,14 @@ nonisolated final class AppShellUITests: XCTestCase {
             } else {
                 XCTAssertTrue(app.navigationBars[tab].exists)
             }
-            if tab != "Map" { XCTAssertTrue(app.staticTexts["Development preview"].exists) }
+            if ["Trips", "Passport"].contains(tab) {
+                XCTAssertTrue(app.staticTexts["Development preview"].exists)
+            }
+            if tab == "Account" {
+                XCTAssertTrue(app.staticTexts["Account sign-in is not configured for this build."].exists)
+            }
         }
-        app.buttons["Back to Home"].tap()
+        app.tabBars.buttons["Home"].tap()
         XCTAssertTrue(app.navigationBars["Bark Ranger"].exists)
         app.buttons["Explore parks"].tap()
         XCTAssertTrue(app.textFields["park-search"].exists)

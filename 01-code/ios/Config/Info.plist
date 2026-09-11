@@ -11,6 +11,10 @@
         <key>CFBundleURLName</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
         <key>CFBundleURLSchemes</key><array><string>barkranger</string></array>
         <key>CFBundleTypeRole</key><string>Viewer</string>
+    </dict><dict>
+        <key>CFBundleURLName</key><string>Google sign-in</string>
+        <key>CFBundleURLSchemes</key><array><string>$(BARK_GOOGLE_REVERSED_CLIENT_ID)</string></array>
+        <key>CFBundleTypeRole</key><string>Editor</string>
     </dict></array>
     <key>UIApplicationSceneManifest</key>
     <dict>

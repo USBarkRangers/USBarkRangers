@@ -20,6 +20,9 @@ final class SettingsModel {
     let preferences: SettingsRepository
     private(set) var catalogState = CatalogRepository.State()
     private(set) var documentText = ""
+    private(set) var preferenceNotice: String?
+    private var preferenceTask: Task<Void, Never>?
+    var isSavingPreference: Bool { preferenceTask != nil }
     private let catalog: CatalogRepository
     private let openSettings: () -> Void
     private var observation: Task<Void, Never>?
@@ -36,6 +39,26 @@ final class SettingsModel {
                 guard !Task.isCancelled else { return }
                 catalogState = state
             }
+        }
+    }
+    func setMapStyle(_ style: AppSettings.MapStyle) {
+        guard preferenceTask == nil else { return }
+        let uid = preferences.account?.identity?.uid
+        preferenceNotice = nil
+        preferenceTask = Task {
+            do {
+                try Task.checkCancellation()
+                guard preferences.account?.identity?.uid == uid else { throw AccountFailure.accountChanged }
+                try await preferences.setMapStyle(style)
+                try Task.checkCancellation()
+                if preferences.account?.identity?.uid == uid { preferenceNotice = "Saved on this iPhone." }
+            } catch {
+                if !Task.isCancelled, preferences.account?.identity?.uid == uid {
+                    preferenceNotice =
+                        "The preference could not be saved. Check your account access and available storage, then try again."
+                }
+            }
+            preferenceTask = nil
         }
     }
     func update(_ value: AppSettings) { preferences.update(value) }
@@ -61,6 +84,7 @@ final class SettingsModel {
         documentText = text
     }
     func stop() {
+        preferenceTask?.cancel()  // Keep ownership until its completion; an accepted save stays durable.
         observation?.cancel()
         observation = nil
         refreshTask?.cancel()

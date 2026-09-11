@@ -1,267 +1,231 @@
 // !$*UTF8*$!
 {
+	archiveVersion = 1;
 	classes = {
 	};
 	objectVersion = 77;
-	archiveVersion = 1;
 	objects = {
-		BA4C00000000000000000001 = {
-			path = "../../04-docs/plans/ios-native-2026-09-09";
-			isa = PBXGroup;
-			name = Planning;
-			children = (
-				BA4C00000000000000000002,
-				BA4C00000000000000000003,
-				BA4C00000000000000000004,
-			);
-			sourceTree = "<group>";
+
+/* Begin PBXBuildFile section */
+		BA4C10000000000000000017 /* BarkDomain in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C10000000000000000016 /* BarkDomain */; };
+		BA4C30000000000000000001 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000001 /* FirebaseAuth */; };
+		BA4C30000000000000000002 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000002 /* FirebaseFirestore */; };
+		BA4C30000000000000000003 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000003 /* FirebaseFunctions */; };
+		BA4C30000000000000000004 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000004 /* GoogleSignIn */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		BA4C1000000000000000001D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8B2A66B42FD504090093FDAD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8B2A66BB2FD504090093FDAD;
+			remoteInfo = BarkRanger;
 		};
-		8B2A66B92FD504090093FDAD = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				BA4C10000000000000000017,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
+		BA4C10000000000000000028 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8B2A66B42FD504090093FDAD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8B2A66BB2FD504090093FDAD;
+			remoteInfo = BarkRanger;
 		};
-		8B2A66BD2FD504090093FDAD = {
-			isa = PBXGroup;
-			name = Products;
-			children = (
-				8B2A66BC2FD504090093FDAD,
-				BA4C10000000000000000019,
-				BA4C10000000000000000024,
-			);
-			sourceTree = "<group>";
-		};
-		8B2A66BA2FD504090093FDAD = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		8B2A66BE2FD504090093FDAD = {
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		8B2A66BC2FD504090093FDAD /* BarkRanger.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BarkRanger.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BA4C00000000000000000002 /* IMPLEMENTATION_PHASES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = IMPLEMENTATION_PHASES.md; sourceTree = "<group>"; };
+		BA4C00000000000000000003 /* prompts/PHASE_1_FOUNDATION.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = prompts/PHASE_1_FOUNDATION.md; sourceTree = "<group>"; };
+		BA4C00000000000000000004 /* SWIFT_FILE_MAP.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = SWIFT_FILE_MAP.md; sourceTree = "<group>"; };
+		BA4C1000000000000000000B /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
+		BA4C1000000000000000000C /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		BA4C1000000000000000000D /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		BA4C1000000000000000000E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		BA4C1000000000000000000F /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		BA4C10000000000000000011 /* Packages/BarkDomain */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = Packages/BarkDomain; sourceTree = "<group>"; };
+		BA4C10000000000000000012 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		BA4C10000000000000000013 /* ARCHITECTURE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = ARCHITECTURE.md; sourceTree = "<group>"; };
+		BA4C10000000000000000014 /* CONTRIBUTING.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CONTRIBUTING.md; sourceTree = "<group>"; };
+		BA4C10000000000000000019 /* BarkRangerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BarkRangerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		BA4C10000000000000000024 /* BarkRangerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BarkRangerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		8B2A66BE2FD504090093FDAD /* BarkRanger */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = BarkRanger;
 			sourceTree = "<group>";
 		};
-		BA4C00000000000000000002 = {
-			path = IMPLEMENTATION_PHASES.md;
-			isa = PBXFileReference;
-			lastKnownFileType = net.daringfireball.markdown;
+		BA4C10000000000000000018 /* BarkRangerTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BarkRangerTests;
 			sourceTree = "<group>";
 		};
-		8B2A66C52FD5040A0093FDAD = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				ONLY_ACTIVE_ARCH = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				COPY_PHASE_STRIP = NO;
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				CLANG_WARN_COMMA = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				SDKROOT = iphoneos;
-				CLANG_WARN_EMPTY_BODY = YES;
-				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
-				MTL_FAST_MATH = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				CLANG_ENABLE_MODULES = YES;
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				GCC_NO_COMMON_BLOCKS = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				GCC_DYNAMIC_NO_PIC = NO;
-				DEBUG_INFORMATION_FORMAT = dwarf;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				GCC_OPTIMIZATION_LEVEL = 0;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				GCC_PREPROCESSOR_DEFINITIONS = (
-					"DEBUG=1",
-					"$(inherited)",
-				);
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-			};
-			name = Debug;
-			baseConfigurationReference = BA4C1000000000000000000C;
-		};
-		8B2A66C62FD5040A0093FDAD = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				ENABLE_NS_ASSERTIONS = NO;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				SDKROOT = iphoneos;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_WARN_EMPTY_BODY = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				CLANG_WARN_COMMA = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GCC_WARN_UNUSED_VARIABLE = YES;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				COPY_PHASE_STRIP = NO;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_NO_COMMON_BLOCKS = YES;
-				MTL_ENABLE_DEBUG_INFO = NO;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				MTL_FAST_MATH = YES;
-				VALIDATE_PRODUCT = YES;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-			};
-			name = Release;
-			baseConfigurationReference = BA4C1000000000000000000D;
-		};
-		8B2A66C92FD5040A0093FDAD = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 18;
-				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Config/Info.plist;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
-				INFOPLIST_KEY_UILaunchScreen_Generation = NO;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 0.2.16;
-				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-			};
-			name = Release;
-		};
-		BA4C00000000000000000003 = {
-			path = prompts/PHASE_1_FOUNDATION.md;
-			isa = PBXFileReference;
-			lastKnownFileType = net.daringfireball.markdown;
+		BA4C10000000000000000023 /* BarkRangerUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BarkRangerUITests;
 			sourceTree = "<group>";
 		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8B2A66B92FD504090093FDAD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BA4C10000000000000000017 /* BarkDomain in Frameworks */,
+				BA4C30000000000000000004 /* GoogleSignIn in Frameworks */,
+				BA4C30000000000000000003 /* FirebaseFunctions in Frameworks */,
+				BA4C30000000000000000002 /* FirebaseFirestore in Frameworks */,
+				BA4C30000000000000000001 /* FirebaseAuth in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BA4C1000000000000000001B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BA4C10000000000000000026 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
 		8B2A66B32FD504090093FDAD = {
 			isa = PBXGroup;
-			sourceTree = "<group>";
 			children = (
-				8B2A66BE2FD504090093FDAD,
-				BA4C10000000000000000010,
-				BA4C10000000000000000011,
-				BA4C10000000000000000023,
-				BA4C10000000000000000018,
-				BA4C00000000000000000001,
-				8B2A66BD2FD504090093FDAD,
-				BA4C10000000000000000012,
-				BA4C10000000000000000013,
-				BA4C10000000000000000014,
+				8B2A66BE2FD504090093FDAD /* BarkRanger */,
+				BA4C10000000000000000010 /* Config */,
+				BA4C10000000000000000011 /* Packages/BarkDomain */,
+				BA4C10000000000000000023 /* BarkRangerUITests */,
+				BA4C10000000000000000018 /* BarkRangerTests */,
+				BA4C00000000000000000001 /* Planning */,
+				8B2A66BD2FD504090093FDAD /* Products */,
+				BA4C10000000000000000012 /* README.md */,
+				BA4C10000000000000000013 /* ARCHITECTURE.md */,
+				BA4C10000000000000000014 /* CONTRIBUTING.md */,
 			);
+			sourceTree = "<group>";
 		};
-		8B2A66BB2FD504090093FDAD = {
-			dependencies = (
+		8B2A66BD2FD504090093FDAD /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8B2A66BC2FD504090093FDAD /* BarkRanger.app */,
+				BA4C10000000000000000019 /* BarkRangerTests.xctest */,
+				BA4C10000000000000000024 /* BarkRangerUITests.xctest */,
 			);
-			buildConfigurationList = 8B2A66C72FD5040A0093FDAD;
-			productReference = 8B2A66BC2FD504090093FDAD;
-			productType = "com.apple.product-type.application";
-			packageProductDependencies = (
-				BA4C10000000000000000016,
+			name = Products;
+			sourceTree = "<group>";
+		};
+		BA4C00000000000000000001 /* Planning */ = {
+			isa = PBXGroup;
+			children = (
+				BA4C00000000000000000002 /* IMPLEMENTATION_PHASES.md */,
+				BA4C00000000000000000003 /* prompts/PHASE_1_FOUNDATION.md */,
+				BA4C00000000000000000004 /* SWIFT_FILE_MAP.md */,
 			);
-			productName = BarkRanger;
+			name = Planning;
+			path = "../../04-docs/plans/ios-native-2026-09-09";
+			sourceTree = "<group>";
+		};
+		BA4C10000000000000000010 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				BA4C1000000000000000000B /* Base.xcconfig */,
+				BA4C1000000000000000000C /* Debug.xcconfig */,
+				BA4C1000000000000000000D /* Release.xcconfig */,
+				BA4C1000000000000000000E /* Info.plist */,
+				BA4C1000000000000000000F /* README.md */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8B2A66BB2FD504090093FDAD /* BarkRanger */ = {
 			isa = PBXNativeTarget;
-			fileSystemSynchronizedGroups = (
-				8B2A66BE2FD504090093FDAD,
-			);
+			buildConfigurationList = 8B2A66C72FD5040A0093FDAD /* Build configuration list for PBXNativeTarget "BarkRanger" */;
 			buildPhases = (
-				8B2A66B82FD504090093FDAD,
-				8B2A66B92FD504090093FDAD,
-				8B2A66BA2FD504090093FDAD,
+				8B2A66B82FD504090093FDAD /* Sources */,
+				8B2A66B92FD504090093FDAD /* Frameworks */,
+				8B2A66BA2FD504090093FDAD /* Resources */,
 			);
-			name = BarkRanger;
 			buildRules = (
 			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				8B2A66BE2FD504090093FDAD /* BarkRanger */,
+			);
+			name = BarkRanger;
+			packageProductDependencies = (
+				BA4C31000000000000000004 /* GoogleSignIn */,
+				BA4C31000000000000000003 /* FirebaseFunctions */,
+				BA4C31000000000000000002 /* FirebaseFirestore */,
+				BA4C31000000000000000001 /* FirebaseAuth */,
+				BA4C10000000000000000016 /* BarkDomain */,
+			);
+			productName = BarkRanger;
+			productReference = 8B2A66BC2FD504090093FDAD /* BarkRanger.app */;
+			productType = "com.apple.product-type.application";
 		};
-		8B2A66B72FD504090093FDAD = {
-			isa = XCConfigurationList;
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-			buildConfigurations = (
-				8B2A66C52FD5040A0093FDAD,
-				8B2A66C62FD5040A0093FDAD,
+		BA4C10000000000000000022 /* BarkRangerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BA4C10000000000000000021 /* Build configuration list for PBXNativeTarget "BarkRangerTests" */;
+			buildPhases = (
+				BA4C1000000000000000001A /* Sources */,
+				BA4C1000000000000000001B /* Frameworks */,
+				BA4C1000000000000000001C /* Resources */,
 			);
+			buildRules = (
+			);
+			dependencies = (
+				BA4C1000000000000000001E /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				BA4C10000000000000000018 /* BarkRangerTests */,
+			);
+			name = BarkRangerTests;
+			productName = BarkRangerTests;
+			productReference = BA4C10000000000000000019 /* BarkRangerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		8B2A66B42FD504090093FDAD = {
-			buildConfigurationList = 8B2A66B72FD504090093FDAD;
-			targets = (
-				8B2A66BB2FD504090093FDAD,
-				BA4C10000000000000000022,
-				BA4C1000000000000000002D,
+		BA4C1000000000000000002D /* BarkRangerUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BA4C1000000000000000002C /* Build configuration list for PBXNativeTarget "BarkRangerUITests" */;
+			buildPhases = (
+				BA4C10000000000000000025 /* Sources */,
+				BA4C10000000000000000026 /* Frameworks */,
+				BA4C10000000000000000027 /* Resources */,
 			);
-			minimizedProjectReferenceProxies = 1;
-			developmentRegion = en;
-			knownRegions = (
-				en,
-				Base,
+			buildRules = (
 			);
+			dependencies = (
+				BA4C10000000000000000029 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				BA4C10000000000000000023 /* BarkRangerUITests */,
+			);
+			name = BarkRangerUITests;
+			productName = BarkRangerUITests;
+			productReference = BA4C10000000000000000024 /* BarkRangerUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8B2A66B42FD504090093FDAD /* Project object */ = {
 			isa = PBXProject;
-			productRefGroup = 8B2A66BD2FD504090093FDAD;
-			projectDirPath = "";
 			attributes = {
-				LastSwiftUpdateCheck = 2650;
 				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					8B2A66BB2FD504090093FDAD = {
@@ -277,41 +241,215 @@
 					};
 				};
 			};
+			buildConfigurationList = 8B2A66B72FD504090093FDAD /* Build configuration list for PBXProject "BarkRanger" */;
+			developmentRegion = en;
 			hasScannedForEncodings = 0;
-			projectRoot = "";
-			preferredProjectObjectVersion = 77;
+			knownRegions = (
+				en,
+				Base,
+			);
 			mainGroup = 8B2A66B32FD504090093FDAD;
+			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				BA4C10000000000000000015,
+				BA4C32000000000000000002 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				BA4C32000000000000000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				BA4C10000000000000000015 /* XCLocalSwiftPackageReference "Packages/BarkDomain" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 8B2A66BD2FD504090093FDAD /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8B2A66BB2FD504090093FDAD /* BarkRanger */,
+				BA4C10000000000000000022 /* BarkRangerTests */,
+				BA4C1000000000000000002D /* BarkRangerUITests */,
 			);
 		};
-		BA4C00000000000000000004 = {
-			path = SWIFT_FILE_MAP.md;
-			isa = PBXFileReference;
-			lastKnownFileType = net.daringfireball.markdown;
-			sourceTree = "<group>";
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8B2A66BA2FD504090093FDAD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
-		8B2A66BC2FD504090093FDAD = {
-			path = BarkRanger.app;
-			isa = PBXFileReference;
-			includeInIndex = 0;
-			explicitFileType = wrapper.application;
-			sourceTree = BUILT_PRODUCTS_DIR;
+		BA4C1000000000000000001C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
-		8B2A66B82FD504090093FDAD = {
+		BA4C10000000000000000027 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8B2A66B82FD504090093FDAD /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		8B2A66C82FD5040A0093FDAD = {
+		BA4C1000000000000000001A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BA4C10000000000000000025 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BA4C1000000000000000001E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8B2A66BB2FD504090093FDAD /* BarkRanger */;
+			targetProxy = BA4C1000000000000000001D /* PBXContainerItemProxy */;
+		};
+		BA4C10000000000000000029 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8B2A66BB2FD504090093FDAD /* BarkRanger */;
+			targetProxy = BA4C10000000000000000028 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		8B2A66C52FD5040A0093FDAD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = BA4C1000000000000000000C /* Debug.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		8B2A66C62FD5040A0093FDAD /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = BA4C1000000000000000000D /* Release.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		8B2A66C82FD5040A0093FDAD /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/BarkRanger.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 18;
+				CURRENT_PROJECT_VERSION = 19;
 				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -322,321 +460,202 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.16;
+				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 			};
 			name = Debug;
 		};
-		8B2A66C72FD5040A0093FDAD = {
+		8B2A66C92FD5040A0093FDAD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/BarkRanger.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 19;
+				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Config/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
+				INFOPLIST_KEY_UILaunchScreen_Generation = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.3.0;
+				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+			};
+			name = Release;
+		};
+		BA4C1000000000000000001F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS.Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BarkRanger.app/BarkRanger";
+			};
+			name = Debug;
+		};
+		BA4C10000000000000000020 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS.Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BarkRanger.app/BarkRanger";
+			};
+			name = Release;
+		};
+		BA4C1000000000000000002A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS.UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TEST_TARGET_NAME = BarkRanger;
+			};
+			name = Debug;
+		};
+		BA4C1000000000000000002B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS.UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TEST_TARGET_NAME = BarkRanger;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8B2A66B72FD504090093FDAD /* Build configuration list for PBXProject "BarkRanger" */ = {
 			isa = XCConfigurationList;
+			buildConfigurations = (
+				8B2A66C52FD5040A0093FDAD /* Debug */,
+				8B2A66C62FD5040A0093FDAD /* Release */,
+			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
+		};
+		8B2A66C72FD5040A0093FDAD /* Build configuration list for PBXNativeTarget "BarkRanger" */ = {
+			isa = XCConfigurationList;
 			buildConfigurations = (
-				8B2A66C82FD5040A0093FDAD,
-				8B2A66C92FD5040A0093FDAD,
+				8B2A66C82FD5040A0093FDAD /* Debug */,
+				8B2A66C92FD5040A0093FDAD /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
-		BA4C1000000000000000000B = {
-			isa = PBXFileReference;
-			path = Base.xcconfig;
-			sourceTree = "<group>";
-			lastKnownFileType = text.xcconfig;
-		};
-		BA4C1000000000000000000C = {
-			isa = PBXFileReference;
-			path = Debug.xcconfig;
-			sourceTree = "<group>";
-			lastKnownFileType = text.xcconfig;
-		};
-		BA4C1000000000000000000D = {
-			isa = PBXFileReference;
-			path = Release.xcconfig;
-			sourceTree = "<group>";
-			lastKnownFileType = text.xcconfig;
-		};
-		BA4C1000000000000000000E = {
-			isa = PBXFileReference;
-			path = Info.plist;
-			sourceTree = "<group>";
-			lastKnownFileType = text.plist.xml;
-		};
-		BA4C1000000000000000000F = {
-			isa = PBXFileReference;
-			path = README.md;
-			sourceTree = "<group>";
-			lastKnownFileType = net.daringfireball.markdown;
-		};
-		BA4C10000000000000000010 = {
-			isa = PBXGroup;
-			path = Config;
-			sourceTree = "<group>";
-			children = (
-				BA4C1000000000000000000B,
-				BA4C1000000000000000000C,
-				BA4C1000000000000000000D,
-				BA4C1000000000000000000E,
-				BA4C1000000000000000000F,
+		BA4C10000000000000000021 /* Build configuration list for PBXNativeTarget "BarkRangerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BA4C1000000000000000001F /* Debug */,
+				BA4C10000000000000000020 /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
-		BA4C10000000000000000011 = {
-			isa = PBXFileReference;
-			path = Packages/BarkDomain;
-			sourceTree = "<group>";
-			lastKnownFileType = wrapper;
+		BA4C1000000000000000002C /* Build configuration list for PBXNativeTarget "BarkRangerUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BA4C1000000000000000002A /* Debug */,
+				BA4C1000000000000000002B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
-		BA4C10000000000000000012 = {
-			isa = PBXFileReference;
-			path = README.md;
-			sourceTree = "<group>";
-			lastKnownFileType = net.daringfireball.markdown;
-		};
-		BA4C10000000000000000013 = {
-			isa = PBXFileReference;
-			path = ARCHITECTURE.md;
-			sourceTree = "<group>";
-			lastKnownFileType = net.daringfireball.markdown;
-		};
-		BA4C10000000000000000014 = {
-			isa = PBXFileReference;
-			path = CONTRIBUTING.md;
-			sourceTree = "<group>";
-			lastKnownFileType = net.daringfireball.markdown;
-		};
-		BA4C10000000000000000015 = {
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		BA4C10000000000000000015 /* XCLocalSwiftPackageReference "Packages/BarkDomain" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/BarkDomain;
 		};
-		BA4C10000000000000000016 = {
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		BA4C32000000000000000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk.git";
+			requirement = {
+				kind = exactVersion;
+				version = 12.19.1;
+			};
+		};
+		BA4C32000000000000000002 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS.git";
+			requirement = {
+				kind = exactVersion;
+				version = 10.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		BA4C10000000000000000016 /* BarkDomain */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = BA4C10000000000000000015;
+			package = BA4C10000000000000000015 /* XCLocalSwiftPackageReference "Packages/BarkDomain" */;
 			productName = BarkDomain;
 		};
-		BA4C10000000000000000017 = {
-			isa = PBXBuildFile;
-			productRef = BA4C10000000000000000016;
+		BA4C31000000000000000001 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BA4C32000000000000000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
 		};
-		BA4C10000000000000000018 = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = BarkRangerTests;
-			sourceTree = "<group>";
+		BA4C31000000000000000002 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BA4C32000000000000000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
 		};
-		BA4C10000000000000000019 = {
-			isa = PBXFileReference;
-			explicitFileType = wrapper.cfbundle;
-			includeInIndex = 0;
-			path = BarkRangerTests.xctest;
-			sourceTree = BUILT_PRODUCTS_DIR;
+		BA4C31000000000000000003 /* FirebaseFunctions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BA4C32000000000000000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFunctions;
 		};
-		BA4C1000000000000000001A = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
+		BA4C31000000000000000004 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BA4C32000000000000000002 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
 		};
-		BA4C1000000000000000001B = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		BA4C1000000000000000001C = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		BA4C1000000000000000001D = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 8B2A66B42FD504090093FDAD;
-			proxyType = 1;
-			remoteGlobalIDString = 8B2A66BB2FD504090093FDAD;
-			remoteInfo = BarkRanger;
-		};
-		BA4C1000000000000000001E = {
-			isa = PBXTargetDependency;
-			target = 8B2A66BB2FD504090093FDAD;
-			targetProxy = BA4C1000000000000000001D;
-		};
-		BA4C1000000000000000001F = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				GENERATE_INFOPLIST_FILE = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS.Tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BarkRanger.app/BarkRanger";
-				BUNDLE_LOADER = "$(TEST_HOST)";
-			};
-			name = Debug;
-		};
-		BA4C10000000000000000020 = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				GENERATE_INFOPLIST_FILE = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS.Tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BarkRanger.app/BarkRanger";
-				BUNDLE_LOADER = "$(TEST_HOST)";
-			};
-			name = Release;
-		};
-		BA4C10000000000000000021 = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				BA4C1000000000000000001F,
-				BA4C10000000000000000020,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		BA4C10000000000000000022 = {
-			isa = PBXNativeTarget;
-			name = BarkRangerTests;
-			productName = BarkRangerTests;
-			productReference = BA4C10000000000000000019;
-			productType = "com.apple.product-type.bundle.unit-test";
-			buildConfigurationList = BA4C10000000000000000021;
-			buildPhases = (
-				BA4C1000000000000000001A,
-				BA4C1000000000000000001B,
-				BA4C1000000000000000001C,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				BA4C1000000000000000001E,
-			);
-			fileSystemSynchronizedGroups = (
-				BA4C10000000000000000018,
-			);
-		};
-		BA4C10000000000000000023 = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = BarkRangerUITests;
-			sourceTree = "<group>";
-		};
-		BA4C10000000000000000024 = {
-			isa = PBXFileReference;
-			explicitFileType = wrapper.cfbundle;
-			includeInIndex = 0;
-			path = BarkRangerUITests.xctest;
-			sourceTree = BUILT_PRODUCTS_DIR;
-		};
-		BA4C10000000000000000025 = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		BA4C10000000000000000026 = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		BA4C10000000000000000027 = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		BA4C10000000000000000028 = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 8B2A66B42FD504090093FDAD;
-			proxyType = 1;
-			remoteGlobalIDString = 8B2A66BB2FD504090093FDAD;
-			remoteInfo = BarkRanger;
-		};
-		BA4C10000000000000000029 = {
-			isa = PBXTargetDependency;
-			target = 8B2A66BB2FD504090093FDAD;
-			targetProxy = BA4C10000000000000000028;
-		};
-		BA4C1000000000000000002A = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				GENERATE_INFOPLIST_FILE = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS.UITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				TEST_TARGET_NAME = BarkRanger;
-			};
-			name = Debug;
-		};
-		BA4C1000000000000000002B = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				GENERATE_INFOPLIST_FILE = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS.UITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				TEST_TARGET_NAME = BarkRanger;
-			};
-			name = Release;
-		};
-		BA4C1000000000000000002C = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				BA4C1000000000000000002A,
-				BA4C1000000000000000002B,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		BA4C1000000000000000002D = {
-			isa = PBXNativeTarget;
-			name = BarkRangerUITests;
-			productName = BarkRangerUITests;
-			productReference = BA4C10000000000000000024;
-			productType = "com.apple.product-type.bundle.ui-testing";
-			buildConfigurationList = BA4C1000000000000000002C;
-			buildPhases = (
-				BA4C10000000000000000025,
-				BA4C10000000000000000026,
-				BA4C10000000000000000027,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				BA4C10000000000000000029,
-			);
-			fileSystemSynchronizedGroups = (
-				BA4C10000000000000000023,
-			);
-		};
+/* End XCSwiftPackageProductDependency section */
 	};
-	rootObject = 8B2A66B42FD504090093FDAD;
+	rootObject = 8B2A66B42FD504090093FDAD /* Project object */;
 }

@@ -2947,6 +2947,10 @@ async function handleDeleteAccount(requestOrData, context, options = {}) {
         throw error;
     }
 
+    // Receipts contain touched profile values. Remove them after the durable deletion barrier
+    // and profile deletion, but before Auth removal so a cleanup failure remains retryable.
+    await db.recursiveDelete(db.collection("_nativeMutationReceipts").doc(uid));
+
     try {
         await auth.deleteUser(uid);
     } catch (error) {
@@ -4077,6 +4081,24 @@ exports.supportDeskStatusJob = functions
 exports.deleteAccount = functions
     .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 3 })
     .https.onCall(wrapCallableWithPaymentAlert("deleteAccount", handleDeleteAccount));
+
+// Native-only entry points; the existing web/billing contracts above remain unchanged.
+const nativeUserMutations = require("./user/userMutations.js");
+const { forAccount: nativeAccountAction } = require("./user/accountActions.js");
+exports.applyUserMutation = functions.runWith({ maxInstances: 5 }).https.onCall(
+    nativeUserMutations.createUserMutations({ db: admin.firestore() }));
+exports.deleteNativeAccount = functions
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 3 })
+    .https.onCall(nativeAccountAction(wrapCallableWithPaymentAlert("deleteAccount", handleDeleteAccount), { recentAuth: true }));
+exports.restoreNativeAccess = functions
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 5 })
+    .https.onCall(nativeAccountAction(wrapCallableWithPaymentAlert("restorePremiumPurchase", handleRestorePremiumPurchase)));
+exports.getNativeBillingURL = functions
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 5 })
+    .https.onCall(nativeAccountAction(wrapCallableWithPaymentAlert("getCustomerPortalUrl", handleGetCustomerPortalUrl)));
+exports.cancelNativeSubscription = functions
+    .runWith({ secrets: ["LEMONSQUEEZY_API_KEY", "ALERT_EMAIL_USER", "ALERT_EMAIL_PASSWORD", "DISCORD_WEBHOOKS_JSON"], maxInstances: 3 })
+    .https.onCall(nativeAccountAction(wrapCallableWithPaymentAlert("cancelPremiumSubscription", handleCancelPremiumSubscription)));
 
 // Client-side error/freeze reports from the browser app. Internal persistence
 // failures are swallowed, but the durable write limiter may return a reset time.

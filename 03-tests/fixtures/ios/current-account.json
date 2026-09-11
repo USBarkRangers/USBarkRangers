@@ -1,0 +1,44 @@
+{
+  "uid": "native-test-a",
+  "user": {
+    "displayName": "Ranger A",
+    "username": "Ranger A",
+    "email": "ranger-a@example.test",
+    "profileUpdatedAt": 1788998400000,
+    "settings": { "mapStyle": "default", "rememberMapPosition": true, "unknownPreference": { "keep": 7 } },
+    "visitedPlaces": [
+      { "id": "retired-park-identity", "name": "Retired test park", "ts": 1725000000000, "verified": true, "manual": false, "customNote": "Preserve me" },
+      { "name": "Unresolved historical visit", "ts": 1725000001000, "historicalScore": 23 }
+    ],
+    "streakCount": 7,
+    "lastActiveDate": "2026-09-09",
+    "walkPoints": 47,
+    "pointAdjustments": [{ "amount": -4, "reason": "historical correction" }],
+    "virtual_expedition": {
+      "active_trail": "synthetic-trail", "trail_name": "Test trail", "miles_logged": 12.5,
+      "trail_total_miles": 30, "history": [{ "date": "2026-09-09", "miles": 2.5 }]
+    },
+    "lifetime_miles": 110.75,
+    "completed_expeditions": [{ "id": "historic-trail", "name": "Historic trail", "miles": 50, "points_earned": 15, "date_completed": 1725000000000 }],
+    "achievements": { "historic-badge": { "tier": "verified", "dateEarned": 1725000000000, "unknownAwardField": true } },
+    "achievementsSchema": 1,
+    "unknownRootField": { "nested": [1, true, null, "preserved"] }
+  },
+  "trips": [{
+    "id": "stored-route-id",
+    "fields": {
+      "tripName": "Synthetic saved adventure",
+      "tripDays": [
+        { "color": "#123456", "notes": "First day notes", "stops": [
+          { "id": "retired-park-identity", "name": "Retired test park", "lat": 44.3, "lng": -68.2, "state": "Maine" },
+          { "name": "Custom meeting point", "lat": 43.2, "lng": -67.1, "customPlaceId": "custom-stop-7" }
+        ] },
+        { "color": "#654321", "notes": "Second day notes", "stops": [] }
+      ],
+      "tripStartNode": { "name": "Start", "lat": 41.1, "lng": -70.2 },
+      "tripEndNode": { "name": "Finish", "lat": 44.1, "lng": -66.2 },
+      "unknownRouteField": "Retain"
+    }
+  }],
+  "achievements": [{ "id": "historic-badge", "fields": { "tier": "manual", "dateEarned": 1724900000000, "retainedSubcollectionField": 9 } }]
+}

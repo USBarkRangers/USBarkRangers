@@ -9,6 +9,7 @@ final class AppLifecycle {
     private let discovery: MapFeatureModel
     private let settings: SettingsModel
     private let diagnostics: Diagnostics
+    private let account: AccountSession?
     private var connectivity: Task<Void, Never>?
     private var polling: Task<Void, Never>?
     private var catalogStop: Task<Void, Never>?
@@ -16,8 +17,10 @@ final class AppLifecycle {
 
     init(
         startup: StartupModel, catalog: CatalogRepository, network: NetworkMonitor,
-        discovery: MapFeatureModel, settings: SettingsModel, diagnostics: Diagnostics
+        discovery: MapFeatureModel, settings: SettingsModel, diagnostics: Diagnostics,
+        account: AccountSession? = nil
     ) {
+        self.account = account
         self.startup = startup
         self.catalog = catalog
         self.network = network
@@ -34,6 +37,8 @@ final class AppLifecycle {
         phase = newPhase
         guard newPhase == .active, polling == nil else { return }
         diagnostics.record(.enteredForeground)
+        account?.setForeground(true)
+        account?.connectivityChanged(network.isConnected == true)
         discovery.start()
         settings.load()
         let previousConnection = network.isConnected
@@ -42,6 +47,7 @@ final class AppLifecycle {
             var wasConnected = previousConnection
             for await connected in changes {
                 guard !Task.isCancelled else { return }
+                account?.connectivityChanged(connected)
                 discovery.connectivityChanged(connected)
                 if connected && wasConnected == false { scheduleRefresh(reason: .reconnect) }
                 if !connected { await catalog.noteOffline() }
@@ -76,6 +82,7 @@ final class AppLifecycle {
         connectivity = nil
         polling?.cancel()
         polling = nil
+        account?.setForeground(false)
         network.stop()
         startup.stop()
         discovery.stop()
@@ -90,5 +97,6 @@ final class AppLifecycle {
     func stopAndWait() async {
         stop()
         await catalogStop?.value
+        await account?.stopAndWait()
     }
 }

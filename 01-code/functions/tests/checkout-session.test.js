@@ -195,6 +195,11 @@ function makeDeleteAccountFirestore(userData = {}, controls = {}) {
                 }
             };
         },
+        async recursiveDelete(ref) {
+            state.operations.push(`recursive-delete:${ref.path}`);
+            if (controls.failNativeReceiptCleanup) throw new Error("forced receipt cleanup failure");
+            state.nativeReceiptsDeleted = ref.path;
+        },
         batch() {
             const ops = [];
             return {
@@ -938,6 +943,7 @@ describe("Account deletion callable", () => {
         assert.equal(result.deleted, true);
         assert.deepEqual(deletedAuthUsers, ["delete-user"]);
         assert.equal(firestore.state.savedRouteDeletes, 2);
+        assert.equal(firestore.state.nativeReceiptsDeleted, "_nativeMutationReceipts/delete-user");
         assert.ok(
             firestore.state.operations.indexOf("set:_deletedUsers/delete-user") <
                 firestore.state.operations.indexOf("list:users/delete-user/savedRoutes"),
@@ -952,6 +958,17 @@ describe("Account deletion callable", () => {
             lemonSubscriptionCanceled: false,
             lemonSubscriptionId: null
         });
+    });
+
+    it("retains the tombstone and Auth identity when native receipt cleanup needs a retry", async () => {
+        const firestore = makeDeleteAccountFirestore({}, { failNativeReceiptCleanup: true });
+        const deletedAuthUsers = [];
+        await assert.rejects(handleDeleteAccount({ confirmation: "DELETE" }, authedContext("delete-user"), {
+            firestore, auth: { async deleteUser(uid) { deletedAuthUsers.push(uid); } }, serverTimestamp: () => "server-now"
+        }), /forced receipt cleanup failure/);
+        assert.ok(firestore.state.deletedDocs.includes("users/delete-user"));
+        assert.equal(firestore.state.deletedDocs.includes("_deletedUsers/delete-user"), false);
+        assert.deepEqual(deletedAuthUsers, []);
     });
 
     it("rolls back the write barrier if Firestore cleanup fails before parent deletion", async () => {

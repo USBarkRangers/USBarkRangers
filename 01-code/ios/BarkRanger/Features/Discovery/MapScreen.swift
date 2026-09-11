@@ -91,9 +91,10 @@ struct MapScreen: View {
             .overlay(alignment: .bottomLeading) {
                 if model.usesOfflineMap && !searchFocused && model.selectedID == nil {
                     Text("Offline geographic overview · Natural Earth")
-                        .font(.caption2).foregroundStyle(Color.primary)
+                        .font(.footnote).foregroundStyle(Color.primary)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(6).background(.background, in: RoundedRectangle(cornerRadius: 8))
-                        .padding(.leading, 8).padding(.bottom, 76)
+                        .padding(.horizontal, 8).padding(.bottom, 76)
                 }
             }
             .overlay(alignment: .bottom) {

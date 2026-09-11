@@ -12,3 +12,6 @@ Config/*.local.xcconfig
 *.mobileprovision
 
 Config/Catalog.local.xcconfig
+
+# Native Firebase registration is configured locally before provider testing.
+GoogleService-Info.plist

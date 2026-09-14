@@ -2,18 +2,24 @@ import BarkDomain
 import Foundation
 import Observation
 
-/// Account-owned current walk state. Full history is not loaded on account startup;
-/// its incremental cursor is activated only after someone opens history.
+/// Account-owned current walk state and durable outbox. A stored history cursor is
+/// recovery state, never permission to fetch an archive while its screen is closed.
 @MainActor @Observable final class NativeExpeditionFeature {
     let scope: String
     let repository: NativeExpeditionRepository
     private(set) var overview: NativeStore.ExpeditionOverview?
     private(set) var completed: [NativeCompletedTrails.Item] = []
+    private var completionsConfirmed = false
+    var completedCount: Int? {
+        completionsConfirmed || !completed.isEmpty ? completed.count : nil
+    }
     private(set) var sync: NativeFeatureSync?
     private(set) var message: String?
     private var observation: Task<Void, Never>?
     private let worker: NativeExpeditionSync?
     private var scanRequested = false
+    private var historyReaders: Set<UUID> = []
+    private var completionFreshness = NativeRefreshCadence()
     private var closed = false
     private let refreshAccess: @MainActor () -> Void
 
@@ -47,6 +53,7 @@ import Observation
                     guard !Task.isCancelled, !self.closed else { return }
                     self.overview = value
                     self.completed = completed
+                    if changes.contains(.completedTrails) { self.completionsConfirmed = true }
                     if !Set(value.pendingIDs).subtracting(previous).isEmpty { self.sync?.request() }
                     if changes.contains(.completionClaimed) {
                         self.refreshCompletions = true
@@ -68,17 +75,26 @@ import Observation
         try Task.checkCancellation()
         if refresh {
             try await repository.store.acceptNativeExpedition(cloud.current())
-            scanRequested = try await repository.store.activityChangesQuery() != nil
+            scanRequested = !historyReaders.isEmpty
         }
-        if refresh || refreshCompletions {
+        if !historyReaders.isEmpty, completionFreshness.isDue(at: Date()) { refreshCompletions = true }
+        if refreshCompletions {
             refreshCompletions = false
-            do { try await repository.store.acceptNativeCompletedTrails(cloud.completedTrails()) } catch {
+            do {
+                try await repository.store.acceptNativeCompletedTrails(cloud.completedTrails())
+                try Task.checkCancellation()
+                completionFreshness.accepted(at: Date())
+            } catch {
                 refreshCompletions = true
                 throw error
             }
         }
         if scanRequested {
             for _ in 0..<4 {
+                guard !historyReaders.isEmpty else {
+                    scanRequested = false
+                    break
+                }
                 guard let query = try await repository.store.activityChangesQuery() else {
                     scanRequested = false
                     break
@@ -86,6 +102,10 @@ import Observation
                 let page = try await cloud.changes(query)
                 try Task.checkCancellation()
                 if page.needsBootstrap {
+                    guard !historyReaders.isEmpty else {
+                        scanRequested = false
+                        break
+                    }
                     let initial = try await cloud.history()
                     if try await repository.store.acceptNativeActivityHistory(
                         initial, after: nil, bootstrap: true)
@@ -102,6 +122,31 @@ import Observation
             }
         }
         return scanRequested ? Date().addingTimeInterval(1) : result.retryAt
+    }
+
+    /// Explicit account refresh may revalidate completions; ordinary outbox wakes do not.
+    func requestSync(refresh: Bool = false) {
+        if refresh { refreshCompletions = true }
+        sync?.request(refresh: refresh)
+    }
+
+    func requestCompletedTrails() {
+        if completionFreshness.isDue(at: Date()) { refreshCompletions = true }
+        sync?.request()
+    }
+
+    /// Leases prevent a cancelled old view task from closing a newer view's demand.
+    /// Closing stops further pages; an already-issued response may still be accepted.
+    func beginHistory() -> UUID {
+        let token = UUID()
+        historyReaders.insert(token)
+        scanRequested = true
+        requestCompletedTrails()
+        return token
+    }
+    func endHistory(_ token: UUID) {
+        historyReaders.remove(token)
+        if historyReaders.isEmpty { scanRequested = false }
     }
     func close() async {
         closed = true

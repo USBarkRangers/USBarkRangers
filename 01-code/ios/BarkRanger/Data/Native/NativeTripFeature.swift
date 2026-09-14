@@ -27,6 +27,7 @@ import Observation
     private var closed = false
     private var requested = false
     private var refreshRequested = false
+    private var freshness = NativeRefreshCadence()
     private var pendingIDs: [String] = []
     private var localLists = NativeStore.TripLists(drafts: [], pending: [], conflicts: [])
     // Deletion floors only for previously displayed rows. They prevent an older page
@@ -136,7 +137,7 @@ import Observation
     func setNetworkAllowed(_ allowed: Bool) {
         guard !closed, permitted != allowed else { return }
         permitted = allowed
-        if allowed { requestSync(refresh: true) } else { pause() }
+        if allowed { requestSync() } else { pause() }
     }
 
     func requestSync(refresh: Bool = false) {
@@ -150,11 +151,13 @@ import Observation
             await previousDrain?.value
             guard let self, !Task.isCancelled, !self.closed else { return }
             var retryAt: Date?
+            var attemptedRefresh = false
             do {
                 try await worker.resume()
                 repeat {
                     self.requested = false
-                    let refresh = self.refreshRequested
+                    let refresh = self.refreshRequested || self.freshness.isDue(at: Date())
+                    attemptedRefresh = refresh
                     self.refreshRequested = false
                     if refresh {
                         let page = try await cloud.library()
@@ -190,21 +193,24 @@ import Observation
                             }
                             if pageIndex == 3 { self.refreshRequested = true }
                         }
+                        try Task.checkCancellation()
+                        self.freshness.accepted(at: Date())
                     }
                     try await self.reloadLocal(changes: [.tripDrafts, .pending, .selection])
                     self.message = nil
                 } while self.requested && !Task.isCancelled
             } catch {
                 guard !Task.isCancelled, !self.closed else { return }
+                self.refreshRequested = self.refreshRequested || attemptedRefresh
                 self.message = "Trip sync could not finish. Your drafts and saved changes are retained."
                 if NativeProfileCloud.isTransient(error) { retryAt = Date().addingTimeInterval(30) }
             }
             guard !Task.isCancelled, !self.closed else { return }
             self.synchronization = nil
-            if self.refreshRequested {
-                self.scheduleRetry(at: Date().addingTimeInterval(1))
-            } else if let retryAt {
+            if let retryAt {
                 self.scheduleRetry(at: retryAt)
+            } else if self.refreshRequested, self.message == nil {
+                self.scheduleRetry(at: Date().addingTimeInterval(1))
             }
         }
     }

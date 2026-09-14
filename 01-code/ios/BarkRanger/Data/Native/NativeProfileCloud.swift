@@ -17,6 +17,10 @@ actor NativeProfileCloud {
     private let db: Firestore
     private let transport: NativeCallableTransport
     private var closed = false
+    #if DEBUG
+        // Bounded request-count evidence; no document contents or identities recorded.
+        private(set) var documentReadCount = 0
+    #endif
 
     init(uid: String, auth: Auth, db: Firestore) throws {
         guard !uid.isEmpty, !uid.contains("/"),
@@ -33,12 +37,18 @@ actor NativeProfileCloud {
     func current() async throws -> Snapshot {
         try check()
         let user = db.collection("users").document(uid)
+        #if DEBUG
+            documentReadCount += 1
+        #endif
         let profileDocument = try await user.getDocument(source: .server)
         try check()
         guard !profileDocument.metadata.isFromCache else { throw Failure.incomplete }
         guard profileDocument.exists else { return Snapshot(profile: nil, entitlement: nil) }
         let profile = try profileDocument.data(as: NativeProfile.self)
         try profile.validate()
+        #if DEBUG
+            documentReadCount += 1
+        #endif
         let entitlementDocument = try await user.collection("state").document("entitlement").getDocument(
             source: .server)
         try check()

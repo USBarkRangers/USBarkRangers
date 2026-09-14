@@ -24,11 +24,14 @@ struct SharingView: View {
                         }
                         Button("Expedition card") {
                             let expedition = NativeExpeditionPresentation(overview: account.nativeExpeditions?.overview)
+                            let completions = account.nativeExpeditions?.completedCount.map {
+                                "\($0) trails completed"
+                            } ?? "Trail completions not downloaded"
                             model.card(
                                 title: "Virtual Expedition", name: expedition.name,
                                 lines: [
                                     String(format: "%.1f miles explored", expedition.meters / 1609.344),
-                                    "\(account.nativeExpeditions?.completed.count ?? 0) trails completed", "US BARK Rangers",
+                                    completions, "US BARK Rangers",
                                 ])
                         }
                         Menu("Achievement card") {
@@ -47,6 +50,9 @@ struct SharingView: View {
                 if let error = model.error { Text(error).font(.footnote).foregroundStyle(.red) }
             }.padding(20)
         }.navigationTitle("Share & export").navigationBarTitleDisplayMode(.inline)
+            .task(id: account.nativeExpeditions?.scope) {
+                account.nativeExpeditions?.requestCompletedTrails()
+            }
             .onChange(of: account.identity?.uid) { _, _ in model.clear() }
             .sheet(item: $model.file, onDismiss: model.clearFile) { file in FileShareView(url: file.url) }
             .onDisappear { if model.file == nil { model.clear() } }

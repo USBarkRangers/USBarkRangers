@@ -12,16 +12,21 @@ actor NativeProfileSync {
     private let cloud: NativeProfileCloud
     private let jobs = NativeSyncJobs<String, Result>()
     private var closed = false
+    private var freshness = NativeRefreshCadence()
+    #if DEBUG
+        func recordedDocumentReadCount() async -> Int { await cloud.documentReadCount }
+    #endif
 
     init(store: NativeStore, cloud: NativeProfileCloud) {
         self.store = store
         self.cloud = cloud
     }
 
-    func synchronize() async throws -> Result {
+    func synchronize(refresh: Bool = true) async throws -> Result {
         try check()
-        do { return try await jobs.run("profile") { try await self.run() } } catch NativeSyncAdmission.closed
-        { throw NativeProfileCloud.Failure.accountChanged }
+        do {
+            return try await jobs.run("profile") { try await self.run(refresh: refresh) }
+        } catch NativeSyncAdmission.closed { throw NativeProfileCloud.Failure.accountChanged }
     }
 
     func pause() async { await jobs.pause() }
@@ -38,19 +43,23 @@ actor NativeProfileSync {
         await cloud.close()
     }
 
-    private func run() async throws -> Result {
-        let remote = try await cloud.current()
-        try check()
-        if let profile = remote.profile, let entitlement = remote.entitlement {
-            try await store.acceptProfile(profile)
+    private func run(refresh: Bool) async throws -> Result {
+        if refresh || freshness.isDue(at: Date()) {
+            let remote = try await cloud.current()
             try check()
-            try await store.acceptEntitlement(entitlement)
-        } else {
-            let local = try await store.profileView()
-            guard remote.profile == nil, local.confirmed == nil else {
-                throw NativeProfileCloud.Failure.incomplete
+            if let profile = remote.profile, let entitlement = remote.entitlement {
+                try await store.acceptProfile(profile)
+                try check()
+                try await store.acceptEntitlement(entitlement)
+                try check()
+                freshness.accepted(at: Date())
+            } else {
+                let local = try await store.profileView()
+                guard remote.profile == nil, local.confirmed == nil else {
+                    throw NativeProfileCloud.Failure.incomplete
+                }
+                if local.pendingCount == 0 { try await store.stageProfileEdit(.bootstrap) }
             }
-            if local.pendingCount == 0 { try await store.stageProfileEdit(.bootstrap) }
         }
         // Bound one drain pass. The account lifecycle schedules the next pass/retry;
         // there is no polling timer, recursive retry or unbounded history scan here.
@@ -71,6 +80,8 @@ actor NativeProfileSync {
                 try await store.acceptProfileOutcome(outcome, canonical: profile)
                 try check()
                 try await store.acceptEntitlement(entitlement)
+                try check()
+                freshness.accepted(at: Date())
             } catch let failure as NativeProfileCloud.SubmissionFailure {
                 try check()
                 let permanent = [

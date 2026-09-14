@@ -7,6 +7,146 @@ import Testing
 @testable import BarkRanger
 
 struct NativeAdventureCostTests {
+    @MainActor
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1"))
+    func completedTrailsAreLazyAndWarmReadsAreReused() async throws {
+        let f = try await NativeAdventureAppFixture.make()
+        let feature = NativeExpeditionFeature(scope: "cost-scope", store: f.store, cloud: f.walkCloud)
+        do {
+            try await feature.start()
+            let transport = f.walkCloud.transport
+            _ = await transport.recordedCallKinds(reset: true)
+            feature.sync?.setAllowed(true)
+            await feature.sync?.wait()
+            #expect(await transport.recordedCallKinds(reset: true) == ["expedition"])
+            #expect(feature.completedCount == nil)  // Not-yet-read is not a confirmed zero.
+            feature.requestCompletedTrails()
+            await feature.sync?.wait()
+            #expect(await transport.recordedCallKinds(reset: true) == ["completedTrails"])
+            try await eventually { feature.completedCount == 0 }
+            for _ in 0..<3 {
+                feature.sync?.setAllowed(false)
+                await feature.sync?.wait()
+                feature.sync?.setAllowed(true)
+                feature.requestCompletedTrails()
+                await feature.sync?.wait()
+            }
+            #expect(await transport.recordedCallKinds().isEmpty)
+            await feature.close()
+            await f.close()
+        } catch {
+            await feature.close()
+            await f.close()
+            throw error
+        }
+    }
+
+    @MainActor
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1"))
+    func historyDemandSurvivesAnOlderViewClosingAndReopeningReconcilesRemoteDeletion() async throws {
+        let f = try await NativeAdventureAppFixture.make()
+        do {
+            f.expedition.logManual(miles: 1)
+            try await eventually { !f.expedition.busy }
+            try await f.settle()
+            let page = try await f.walks.repository.history(before: nil)
+            let record = try #require(page.items.first)
+            let old = f.walks.beginHistory()
+            let current = f.walks.beginHistory()
+            f.walks.endHistory(old)
+            await f.walks.sync?.wait()
+            let transport = try #require(f.walks.repository.cloud?.transport)
+            _ = await transport.recordedCallKinds(reset: true)
+            f.walks.sync?.request(refresh: true)
+            await f.walks.sync?.wait()
+            #expect(await transport.recordedCallKinds(reset: true).contains("activityChanges"))
+            f.walks.endHistory(current)
+            _ = try await f.send(.remove(activityID: record.id, revision: record.revision))
+            f.walks.sync?.request(refresh: true)
+            await f.walks.sync?.wait()
+            #expect(!((await transport.recordedCallKinds(reset: true)).contains("activityChanges")))
+            // No background read removed the cached row; opening history must reconcile it.
+            #expect(try await f.store.nativeActivity(id: record.id)?.deleted == false)
+            let reopened = f.walks.beginHistory()
+            await f.walks.sync?.wait()
+            #expect(await transport.recordedCallKinds().contains("activityChanges"))
+            #expect(try await f.store.nativeActivity(id: record.id)?.deleted != false)
+            f.walks.endHistory(reopened)
+            await f.close()
+        } catch {
+            await f.close()
+            throw error
+        }
+    }
+
+    @MainActor
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1"))
+    func quietForegroundReturnsDoNotRepeatFreshSummaryRequests() async throws {
+        let f = try await NativeAdventureAppFixture.make()
+        do {
+            f.visits.recordActivity()
+            await f.session.waitForSync()
+            let trips = try #require(f.session.nativeTrips?.repository.cloud?.transport)
+            let visits = try #require(f.visits.repository.cloud?.transport)
+            let walks = try #require(f.walks.repository.cloud?.transport)
+            let profile = try #require(f.session.nativeProfile?.sync)
+            let profileReads = await profile.recordedDocumentReadCount()
+            for transport in [trips, visits, walks] { _ = await transport.recordedCallKinds(reset: true) }
+            for _ in 0..<3 {
+                f.session.setForeground(false)
+                await f.session.waitForSync()
+                f.session.setForeground(true)
+                f.visits.recordActivity()
+                await f.session.waitForSync()
+            }
+            let calls =
+                await trips.recordedCallKinds() + visits.recordedCallKinds() + walks.recordedCallKinds()
+            print("NATIVE_REFRESH_COST three_quiet_returns=\(calls)")
+            #expect(calls.isEmpty)
+            #expect(await profile.recordedDocumentReadCount() == profileReads)
+
+            // A forced refresh still observes another device; it is not suppressed
+            // by the recent successful foreground refresh or by an empty outbox.
+            f.session.requestSync(refresh: true)
+            await f.session.waitForSync()
+            #expect(await trips.recordedCallKinds().contains("tripChanges"))
+            #expect(await visits.recordedCallKinds().contains("progress"))
+            #expect(await walks.recordedCallKinds().contains("expedition"))
+            #expect(await profile.recordedDocumentReadCount() > profileReads)
+            await f.close()
+        } catch {
+            await f.close()
+            throw error
+        }
+    }
+
+    @MainActor
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1"))
+    func closedWalkHistoryDoesNotContinueDownloadingChanges() async throws {
+        let f = try await NativeAdventureAppFixture.make()
+        let observer = Task { await f.expedition.observeHistory() }
+        do {
+            try await eventually { f.expedition.history?.hasConfirmedPage == true }
+            observer.cancel()
+            f.expedition.history?.stop()
+            await observer.value
+            await f.session.waitForSync()
+            let transport = try #require(f.walks.repository.cloud?.transport)
+            _ = await transport.recordedCallKinds(reset: true)
+            f.session.requestSync(refresh: true)
+            await f.session.waitForSync()
+            let calls = await transport.recordedCallKinds()
+            print("NATIVE_REFRESH_COST closed_history_forced_summary_refresh=\(calls)")
+            #expect(!calls.contains("activityChanges") && !calls.contains("activityHistory"))
+            await f.close()
+        } catch {
+            observer.cancel()
+            await observer.value
+            await f.close()
+            throw error
+        }
+    }
+
     @Test func thousandWalkArchiveKeepsBoundedCacheAndOneNewWalkTouchesOnlyItsOutboxRows() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

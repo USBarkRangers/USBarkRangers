@@ -200,7 +200,7 @@ import Observation
                 if let next, let profile = self.nativeProfile, let configuration = self.nativeProfileConfiguration {
                     let visits = NativeVisitFeature(scope: configuration.project + ":" + next.uid,
                         store: profile.store, cloud: try configuration.connectVisits?(next.uid),
-                        refreshAccess: { [weak self] in self?.requestSync(refresh: true) })
+                        refreshAccess: { [weak self] in self?.refreshNativeAccess() })
                     do { try await visits.start() } catch { await visits.close(); throw error }
                     guard !Task.isCancelled, self.generation == generation else {
                         await visits.close()
@@ -209,7 +209,7 @@ import Observation
                     self.nativeVisits = visits
                     let walks = NativeExpeditionFeature(scope: configuration.project + ":" + next.uid,
                         store: profile.store, cloud: try configuration.connectExpeditions?(next.uid),
-                        refreshAccess: { [weak self] in self?.requestSync(refresh: true) })
+                        refreshAccess: { [weak self] in self?.refreshNativeAccess() })
                     do { try await walks.start() } catch { await walks.close(); throw error }
                     guard !Task.isCancelled, self.generation == generation else {
                         await walks.close()
@@ -426,9 +426,9 @@ import Observation
         updateFeatureNetwork()
         nativeTrips?.requestSync(refresh: refresh)
         nativeVisits?.sync?.request(refresh: refresh)
-        nativeExpeditions?.sync?.request(refresh: refresh)
+        nativeExpeditions?.requestSync(refresh: refresh)
         if let nativeProfile {
-            requestNativeProfileSync(nativeProfile)
+            requestNativeProfileSync(nativeProfile, refresh: refresh)
             return
         }
         guard foreground, connected, identity != nil, let engine else { return }
@@ -467,9 +467,13 @@ import Observation
             if let delay { self.scheduleRetry(after: delay) }
         }
     }
-    private func requestNativeProfileSync(_ feature: NativeProfileFeature) {
+    private func refreshNativeAccess() {
+        if let nativeProfile { requestNativeProfileSync(nativeProfile, refresh: true) }
+    }
+    private func requestNativeProfileSync(_ feature: NativeProfileFeature, refresh: Bool = false) {
         guard foreground, connected, identity?.uid == feature.uid else { return }
         syncRequested = true
+        refreshRequested = refreshRequested || refresh
         guard syncTask == nil else { return }
         retryTask?.cancel()
         retryTask = nil
@@ -482,13 +486,15 @@ import Observation
             var retryAt: Date?
             repeat {
                 self.syncRequested = false
+                let refresh = self.refreshRequested
+                self.refreshRequested = false
                 do {
                     if self.identity?.serverConfirmed != true { try await self.auth?.reload() }
                     try Task.checkCancellation()
                     guard self.generation == generation, self.identity?.uid == feature.uid else { return }
                     guard self.identity?.serverConfirmed == true else { throw AccountFailure.accountChanged }
                     try await feature.sync.resume()
-                    let result = try await feature.sync.synchronize()
+                    let result = try await feature.sync.synchronize(refresh: refresh)
                     try Task.checkCancellation()
                     guard self.generation == generation else { return }
                     self.message = nil
@@ -498,6 +504,7 @@ import Observation
                     }
                 } catch {
                     guard !Task.isCancelled, self.generation == generation else { return }
+                    self.refreshRequested = self.refreshRequested || refresh
                     self.diagnostics.accountFailure(error, at: .readCloud)
                     if NativeProfileCloud.isTransient(error) {
                         self.message =

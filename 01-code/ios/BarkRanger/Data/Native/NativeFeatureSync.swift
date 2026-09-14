@@ -16,19 +16,23 @@ import Observation
     private let label: String
     private let work: @MainActor (Bool) async throws -> Date?
     private let pauseWork: @Sendable () async -> Void
+    private var freshness = NativeRefreshCadence()
+    private let now: @MainActor () -> Date
 
     init(
         label: String, work: @escaping @MainActor (Bool) async throws -> Date?,
-        pause: @escaping @Sendable () async -> Void
+        pause: @escaping @Sendable () async -> Void,
+        now: @escaping @MainActor () -> Date = { Date() }
     ) {
         self.label = label
         self.work = work
         pauseWork = pause
+        self.now = now
     }
     func setAllowed(_ allowed: Bool) {
         guard !closed, permitted != allowed else { return }
         permitted = allowed
-        if allowed { request(refresh: true) } else { pause() }
+        if allowed { request() } else { pause() }
     }
     func request(refresh: Bool = false) {
         guard permitted, !closed else { return }
@@ -47,10 +51,12 @@ import Observation
                 repeat {
                     requested = false
                     let refresh = refreshRequested
-                    attemptedRefresh = refresh
                     refreshRequested = false
-                    if let date = try await work(refresh) { next = min(next ?? date, date) }
+                    let shouldRefresh = refresh || freshness.isDue(at: now())
+                    attemptedRefresh = shouldRefresh
+                    if let date = try await work(shouldRefresh) { next = min(next ?? date, date) }
                     try Task.checkCancellation()
+                    if shouldRefresh { freshness.accepted(at: now()) }
                     message = nil
                 } while requested
             } catch {

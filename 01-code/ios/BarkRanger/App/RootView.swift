@@ -95,6 +95,11 @@ struct RootView: View {
         }
         .environment(\.support, support)
         .environment(\.expeditionOverlay, mapExpedition)
+        .onChange(of: router.selectedTab) { _, _ in
+            // Fresh summaries are reused; entering a screen after a long foreground
+            // session checks for changes without installing a background polling timer.
+            account?.session.requestSync()
+        }
         .task(id: expeditions?.recorder.pathRevision) {
             await mapExpedition?.updateWalk(expeditions?.recorder.points ?? [])
         }

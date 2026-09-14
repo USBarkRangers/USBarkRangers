@@ -183,7 +183,8 @@ import Observation
     func observeHistory() async {
         guard let feature = account.nativeExpeditions else { return }
         if history == nil { history = NativeActivityHistory(repository: feature.repository) }
-        feature.sync?.request(refresh: true)
+        let reader = feature.beginHistory()
+        defer { feature.endHistory(reader) }
         await history?.observe()
     }
 }

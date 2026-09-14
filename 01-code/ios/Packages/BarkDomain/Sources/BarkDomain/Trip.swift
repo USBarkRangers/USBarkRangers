@@ -57,6 +57,7 @@ public struct Trip: Codable, Equatable, Sendable, Identifiable {
     public var allStops: [Stop] { days.flatMap(\.stops) + [start, end].compactMap { $0 } }
 
     public func validate(allowEmptyName: Bool = false) throws {
+        try NativeRecordValidation.identifier(id)
         guard (1...50).contains(days.count), Set(days.map(\.id)).count == days.count else {
             throw Failure.dayLimit
         }
@@ -70,6 +71,27 @@ public struct Trip: Codable, Equatable, Sendable, Identifiable {
         guard Set(allStops.map(\.id)).count == allStops.count,
             allStops.allSatisfy({ $0.coordinate != nil && !$0.name.isEmpty && $0.placeIdentity.isValid })
         else { throw Failure.invalidStop }
+        for day in days {
+            try NativeRecordValidation.identifier(day.id)
+            guard day.color.utf8.count == 7,
+                day.color.range(of: "^#[a-fA-F0-9]{6}$", options: .regularExpression) != nil
+            else { throw Failure.malformed }
+            if let date = day.date { try NativeRecordValidation.calendarDate(date) }
+        }
+        for stop in allStops {
+            try NativeRecordValidation.identifier(stop.id)
+            guard stop.name.utf16.count <= 500, stop.state.utf16.count <= 100,
+                (stop.city?.utf16.count ?? 0) <= 200, let point = stop.coordinate,
+                point.latitude.isFinite, abs(point.latitude) <= 90,
+                point.longitude.isFinite, abs(point.longitude) <= 180,
+                stop.visitMinutes.map({ $0.isFinite && (0...1440).contains($0) }) ?? true
+            else { throw Failure.invalidStop }
+            if let time = stop.arrivalTime {
+                guard time.utf8.count == 5,
+                    time.range(of: "^([01][0-9]|2[0-3]):[0-5][0-9]$", options: .regularExpression) != nil
+                else { throw Failure.invalidStop }
+            }
+        }
         guard stops.count <= 500, try JSONEncoder().encode(self).count <= 350_000 else {
             throw Failure.sizeLimit
         }

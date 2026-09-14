@@ -29,6 +29,19 @@ enum NativeRecordValidation {
     static func date(_ value: Int64) throws {
         guard (0...253_402_300_799_999).contains(value) else { throw Failure.malformed }
     }
+    /// ISO calendar components, not a lenient DateFormatter that rolls February 30 forward.
+    /// Shared fixtures exercise the same proleptic Gregorian dates as the native backend.
+    static func calendarDate(_ value: String) throws {
+        guard value.utf8.count == 10,
+            value.range(of: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", options: .regularExpression) != nil
+        else { throw Failure.malformed }
+        let parts = value.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3, (1...12).contains(parts[1]) else { throw Failure.malformed }
+        let year = parts[0], month = parts[1], day = parts[2]
+        let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+        let lengths = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        guard (1...lengths[month - 1]).contains(day) else { throw Failure.malformed }
+    }
     static func stateCodes(_ values: [String]) throws {
         guard values.count <= 64, Set(values).count == values.count,
             values.allSatisfy({ $0.utf8.count == 2 && $0.utf8.allSatisfy({ (65...90).contains($0) }) })

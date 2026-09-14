@@ -2,9 +2,9 @@ name: Native iOS checks
 
 on:
   push:
-    paths: ['01-code/ios/**', '03-tests/fixtures/ios/**', '05-tools/ios-emulator-functions/**', '05-tools/scripts/seed-ios-emulators.cjs', '05-tools/scripts/test-ios-accounts.py', 'firebase.ios-emulators.json', '05-tools/scripts/serve-ios-catalog.js', '01-code/functions/catalog/catalogSchema.js', '.github/workflows/ios-checks.yml']
+    paths: ['01-code/ios/**', '01-code/functions-native/**', '06-config/native-ios/**', '05-tools/scripts/seed-native-profile-ui.cjs', '05-tools/scripts/test-ios-accounts.py', 'firebase.native.json', '05-tools/scripts/serve-ios-catalog.js', '.github/workflows/ios-checks.yml']
   pull_request:
-    paths: ['01-code/ios/**', '03-tests/fixtures/ios/**', '05-tools/ios-emulator-functions/**', '05-tools/scripts/seed-ios-emulators.cjs', '05-tools/scripts/test-ios-accounts.py', 'firebase.ios-emulators.json', '05-tools/scripts/serve-ios-catalog.js', '01-code/functions/catalog/catalogSchema.js', '.github/workflows/ios-checks.yml']
+    paths: ['01-code/ios/**', '01-code/functions-native/**', '06-config/native-ios/**', '05-tools/scripts/seed-native-profile-ui.cjs', '05-tools/scripts/test-ios-accounts.py', 'firebase.native.json', '05-tools/scripts/serve-ios-catalog.js', '.github/workflows/ios-checks.yml']
   workflow_dispatch:
 
 permissions:
@@ -61,15 +61,18 @@ jobs:
       - name: Install account emulator dependencies
         run: |
           npm ci --ignore-scripts
-          npm ci --prefix 01-code/functions --ignore-scripts
+          npm ci --prefix 01-code/functions-native --ignore-scripts
       - name: Native SDK and account UI against local emulators
         run: |
           node 05-tools/scripts/serve-ios-catalog.js > "$RUNNER_TEMP/account-catalog.log" 2>&1 &
           BARK_FIXTURE_PID=$!
           trap 'kill "$BARK_FIXTURE_PID"' EXIT
-          node_modules/.bin/firebase emulators:exec --config firebase.ios-emulators.json \
-            --project demo-barkranger-ios --only auth,firestore,functions \
-            "node 05-tools/scripts/seed-ios-emulators.cjs && python3 05-tools/scripts/test-ios-accounts.py --products '$RUNNER_TEMP/BarkDerivedData/Build/Products' --destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5'"
+          node_modules/.bin/firebase emulators:exec --config firebase.native.json \
+            --project demo-bark-native --only auth,firestore,functions \
+            "GCLOUD_PROJECT=demo-bark-native node 05-tools/scripts/seed-native-profile-ui.cjs && \
+            python3 05-tools/scripts/test-ios-accounts.py --native-profile --products '$RUNNER_TEMP/BarkDerivedData/Build/Products' --destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' && \
+            python3 05-tools/scripts/test-ios-accounts.py --native-trips --products '$RUNNER_TEMP/BarkDerivedData/Build/Products' --destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' && \
+            python3 05-tools/scripts/test-ios-accounts.py --native-adventures --products '$RUNNER_TEMP/BarkDerivedData/Build/Products' --destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5'"
       - name: Keep test evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

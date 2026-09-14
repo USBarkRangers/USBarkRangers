@@ -7,7 +7,7 @@ let package = Package(
     products: [.library(name: "BarkDomain", targets: ["BarkDomain"])],
     targets: [
         .target(name: "BarkDomain", resources: [.process("Resources")]),
-        .testTarget(name: "BarkDomainTests", dependencies: ["BarkDomain"]),
+        .testTarget(name: "BarkDomainTests", dependencies: ["BarkDomain"], resources: [.process("Fixtures")]),
     ],
     swiftLanguageModes: [.v6]
 )

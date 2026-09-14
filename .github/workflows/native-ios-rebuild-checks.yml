@@ -1,9 +1,9 @@
 name: Isolated native iOS backend checks
 on:
   push:
-    paths: ['01-code/functions-native/**', '06-config/native-ios/**', 'firebase.native.json', '05-tools/scripts/check-native-firebase-project.cjs', '03-tests/native-firebase-project-isolation.test.cjs', '.github/workflows/native-ios-rebuild-checks.yml']
+    paths: ['01-code/functions-native/**', '01-code/ios/Packages/BarkDomain/**', '06-config/native-ios/**', 'firebase.native.json', '05-tools/scripts/check-native-firebase-project.cjs', '03-tests/native-firebase-project-isolation.test.cjs', '03-tests/native-ci-target.test.cjs', '.github/workflows/ios-checks.yml', '.github/workflows/native-ios-rebuild-checks.yml']
   pull_request:
-    paths: ['01-code/functions-native/**', '06-config/native-ios/**', 'firebase.native.json', '05-tools/scripts/check-native-firebase-project.cjs', '03-tests/native-firebase-project-isolation.test.cjs', '.github/workflows/native-ios-rebuild-checks.yml']
+    paths: ['01-code/functions-native/**', '01-code/ios/Packages/BarkDomain/**', '06-config/native-ios/**', 'firebase.native.json', '05-tools/scripts/check-native-firebase-project.cjs', '03-tests/native-firebase-project-isolation.test.cjs', '03-tests/native-ci-target.test.cjs', '.github/workflows/ios-checks.yml', '.github/workflows/native-ios-rebuild-checks.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -27,7 +27,7 @@ jobs:
           npm ci --ignore-scripts
           npm ci --prefix 01-code/functions-native --ignore-scripts
       - name: Verify native deployment isolation
-        run: node --test 03-tests/native-firebase-project-isolation.test.cjs
+        run: node --test 03-tests/native-firebase-project-isolation.test.cjs 03-tests/native-ci-target.test.cjs
       - name: Native authorization, transactions, bounded reads and transport
         run: >-
           node_modules/.bin/firebase emulators:exec --config firebase.native.json

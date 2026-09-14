@@ -42,7 +42,15 @@ struct NativeAccountDetails: View {
             }
             Section {
                 if model.session.isSyncing { ProgressView("Checking saved account…") }
-                accountValue("Pending changes", value: String(profile.pendingCount))
+                NavigationLink {
+                    PendingChangesView(session: model.session)
+                } label: {
+                    accountValue("Pending changes", value: String(profile.totalPendingCount))
+                }
+                if profile.totalPendingCount >= NativeSyncPolicy.queueWarning {
+                    Text("Many changes are waiting. Open Pending changes to review them or sync when connected.")
+                        .font(.footnote).foregroundStyle(.orange)
+                }
                 if let message = model.session.message { Text(message).font(.footnote) }
                 Button("Sync now") { model.session.requestSync(refresh: true) }
                 if profile.conflict { conflict(profile) }

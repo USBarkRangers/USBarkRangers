@@ -30,11 +30,11 @@ struct NativeProfileEdgeTests {
             }
         }
         #expect(try await store.profileView() == first)
-        for number in 1..<128 {
+        for number in 1..<NativeSyncPolicy.queueLimit {
             try await store.saveProfileEdit(.displayName("Name \(number)"), now: now)
         }
         let full = try await store.profileView()
-        #expect(full.pendingCount == 128)
+        #expect(full.pendingCount == NativeSyncPolicy.queueLimit)
         await #expect(throws: NativeStore.Failure.queueFull) {
             try await store.saveProfileEdit(.displayName("Beyond limit"), now: now)
         }
@@ -47,7 +47,7 @@ struct NativeProfileEdgeTests {
 
     @MainActor @Test func nativeAccessExpiresAndCannotLeakAcrossAccountUpdates() async throws {
         let repository = EntitlementRepository()
-        let until = Date().addingTimeInterval(0.15)
+        let until = Date().addingTimeInterval(0.15 - NativeSyncPolicy.offlineGrace)
         repository.update(
             .init(
                 revision: 1, premium: true, source: .production,

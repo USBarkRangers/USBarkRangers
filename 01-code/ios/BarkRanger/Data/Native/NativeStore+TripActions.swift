@@ -95,9 +95,8 @@ extension NativeStore {
         }
         let operation: NativeTripIntent? = expected.map { .delete(tripID: draft.id, contentRevision: $0) }
         if operation != nil {
-            guard !isGuest,
-                try modelContext.fetchCount(FetchDescriptor<NativeLocalSchema.PendingOperation>()) < 128
-            else { throw Failure.queueFull }
+            guard !isGuest else { throw Failure.queueFull }
+            try requireQueueCapacity()
         }
         do {
             if let operation {

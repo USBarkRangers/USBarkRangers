@@ -1,7 +1,14 @@
+import BarkDomain
 import Foundation
 import SwiftData
 
 extension NativeStore {
+    func requireQueueCapacity(parkCapture: Bool = false) throws {
+        try requireOpen()
+        if parkCapture { return }
+        guard try modelContext.fetchCount(FetchDescriptor<NativeLocalSchema.PendingOperation>())
+            < NativeSyncPolicy.queueLimit else { throw Failure.queueFull }
+    }
     struct Submission: Equatable, Sendable {
         let id: UUID
         let bytes: Data

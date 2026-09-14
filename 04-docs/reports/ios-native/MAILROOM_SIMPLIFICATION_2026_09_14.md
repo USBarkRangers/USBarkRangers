@@ -23,8 +23,18 @@ Evidence: `/tmp/bark-mailroom-step1-profile.log`, `/tmp/bark-mailroom-step1-adve
 
 ## Checkpoint 2 — policy and pending changes
 
-Not started.
+Complete locally. Runtime Swift **28,524 → 28,924 (+400 lines)**; cumulative from baseline **+233**. Runtime files deleted: **0**. This checkpoint adds the requested pending-list/discard UI, shared policy and account pin isolation; it is not the legacy-code deletion checkpoint.
+
+- One ordinary 1,000-operation limit, warning at 800. New single visits and GPS/pedometer recording handoffs bypass count admission; manual/Health imports and edits do not. Removed the 128/129 reader sentinels, 45-draft reader assumption and separate 20-unsaved-draft cap.
+- Production Premium editing ends at verified expiry + 40 days; first server acceptance allows operation age through 45 days, and paid acceptance ends at expiry + 45 days. Revocation disables editing immediately when confirmed. Administrative development grants retain their authorized hard expiry, not subscription grace. Renewal retries original bytes/IDs/dates; only one walk can be uncertain at once.
+- Profile name/style use server-side field overwrites without clobbering unrelated fields. Existing genuine trip/visit/walk conflict rules remain.
+- Pending count covers every feature; the opened list reads local descriptions only. One Sync now, no Open/per-item Retry. Never-sent Discard rechecks exact dependency IDs and refuses raced sends. Trip editor drafts survive cancellation of their queued save.
+- Saved-pin files and index now use an account/project/guest namespace. Presentation clears on identity change and late old-account disk results cannot appear in the new account. Unowned test files are not imported or deleted.
+
+Verification: **11 backend unit**, **27 emulator integration**, **61 domain**, **13 native account/profile**, and **14 local pending/saved-pin/storage** checks passed. Final pending-only run adds renewal/uncertain-walk coverage: **5 passed** (four overlap the local run). Larger valid queue test reopened **1,002 operations**; cross-account pin visibility and restoration passed. No skipped checks in these selected runs. Logs: `/tmp/bark-mailroom-step2-*`.
+
+Intentional expectation updates: profile race outcomes now both accept and preserve unrelated fields; capacity is 1,000 instead of 128; production expiry tests exercise the 40/45-day cutoffs. Existing account isolation, malformed input, server validation, exact receipt replay and denied-source checks were retained. No live deployment yet; checkpoint 3 owns cloud/device verification.
 
 ## Checkpoint 3 — retention, legacy deletion and deployment
 
-Not started. Obsolete runtime code must be deleted, not retained as a second implementation. Counts and test/deployment evidence will be recorded here.
+In progress. Obsolete runtime code must be deleted, not retained as a second implementation. Counts and test/deployment evidence will be recorded here.

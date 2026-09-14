@@ -106,7 +106,7 @@ struct NativeStoreTests {
             try await other.stageProfileEdit(.displayName("No access"), now: now)
         }
         await #expect(throws: (any Error).self) {
-            try await store.stageProfileEdit(.displayName("Expired"), now: now.addingTimeInterval(7200))
+            try await store.stageProfileEdit(.displayName("Expired"), now: now.addingTimeInterval(7200 + NativeSyncPolicy.offlineGrace))
         }
         await #expect(throws: (any Error).self) {
             try await NativeStore.open(directory: directory, project: "barkrangermap-auth", uid: "a")

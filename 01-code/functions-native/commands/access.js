@@ -2,6 +2,7 @@
 
 const { NativeError } = require('../shared/errors');
 const { text } = require('../shared/validation');
+const { PREMIUM_UPLOAD_GRACE_MS } = require('../shared/syncPolicy');
 
 function accountID(uid) {
     text(uid, { min: 1, max: 128 });
@@ -26,6 +27,8 @@ function requirePremium(entitlement, nowMs, uid) {
     // APPLE-ACTIVATION: enrollment pending. A separate server verification boundary must
     // validate signed Apple transactions, bundle/product/environment, account ownership,
     // expiry/revocation and duplicate notification IDs before writing this entitlement.
+    // Normal expiry retains the verified grant and validUntil for offline grace;
+    // revocation sets premium:false immediately. Never grant grace to a revoked purchase.
     // Inactive wiring sketch for that future callable/notification handler, NOT this guard:
     // await purchaseVerifier.verifyAndApply({ signedTransaction, authenticatedUID });
     // Never enable a client-write/test-grant endpoint or import legacy payment providers.
@@ -39,9 +42,12 @@ function requirePremium(entitlement, nowMs, uid) {
         && typeof uid === 'string' && entitlement.developmentUID === uid
         && Number.isFinite(grantedAtMs) && grantedAtMs <= nowMs + 60_000
         && validUntilMs > grantedAtMs && validUntilMs <= grantedAtMs + 14 * 24 * 3600_000;
+    // Explicitly revoked/disabled access has no grace. Development grants retain
+    // their administrator-authorized hard expiry; they are not subscriptions.
+    const cutoff = validUntilMs + (entitlement?.source === 'app-store-production' ? PREMIUM_UPLOAD_GRACE_MS : 0);
     if (entitlement?.schemaVersion !== 1 || entitlement.premium !== true
         || (entitlement.source !== 'app-store-production' && !development)
-        || !Number.isFinite(validUntilMs) || validUntilMs <= nowMs) {
+        || !Number.isFinite(validUntilMs) || cutoff <= nowMs) {
         throw new NativeError('premium-required', 'Premium is required to edit account data.');
     }
 }

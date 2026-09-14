@@ -381,7 +381,8 @@ import Observation
                     self.profileState = value
                     self.entitlement.update(value.entitlement, uid: feature.uid)
                     self.updateFeatureNetwork()
-                    if !Set(value.pendingIDs).subtracting(previous?.pendingIDs ?? []).isEmpty {
+                    if value.entitlement != previous?.entitlement
+                        || !Set(value.pendingIDs).subtracting(previous?.pendingIDs ?? []).isEmpty {
                         self.requestSync()
                     }
                 }

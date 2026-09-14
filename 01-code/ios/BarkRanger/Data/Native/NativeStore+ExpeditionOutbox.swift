@@ -27,9 +27,11 @@ extension NativeStore {
         if let before = value.beforeActivity {
             try requireActivityPreimage(before, queue: queue)
         }
-        guard try modelContext.fetchCount(FetchDescriptor<NativeLocalSchema.PendingOperation>()) < 128 else {
-            throw Failure.queueFull
-        }
+        let parkCapture: Bool
+        if case .record(let summary) = value.action, summary.source == .gps || summary.source == .pedometer {
+            parkCapture = true
+        } else { parkCapture = false }
+        try requireQueueCapacity(parkCapture: parkCapture)
         do {
             let id = UUID()
             let milliseconds = try NativeClientTime.milliseconds(now)

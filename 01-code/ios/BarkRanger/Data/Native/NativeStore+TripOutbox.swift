@@ -46,9 +46,7 @@ extension NativeStore {
     private func stageTripIntent(
         _ intent: NativeTripIntent, pending: [NativeLocalSchema.PendingOperation], now: Date
     ) throws -> UUID {
-        guard try modelContext.fetchCount(FetchDescriptor<NativeLocalSchema.PendingOperation>()) < 128 else {
-            throw Failure.queueFull
-        }
+        try requireQueueCapacity()
         do {
             let id = try insertTripIntent(intent, predecessor: pending.last?.id, now: now)
             if case .delete = intent, try selectionRow()?.tripID == intent.tripID {
@@ -128,12 +126,10 @@ extension NativeStore {
 
     func tripOperations(_ id: String) throws -> [NativeLocalSchema.PendingOperation] {
         let key = "trip:\(id)"
-        var query = FetchDescriptor<NativeLocalSchema.PendingOperation>(
+        let query = FetchDescriptor<NativeLocalSchema.PendingOperation>(
             predicate: #Predicate { $0.entityKey == key },
             sortBy: [SortDescriptor(\.sequence)])
-        query.fetchLimit = 129
         let rows = try modelContext.fetch(query)
-        guard rows.count <= 128 else { throw Failure.corrupt }
         for (index, row) in rows.enumerated() {
             guard UUID(uuidString: row.id) != nil, row.sequence > 0, row.attempts >= 0,
                 row.predecessor == (index == 0 ? nil : rows[index - 1].id),

@@ -98,15 +98,8 @@ extension NativeStore {
             }
         }
         try replacement?.validate()
-        let dirtyCount = try modelContext.fetchCount(
-            FetchDescriptor<NativeLocalSchema.Draft>(predicate: #Predicate { $0.dirty }))
-        let replacingDirty = try draftRow(id)?.dirty == true ? 1 : 0
-        let chosenDirty =
-            try chosen.map { try NativeTripBase.fingerprint($0.trip) != $0.nativeBase?.contentFingerprint }
-            ?? false
-        guard dirtyCount - replacingDirty + (chosenDirty ? 1 : 0) <= 20 else { throw Failure.queueFull }
         let count = try modelContext.fetchCount(FetchDescriptor<NativeLocalSchema.PendingOperation>())
-        guard count - pending.count + (replacement == nil ? 0 : 1) <= 128 else { throw Failure.queueFull }
+        guard count - pending.count + (replacement == nil ? 0 : 1) <= NativeSyncPolicy.queueLimit else { throw Failure.queueFull }
         do {
             try stageTripSnapshot(snapshot)
             for row in pending { modelContext.delete(row) }

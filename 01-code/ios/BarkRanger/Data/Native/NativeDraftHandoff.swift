@@ -98,8 +98,6 @@ extension NativeStore {
                         throw Failure.invalidAcknowledgment
                     }
                 } else {
-                    let dirty = FetchDescriptor<NativeLocalSchema.Draft>(predicate: #Predicate { $0.dirty })
-                    guard try modelContext.fetchCount(dirty) < 20 else { throw Failure.queueFull }
                     modelContext.insert(
                         NativeLocalSchema.Draft(
                             id: draft.id, editRevision: 1, title: draft.trip.name,

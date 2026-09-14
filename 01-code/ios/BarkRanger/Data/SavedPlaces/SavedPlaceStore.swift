@@ -1,4 +1,5 @@
 import BarkDomain
+import CryptoKit
 import Foundation
 
 /// Sole device-bookmark writer. Authored JSON is untouched during indexing; the
@@ -13,6 +14,14 @@ actor SavedPlaceStore {
     private let directory: URL
     private var index: SavedPlaceIndex?
     init(directory: URL) { self.directory = directory }
+
+    /// Account-local bookmarks only. Unowned prelaunch files are not imported into
+    /// an account. Cloud pin sync/journal remain a separate feature.
+    nonisolated func scoped(project: String, uid: String?) -> SavedPlaceStore {
+        let owner = project + (uid.map { ":account:" + $0 } ?? ":guest")
+        let key = SHA256.hash(data: Data(owner.utf8)).map { String(format: "%02x", $0) }.joined()
+        return SavedPlaceStore(directory: directory.appendingPathComponent("accounts-v1").appendingPathComponent(key))
+    }
 
     func prepare() throws {
         if let index, try !index.needsRebuild { return }

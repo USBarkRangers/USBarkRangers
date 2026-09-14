@@ -17,10 +17,8 @@ extension NativeStore {
         var query = FetchDescriptor<NativeLocalSchema.PendingOperation>(
             predicate: #Predicate { $0.entityKey == "visits" },
             sortBy: [SortDescriptor(\.sequence)])
-        query.fetchLimit = 129
         query.propertiesToFetch = [\.id, \.sequence, \.listSummary, \.state, \.attempts, \.nextAttemptAt]
         let rows = try modelContext.fetch(query)
-        guard rows.count <= 128 else { throw Failure.corrupt }
         return try rows.map { row in
             guard let id = UUID(uuidString: row.id), let bytes = row.listSummary, row.sequence > 0,
                 row.attempts >= 0,

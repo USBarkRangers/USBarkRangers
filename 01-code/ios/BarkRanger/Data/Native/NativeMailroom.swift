@@ -1,3 +1,4 @@
+import BarkDomain
 import Foundation
 
 /// Delivery mechanics only. Feature adapters select eligible work and accept typed
@@ -35,9 +36,11 @@ nonisolated enum NativeMailroom {
     ) async throws -> Stop {
         // A pass is bounded independently of storage capacity. Yielding schedules
         // another pass; it never limits how much offline work can be retained.
-        for _ in 0..<128 {
+        for _ in 0..<NativeSyncPolicy.deliveryBatch {
             try Task.checkCancellation()
+            try await store.resumeAuthorizedSubmissions()
             guard let delivery = try await next() else { return .idle }
+            await store.publish([.pending])
             do {
                 try await delivery.send()
                 try Task.checkCancellation()

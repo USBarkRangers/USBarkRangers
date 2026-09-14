@@ -6,10 +6,8 @@ extension NativeStore {
     func tripPendingOperationIDs() throws -> [String] {
         try requireOpen()
         var query = FetchDescriptor<NativeLocalSchema.PendingOperation>(sortBy: [SortDescriptor(\.sequence)])
-        query.fetchLimit = 129
         query.propertiesToFetch = [\.id, \.entityKey, \.sequence]
         let rows = try modelContext.fetch(query)
-        guard rows.count <= 128 else { throw Failure.corrupt }
         return rows.filter { $0.entityKey.hasPrefix("trip:") }.map(\.id)
     }
     struct TripQueueState: Equatable, Sendable {
@@ -29,10 +27,8 @@ extension NativeStore {
     func pendingTripIDs() throws -> [String] {
         try requireOpen()
         var query = FetchDescriptor<NativeLocalSchema.PendingOperation>(sortBy: [SortDescriptor(\.sequence)])
-        query.fetchLimit = 129
         query.propertiesToFetch = [\.entityKey, \.sequence]
         let rows = try modelContext.fetch(query)
-        guard rows.count <= 128 else { throw Failure.corrupt }
         var seen = Set<String>()
         return rows.compactMap { row in
             guard row.entityKey.hasPrefix("trip:") else { return nil }

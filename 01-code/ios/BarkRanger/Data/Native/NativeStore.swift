@@ -12,6 +12,7 @@ import SwiftData
         let confirmed: NativeProfile?
         let visible: NativeProfile?
         let pendingCount: Int
+        let totalPendingCount: Int
         let pendingIDs: [UUID]
         let failureCode: String?
         let conflict: Bool
@@ -91,6 +92,7 @@ import SwiftData
         }
         return ProfileView(
             confirmed: baseline, visible: visible, pendingCount: operations.count,
+            totalPendingCount: try modelContext.fetchCount(FetchDescriptor<NativeLocalSchema.PendingOperation>()),
             pendingIDs: operations.compactMap { UUID(uuidString: $0.id) },
             failureCode: operations.first?.failureCode,
             conflict: operations.contains { $0.state == "conflict" || $0.state == "rejected" },
@@ -181,9 +183,9 @@ import SwiftData
     func commitProfileChange() throws {
         // Build the projection before commit, so corrupt dependent rows cannot turn a durable
         // write into a reported failure. Successful publication itself is nonthrowing.
-        let value = try profileView()
+        _ = try profileView()
         try commit()
-        for observer in observers.values { observer.yield(value) }
+        publish([.pending])
     }
     private func removeObserver(_ id: UUID) { observers.removeValue(forKey: id) }
     func changes(matching interests: Set<Change>) throws -> AsyncStream<Set<Change>> {
@@ -197,6 +199,9 @@ import SwiftData
     }
     private func removeEntityObserver(_ id: UUID) { entityObservers.removeValue(forKey: id) }
     func publish(_ changes: Set<Change>) {
+        if changes.contains(.pending), let value = try? profileView() {
+            for observer in observers.values { observer.yield(value) }
+        }
         // Invalidation, not record bodies. Preserve invalidated entity identities
         // when a busy history screen coalesces events, including deleted cache rows.
         for (interests, continuation) in entityObservers.values where !interests.isDisjoint(with: changes) {

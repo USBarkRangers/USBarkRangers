@@ -16,9 +16,11 @@ extension NativeStore {
         for change in value.changes {
             try requireVisitPreimage(change, previous: preceding[change.intent.target.siteID]?.change)
         }
-        guard try modelContext.fetchCount(FetchDescriptor<NativeLocalSchema.PendingOperation>()) < 128 else {
-            throw Failure.queueFull
-        }
+        let parkCapture: Bool
+        if !value.isBulk, let change = value.changes.first, case .mark = change.intent.edit {
+            parkCapture = true
+        } else { parkCapture = false }
+        try requireQueueCapacity(parkCapture: parkCapture)
         do {
             let id = try insertVisitOperation(value, now: now)
             try commit()

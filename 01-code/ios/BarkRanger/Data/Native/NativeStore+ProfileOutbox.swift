@@ -30,9 +30,7 @@ extension NativeStore {
             }
         }
         let pending = try profileOperations()
-        guard try modelContext.fetchCount(FetchDescriptor<NativeLocalSchema.PendingOperation>()) < 128 else {
-            throw Failure.queueFull
-        }
+        try requireQueueCapacity()
         do {
             let sequence = try nextNativeSequence()
             let id = UUID()
@@ -95,10 +93,8 @@ extension NativeStore {
 
     func profileOperations() throws -> [NativeLocalSchema.PendingOperation] {
         let query = #Predicate<NativeLocalSchema.PendingOperation> { $0.entityKey == "profile" }
-        var request = FetchDescriptor(predicate: query, sortBy: [SortDescriptor(\.sequence)])
-        request.fetchLimit = 129
+        let request = FetchDescriptor(predicate: query, sortBy: [SortDescriptor(\.sequence)])
         let rows = try modelContext.fetch(request)
-        guard rows.count <= 128 else { throw Failure.corrupt }
         let byID = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         guard byID.count == rows.count else { throw Failure.corrupt }
         for (index, row) in rows.enumerated() {

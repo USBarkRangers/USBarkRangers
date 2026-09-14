@@ -16,9 +16,10 @@ function updateHandler(parse, update) {
     return {
         parse, requiresPremium: true, rateGroup: 'profile', rateMaximum: 30,
         async prepare(context) {
-            const { tx, db, user, profile, uid, expectedRevision, payload, stamp } = context;
+            const { tx, db, user, profile, uid, payload, stamp } = context;
             const revision = profileRevision(profile);
-            if (revision !== expectedRevision) return { status: 'conflict', revisions: { profile: revision } };
+            // Name and map style are independent field updates: last accepted save
+            // wins only its own field. Keep IDs/receipts; no profile conflict screen.
             validate.integer(revision, 1, Number.MAX_SAFE_INTEGER - 1);
             const patch = update(payload);
             const boardRef = db.collection('leaderboard').doc(publicEntryID(uid));

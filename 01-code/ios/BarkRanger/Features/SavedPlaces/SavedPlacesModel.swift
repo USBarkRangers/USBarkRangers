@@ -6,13 +6,24 @@ import Observation
 /// Read-only UI projection of SavedPlaceStore and one serialized local action. No trip/account access.
 /// Future saved-place notes/journal UI should reuse this storage boundary, not add another map draft.
 @MainActor @Observable final class SavedPlacesModel {
-    private(set) var places: [String: SavedPlaceIndex.Pin] = [:]
-    private(set) var selected: SavedPlace?
-    private(set) var selectionReady = false
-    private(set) var isReady = false
-    private(set) var isWorking = false
+    private var visiblePlaces: [String: SavedPlaceIndex.Pin] = [:]
+    var places: [String: SavedPlaceIndex.Pin] { currentScope ? visiblePlaces : [:] }
+    private var visibleSelection: SavedPlace?
+    var selected: SavedPlace? { currentScope ? visibleSelection : nil }
+    private var readySelection = false
+    var selectionReady: Bool { currentScope && readySelection }
+    private var ready = false
+    var isReady: Bool { currentScope && ready }
+    private var workingScope: UUID?
+    var isWorking: Bool { workingScope == scopeGeneration }
     private(set) var message: String?
-    private let store: SavedPlaceStore
+    private let rootStore: SavedPlaceStore
+    private var store: SavedPlaceStore
+    private let account: AccountSession?
+    private var ownerUID: String?
+    private var bound = false
+    private var scopeGeneration = UUID()
+    private var currentScope: Bool { account == nil || (bound && ownerUID == account?.identity?.uid) }
     private var task: Task<Void, Never>?
     private var query: Task<Void, Never>?
     private var selection: Task<Void, Never>?
@@ -20,12 +31,40 @@ import Observation
     private var retainedStops: [Trip.Stop] = []
     private var selectedIdentity: String?
     private var generation = UUID()
-    init(store: SavedPlaceStore) { self.store = store }
+    init(store: SavedPlaceStore, account: AccountSession? = nil) {
+        rootStore = store
+        self.store = store
+        self.account = account
+        if account != nil { bindAccount() }
+    }
+
+    private func bindAccount() {
+        let uid = withObservationTracking {
+            account?.identity?.uid
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.bindAccount() }
+        }
+        guard !bound || uid != ownerUID else { return }
+        bound = true
+        ownerUID = uid
+        scopeGeneration = UUID()
+        query?.cancel()
+        selection?.cancel()
+        visiblePlaces = [:]
+        visibleSelection = nil
+        selectedIdentity = nil
+        readySelection = false
+        ready = false
+        message = nil
+        store = rootStore.scoped(
+            project: account?.nativeProfileConfiguration?.project ?? "bark-ranger-ios", uid: uid)
+        load()
+    }
 
     func load() {
         guard !isReady, !isWorking else { return }
         perform(failure: "Saved places could not be opened. Try again; your files have been kept.") {
-            try await self.store.prepare()
+            try await $0.prepare()
         }
     }
     func saved(_ stop: Trip.Stop) -> SavedPlaceIndex.Pin? {
@@ -38,15 +77,19 @@ import Observation
         let id = stop.placeIdentity.storageID
         guard selectedIdentity != id || !selectionReady else { return }
         selectedIdentity = id
-        selected = nil
-        selectionReady = false
+        visibleSelection = nil
+        readySelection = false
         selection?.cancel()
+        let store = store
+        let scope = scopeGeneration
         selection = Task {
             do {
-                let saved = try await self.store.saved(stop)
-                guard !Task.isCancelled, self.selectedIdentity == id else { return }
-                self.selected = saved
-                self.selectionReady = true
+                let saved = try await store.saved(stop)
+                guard !Task.isCancelled, self.scopeGeneration == scope, self.selectedIdentity == id else {
+                    return
+                }
+                self.visibleSelection = saved
+                self.readySelection = true
             } catch {
                 if !Task.isCancelled {
                     self.message = "This saved place could not be read. Its file is retained."
@@ -76,13 +119,17 @@ import Observation
         let generation = generation
         let stops = retainedStops
         query?.cancel()
+        let store = store
+        let scope = scopeGeneration
         query = Task {
             do {
                 try await Task.sleep(for: .milliseconds(100))
-                let pins = try await self.store.pins(in: region, including: stops)
-                guard !Task.isCancelled, self.generation == generation else { return }
-                self.places = pins
-                self.isReady = true
+                let pins = try await store.pins(in: region, including: stops)
+                guard !Task.isCancelled, self.scopeGeneration == scope, self.generation == generation else {
+                    return
+                }
+                self.visiblePlaces = pins
+                self.ready = true
             } catch {
                 if !Task.isCancelled {
                     self.message = "Saved pins could not be loaded. Your files are retained."
@@ -91,23 +138,25 @@ import Observation
         }
     }
     func save(_ place: SavedPlace) {
-        perform(failure: "This place could not be saved. Check available storage and try again.") {
-            let saved = try await self.store.save(place)
+        perform(failure: "This place could not be saved. Check available storage and try again.") { store in
+            let saved = try await store.save(place)
+            guard self.store === store, self.currentScope else { return }
             if self.selectedIdentity == saved.stop.placeIdentity.storageID {
                 self.selection?.cancel()
-                self.selected = saved
-                self.selectionReady = true
+                self.visibleSelection = saved
+                self.readySelection = true
             }
         }
     }
     func remove(_ place: SavedPlace, completed: @escaping () -> Void) {
-        perform(failure: "This place could not be removed. Try again.", completed: completed) {
-            try await self.store.remove(place.id)
-            self.places.removeValue(forKey: place.id)
+        perform(failure: "This place could not be removed. Try again.", completed: completed) { store in
+            try await store.remove(place.id)
+            guard self.store === store, self.currentScope else { return }
+            self.visiblePlaces.removeValue(forKey: place.id)
             if self.selectedIdentity == place.stop.placeIdentity.storageID {
                 self.selection?.cancel()
-                self.selected = nil
-                self.selectionReady = true
+                self.visibleSelection = nil
+                self.readySelection = true
             }
         }
     }
@@ -120,24 +169,33 @@ import Observation
 
     private func perform(
         failure: String, completed: @escaping () -> Void = {},
-        work: @escaping () async throws -> Void
+        work: @escaping (SavedPlaceStore) async throws -> Void
     ) {
-        guard !isWorking else { return }
-        isWorking = true
+        guard !isWorking, currentScope else { return }
+        let scope = scopeGeneration
+        workingScope = scope
         message = nil
-        // An accepted device write finishes even if the sheet closes or the account changes.
-        // The app owns this task; lifecycle/test teardown can await it before deleting a sandbox.
+        let store = store
+        let previous = task
+        // Finish accepted old-account disk writes against their captured writer,
+        // but never publish their results into the next account's presentation.
         task = Task {
+            await previous?.value
             defer {
-                task = nil
-                isWorking = false
+                if scopeGeneration == scope {
+                    task = nil
+                    workingScope = nil
+                }
             }
             do {
-                try await work()
-                isReady = true
+                try await work(store)
+                guard scopeGeneration == scope, currentScope else { return }
+                ready = true
                 refreshPins()
                 completed()
-            } catch { message = failure }
+            } catch {
+                if scopeGeneration == scope, currentScope { message = failure }
+            }
         }
     }
 }

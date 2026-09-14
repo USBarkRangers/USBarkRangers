@@ -37,6 +37,12 @@ public struct NativeEntitlement: Codable, Equatable, Sendable {
             acceptedSource = acceptedSource || source == .development
         #endif
         return schemaVersion == 1 && premium && acceptedSource
-            && validUntilMs.map { Double($0) > now.timeIntervalSince1970 * 1000 } == true
+            && editingDeadline.map { $0 > now } == true
+    }
+    public var editingDeadline: Date? {
+        validUntilMs.map {
+            Date(timeIntervalSince1970: Double($0) / 1000)
+                .addingTimeInterval(source == .production ? NativeSyncPolicy.offlineGrace : 0)
+        }
     }
 }

@@ -34,7 +34,7 @@ test('access is finite, native-source-only and rate limits stay account-local', 
         validUntil: { toMillis: () => now + 1 } };
     assert.doesNotThrow(() => requirePremium(valid, now));
     for (const value of [undefined, { ...valid, source: 'legacy' }, { ...valid, source: 'app-store-sandbox' },
-        { ...valid, validUntil: { toMillis: () => now } }]) assert.throws(() => requirePremium(value, now));
+        { ...valid, validUntil: { toMillis: () => now - 45 * 86_400_000 } }]) assert.throws(() => requirePremium(value, now));
     const first = nextRate(null, now, 2);
     const second = nextRate(first, now, 2);
     assert.throws(() => nextRate(second, now, 2), error => error.code === 'rate-limited');

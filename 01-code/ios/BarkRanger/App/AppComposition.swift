@@ -113,7 +113,7 @@ struct AppComposition {
         let discovery = MapFeatureModel(
             catalog: catalog, settings: settings.preferences, location: location, maps: maps,
             account: accounts.session, routeDay: routeDay, placeSearch: placeSearch,
-            savedPlaces: savedPlaceStore.map { SavedPlacesModel(store: $0) })
+            savedPlaces: savedPlaceStore.map { SavedPlacesModel(store: $0, account: accounts.session) })
         let trips = TripEditorModel(
             activeTrip: activeTrip, catalog: catalog, maps: maps)
         let passport = PassportModel(

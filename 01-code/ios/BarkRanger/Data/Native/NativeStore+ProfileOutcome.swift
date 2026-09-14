@@ -16,7 +16,7 @@ extension NativeStore {
         else { throw Failure.invalidAcknowledgment }
         let edit = try JSONDecoder().decode(NativeProfileEdit.self, from: row.intent)
         if outcome.status == .accepted, edit != .bootstrap {
-            guard outcome.revisions.profile == expected + 1 else { throw Failure.invalidAcknowledgment }
+            guard outcome.revisions.profile > expected else { throw Failure.invalidAcknowledgment }
         }
         do {
             try upsert(canonical)
@@ -33,8 +33,8 @@ extension NativeStore {
                 for child in children {
                     guard child.state == "queued", child.sealedBytes == nil else { throw Failure.corrupt }
                     child.predecessor = nil
-                    // Use the accepted predecessor, not an unrelated newer remote revision.
-                    // Otherwise an offline chain would silently overwrite somebody else's edit.
+                    // Advance the ordered local chain. Server field updates do not
+                    // replace unrelated fields or require matching the full profile revision.
                     child.expectedRevision = outcome.revisions.profile
                 }
                 modelContext.delete(row)

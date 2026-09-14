@@ -15,17 +15,13 @@ extension NativeStore {
             sortBy: [
                 SortDescriptor(\.updatedAt), SortDescriptor(\.id),
             ])
-        drafts.fetchLimit = 46  // 20 dirty + 24 clean + selected, plus one corruption sentinel.
         drafts.propertiesToFetch = [\.id, \.title, \.dayCount, \.stopCount, \.updatedAt]
         let rows = try modelContext.fetch(drafts)
-        guard rows.count <= 45 else { throw Failure.corrupt }
         var operations = FetchDescriptor<NativeLocalSchema.PendingOperation>(sortBy: [
             SortDescriptor(\.sequence)
         ])
-        operations.fetchLimit = 129
         operations.propertiesToFetch = [\.entityKey, \.sequence, \.state, \.listSummary]
         let queued = try modelContext.fetch(operations)
-        guard queued.count <= 128 else { throw Failure.corrupt }
         var summaries: [String: NativeTripListItem] = [:]
         var conflicts = Set<String>()
         var order: [String] = []

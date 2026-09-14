@@ -16,7 +16,7 @@ public struct Entitlement: Equatable, Sendable {
         premium = native.permitsEditing(at: now)
         status = premium ? "active" : "free"
         source = native.source.rawValue
-        validUntil = native.validUntilMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+        validUntil = native.editingDeadline
         isLemon = false
     }
 

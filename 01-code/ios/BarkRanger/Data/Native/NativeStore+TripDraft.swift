@@ -24,10 +24,6 @@ extension NativeStore {
             let summaryChanged =
                 row == nil || row?.title != draft.trip.name
                 || row?.dayCount != draft.trip.days.count || row?.stopCount != draft.trip.totalStops
-            if dirty && row?.dirty != true {
-                let query = FetchDescriptor<NativeLocalSchema.Draft>(predicate: #Predicate { $0.dirty })
-                guard try modelContext.fetchCount(query) < 20 else { throw Failure.queueFull }
-            }
             let bytes = try JSONEncoder().encode(draft)
             if let row {
                 guard row.editRevision < Int64.max else { throw Failure.corrupt }

@@ -120,24 +120,24 @@ import Testing
             edit: .displayName("Remote choice"))
         _ = try await wire.submit(.init(id: otherID, bytes: JSONEncoder().encode(other), attempts: 0))
         reopened.connectivityChanged(true)
-        try await eventually { reopened.profileState?.conflict == true }
-        let reviewed = try #require(reopened.profileState)
-        #expect(
-            reviewed.confirmed?.displayName == "Remote choice"
-                && reviewed.visible?.displayName == "Local choice")
+        try await eventually { reopened.profileState?.pendingCount == 0 }
+        #expect(reopened.profileState?.conflict == false)
+        #expect(reopened.profileState?.confirmed?.displayName == "Local choice")
+        #expect(reopened.profileState?.confirmed?.revision == 5)
+        reopened.connectivityChanged(false)
+        await resumedFeature.sync.pause()
         editor.saveName("Later typing")
         await editor.action?.value
-        try await eventually { reopened.profileState?.pendingCount == 2 }
-        editor.resolveNativeProfile(reviewed, keepLocal: false)
-        await editor.action?.value
-        #expect(reopened.profileState?.pendingCount == 2)
-        #expect(editor.notice?.contains("changed while") == true)
-        let fresh = try #require(reopened.profileState)
-        editor.resolveNativeProfile(fresh, keepLocal: true)
-        await editor.action?.value
+        let appearanceID = UUID()
+        let appearance = NativeProfileCommand(operationID: appearanceID,
+            createdAtMs: try NativeClientTime.milliseconds(Date()), expectedRevision: 3,
+            edit: .mapStyle(.default))
+        _ = try await wire.submit(.init(id: appearanceID, bytes: JSONEncoder().encode(appearance), attempts: 0))
+        reopened.connectivityChanged(true)
         try await eventually { reopened.profileState?.pendingCount == 0 }
         #expect(reopened.profileState?.confirmed?.displayName == "Later typing")
-        #expect(reopened.profileState?.confirmed?.revision == 6)
+        #expect(reopened.profileState?.confirmed?.mapStyle == .default)
+        #expect(reopened.profileState?.confirmed?.revision == 7)
         editor.signOut()
         await editor.action?.value
         try await eventually { reopened.identity == nil && reopened.profileState == nil }

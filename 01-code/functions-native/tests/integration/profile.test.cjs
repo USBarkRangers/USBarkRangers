@@ -58,7 +58,7 @@ test('bootstrap is durable, replay is exact, and free accounts cannot forge acce
     await assert.rejects(f.execute({ ...bootstrap, expectedRevision: 1 }), error => error.code === 'operation-reused');
 });
 
-test('profile edits touch bounded records and race through revisions, not history scans', async () => {
+test('profile field overwrites both succeed, retain bounded reads and replay exact receipts', async () => {
     const f = fixture();
     await f.execute(f.command('bootstrapAccount'));
     await f.purchaseFixture();
@@ -69,8 +69,8 @@ test('profile edits touch bounded records and race through revisions, not histor
     const a = f.command('updateProfile', 1, { displayName: 'Ranger A' });
     const b = f.command('updateProfile', 1, { displayName: 'Ranger B' });
     const outcomes = await Promise.all([f.execute(a), f.execute(b)]);
-    assert.deepEqual(outcomes.map(result => result.status).sort(), ['accepted', 'conflict']);
-    assert.equal((await f.user.get()).get('revision'), 2);
+    assert.deepEqual(outcomes.map(result => result.status), ['accepted', 'accepted']);
+    assert.equal((await f.user.get()).get('revision'), 3);
     assert.equal((await board.get()).get('score'), 100);
     assert.equal((await board.get()).get('displayName'), (await f.user.get()).get('displayName'));
     assert.equal((await f.user.collection('visits').doc('untouched-history').get()).get('sentinel'), true);

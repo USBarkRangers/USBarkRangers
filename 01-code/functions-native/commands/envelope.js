@@ -4,8 +4,7 @@ const { createHash } = require('node:crypto');
 const validate = require('../shared/validation');
 const { NativeError } = require('../shared/errors');
 
-const ACCEPTANCE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-const RECEIPT_RETENTION_MS = 60 * 24 * 60 * 60 * 1000;
+const { ACCEPTANCE_WINDOW_MS, RECEIPT_RETENTION_MS } = require('../shared/syncPolicy');
 const MAX_COMMAND_BYTES = 400_000;
 
 function parseEnvelope(input) {

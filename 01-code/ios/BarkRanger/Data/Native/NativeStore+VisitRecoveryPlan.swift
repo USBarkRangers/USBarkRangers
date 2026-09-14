@@ -14,7 +14,7 @@ extension NativeStore {
         let manuallyRecreatedSiteIDs: Set<String>
         func needsFreshLocation(at now: Date) -> Bool {
             operations.contains {
-                $0.usesOriginalLocation && $0.createdAt < now.addingTimeInterval(-30 * 86_400)
+                $0.usesOriginalLocation && $0.createdAt < now.addingTimeInterval(-NativeSyncPolicy.acceptanceWindow)
             }
         }
     }

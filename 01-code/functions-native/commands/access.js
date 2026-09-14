@@ -24,7 +24,7 @@ function requireWritableProfile(profile, allowCreation) {
 }
 
 function requirePremium(entitlement, nowMs, uid) {
-    // APPLE-ACTIVATION: enrollment pending. A separate server verification boundary must
+    // APPLE-ACTIVATION: enrollment approved; a separate server verification boundary must
     // validate signed Apple transactions, bundle/product/environment, account ownership,
     // expiry/revocation and duplicate notification IDs before writing this entitlement.
     // Normal expiry retains the verified grant and validUntil for offline grace;

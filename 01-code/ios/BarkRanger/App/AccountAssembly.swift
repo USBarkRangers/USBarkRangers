@@ -10,7 +10,7 @@ import Foundation
     let google: GoogleSignInAdapter?
     var leaderboard: (any LeaderboardReading)? = nil
     var feedback: (any FeedbackSending)? = nil
-    // APPLE-ACTIVATION: owner confirmed paid enrollment is pending (2026-09-13).
+    // APPLE-ACTIVATION: owner reports paid enrollment approved (2026-09-14).
     // Keep Apple hidden until the paid team's bundle capability/provisioning and the
     // native Firebase Apple provider are configured and device sign-in/link/revoke pass.
     // Activation replacement for the last argument below: appleSignIn: true

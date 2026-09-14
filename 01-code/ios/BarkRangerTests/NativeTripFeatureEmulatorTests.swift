@@ -321,11 +321,23 @@ import Testing
             var remote = try #require(fixture.editor.draft)
             remote.trip.days[0].stops[0].notes = "Remote note only"
             try await submit(.notes(remote))
+            // A real detail response may overlap the library head/change feed or
+            // another refresh. Hold it, rather than hoping CI's timing exposes
+            // cancellation followed by a second download of the same revision.
+            let replyGate = TripReplyGate()
+            await transport.setTripReplyBarrier { await replyGate.wait() }
+            defer { Task { await replyGate.release() } }
             feature.requestSync(refresh: true)
             await feature.waitForSync()
+            try await eventually { await replyGate.entered }
+            feature.requestSync(refresh: true)
+            await feature.waitForSync()
+            await replyGate.release()
             try await eventually { fixture.editor.draft?.trip.days[0].stops[0].notes == "Remote note only" }
+            await transport.setTripReplyBarrier(nil)
             #expect(fixture.editor.draft?.nativeBase?.contentRevision == 1)
-            #expect(await transport.recordedCallKinds(reset: true).filter { $0 == "trip" }.count == 1)
+            let remoteNoteDownloads = await transport.recordedCallKinds(reset: true).filter { $0 == "trip" }.count
+            #expect(remoteNoteDownloads == 1)
 
             fixture.editor.activeTrip.stop()
             remote = try #require(fixture.editor.draft)
@@ -352,6 +364,22 @@ import Testing
             try await Task.sleep(for: .milliseconds(150))
             #expect(await transport.recordedCallKinds(reset: true).filter { $0 == "trip" }.isEmpty)
         }
+    }
+}
+
+private actor TripReplyGate {
+    private(set) var entered = false
+    private var open = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        entered = true
+        if !open { await withCheckedContinuation { waiters.append($0) } }
+    }
+    func release() {
+        open = true
+        let pending = waiters
+        waiters = []
+        for waiter in pending { waiter.resume() }
     }
 }
 

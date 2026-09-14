@@ -20,8 +20,8 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         app.secureTextFields["Password"].typeText("NativeOnly123!")
         app.keyboards.buttons["Done"].tap()
         app.buttons["Sign in"].tap()
-        dismissPasswordPrompt(app)
         XCTAssertTrue(app.textFields["New display name"].waitForExistence(timeout: 15))
+        dismissPasswordPrompt(app)
         let pending = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Pending changes'")).firstMatch
         for _ in 0..<10 where !pending.isHittable { app.swipeUp() }
         XCTAssertTrue(pending.isHittable)
@@ -76,8 +76,8 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         app.secureTextFields["Password"].typeText("NativeOnly123!")
         app.keyboards.buttons["Done"].tap()
         app.buttons["Sign in"].tap()
-        dismissPasswordPrompt(app)
         XCTAssertTrue(app.textFields["New display name"].waitForExistence(timeout: 15))
+        dismissPasswordPrompt(app)
         app.tabBars.buttons["Trips"].tap()
         XCTAssertTrue(app.buttons["New trip"].waitForExistence(timeout: 10))
         app.buttons["New trip"].tap()
@@ -129,8 +129,8 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         create.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
         XCTAssertEqual(create.value as? String, "1")
         app.buttons["Create account"].tap()
-        dismissPasswordPrompt(app)
         XCTAssertTrue(app.staticTexts["Ranger"].waitForExistence(timeout: 15))
+        dismissPasswordPrompt(app)
         XCTAssertFalse(app.textFields["New display name"].exists)
         XCTAssertFalse(app.buttons["Manage existing subscription"].exists)
         XCTAssertFalse(app.buttons["Recover existing membership"].exists)
@@ -143,10 +143,10 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         app.secureTextFields["Password"].typeText(password)
         app.keyboards.buttons["Done"].tap()
         app.buttons["Sign in"].tap()
-        dismissPasswordPrompt(app)
         let name = "Ranger \(UUID().uuidString.prefix(8))"
         let field = app.textFields["New display name"]
         XCTAssertTrue(field.waitForExistence(timeout: 15))
+        dismissPasswordPrompt(app)
         field.tap()
         field.typeText(name)
         app.buttons["Save display name"].tap()
@@ -202,8 +202,8 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         app.keyboards.buttons["Done"].tap()
         app.switches["Create a new account"].coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
         app.buttons["Create account"].tap()
-        dismissPasswordPrompt(app)
         XCTAssertTrue(app.staticTexts["Ranger"].waitForExistence(timeout: 15))
+        dismissPasswordPrompt(app)
         let remove = app.buttons["account.delete"]
         for _ in 0..<12 where !remove.isHittable { app.swipeUp() }
         XCTAssertTrue(remove.isHittable)
@@ -243,6 +243,9 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         button.tap()
     }
     @MainActor private func dismissPasswordPrompt(_ app: XCUIApplication) {
+        // Call after the signed-in UI exists: a cold Auth/bootstrap request can take
+        // longer than this optional prompt wait. Checking immediately after Submit
+        // misses the later system sheet and leaves it intercepting every swipe.
         guard app.buttons["Not Now"].waitForExistence(timeout: 5) else { return }
         // iOS 26 embeds a remote credential service. Tapping its mirrored button
         // through the host app sends an event to the wrong process and does nothing.

@@ -19,6 +19,11 @@ actor NativeCallableTransport {
         // Test instrumentation records operation names only, never account data or payloads.
         private var callKinds: [String] = []
         private var recordsCalls = false
+        private var tripReplyBarrier: (@Sendable () async -> Void)?
+        /// Emulator regression hook: hold a real SDK reply while metadata publications arrive.
+        func setTripReplyBarrier(_ barrier: (@Sendable () async -> Void)?) {
+            tripReplyBarrier = barrier
+        }
         func recordedCallKinds(reset: Bool = false) -> [String] {
             recordsCalls = true
             let result = callKinds
@@ -60,6 +65,14 @@ actor NativeCallableTransport {
                 }
             #endif
             let reply = try await callable.call(JSONSerialization.jsonObject(with: bytes))
+            #if DEBUG
+                if let tripReplyBarrier,
+                    let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                    object["kind"] as? String == "trip"
+                {
+                    await tripReplyBarrier()
+                }
+            #endif
             try check()
             return try JSONDecoder().decode(type, from: JSONSerialization.data(withJSONObject: reply.data))
         } catch {

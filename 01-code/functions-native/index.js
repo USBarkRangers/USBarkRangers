@@ -69,7 +69,7 @@ exports.nativeAccountCleanup = onSchedule({ region: runtime.region, schedule: 'e
     catch { logger.error({ event: 'native-account-cleanup-failed' }); throw new Error('Native cleanup will retry.'); }
 });
 
-// APPLE-ACTIVATION: no purchase endpoint is exported while enrollment/setup are pending.
+// APPLE-ACTIVATION: enrollment approved per owner (2026-09-14); setup/implementation pending.
 // Intended additional exports, after real verification/ownership/notification handlers exist:
 // exports.verifyApplePurchase = onCall(verifiedPurchaseOptions, verifyApplePurchase);
 // exports.appleServerNotification = onRequest(notificationOptions, receiveVerifiedNotification);

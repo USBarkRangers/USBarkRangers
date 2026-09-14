@@ -14,7 +14,8 @@ project, app and bundle. Wrong configuration fails the build; absent configurati
 blocks Release and leaves Debug accounts unavailable, with public discovery intact.
 
 `BARK_DEVELOPMENT_TEAM` or ignored `Signing.local.xcconfig` controls device signing.
-The owner currently uses a Personal Team; paid Apple enrollment is pending.
+The owner reports paid Apple enrollment approved on September 14. Verify the paid
+team and provisioning before changing the current local signing configuration.
 Simulator SDK tests need ad-hoc signing (`CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES`).
 
 ## Accounts and App Check
@@ -45,10 +46,14 @@ There is no callable that grants access.
 
 Google sign-in remains hidden without a genuine new-project client ID and callback
 scheme. Do not reuse old Accounts.local.xcconfig values. Apple sign-in, real StoreKit
-purchasing/server verification, native account deletion and support submission remain
-unfinished. Approval alone does not implement those services or update an installed
+purchasing/server verification and support submission remain unfinished. Native
+account deletion is implemented; Apple authorization revocation must be added before
+Apple sign-in is enabled. Approval alone does not implement those services or update an installed
 build. Complete implementation and device verification at the APPLE-ACTIVATION
 boundaries before release.
+
+The current [Phase 6 plan](../../../04-docs/plans/ios-native-2026-09-09/prompts/PHASE_6_PURCHASES_INTEGRATION.md)
+is Apple-subscriptions-only; it supersedes the earlier multi-provider billing plan.
 
 ## Catalog and email
 

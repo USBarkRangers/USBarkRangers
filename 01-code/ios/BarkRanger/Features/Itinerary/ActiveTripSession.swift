@@ -18,6 +18,8 @@ import Observation
     private var generation = UUID()
     private var observationGeneration = UUID()
     private var synchronization: Task<Void, Never>?
+    private var refreshRequested = false
+    private var checkpointReload: Task<Void, Never>?
     private var saveOperation: UUID?
     private var recoveries: [String: TripDraftSession.Recovery] = [:]
 
@@ -102,7 +104,7 @@ import Observation
         let generation = generation
         let uid = account.tripScope
         isWorking = true
-        synchronization?.cancel()
+        cancelSynchronization()
         defer {
             if self.generation == generation {
                 isWorking = false
@@ -142,8 +144,14 @@ import Observation
             let repository = account.nativeTrips?.repository
         else { return }
         let generation = generation
-        synchronization?.cancel()
-        synchronization = Task {
+        cancelSynchronization()
+        checkpointReload = Task {
+            defer {
+                if !Task.isCancelled {
+                    self.checkpointReload = nil
+                    if self.active { self.requestRefresh() }
+                }
+            }
             do {
                 let current = try await repository.currentDraft(id: id)
                 guard !Task.isCancelled, self.generation == generation, self.tripID == id,
@@ -248,6 +256,34 @@ import Observation
     }
     /// Read the store's latest accepted value, not an older queued UI publication.
     func resume() async {
+        await checkpointReload?.value
+        guard !Task.isCancelled else { return }
+        requestRefresh()
+        await synchronization?.value
+    }
+    /// Library and change-feed publications can describe the same revision while
+    /// its detail is still downloading. Finish that read, then recheck cache-first;
+    /// cancelling it discards a paid-for response and starts the same download again.
+    private func requestRefresh() {
+        refreshRequested = true
+        guard synchronization == nil, checkpointReload == nil else { return }
+        synchronization = Task { [weak self] in
+            guard let self else { return }
+            defer { if !Task.isCancelled { self.synchronization = nil } }
+            while !Task.isCancelled, self.refreshRequested {
+                self.refreshRequested = false
+                await self.restoreActiveDraft()
+            }
+        }
+    }
+    private func cancelSynchronization() {
+        synchronization?.cancel()
+        synchronization = nil
+        refreshRequested = false
+        checkpointReload?.cancel()
+        checkpointReload = nil
+    }
+    private func restoreActiveDraft() async {
         guard !isWorking, saveOperation == nil, !session.pending, !session.conflict,
             let repository = account.nativeTrips?.repository
         else { return }
@@ -309,8 +345,7 @@ import Observation
             }
         }
         refreshRoutes()
-        synchronization?.cancel()
-        synchronization = Task { [weak self] in await self?.resume() }
+        requestRefresh()
     }
     private func refreshRoutes() {
         routing.update(draft, permitted: active && connected && account.dataAccess.canEditAccount)
@@ -324,15 +359,13 @@ import Observation
             // Retry a previously unavailable selection even if no new metadata arrives
             // (for example an older trip outside the library head). The repository is
             // cache-first, so a current detail causes no network request here.
-            synchronization?.cancel()
-            synchronization = Task { [weak self] in await self?.resume() }
+            requestRefresh()
         }
     }
     func stop() {
         active = false
         observationGeneration = UUID()
-        synchronization?.cancel()
-        synchronization = nil
+        cancelSynchronization()
         routing.stop()
     }
     private func closeEditingScope() -> Task<Void, Never> {

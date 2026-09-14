@@ -66,6 +66,22 @@ async function main() {
             source: { stringValue: 'development' }, developmentUID: { stringValue: uid },
             developmentGrantedAt: { timestampValue: now.toISOString() }, validUntil: { timestampValue: expiry.toISOString() },
             updatedAt: { timestampValue: now.toISOString() } } }, currentDocument: { exists: true } }] });
+    // Live proof of the deployed contract, using only this disposable account.
+    // Independent fields accept an old profile revision without clobbering each other.
+    assert.equal((await send('nativeCommand', command('updateMapStyle', 1, { mapStyle: 'satellite' }))).body.result?.status, 'accepted');
+    const oldButAllowed = command('updateProfile', 1, { displayName: 'Offline QA Ranger' });
+    oldButAllowed.createdAtMs -= 44 * 86400_000;
+    assert.equal((await send('nativeCommand', oldButAllowed)).body.result?.status, 'accepted',
+        'A 44-day-old valid change is accepted even with an older profile revision');
+    const tooOld = command('updateProfile', 3, { displayName: 'Must not replace name' });
+    tooOld.createdAtMs -= 46 * 86400_000;
+    const expired = await send('nativeCommand', tooOld);
+    assert.equal(expired.body.error?.details?.reason, 'intent-expired', JSON.stringify(expired));
+    const confirmedProfile = await fetch(`${documents}/users/${uid}`, { headers });
+    assert.equal(confirmedProfile.status, 200);
+    const profileFields = (await confirmedProfile.json()).fields;
+    assert.equal(profileFields.displayName.stringValue, 'Offline QA Ranger');
+    assert.equal(profileFields.mapStyle.stringValue, 'satellite');
     const tripID = randomUUID(), stopID = 'acceptance-stop', noteID = planningNoteID(tripID, stopID);
     const place = { kind: 'custom', id: randomUUID() };
     const trip = { tripID, name: 'Cloud acceptance evidence', start: null, end: null,
@@ -85,7 +101,8 @@ async function main() {
     writeFileSync('06-config/native-ios/cloud-acceptance.local.json', JSON.stringify(fixture), { flag: 'wx', mode: 0o600 });
     console.log(JSON.stringify({ cloudAcceptance: 'passed', uid, tripID, expiresAt: expiry.toISOString(),
         verified: ['real sign-up', 'App Check required', 'authentication required', 'free write denied',
-            'direct entitlement write denied', 'trip and note save', 'exact replay', 'server persistence'],
+            'direct entitlement write denied', '44-day acceptance / 46-day rejection',
+            'profile overwrites preserve unrelated fields', 'trip and note save', 'exact replay', 'server persistence'],
         privateFixture: '06-config/native-ios/cloud-acceptance.local.json' }));
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

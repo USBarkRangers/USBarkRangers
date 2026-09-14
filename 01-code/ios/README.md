@@ -1,6 +1,6 @@
 # Bark Ranger for iPhone
 
-Current native work: **mailroom simplification**, with shared delivery/scheduling, all-feature Pending Changes, account-separated local pins, 40/45-day policies and a larger protected cache. The retired account-wide storage/sync path is deleted. See [checkpoint counts and verification status](../../04-docs/reports/ios-native/MAILROOM_SIMPLIFICATION_2026_09_14.md) and [current ownership](ARCHITECTURE.md). Historical releases below do not describe the current database path. Use `test-ios-accounts.py --native-profile`, `--native-trips` or `--native-adventures` with `demo-bark-native`; no old-backend fixture is needed.
+Current native build: **0.5.17 (76), mailroom simplification**, with shared delivery/scheduling, all-feature Pending Changes, account-separated local pins, 40/45-day policies and a larger protected cache. The retired account-wide storage/sync path is deleted; runtime Swift is 2,990 lines smaller. The native backend is deployed and real-cloud checks pass; the signed build is ready, but physical-iPhone installation is waiting for the device to connect. See [checkpoint counts and verification status](../../04-docs/reports/ios-native/MAILROOM_SIMPLIFICATION_2026_09_14.md) and [current ownership](ARCHITECTURE.md). Historical releases below do not describe the current database path. Use `test-ios-accounts.py --native-profile`, `--native-trips` or `--native-adventures` with `demo-bark-native`; no old-backend fixture is needed.
 
 Latest correction: **0.5.15 (74)** preserves the chosen Map day-popup height when tapping another route line and centers the shared stops/time/mileage summary in Map and Planner. Loading and confirmation remain inline without shifting the stop list. Eighteen focused app checks, 51 domain checks, visual review and the signed iPhone build pass. Installed and launched on the connected iPhone 15 Pro Max on September 13; ready for device testing.
 
@@ -62,7 +62,8 @@ Toolchain: **Xcode 26.6 (17F113), Swift 6.3.3**, Swift 6 language mode with comp
 
 - `BarkRanger/App`: assembly, navigation, lifecycle and startup.
 - `BarkRanger/Data/Catalog`: accepted revisions, HTTP, validation and atomic disk storage.
-- `BarkRanger/Data/User`: scoped personal store, decoder, sync/receipts, membership and device/account preference boundary.
+- `BarkRanger/Data/Native`: account-scoped storage, the shared mailroom, typed command adapters, summaries and retention.
+- `BarkRanger/Data/User`: retained entitlement, leaderboard-reading, park-projection and preference boundaries; the old account-wide storage/sync path is deleted.
 - `BarkRanger/Features`: Home, Discovery, Settings, Account, Trips and Passport views/models; shared itinerary state/components live in Itinerary.
 - `BarkRanger/Platform`: native location/maps, offline geography, connectivity and redacted local diagnostics.
 - `Packages/BarkDomain`: immutable values and pure catalog/filter/search policies; Foundation only.

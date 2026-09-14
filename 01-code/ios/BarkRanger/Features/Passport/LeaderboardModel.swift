@@ -11,16 +11,18 @@ import Observation
     private(set) var loaded = false
     private(set) var personalUnavailable = false
     private var generation = UUID()
-    private let legacyRepository: (any LeaderboardReading)?
-    private var repository: (any LeaderboardReading)? { account.nativeLeaderboard ?? legacyRepository }
+    private let injectedRepository: (any LeaderboardReading)?
+    private var repository: (any LeaderboardReading)? { account.nativeLeaderboard ?? injectedRepository }
     private let account: AccountSession
     private var task: Task<Void, Never>?
     var currentUserID: String? { account.identity.map { repository?.entryID(uid: $0.uid) ?? $0.uid } }
-    var currentUserName: String { account.profileState?.visible?.displayName ?? account.identity?.displayName ?? "You" }
+    var currentUserName: String {
+        account.profileState?.visible?.displayName ?? account.identity?.displayName ?? "You"
+    }
     var isInTopFive: Bool { entries.contains { $0.id == currentUserID } }
 
     init(repository: (any LeaderboardReading)?, account: AccountSession) {
-        self.legacyRepository = repository
+        self.injectedRepository = repository
         self.account = account
     }
     func loadIfNeeded() { if !loaded { refresh() } }
@@ -47,7 +49,8 @@ import Observation
                 entries = leaders
                 personal = nil
                 personalUnavailable = false
-                if let index = leaders.firstIndex(where: { $0.id == uid.map { repository.entryID(uid: $0) } }) {
+                if let index = leaders.firstIndex(where: { $0.id == uid.map { repository.entryID(uid: $0) } })
+                {
                     personal = .init(entry: leaders[index], rank: index + 1)
                 } else if let uid {
                     do {

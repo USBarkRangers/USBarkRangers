@@ -43,7 +43,7 @@ import Testing
         #expect(noted.days[0].notes == "Whole day")
         #expect(noted.days[0].stops[0].notes == "Bring water")
         #expect(noted.days[0].stops[0].arrivalTime == "09:30")
-        #expect(try Trip(record: noted.record).content == noted.content)
+        #expect(try JSONDecoder().decode(Trip.self, from: JSONEncoder().encode(noted)) == noted)
         #expect(throws: TripDayEdit.Failure.self) {
             try TripDayEdit.stopNotes(id: stop.id, expected: "", value: "Old editor")
                 .applying(to: noted, dayID: "day")
@@ -71,7 +71,7 @@ import Testing
     }
     @Test func clearSwitchAndAddWithoutASelectedDayUseTheSharedDraft() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let account = AccountSession(auth: nil, cloud: nil, directory: directory)
+        let account = AccountSession(auth: nil, directory: directory)
         account.start()
         try await eventually { account.nativeTrips?.repository != nil }
         let a = try park("A")
@@ -98,10 +98,12 @@ import Testing
         try await eventually { model.draft?.trip.days[0].stops.count == 2 && !model.isWorking }
         #expect(model.target == nil, "Adding keeps the park popup, without opening a day sheet")
         #expect(model.draft?.trip.days[0].stops.map(\.name) == ["B", "C"])
-        #expect(account.state?.drafts?.first(where: { $0.id == shown.id })?.trip == shown)
+        #expect(try await account.nativeTrips?.repository.currentDraft(id: shown.id)?.trip == shown)
         model.clearMap()
         try await eventually { projection.value.trip.isEmpty && projection.value.days.isEmpty }
-        #expect(account.state?.drafts?.count == 2 && model.target == nil && model.visibleRoutes == nil)
+        #expect(
+            account.nativeTrips?.library.drafts.count == 2 && model.target == nil
+                && model.visibleRoutes == nil)
         model.open(tripID: shown.id)
         model.open(tripID: other.id)
         try await eventually { !model.isOpening && model.draft?.id == other.id }

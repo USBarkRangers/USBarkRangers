@@ -56,7 +56,7 @@ struct CatalogRefreshTests {
         let endpoint = try #require(URL(string: value))
         #expect(endpoint.scheme == "https")
         #expect(endpoint.host == "storage.googleapis.com")
-        #expect(endpoint.path == "/barkrangermap-auth-native-catalog/native-catalog/v1/manifest.json")
+        #expect(endpoint.path == "/bark-ranger-ios-public-catalog/native-catalog/v1/manifest.json")
         #expect(CatalogHTTPClient.allowedEndpoint(endpoint))
     }
 

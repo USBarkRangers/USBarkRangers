@@ -46,16 +46,16 @@ import Testing
         model.resetScope()
         await fixture.session.stopAndWait()
     }
-    @Test func nativeAccountActionsCannotWriteTheUnconvertedAccountWideStore() async throws {
+    @Test func nativeAccountActionsQueueOnlyTheTypedProfileEdit() async throws {
         let fixture = try await PlannerFixture.make()
         defer { fixture.context.close() }
-        let before = fixture.session.state
+        let before = try await fixture.repository.store.pendingTripIDs()
         let model = AccountModel(session: fixture.session)
-        // The connected profile writes only the typed store, not the transitional store.
+        // Profile saves cannot queue unrelated trip work.
         model.saveName("No legacy fallback")
         await model.action?.value
         #expect(model.notice?.contains("Saved on this iPhone") == true)
-        #expect(fixture.session.state == before)
+        #expect(try await fixture.repository.store.pendingTripIDs() == before)
         #expect(try await fixture.repository.store.profileView().visible?.displayName == "No legacy fallback")
         await fixture.session.stopAndWait()
     }

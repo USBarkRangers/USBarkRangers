@@ -20,7 +20,9 @@ import Testing
             #expect(place.stop.parkID == nil && !place.subtitle.isEmpty)
             #expect((29...30).contains(coordinate.latitude) && (-83 ... -81).contains(coordinate.longitude))
             #expect(
-                try Trip(record: Trip(days: [.init(stops: [place.stop])]).record).days[0].stops[0].id
+                try JSONDecoder().decode(
+                    Trip.self, from: JSONEncoder().encode(Trip(days: [.init(stops: [place.stop])]))
+                ).days[0].stops[0].id
                     == place.stop.id)
         }
     }

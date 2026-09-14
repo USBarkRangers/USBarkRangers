@@ -41,18 +41,23 @@ import Testing
         #expect(model.draft?.nativeBase?.contentRevision == 0)
         model.save()
         try await eventually { !model.saving }
-        #expect(!draftChanged.withLock { $0 }, "Queuing an unchanged draft must not invalidate editable content")
+        #expect(
+            !draftChanged.withLock { $0 }, "Queuing an unchanged draft must not invalidate editable content")
         let submission = try #require(try await fixture.repository.store.nextTripSubmission(id: latest.id))
         let canonical = try nativeTripSnapshot(latest.trip, revision: 1)
         try await fixture.repository.store.acceptTripOutcome(
-            .init(operationID: submission.id, status: .accepted, revisions: .init(trip: 1, metadata: 1, notes: [:])),
+            .init(
+                operationID: submission.id, status: .accepted,
+                revisions: .init(trip: 1, metadata: 1, notes: [:])),
             snapshot: canonical)
         await model.resumeActive()
         #expect(draftChanged.withLock { $0 }, "The accepted preimage must be observable without a new edit")
         #expect(model.draft?.trip == latest.trip && model.draft?.activeDayID == latest.activeDayID)
         #expect(try await fixture.repository.store.tripQueueState(latest.id).count == 0)
         #expect(try await fixture.repository.currentDraft(id: fixture.a.id) == model.draft)
-        #expect(try await fixture.repository.store.tripLocalLists().drafts.filter { $0.id == fixture.a.id }.count == 1)
+        #expect(
+            try await fixture.repository.store.tripLocalLists().drafts.filter { $0.id == fixture.a.id }.count
+                == 1)
         model.resetScope()
         // A screen reset cannot destroy the app's shared editor.
         #expect(model.draft?.trip == latest.trip)
@@ -202,7 +207,6 @@ import Testing
             fixture.session.identity?.uid == "user-b"
                 && fixture.session.nativeTrips?.scope.hasSuffix(":user-b") == true
         }
-        #expect(fixture.session.state == nil)
         gate.release()
         await session.waitForCheckpoint()
         #expect(!session.pending && session.notice == nil && !session.isWriting)

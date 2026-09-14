@@ -9,9 +9,6 @@ import Testing
     @Test(.enabled(if: ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1"))
     func mapPassportDateBulkRemovalAndCSVUseNativeRecordsAfterLostReply() async throws {
         try await withApp { f in
-            #expect(
-                f.session.state == nil && f.session.cloud == nil && f.session.visits == nil
-                    && f.session.expeditions == nil)
             let parks = try #require(await f.context.catalog.current().snapshot?.parks)
             let park = try #require(parks.first { !$0.isRetired })
             await f.offline()
@@ -237,22 +234,32 @@ import Testing
             try await f.settle()
             let history = NativeVisitHistory(repository: f.visits.repository)
             let observer = Task { await history.observe() }
-            defer { observer.cancel(); history.stop() }
+            defer {
+                observer.cancel()
+                history.stop()
+            }
             try await eventually { history.items.count == 1 && !history.loading && !history.hasMore }
             let selected = try await f.visits.repository.workingState(park: park)
             let before = try #require(selected.draft)
             var after = before
             after.happenedAtMs -= 86_400_000
-            let operation = NativeVisitOperation.single(.init(intent: .init(target: selected.target(),
-                edit: .changeDate(happenedAtMs: after.happenedAtMs, timeZone: after.timeZone)), before: before, after: after))
+            let operation = NativeVisitOperation.single(
+                .init(
+                    intent: .init(
+                        target: selected.target(),
+                        edit: .changeDate(happenedAtMs: after.happenedAtMs, timeZone: after.timeZone)),
+                    before: before, after: after))
             let id = UUID()
             let bytes = try operation.commandBytes(id: id, createdAtMs: NativeClientTime.milliseconds(Date()))
-            #expect(try await f.visitCloud.submit(.init(id: id, bytes: bytes, attempts: 0)).status == .accepted)
+            #expect(
+                try await f.visitCloud.submit(.init(id: id, bytes: bytes, attempts: 0)).status == .accepted)
             // Do not point-read or manually reload the edited visit. The account's
             // marker refresh must repair the already-open screen by itself.
             f.visits.sync?.request(refresh: true)
             await f.visits.sync?.wait()
-            try await eventually { history.items.first?.visit.happenedAtMs == after.happenedAtMs && !history.loading }
+            try await eventually {
+                history.items.first?.visit.happenedAtMs == after.happenedAtMs && !history.loading
+            }
             #expect(history.items.count == 1 && history.items.first?.revision == 2)
         }
     }

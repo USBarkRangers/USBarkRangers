@@ -6,19 +6,14 @@ import XCTest
 @testable import BarkRanger
 
 @MainActor struct PendingVisitMarkerTests {
-    @Test func addUpgradeRemoveAndVerifiedAddWaitForReceiptsWithoutRebuildingTheMap() async throws {
-        let context = try DiscoveryTestContext()
-        defer { context.close() }
-        try await context.start()
-        let auth = SyntheticAuth()
-        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let account = AccountSession(
-            auth: auth, cloud: nil, directory: directory, capabilities: .editableTest)
-        account.start()
-        auth.select("pending-visits")
-        try await eventually { account.visits != nil }
-        let repository = try #require(account.visits)
-        try await repository.store.seedPremium()
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1"))
+    func addUpgradeRemoveAndVerifiedAddWaitForReceiptsWithoutRebuildingTheMap() async throws {
+        let f = try await NativeAdventureAppFixture.make()
+        await f.offline()
+        let context = f.context
+        let account = f.session
+        let repository = f.visits.repository
+        let sync = NativeVisitSync(store: f.store, cloud: f.visitCloud)
         let catalog = try #require(await context.catalog.current().snapshot)
         let park = try #require(catalog.parks.first)
         let probe = ControlledParkResults()
@@ -40,14 +35,14 @@ import XCTest
 
         for action in ["manual", "upgrade", "remove", "verified"] {
             switch action {
-            case "manual": try await repository.markManual(park: park, catalog: catalog)
-            case "remove": try await repository.remove([park.id.rawValue])
+            case "manual": try await repository.mark(park: park)
+            case "remove": try await repository.remove([repository.workingState(park: park)])
             default:
-                try await repository.recordProximity(
-                    park: park, catalog: catalog,
+                try await repository.mark(
+                    park: park,
                     fix: LocationFix(coordinate: park.coordinate, accuracy: 10, date: Date()))
             }
-            let operation = try #require(try await repository.store.readSnapshot().pending.first?.operation)
+            let operation = try #require(try await repository.store.nextVisitSubmission()?.submission)
             try await eventually {
                 coordinator.apply(to: map)
                 return pin.accessibilityValue?.contains("Visit change not confirmed") == true
@@ -55,12 +50,11 @@ import XCTest
             #expect(try stateRing(pin).strokeColor == Self.pendingColor.cgColor)
             #expect(model.personal?.value.visited.contains(park.id) == (action != "remove"))
             // A retry or sheet movement cannot acknowledge a visit or rebuild pins.
-            try await repository.store.recordRetry(id: operation.id, now: Date())
-            try await eventually { account.state?.pending.first?.attempts == 1 }
+            try await repository.store.deferSubmission(operation.id, until: .distantPast)
+            #expect(try await repository.store.nextVisitSubmission()?.submission.attempts == 1)
             for height in [180.0, 440.0, 700.0] { coordinator.apply(to: map, detailFramingHeight: height) }
             #expect(try stateRing(pin).strokeColor == Self.pendingColor.cgColor)
-            try await repository.store.acknowledge(
-                .init(operation: operation, outcome: .accepted, current: operation.expected))
+            #expect(try await sync.synchronize().pendingCount == 0)
             try await eventually {
                 coordinator.apply(to: map)
                 return pin.accessibilityValue?.contains("Visit change not confirmed") == false
@@ -73,55 +67,38 @@ import XCTest
             #expect(await probe.inputs.count == searches)
         }
         model.stop()
-        await account.stopAndWait()
+        await f.close()
     }
 
-    @Test func overlappingChangesRejectionAndAccountSwitchKeepTheQueueAuthoritative() async throws {
-        let fixture = try await PlannerFixture.make()
-        defer { fixture.context.close() }
-        let account = fixture.session
-        let repository = try #require(account.visits)
-        let store = repository.store
-        let catalog = try #require(await fixture.context.catalog.current().snapshot)
-        let park = try #require(catalog.parks.first)
+    @Test func overlappingChangesAndAccountSwitchKeepTheQueueAuthoritative() async throws {
+        let f = try await NativeOfflineAccountFixture.make()
+        let account = f.session
+        let repository = try #require(account.nativeVisits?.repository)
+        let park = Park(
+            id: .init(rawValue: "park-a"), siteID: .init(rawValue: "site-a"),
+            name: "Park", coordinate: try #require(Coordinate(latitude: 40, longitude: -80)))
         let projection = PersonalParkProjection(account: account)
         projection.start()
-        defer { projection.stop() }
-        try await repository.markManual(park: park, catalog: catalog)
-        try await repository.recordProximity(
-            park: park, catalog: catalog,
-            fix: LocationFix(coordinate: park.coordinate, accuracy: 10, date: Date()))
-        let queued = try await store.readSnapshot().pending
-        #expect(queued.count == 2)
+        try await repository.mark(park: park)
+        try await repository.mark(
+            park: park, fix: .init(coordinate: park.coordinate, accuracy: 10, date: Date()))
+        #expect(try await repository.store.visitQueue().count == 2)
         try await eventually { projection.value.visitIsUnconfirmed(for: park) }
-        let manual = try #require(queued.first?.operation)
-        try await store.acknowledge(.init(operation: manual, outcome: .accepted, current: manual.expected))
-        try await eventually { account.state?.pending.count == 1 }
-        #expect(projection.value.visitIsUnconfirmed(for: park), "The upgrade still awaits its own receipt")
-        let upgrade = try #require(queued.last?.operation)
-        try await store.acknowledge(
-            .init(operation: upgrade, outcome: .rejected, current: upgrade.expected, reason: "test-rejection")
-        )
-        try await eventually { account.state?.pending.first?.receipt?.outcome == .rejected }
-        #expect(projection.value.visitIsUnconfirmed(for: park), "A failed change must not look confirmed")
-        try await repository.resolve(upgrade.id, keepLocal: false)
-        try await eventually { !projection.value.visitIsUnconfirmed(for: park) }
-        #expect(projection.value.visited.contains(park.id))
-        try await repository.remove([park.id.rawValue])
+        f.auth.select("b")
+        try await eventually { account.nativeProfile?.uid == "b" }
+        #expect(projection.value == .init())
+        f.auth.select("a")
         try await eventually {
-            projection.value.visitIsUnconfirmed(for: park) && !projection.value.visited.contains(park.id)
+            account.nativeProfile?.uid == "a" && projection.value.visitIsUnconfirmed(for: park)
         }
-        fixture.auth.select("different-user")
-        try await eventually { account.state?.baseline.uid == "different-user" }
-        #expect(projection.value == .init(), "Pending visit colors cannot leak into another account")
-        fixture.auth.select("user-a")
-        try await eventually {
-            account.state?.baseline.uid == "user-a" && projection.value.visitIsUnconfirmed(for: park)
-        }
-        #expect(
-            !projection.value.visited.contains(park.id), "The pending removal survives reopening its store")
+        let reopened = try #require(account.nativeVisits?.repository.store)
+        #expect(try await reopened.visitQueue().count == 2)
+        let head = try #require(try await reopened.nextVisitSubmission()?.submission)
+        try await reopened.rejectVisitOperation(head.id, code: "invalid")
+        #expect(try await reopened.visitQueue().first?.needsDecision == true)
+        #expect(projection.value.visitIsUnconfirmed(for: park), "Rejected work must not look confirmed")
         projection.stop()
-        await account.stopAndWait()
+        try await f.close()
     }
 
     @Test(arguments: [ParkCategory.national, .state])

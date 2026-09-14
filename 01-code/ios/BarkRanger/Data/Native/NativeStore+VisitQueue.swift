@@ -73,9 +73,6 @@ extension NativeStore {
         }
         return nil
     }
-    func deferVisitSubmission(_ id: UUID, until date: Date) throws {
-        try deferSubmission(id, until: date)
-    }
     func rejectVisitOperation(_ id: UUID, code: String) throws {
         try requireOpen()
         guard

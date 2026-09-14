@@ -100,7 +100,7 @@ import Testing
         #expect(day.position == .medium && day.day?.stops.count == 2)
         try await fixture.repository.editDay(target, edit: .notes(expected: "", value: "Changed on Map"))
         try await eventually {
-            fixture.session.state?.drafts?.first { $0.id == target.tripID }?.trip.days[1].notes
+            (try? await fixture.repository.currentDraft(id: target.tripID)?.trip.days[1].notes)
                 == "Changed on Map"
         }
         await model.resumeActive()

@@ -46,7 +46,8 @@ struct TripStopPolicyTests {
         var historicalBookend = Trip(
             days: [.init(id: "one", stops: [.init(park: b)]), .init(id: "two", stops: [.init(park: a)])])
         historicalBookend.start = .init(park: a)
-        #expect(historicalBookend.dayIndex(containing: a) == 1,
+        #expect(
+            historicalBookend.dayIndex(containing: a) == 1,
             "Actual day membership keeps precedence over a historical repeated bookend")
     }
     @Test func stopNoteLimitUsesUTF16AndClearDoesNotChangeDayNotes() throws {
@@ -63,17 +64,12 @@ struct TripStopPolicyTests {
         #expect(clear.days[0].notes == "Day unchanged")
         #expect(clear.days[0].stops[0].notes.isEmpty)
         for value in [
-            UserValue.string(String(repeating: "🐾", count: 501)),
-            .string(String(repeating: "e\u{301}", count: 501)),
+            String(repeating: "🐾", count: 501),
+            String(repeating: "e\u{301}", count: 501),
         ] {
             var malformed = trip
-            malformed.days[0].stops[0].notes = try #require(value.string)
+            malformed.days[0].stops[0].notes = value
             #expect(throws: Trip.Failure.self) { try malformed.validate() }
-        }
-        for value in [UserValue.null, .object([:]), .number(1)] {
-            #expect(throws: Trip.Failure.self) {
-                try TripRecordCodec.decodeStop(.object(["notes": value]), fallbackID: "invalid")
-            }
         }
     }
 }

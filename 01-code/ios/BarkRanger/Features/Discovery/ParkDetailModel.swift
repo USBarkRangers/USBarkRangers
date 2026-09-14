@@ -120,7 +120,8 @@ final class ParkDetailModel {
         do {
             let value = try await repository.workingState(park: park)
             guard !Task.isCancelled, account?.nativeVisits?.scope == scope, self.park?.id == park.id,
-                value.visitID != nil else { return nil }
+                value.visitID != nil
+            else { return nil }
             return value
         } catch {
             if !Task.isCancelled, account?.nativeVisits?.scope == scope, self.park?.id == park.id {
@@ -135,7 +136,8 @@ final class ParkDetailModel {
             return
         }
         guard let park, park.siteID.rawValue == selected.siteID,
-            let repository = account?.nativeVisits?.repository else { return }
+            let repository = account?.nativeVisits?.repository
+        else { return }
         performAdventure {
             try await repository.remove([selected])
             return "Visit removal saved on this iPhone."
@@ -168,14 +170,14 @@ final class ParkDetailModel {
     }
     static func adventureMessage(_ error: any Error) -> String {
         switch error {
-        case LocalStore.Failure.unavailableAccess: AccountDataAccess.readOnlyMessage
+        case NativeStore.Failure.unavailable: AccountDataAccess.readOnlyMessage
         case VisitPolicy.Failure.outOfRange:
             "You need to be within 25 km of this park for a proximity check-in. You can record a manual visit."
         case VisitPolicy.Failure.poorLocation:
             "A recent, accurate location was not available. Try again or record a manual visit."
         case LocationClient.Failure.denied:
             "Location permission is off. You can enable it in iPhone Settings or record a manual visit."
-        case LocalStore.Failure.invalidChange:
+        case NativeStore.Failure.invalidAcknowledgment:
             "This change could not be saved. The park may already be in your trip, or the saved record changed."
         case TripDayEdit.Failure.duplicateStop:
             "This park is already in your trip. Open Trips to review its day."

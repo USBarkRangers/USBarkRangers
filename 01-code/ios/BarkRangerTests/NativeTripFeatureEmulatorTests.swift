@@ -15,7 +15,6 @@ import Testing
             let editor = fixture.editor
             let map = fixture.map
             #expect(editor.activeTrip === map.activeTrip)
-            #expect(fixture.session.trips == nil && fixture.session.cloud == nil)
             #expect(editor.newTrip())
             editor.rename("Connected native trip")
             let stop = Trip.Stop(
@@ -48,7 +47,6 @@ import Testing
                 "A server preimage refresh must not erase the save confirmation")
             #expect(confirmed.notes.first?.text == "Map wrote this note")
             #expect(fixture.routeRequests.count == routeCount)
-            #expect(fixture.session.state == nil)
 
             // One explicit Save sends an atomic batch, without itinerary references.
             fixture.session.connectivityChanged(false)

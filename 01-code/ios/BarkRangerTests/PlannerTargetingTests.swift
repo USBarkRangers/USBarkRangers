@@ -81,7 +81,6 @@ import Testing
         try await eventually {
             fixture.session.nativeProfile?.uid == "user-b" && fixture.session.nativeTrips != nil
         }
-        #expect(fixture.session.state == nil) // Native accounts never republish the retired account graph.
         gate.release()
         try await eventually { !model.saving }
         #expect(model.notice == nil && model.draft == nil)
@@ -177,11 +176,13 @@ import Testing
         try await context.start()
         let auth = SyntheticAuth()
         let (app, _, _) = try AccountAssembly.nativeProfileEmulator(scope: UUID())
-        let configuration = NativeProfileConfiguration(project: "demo-bark-native", connect: {
-            try AccountAssembly.nativeProfileEmulatorClient(app: app, uid: $0)
-        })
+        let configuration = NativeProfileConfiguration(
+            project: "demo-bark-native",
+            connect: {
+                try AccountAssembly.nativeProfileEmulatorClient(app: app, uid: $0)
+            })
         let session = AccountSession(
-            auth: auth, cloud: nil,
+            auth: auth,
             directory: .temporaryDirectory.appendingPathComponent(UUID().uuidString),
             capabilities: .editableTest, nativeProfileConfiguration: configuration)
         session.start()
@@ -189,8 +190,10 @@ import Testing
         try await eventually { session.nativeTrips != nil }
         let repository = try #require(session.nativeTrips?.repository)
         try await repository.store.acceptProfile(.init(revision: 1, displayName: "Ranger"))
-        try await repository.store.acceptEntitlement(.init(revision: 1, premium: true, source: .production,
-            validUntilMs: Int64(Date().addingTimeInterval(3600).timeIntervalSince1970 * 1000)))
+        try await repository.store.acceptEntitlement(
+            .init(
+                revision: 1, premium: true, source: .production,
+                validUntilMs: Int64(Date().addingTimeInterval(3600).timeIntervalSince1970 * 1000)))
         let a = TripDraft(trip: Trip(id: "A", name: "Trip A"))
         let b = TripDraft(trip: Trip(id: "B", name: "Trip B"))
         try await repository.saveDraft(a)
@@ -206,10 +209,14 @@ import Testing
         save: @escaping ActiveTripSession.Save = { try await $0.save(id: $1, matching: $2) },
         activeTrip: ActiveTripSession? = nil
     ) -> TripEditorModel {
-        let shared = activeTrip ?? ActiveTripSession(account: session,
-            routes: DayRouteService { _ in throw URLError(.notConnectedToInternet) },
-            saveAccountTrip: save, checkpointDraft: checkpoint)
-        return TripEditorModel(activeTrip: shared, catalog: context.catalog,
+        let shared =
+            activeTrip
+            ?? ActiveTripSession(
+                account: session,
+                routes: DayRouteService { _ in throw URLError(.notConnectedToInternet) },
+                saveAccountTrip: save, checkpointDraft: checkpoint)
+        return TripEditorModel(
+            activeTrip: shared, catalog: context.catalog,
             maps: MapsHandoff(open: { _ in true }))
     }
 }

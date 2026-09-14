@@ -5,31 +5,12 @@ import SwiftData
 /// A recoverable local move, never an automatic account save/upload. Claim before
 /// copying; acknowledge only after the destination commits. Both paths are device-owned.
 nonisolated enum NativeDraftHandoff {
-    @concurrent static func importEarlierGuestFiles(directory: URL, into target: NativeStore) async throws {
-        guard try await !target.hasImportedEarlierGuestFiles() else { return }
-        let folder = directory.appendingPathComponent("GuestDrafts")
-        guard FileManager.default.fileExists(atPath: folder.path) else { return }
-        let source = try await LocalStore.open(directory: folder, uid: "guest-drafts", isGuest: true)
-        do {
-            let drafts = try await source.claimGuestDrafts(for: "native-guest-v1")
-            guard drafts.allSatisfy({ $0.expected == .null }) else { throw NativeStore.Failure.corrupt }
-            try await target.adoptDeviceDrafts(drafts.map(\.deviceWorkingCopy), source: "earlier-guest")
-            try await source.finishGuestHandoff(for: "native-guest-v1")
-            try await target.finishEarlierGuestImport()
-            await source.close()
-        } catch {
-            await source.close()
-            throw error
-        }
-    }
-
     @concurrent static func adopt(directory: URL, project: String, uid: String, into target: NativeStore)
         async throws
     {
         let source = try await NativeStore.open(
             directory: directory, project: project, uid: "guest-drafts", guest: true)
         do {
-            try await importEarlierGuestFiles(directory: directory, into: source)
             let drafts = try await source.claimDeviceDrafts(for: uid)
             try await target.adoptDeviceDrafts(drafts, source: "guest")
             try await source.finishDeviceDraftHandoff(for: uid)
@@ -42,24 +23,6 @@ nonisolated enum NativeDraftHandoff {
 }
 
 extension NativeStore {
-    private static let earlierGuestImportKey = "migration/earlier-guest/v1"
-    func hasImportedEarlierGuestFiles() throws -> Bool {
-        try requireOpen()
-        let key = Self.earlierGuestImportKey
-        return try modelContext.fetchCount(
-            FetchDescriptor<NativeLocalSchema.DraftImport>(
-                predicate: #Predicate { $0.id == key })) > 0
-    }
-    func finishEarlierGuestImport() throws {
-        guard try !hasImportedEarlierGuestFiles() else { return }
-        do {
-            modelContext.insert(NativeLocalSchema.DraftImport(Self.earlierGuestImportKey))
-            try commit()
-        } catch {
-            modelContext.rollback()
-            throw error
-        }
-    }
     func claimDeviceDrafts(for uid: String) throws -> [TripDraft] {
         try requireOpen()
         guard isGuest, !uid.isEmpty else { throw Failure.wrongScope }

@@ -3,30 +3,13 @@ import Foundation
 import SwiftData
 
 extension NativeStore {
-    // Initial measured-workload candidates, not a limit on the user's remote archive.
-    // Selected content is pinned; independent dirty drafts and pending intents are never evicted.
-    static let tripCacheItems = 24
-    static let tripCacheBytes = 12 * 1_024 * 1_024
+    static let tripCacheItems = NativeSyncPolicy.cleanTripItems
+    static let tripCacheBytes = NativeSyncPolicy.cleanTripBytes
     static let tripMetadataItems = 250
 
     func stageCacheRetention() throws {
         let selected = try selectionRow()?.tripID ?? ""
-        var contents = FetchDescriptor<NativeLocalSchema.TripContent>(sortBy: [SortDescriptor(\.lastAccess)])
-        // One changes page may certify up to 100 deletions in this same transaction.
-        contents.fetchLimit = Self.tripCacheItems + 101
-        contents.propertiesToFetch = [\.id, \.byteCount, \.lastAccess]
-        let rows = try modelContext.fetch(contents)
-        guard rows.count <= Self.tripCacheItems + 100 else { throw Failure.corrupt }
-        var count = rows.count
-        var bytes = rows.reduce(0) { $0 + $1.byteCount }
-        for row in rows where row.id != selected {
-            guard count > Self.tripCacheItems || bytes > Self.tripCacheBytes else { break }
-            count -= 1
-            bytes -= row.byteCount
-            try removeCleanTripContent(row.id)
-        }
-        guard count <= Self.tripCacheItems, bytes <= Self.tripCacheBytes else { throw Failure.corrupt }
-
+        try stageCleanDraftRetention(selected: selected)
         var metadata = FetchDescriptor<NativeLocalSchema.TripMetadata>(
             predicate: #Predicate { $0.id != selected },
             sortBy: [
@@ -34,23 +17,55 @@ extension NativeStore {
                 SortDescriptor(\.createdNanos, order: .reverse),
                 SortDescriptor(\.id, order: .reverse),
             ])
-        // SwiftData includes unsaved rows in this transaction. Do not use a fetch offset
-        // to trim them: pending inserts can bypass that offset and evict the new row itself.
+        // Include pending inserts before trimming; fetch offsets can skip these incorrectly.
         metadata.fetchLimit = 2 * Self.tripMetadataItems + 2
         let candidates = try modelContext.fetch(metadata)
-        // A rebuild promotion can overlay 250 retained rows with 250 newer point reads.
         guard candidates.count <= 2 * Self.tripMetadataItems + 1 else { throw Failure.corrupt }
         for row in candidates.dropFirst(Self.tripMetadataItems) { modelContext.delete(row) }
-        try stageCleanDraftRetention(selected: selected)
     }
 
+    /// One budget for reconstructible detail, notes and clean editor copies together.
+    /// Active trips, dirty drafts and outbox dependencies are outside this budget: a
+    /// cache limit must never destroy writing or turn a large valid offline queue into corruption.
+    /// This examines local rows only and never fetches additional cloud trips.
     func stageCleanDraftRetention(selected: String) throws {
-        var query = FetchDescriptor<NativeLocalSchema.Draft>(
-            predicate: #Predicate { !$0.dirty && $0.id != selected },
-            sortBy: [SortDescriptor(\.updatedAt, order: .reverse), SortDescriptor(\.id)])
-        query.fetchLimit = Self.tripCacheItems + 2
-        let rows = try modelContext.fetch(query)
-        guard rows.count <= Self.tripCacheItems + 1 else { throw Failure.corrupt }
-        for row in rows.dropFirst(Self.tripCacheItems) { modelContext.delete(row) }
+        var dirtyQuery = FetchDescriptor<NativeLocalSchema.Draft>(predicate: #Predicate { $0.dirty })
+        dirtyQuery.propertiesToFetch = [\.id]
+        var protected = Set(try modelContext.fetch(dirtyQuery).map(\.id))
+        protected.formUnion(try pendingTripIDs())
+        protected.insert(selected)
+
+        var query = FetchDescriptor<NativeLocalSchema.TripContent>()
+        query.propertiesToFetch = [\.id, \.byteCount, \.lastAccess]
+        let contents = try modelContext.fetch(query).filter { !protected.contains($0.id) }
+        var cleanQuery = FetchDescriptor<NativeLocalSchema.Draft>(predicate: #Predicate { !$0.dirty })
+        cleanQuery.propertiesToFetch = [\.id, \.updatedAt, \.bytes]
+        let drafts = try modelContext.fetch(cleanQuery).filter { !protected.contains($0.id) }
+        var sizes: [String: Int] = [:]
+        var access: [String: Date] = [:]
+        for row in contents {
+            guard row.byteCount >= 0 else { throw Failure.corrupt }
+            sizes[row.id] = row.byteCount  // Includes the separately stored note cache.
+            access[row.id] = row.lastAccess
+        }
+        for row in drafts {
+            sizes[row.id, default: 0] += row.bytes.count
+            access[row.id] = max(access[row.id] ?? .distantPast, row.updatedAt)
+        }
+        var count = sizes.count
+        var bytes = sizes.values.reduce(0, +)
+        let oldest = sizes.keys.sorted {
+            let a = access[$0] ?? .distantPast
+            let b = access[$1] ?? .distantPast
+            return a == b ? $0 < $1 : a < b
+        }
+        let draftByID = Dictionary(uniqueKeysWithValues: drafts.map { ($0.id, $0) })
+        for id in oldest {
+            guard count > Self.tripCacheItems || bytes > Self.tripCacheBytes else { break }
+            count -= 1
+            bytes -= sizes[id] ?? 0
+            try removeCleanTripContent(id)
+            if let row = draftByID[id] { modelContext.delete(row) }
+        }
     }
 }

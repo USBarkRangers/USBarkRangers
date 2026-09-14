@@ -1,12 +1,27 @@
 # Implemented native architecture — phases 1–5
 
+## Current mailroom ownership — September 14
+
+The approved simplification is recorded in [the checkpoint report](../../04-docs/reports/ios-native/MAILROOM_SIMPLIFICATION_2026_09_14.md). Earlier dated sections below are historical, not instructions to restore deleted code.
+
+| Owner | Responsibility |
+| --- | --- |
+| `AccountSession` | UID lifetime, clear old presentation, cancel/drain/close before opening the next writer. |
+| `NativeStore` + focused extensions | Atomic local rows, drafts, one outbox and pending/discard queries; no Firebase calls. |
+| `NativeMailroom` | The single send/reject/backoff loop; immutable sealed submissions. |
+| `NativeFeatureSync` / `NativeSyncJobs` | Shared foreground scheduling and coalesced cancellable jobs. |
+| Profile/trip/visit/walk adapters | Typed selection, dependencies, wire calls and acknowledgment validation, not copied delivery loops. |
+| `NativeSyncPolicy` / backend `shared/syncPolicy.js` | One policy per runtime: 40-day editing grace, 45-day upload acceptance, queue 1,000/warning 800 and capture exceptions. |
+
+Pending Changes reads local descriptions, shows one Sync now and offers Discard only for never-sent dependency groups. Active/dirty/pending trip content is protected outside the clean 100-trip/64-MiB cache. Clean editor copies and notes count toward that same budget. Cache trimming fetches no cloud detail. Saved places are local and account/project-separated; cloud pins, dogs and journal/media models are not implemented.
+
 ## iOS-only rebuild — connected account, trips, visits and walks, September 14
 
 The historical build notes below describe the previous backend. The native backend is deployed to the isolated bark-ranger-ios project as of September 14; it is not an accepted production replacement. Its current execution record is [IOS_NATIVE_REBUILD_PROGRESS](../../04-docs/operations/IOS_NATIVE_REBUILD_PROGRESS.md), with deployment/device evidence in [IOS_NATIVE_CLOUD_ACCEPTANCE](../../04-docs/operations/IOS_NATIVE_CLOUD_ACCEPTANCE.md).
 
 The connected account path is now `AccountView / SettingsRepository → AccountModel / NativeProfileFeature → NativeStore profile rows + durable intents → NativeProfileSync → NativeProfileCloud → nativeCommand`. Confirmed profile, visible local edits and server-confirmed access stay separate; none is copied into `PersonalSnapshot` or `UserValue`. `AccountSession` remains the single identity/lifecycle owner. It clears the visible scope immediately, cancels/drains and closes the old feature, and only then opens the next. `NativeSyncJobs` owns shared job cancellation, not whichever caller happens to await it.
 
-Native accounts and guests no longer open, decode, observe or publish the transitional `LocalStore`/`PersonalState` account graph. Native visits and walks share the profile scope's transaction writer with trips; each feature owns only its queries, queue policy and small projection. The native production factory never constructs `CloudUserClient`; opening the old graph is now DEBUG-only historical regression code. Existing legacy source files remain for that historical harness and explicit earlier-file recovery, not as a parallel shipping authority. The legacy account deletion implementation remains disabled and must be replaced in the services checkpoint.
+The old `LocalStore`, account blob/schema, cloud reader/listeners, `SyncEngine`, legacy repositories and old-format domain models have been deleted, including their DEBUG entry point and guest-file importer. Native visits, walks, trips and profile use one scoped `NativeStore` transaction writer. Guest drafts use that same native schema in a separate namespace; no historical account data is imported. Old account deletion/payment-provider code was removed; a native deletion service and Apple activation remain separate release prerequisites.
 
 The connected trip path is `TripsView / RouteDaySheet → TripEditorModel / RouteDayEditor → ActiveTripSession → TripDraftSession → NativeTripRepository → NativeStore`. There is exactly one active editor in `AppComposition`. Screens do not select from raw saved records, sequence saves themselves, or reset the shared editing lifetime. `NativeTripFeature` owns metadata paging, pending-work scheduling and read readiness, not editable content. It reuses the profile scope's `NativeStore`; `NativeTripSync` uses reusable pause/drain/resume jobs and its own account-bound transport.
 
@@ -24,7 +39,7 @@ Visits use `ParkDetailModel / PassportModel → NativeVisitRepository → Native
 
 Native leaderboard requests return five public entries plus the signed-in user's standing. Higher-score counting is an index aggregation with one-minute private rank-cache reuse, not a full user-document download or fan-out rank rewrite. Its index-scan cost is **not constant** at 100K entries. CSV export is an explicit, revision-checked, page-at-a-time traversal to a protected temporary file; normal map/Passport loading does not perform it.
 
-This remains an undeployed rebuild, not a claim that all architecture problems are solved. Apple, support, deletion, catalog delivery and remaining schema/operational cleanup belong to checkpoint 4; native deployment, production cost/load and physical-device acceptance belong to checkpoint 5. Every explicit Save remains atomic. See the execution record for measured work, remaining full-detail/first-note/day-note costs, and verification.
+This remains a beta rebuild, not a release-readiness or 100K-user performance certification. Apple activation, native account deletion and future journal/media work are separate. Deployment and device status for the mailroom change are recorded in the report below.
 
 **Current build: 0.5.15 (74).** Route-line selection retains the chosen Map day-sheet height, including dismiss/reselect. `MapFeatureModel.selectRouteDay → RouteDaySheetViewModel.select → ActiveTripSession.selectDay` remains the existing call path; the route-tap-only forced-low assignment is removed. `RouteDaySheetViewModel.position` alone owns the day sheet height; `TripDraftSession.draft.activeDayID` remains the authoritative editable day selection. Explicit trip opening still starts low, and explicit Planner preview still opens medium. `DayStatsRow` (54 lines) centers the shared stops/time/mileage group on both surfaces. Confirmation uses inline space only while visible, so an invisible trailing message cannot bias centering; it never adds vertical space. The loading slot, expiry tasks, save guards and timeline scrolling are unchanged. Only two runtime files change; no additional model, state mirror, service or runtime file. Eighteen focused app tests and 51 domain tests pass, including actual route hit selection, unchanged camera/geometry/request counts, save/reload, stale callback guards, Planner preview and stable summary/list height. Rendered Map/Planner feedback states reviewed; signed iPhone build passes. Installed and launched on the connected iPhone 15 Pro Max on September 13. Physical interaction verification awaits the user.
 

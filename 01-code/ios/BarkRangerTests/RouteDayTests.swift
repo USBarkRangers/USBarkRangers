@@ -125,10 +125,10 @@ import Testing
     }
     @Test func mapAndPlannerEditsUseOneCheckpointAndRejectAnObsoleteBuffer() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let store = try await LocalStore.open(directory: directory, uid: "days")
+        let store = try await NativeStore.open(directory: directory, project: "demo-bark-native", uid: "days")
         try await store.seedPremium()
-        let repository = TripRepository(store: store)
-        let base = LegacyTripDraft(trip: try trip())
+        let repository = NativeTripRepository(store: store, cloud: nil)
+        let base = TripDraft(trip: try trip())
         try await repository.saveDraft(base)
         let target = TripDayID(tripID: base.id, dayID: "second")
         try await repository.editDay(target, edit: .add(stop("E", -67.6)))
@@ -146,16 +146,18 @@ import Testing
         await #expect(throws: TripDayEdit.Failure.self) {
             try await repository.editDay(target, edit: .order(base.trip.days[1].stops.map(\.id)))
         }
-        #expect(try await store.readSnapshot().pending.isEmpty)
+        #expect(try await store.pendingTripIDs().isEmpty)
         await store.close()
-        let reopened = try await LocalStore.open(directory: directory, uid: "days")
-        #expect(try await reopened.readSnapshot().drafts?.first?.trip.days[1].notes == "Planner follows map")
+        let reopened = try await NativeStore.open(
+            directory: directory, project: "demo-bark-native", uid: "days")
+        #expect(
+            try await reopened.currentNativeDraft(id: base.id)?.trip.days[1].notes == "Planner follows map")
         await reopened.close()
         try FileManager.default.removeItem(at: directory)
     }
     @Test func daySelectionAndAddFollowStoreUpdatesWithoutDuplicatingItineraryState() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let account = AccountSession(auth: nil, cloud: nil, directory: directory)
+        let account = AccountSession(auth: nil, directory: directory)
         account.start()
         try await eventually { account.nativeTrips != nil }
         let trip = try trip()
@@ -176,7 +178,9 @@ import Testing
         #expect(model.position == .medium && model.target?.dayID == "second")
         model.edit(.notes(expected: "", value: "Map note"))
         try await eventually { model.day?.notes == "Map note" && !model.isWorking }
-        #expect(account.state?.drafts?.first?.trip.days[1].notes == model.day?.notes)
+        #expect(
+            try await account.nativeTrips?.repository.currentDraft(id: try #require(model.draft?.id))?.trip
+                .days[1].notes == model.day?.notes)
         model.close()
         #expect(model.target == nil && model.context?.tripID == trip.id)
         model.select(.init(tripID: trip.id, dayID: "second"))

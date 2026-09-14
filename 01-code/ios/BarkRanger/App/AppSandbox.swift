@@ -17,7 +17,7 @@
         init(scope: UUID = UUID()) { self.scope = scope }
 
         func makeComposition(
-            manifestURL: URL? = nil, preview: Bool = false, accountEmulators: Bool = false,
+            manifestURL: URL? = nil, preview: Bool = false,
             emulatorHost: String = "127.0.0.1", nativeAccounts: Bool = false
         )
             -> AppComposition
@@ -35,16 +35,12 @@
                 nativeAccounts && !preview
                 ? AccountAssembly.nativeEmulator(
                     directory: directory.appendingPathComponent("Accounts"), scope: scope, host: emulatorHost)
-                : accountEmulators && !preview
-                    ? AccountAssembly.emulator(
-                        directory: directory.appendingPathComponent("Accounts"), scope: scope,
-                        host: emulatorHost)
-                    : AccountAssembly.unavailable(directory: directory.appendingPathComponent("Accounts"))
+                : AccountAssembly.unavailable(directory: directory.appendingPathComponent("Accounts"))
             let preferences = SettingsRepository(
                 defaults: preview ? nil : UserDefaults(suiteName: suite), account: accounts.session)
             return AppComposition.assemble(
                 catalog: catalog,
-                network: accountEmulators || nativeAccounts
+                network: nativeAccounts
                     ? NetworkMonitor() : NetworkMonitor(fixedConnection: client != nil),
                 location: LocationClient(manager: nil), maps: MapsHandoff(open: { _ in false }),
                 settings: SettingsModel(preferences: preferences, catalog: catalog, openSettings: {}),

@@ -6,7 +6,7 @@ import Testing
 struct TripDayColorTests {
     @Test func baseColorsRepeatWithoutNumberedLabelsAndReservedMeaningsStayProtected() {
         let trip = Trip(days: (0..<50).map { Trip.Day(id: "day-\($0)") })
-        let before = trip.record
+        let before = trip
         let colors = TripDayColor.assignments(for: trip.days)
         #expect(Set(colors.map(\.color)).count == 4)
         #expect(
@@ -14,7 +14,7 @@ struct TripDayColorTests {
                 "Purple", "Orange", "Red", "Magenta",
             ])
         #expect(TripRoutePlan.build(trip).days.map(\.color) == colors.map(\.color.hex))
-        #expect(trip.record == before)
+        #expect(trip == before)
         for reserved in [
             "#0F766E", "#00FF00", "#FFFF00", "#2684FF", "#009CCE", "#000000", "yellow", "invalid",
         ] {

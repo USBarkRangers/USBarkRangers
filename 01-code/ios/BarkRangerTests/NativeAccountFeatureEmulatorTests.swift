@@ -24,10 +24,15 @@ import Testing
         session.connectivityChanged(true)
         model.email("\(UUID().uuidString)@native.invalid", password: "NativeOnly123!", create: true)
         await model.action?.value
-        try await eventually { session.profileState?.confirmed != nil && session.nativeTrips != nil && session.nativeExpeditions != nil }
+        try await eventually {
+            session.profileState?.confirmed != nil && session.nativeTrips != nil
+                && session.nativeExpeditions != nil
+        }
         #expect(session.tripLibraryMessage == nil && session.nativeVisits != nil)
-        #expect(try Data(contentsOf: directory.appendingPathComponent("native-feature-transition")) == Data("retained fixture".utf8))
-        #expect(session.state == nil && session.profileState?.visible?.displayName == "Ranger")
+        #expect(
+            try Data(contentsOf: directory.appendingPathComponent("native-feature-transition"))
+                == Data("retained fixture".utf8))
+        #expect(session.profileState?.visible?.displayName == "Ranger")
         let app = try #require(FirebaseApp.app(name: "BarkNativeUI-\(scope.uuidString)"))
         let uid = try #require(session.identity?.uid)
         try await NativeEmulatorFixture.seedAccess(uid: uid, app: app)
@@ -36,7 +41,6 @@ import Testing
         model.saveName("Independent profile")
         await model.action?.value
         try await eventually { session.profileState?.confirmed?.displayName == "Independent profile" }
-        #expect(session.state == nil)
         await session.stopAndWait()
         try await Firestore.firestore(app: app).terminate()
         await withCheckedContinuation { continuation in app.delete { _ in continuation.resume() } }
@@ -58,9 +62,7 @@ import Testing
         model.email("\(UUID().uuidString)@native.invalid", password: "NativeOnly123!", create: true)
         await model.action?.value
         try await eventually { session.profileState?.confirmed?.displayName == "Ranger" }
-        #expect(session.cloud == nil && session.profile == nil)
         try await eventually { session.nativeTrips != nil && session.nativeExpeditions != nil }
-        #expect(session.state == nil)
         #expect(!model.canEditData && !session.capabilities.accountManagement)
         model.verifyEmail()
         await model.action?.value
@@ -87,7 +89,6 @@ import Testing
         try await eventually { session.profileState?.pendingCount == 2 }
         #expect(session.profileState?.visible?.displayName == "Offline Ranger")
         #expect(settings.value.mapStyle == .satellite)
-        #expect(session.state == nil)
         let retainedIDs = try #require(session.profileState?.pendingIDs)
         let command = try #require(try await feature.store.nextProfileSubmission())
         let wire = try NativeProfileCloud(uid: uid, auth: auth, db: db)
@@ -95,7 +96,7 @@ import Testing
         #expect(accepted.revisions.profile == 2)
         await session.stopAndWait()
         let reopened = AccountSession(
-            auth: session.auth, cloud: nil, directory: directory,
+            auth: session.auth, directory: directory,
             capabilities: AccountAssembly.capabilities,
             nativeProfileConfiguration: session.nativeProfileConfiguration)
         reopened.setForeground(true)  // Offline first; only durable local state may publish.
@@ -129,10 +130,12 @@ import Testing
         editor.saveName("Later typing")
         await editor.action?.value
         let appearanceID = UUID()
-        let appearance = NativeProfileCommand(operationID: appearanceID,
+        let appearance = NativeProfileCommand(
+            operationID: appearanceID,
             createdAtMs: try NativeClientTime.milliseconds(Date()), expectedRevision: 3,
             edit: .mapStyle(.default))
-        _ = try await wire.submit(.init(id: appearanceID, bytes: JSONEncoder().encode(appearance), attempts: 0))
+        _ = try await wire.submit(
+            .init(id: appearanceID, bytes: JSONEncoder().encode(appearance), attempts: 0))
         reopened.connectivityChanged(true)
         try await eventually { reopened.profileState?.pendingCount == 0 }
         #expect(reopened.profileState?.confirmed?.displayName == "Later typing")

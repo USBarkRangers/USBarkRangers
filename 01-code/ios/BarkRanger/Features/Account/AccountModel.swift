@@ -154,30 +154,8 @@ import Observation
         guard let auth = session.auth, let uid = session.identity?.uid else { return }
         perform(success: "Sign-in method removed.") { try await auth.unlink(provider, uid: uid) }
     }
-    func deleteAccount(confirmation: String) {
-        guard capabilities.accountManagement else { return }
-        guard confirmation == "DELETE", let cloud = session.cloud, let auth = session.auth,
-            let uid = session.identity?.uid
-        else {
-            notice = "Type DELETE to confirm."
-            return
-        }
-        let requiresApple = session.identity?.providers.contains("apple.com") == true
-        let appleCode = apple.authorizationCode
-        if requiresApple && appleCode == nil {
-            notice = "Confirm with Apple again before deleting this linked account."
-            return
-        }
-        perform {
-            if let appleCode { try await auth.revokeApple(authorizationCode: appleCode) }
-            try Task.checkCancellation()
-            guard self.session.identity?.uid == uid else { throw AccountFailure.accountChanged }
-            _ = try await cloud.accountAction(.delete, uid: uid)
-            guard self.session.identity?.uid == uid else { return }
-            try auth.signOut()
-            try await self.session.eraseDeletedAccount(uid: uid)
-        }
-    }
+    // Native account deletion requires its own reviewed backend lifecycle before
+    // launch. No hidden call into the retired web account/payment system remains.
     func cancel() {
         actionID = UUID()
         action?.cancel()
@@ -214,21 +192,19 @@ import Observation
     }
     static func message(_ error: any Error) -> String {
         switch error {
-        case LocalStore.Failure.invalidChange, NativeProfileEdit.Failure.invalid:
+        case NativeProfileEdit.Failure.invalid:
             "Use a display name of 2–30 characters, without control characters or angle brackets."
-        case LocalStore.Failure.unavailableAccess, NativeStore.Failure.unavailable:
+        case NativeStore.Failure.unavailable:
             AccountDataAccess.readOnlyMessage
         case NativeStore.Failure.queueFull:
             "This iPhone has reached its pending-change limit. Connect and resolve pending changes before adding more. Your edits have not been removed."
-        case LocalStore.Failure.closed, NativeStore.Failure.closed, AccountFailure.accountChanged,
+        case NativeStore.Failure.closed, AccountFailure.accountChanged,
             NativeProfileCloud.Failure.accountChanged:
             "The account changed. Please try again."
         case AccountFailure.lastProvider: "Keep at least one sign-in method linked to your account."
         case AccountFailure.configuration: "This sign-in provider is not configured for this build."
         case NativeStore.Failure.invalidAcknowledgment:
             "The saved values changed while you were reviewing them. Review the current values and try again."
-        case CloudUserClient.Failure.membershipNotFound:
-            "No eligible existing subscription was found for this account email. Recovery does not start or resume a subscription."
         default: (error as NSError).localizedDescription
         }
     }

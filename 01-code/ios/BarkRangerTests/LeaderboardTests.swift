@@ -94,10 +94,10 @@ import Testing
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let auth = SyntheticAuth()
         let account = AccountSession(
-            auth: auth, cloud: nil, directory: directory, capabilities: .editableTest)
+            auth: auth, directory: directory, capabilities: .editableTest)
         account.start()
         auth.select(uid)
-        try await eventually { account.identity?.uid == uid && account.state != nil }
+        try await eventually { account.identity?.uid == uid }
         let reader = ControlledBoard()
         return Self(
             directory: directory, auth: auth, account: account, reader: reader,
@@ -117,25 +117,25 @@ private actor ControlledBoard: LeaderboardReading {
     private var personalFailure = false
     private var empty = false
     private var holding = false
-    private var pending: [String: CheckedContinuation<LeaderboardRepository.Standing?, Never>] = [:]
+    private var pending: [String: CheckedContinuation<LeaderboardStanding?, Never>] = [:]
     func failTop() { topFailure = true }
     func failPersonal() { personalFailure = true }
     func setEmpty() { empty = true }
     func holdPersonal() { holding = true }
     func waiting(_ uid: String) -> Bool { pending[uid] != nil }
     func finish(_ uid: String) { pending.removeValue(forKey: uid)?.resume(returning: own(uid)) }
-    func topFive() throws -> [LeaderboardRepository.Entry] {
+    func topFive() throws -> [LeaderboardEntry] {
         topCalls += 1
         if topFailure { throw URLError(.notConnectedToInternet) }
         return empty ? [] : (1...5).map { .init(id: "leader-\($0)", name: "Ranger \($0)", points: 100 - $0) }
     }
-    func standing(uid: String) async throws -> LeaderboardRepository.Standing? {
+    func standing(uid: String) async throws -> LeaderboardStanding? {
         personalCalls.append(uid)
         if personalFailure { throw URLError(.cannotConnectToHost) }
         if holding { return await withCheckedContinuation { pending[uid] = $0 } }
         return empty ? nil : own(uid)
     }
-    private func own(_ uid: String) -> LeaderboardRepository.Standing {
+    private func own(_ uid: String) -> LeaderboardStanding {
         .init(entry: .init(id: uid, name: uid, points: 10), rank: 42)
     }
 }

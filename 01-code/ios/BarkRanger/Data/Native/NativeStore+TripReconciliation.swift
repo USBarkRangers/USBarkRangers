@@ -152,9 +152,8 @@ extension NativeStore {
         // Expired cursors cannot vouch for old clean detail. Drop reconstructible detail,
         // retaining every dirty draft/preimage and queued intent. Selected detail is re-read on demand.
         var content = FetchDescriptor<NativeLocalSchema.TripContent>()
-        content.fetchLimit = Self.tripCacheItems + 101
+        content.propertiesToFetch = [\.id, \.readStamp, \.revision]
         let cached = try modelContext.fetch(content)
-        guard cached.count <= Self.tripCacheItems + 100 else { throw Failure.corrupt }
         for row in cached {
             let record = try tripCacheStamp(row.id)
             if record?.metadata?.deleted == true { continue }
@@ -168,9 +167,8 @@ extension NativeStore {
             try removeCleanTripContent(row.id)
         }
         var drafts = FetchDescriptor<NativeLocalSchema.Draft>(predicate: #Predicate { !$0.dirty })
-        drafts.fetchLimit = Self.tripCacheItems + 2
+        drafts.propertiesToFetch = [\.id]
         let clean = try modelContext.fetch(drafts)
-        guard clean.count <= Self.tripCacheItems + 1 else { throw Failure.corrupt }
         for row in clean {
             if try cachedTrip(id: row.id) != nil || !(try tripOperations(row.id)).isEmpty { continue }
             invalidations.insert(.draft(row.id))

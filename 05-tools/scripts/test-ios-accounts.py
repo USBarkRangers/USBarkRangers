@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run opt-in native Firebase/Account UI contracts after a signed build-for-testing.
 
-Requires the dedicated demo-barkranger-ios emulators and seeded synthetic accounts.
-Use --native-profile for the iOS-only demo-bark-native account/profile checkpoint.
+Requires the isolated demo-bark-native emulators and seeded synthetic accounts.
+Defaults to --native-profile. No retired web-database test path remains.
 Only a temporary xctestrun copy is changed; the ordinary scheme stays isolated.
 """
 import argparse
@@ -25,6 +25,8 @@ parser.add_argument("--only-testing", action="append", help="Run a named test/su
 parser.add_argument("--host", default="127.0.0.1", help="Mac's private IPv4 address for physical-device tests")
 parser.add_argument("--functional-only", action="store_true", help="Skip the automated accessibility audit; keep account and largest-text interaction checks")
 args = parser.parse_args()
+if not (args.native_profile or args.native_trips or args.native_adventures or args.native_cloud_fixture):
+    args.native_profile = True
 if args.native_cloud_fixture and (args.native_profile or args.native_trips or args.native_adventures):
     parser.error("Live acceptance cannot be combined with emulator checkpoints")
 products = args.products.resolve()
@@ -35,12 +37,12 @@ if len(candidates) != 1:
 with candidates[0].open("rb") as source:
     settings = plistlib.load(source)
 for target in ("BarkRangerTests", "BarkRangerUITests"):
-    flag = "BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS" if args.native_profile or args.native_trips or args.native_adventures else "BARK_RUN_ACCOUNT_EMULATOR_TESTS"
+    flag = "BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"
     settings[target].setdefault("EnvironmentVariables", {})[flag] = "1"
     settings[target]["EnvironmentVariables"]["BARK_EMULATOR_HOST"] = args.host
     if args.functional_only:
         settings[target]["EnvironmentVariables"]["BARK_ACCOUNT_FUNCTIONAL_ONLY"] = "1"
-copy = products / ("BarkNativeAdventures.xctestrun" if args.native_adventures else "BarkNativeTrips.xctestrun" if args.native_trips else "BarkNativeProfile.xctestrun" if args.native_profile else "BarkPhase3Accounts.xctestrun")
+copy = products / ("BarkNativeAdventures.xctestrun" if args.native_adventures else "BarkNativeTrips.xctestrun" if args.native_trips else "BarkNativeProfile.xctestrun")
 if (args.native_profile or args.native_trips or args.native_adventures) and (args.host != "127.0.0.1" or platform != "iphonesimulator"):
     parser.error("Native profile UI fixtures are simulator/loopback only; physical acceptance is separate.")
 tests = [
@@ -48,10 +50,9 @@ tests = [
     "BarkRangerTests/NativeProfileEdgeTests", "BarkRangerTests/NativeStoreTests",
     "BarkRangerTests/NativeSyncJobsTests", "BarkRangerTests/AccountActionTests",
     "BarkRangerTests/AccountIsolationTests", "BarkRangerTests/ScopedSettingsTests",
-    "BarkRangerTests/CorrectnessPolicyTests", "BarkRangerUITests/NativeAccountUITests",
-] if args.native_profile else [
-    "BarkRangerTests/NativeAccountEmulatorTests", "BarkRangerTests/AppShellTests",
-    "BarkRangerUITests/ReadOnlyAccessUITests", "BarkRangerUITests/PassportUITests",
+    "BarkRangerTests/CorrectnessPolicyTests", "BarkRangerTests/NativePendingChangesTests",
+    "BarkRangerTests/NativeMailroomTests", "BarkRangerTests/NativeCacheRetentionTests",
+    "BarkRangerTests/AccountDiagnosticsTests", "BarkRangerUITests/NativeAccountUITests",
 ]
 if args.native_trips:
     tests = [
@@ -61,7 +62,7 @@ if args.native_trips:
         "BarkRangerTests/NativeTripCostTests",
         "BarkRangerTests/AccessStabilizationTests", "BarkRangerTests/AccountIsolationTests",
         "BarkRangerTests/CorrectnessPolicyTests", "BarkRangerTests/MapColorProjectionTests",
-        "BarkRangerTests/AdventureStoreTests", "BarkRangerTests/TripLibraryPagingTests",
+        "BarkRangerTests/NativeCacheRetentionTests", "BarkRangerTests/TripLibraryPagingTests",
         "BarkRangerTests/NativeDraftHandoffTests", "BarkRangerTests/SavedPlaceStoreTests",
         "BarkRangerTests/SavedPlaceIndexTests", "BarkRangerTests/MapPlaceAnnotationTests",
         "BarkRangerTests/PlannerTargetingTests", "BarkRangerTests/TripDraftSessionTests",
@@ -75,7 +76,7 @@ if args.native_adventures:
     tests = [
         "BarkRangerTests/NativeVisitActionTests", "BarkRangerTests/NativeVisitQueueTests",
         "BarkRangerTests/NativeVisitConflictTests", "BarkRangerTests/NativeVisitOutboxEmulatorTests",
-        "BarkRangerTests/NativeVisitEmulatorTests",
+        "BarkRangerTests/NativeVisitEmulatorTests", "BarkRangerTests/PendingVisitMarkerTests",
         "BarkRangerTests/NativeExpeditionWireEmulatorTests", "BarkRangerTests/NativeActivityReconciliationTests",
         "BarkRangerTests/NativeAdventureFeatureEmulatorTests", "BarkRangerTests/NativeAdventureCostTests",
         "BarkRangerTests/NativeExpeditionRecoveryTests", "BarkRangerTests/NativeLeaderboardFeatureTests",

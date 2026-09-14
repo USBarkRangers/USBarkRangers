@@ -37,7 +37,4 @@ extension NativeStore {
         }
     }
 
-    func deferTripSubmission(_ id: UUID, until date: Date) throws {
-        try deferSubmission(id, until: date)
-    }
 }

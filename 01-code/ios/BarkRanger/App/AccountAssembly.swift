@@ -8,7 +8,7 @@ import Foundation
 @MainActor struct AccountAssembly {
     let session: AccountSession
     let google: GoogleSignInAdapter?
-    var leaderboard: LeaderboardRepository? = nil
+    var leaderboard: (any LeaderboardReading)? = nil
     var feedback: (any FeedbackSending)? = nil
     // APPLE-ACTIVATION: owner confirmed paid enrollment is pending (2026-09-13).
     // Keep Apple hidden until the paid team's bundle capability/provisioning and the
@@ -19,7 +19,7 @@ import Foundation
         profileWrites: true, authenticationChanges: true, accountManagement: false, appleSignIn: false)
 
     static func unavailable(directory: URL) -> Self {
-        Self(session: AccountSession(auth: nil, cloud: nil, directory: directory), google: nil)
+        Self(session: AccountSession(auth: nil, directory: directory), google: nil)
     }
     static func live(directory: URL) -> Self {
         guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
@@ -48,20 +48,6 @@ import Foundation
                 options: options, name: "BarkNativeUI-\(scope.uuidString)", directory: directory,
                 emulator: true, capabilities: capabilities, emulatorHost: host)
         }
-        static func emulator(directory: URL, scope: UUID, host: String = "127.0.0.1") -> Self {
-            guard allowsEmulatorHost(host) else { return unavailable(directory: directory) }
-            let options = FirebaseOptions(
-                googleAppID: "1:123456789:ios:abcdef0123456789", gcmSenderID: "123456789")
-            options.apiKey = "demo-barkranger-ios-api-key"
-            options.projectID = "demo-barkranger-ios"
-            options.bundleID = Bundle.main.bundleIdentifier ?? "swarm.USBARKRANGERS"
-            return make(
-                options: options, name: "BarkEmulator-\(scope.uuidString)", directory: directory,
-                emulator: true,
-                capabilities: capabilities,
-                emulatorHost: host)
-        }
-
         /// Test credentials may only go to loopback or a private IPv4 address, never a public server.
         static func allowsEmulatorHost(_ host: String) -> Bool {
             if ["localhost", "127.0.0.1"].contains(host) { return true }
@@ -100,10 +86,10 @@ import Foundation
         let native = ["bark-ranger-ios", "demo-bark-native"].contains(options.projectID ?? "")
         #if DEBUG
             if emulator {
-                auth.useEmulator(withHost: emulatorHost, port: native ? 9198 : 9098)
-                settings.host = "\(emulatorHost):\(native ? 8188 : 8088)"
+                auth.useEmulator(withHost: emulatorHost, port: 9198)
+                settings.host = "\(emulatorHost):\(8188)"
                 settings.isSSLEnabled = false
-                functions.useEmulator(withHost: emulatorHost, port: native ? 5108 : 5008)
+                functions.useEmulator(withHost: emulatorHost, port: 5108)
                 // Firebase's Debug-only device-testing opt-in; this app contains only demo credentials.
                 functions.allowInsecureTokenAttachment = true
             }
@@ -129,33 +115,13 @@ import Foundation
                 })
             return Self(
                 session: AccountSession(
-                    auth: service, cloud: nil, directory: directory, capabilities: capabilities,
+                    auth: service, directory: directory, capabilities: capabilities,
                     nativeProfileConfiguration: configuration),
                 google: emulator
                     ? nil
                     : GoogleSignInAdapter(
                         clientID: configuredGoogleClientID(options), serverClientID: nil))
         }
-        // Historical emulator fixtures remain isolated while their features are
-        // converted. There is no legacy Firebase transport in release composition.
-        #if DEBUG
-            guard emulator, options.projectID == "demo-barkranger-ios" else {
-                return unavailable(directory: directory)
-            }
-            let cloud = CloudUserClient(
-                auth: auth, db: db, functions: functions, isTest: emulator,
-                allowsMutations: capabilities.profileWrites,
-                allowsAccountManagement: capabilities.accountManagement)
-            return Self(
-                session: AccountSession(
-                    auth: service, cloud: cloud, directory: directory, capabilities: capabilities),
-                google: emulator
-                    ? nil
-                    : GoogleSignInAdapter(clientID: configuredGoogleClientID(options), serverClientID: nil),
-                leaderboard: LeaderboardRepository(db: db),
-                feedback: FeedbackService(auth: auth, functions: functions))
-        #else
-            return unavailable(directory: directory)
-        #endif
+        return unavailable(directory: directory)
     }
 }

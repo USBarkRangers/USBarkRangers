@@ -13,7 +13,7 @@
     <BuildableProductRunnable runnableDebuggingMode="0"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="8B2A66BB2FD504090093FDAD" BuildableName="BarkRanger.app" BlueprintName="BarkRanger" ReferencedContainer="container:BarkRanger.xcodeproj"/></BuildableProductRunnable>
     <EnvironmentVariables>
       <EnvironmentVariable key="BARK_TEST_SCOPE" value="7A21F490-FBA4-4C29-A7E0-9B0B7A4A0003" isEnabled="YES"/>
-      <EnvironmentVariable key="BARK_ACCOUNT_EMULATORS" value="1" isEnabled="YES"/>
+      <EnvironmentVariable key="BARK_NATIVE_ACCOUNT_EMULATORS" value="1" isEnabled="YES"/>
       <EnvironmentVariable key="BARK_CATALOG_URL" value="http://127.0.0.1:8787/unchanged/manifest.json" isEnabled="YES"/>
     </EnvironmentVariables>
   </LaunchAction>

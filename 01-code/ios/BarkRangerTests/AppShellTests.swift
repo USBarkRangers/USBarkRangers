@@ -14,13 +14,15 @@ struct AppShellTests {
         #expect(AccountAssembly.allowsEmulatorHost(host))
     }
 
-    @Test(arguments: ["", "example.com", "8.8.8.8", "172.15.0.1", "172.32.0.1", "0.0.0.0",
-                      "10.0.0.256", "10.0.0", "10.0.0.1:9098", "http://10.0.0.1", "10.0.0.+1"])
+    @Test(arguments: [
+        "", "example.com", "8.8.8.8", "172.15.0.1", "172.32.0.1", "0.0.0.0",
+        "10.0.0.256", "10.0.0", "10.0.0.1:9098", "http://10.0.0.1", "10.0.0.+1",
+    ])
     func invalidAccountEndpointCannotFallThroughToLiveFirebase(_ host: String) {
         #expect(!AccountAssembly.allowsEmulatorHost(host))
-        let accounts = AccountAssembly.emulator(directory: URL.temporaryDirectory, scope: UUID(), host: host)
+        let accounts = AccountAssembly.nativeEmulator(
+            directory: URL.temporaryDirectory, scope: UUID(), host: host)
         #expect(accounts.session.auth == nil)
-        #expect(accounts.session.cloud == nil)
     }
 
     @Test func navigationDismissesSheetsWhenChangingDestination() {

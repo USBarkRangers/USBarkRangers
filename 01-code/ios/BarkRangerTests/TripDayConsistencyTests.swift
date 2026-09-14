@@ -35,7 +35,7 @@ import Testing
         defer { fixture.context.close() }
         let original = try draft()
         try await fixture.repository.saveDraft(original)
-        try await eventually { fixture.session.state?.activeDraftID == original.id }
+        try await eventually { fixture.session.nativeTrips?.selectedID == original.id }
         var requests: [String] = []
         var release: CheckedContinuation<Void, Never>?
         let routes = DayRouteService { segment in
@@ -71,7 +71,7 @@ import Testing
         defer { fixture.context.close() }
         let original = try draft()
         try await fixture.repository.saveDraft(original)
-        try await eventually { fixture.session.state?.activeDraftID == original.id }
+        try await eventually { fixture.session.nativeTrips?.selectedID == original.id }
         var requests = 0
         let routes = DayRouteService { segment in
             requests += 1

@@ -5,9 +5,6 @@ import Observation
 /// One active account lifetime. UID changes clear presentation before any asynchronous close/open work.
 @MainActor @Observable final class AccountSession {
     private(set) var identity: AccountIdentity?
-    private(set) var state: PersonalState?
-    // Temporary local data for not-yet-connected features stays separate. Native
-    // profile/access is never copied into this old account-wide representation.
     private(set) var nativeProfile: NativeProfileFeature?
     private(set) var nativeTrips: NativeTripFeature?
     private(set) var nativeVisits: NativeVisitFeature?
@@ -24,53 +21,32 @@ import Observation
     private var profileObservation: Task<Void, Never>?
     private var sessionMessage: String?
     var message: String? { sessionMessage ?? profileScheduler?.message }
-    private var legacySyncing = false
-    var isSyncing: Bool { legacySyncing || profileScheduler?.running == true }
+    var isSyncing: Bool { profileScheduler?.running == true }
     private var profileScheduler: NativeFeatureSync?
-    // Historical backend regression harness only. Shipping Map/Planner have no
-    // legacy trip repository, list or paging path.
-    #if DEBUG
-        private(set) var isLoadingMoreTrips = false
-        var hasMoreTrips: Bool { identity != nil && state?.tripLibrary?.hasMore == true }
-        private(set) var trips: TripRepository?
-        private var tripPageTask: Task<Void, Never>?
-    #endif
     private(set) var tripLibraryMessage: String?
     private(set) var requiresStorageRecovery = false
-    private(set) var profile: ProfileRepository?
-    private(set) var visits: VisitRepository?
-    private(set) var expeditions: ExpeditionRepository?
     let entitlement = EntitlementRepository()
     var dataAccess: AccountDataAccess {
         AccountDataAccess(entitlement: entitlement.access, isGuest: identity == nil && nativeTrips != nil)
     }
     let auth: (any AccountAuthenticating)?
-    let cloud: (any CloudUserTransport)?
     let capabilities: AccountCapabilities
     private let diagnostics: Diagnostics
     let directory: URL
-    private var store: LocalStore?
-    private var engine: SyncEngine?
     private var authTask: Task<Void, Never>?
     private var scopeTask: Task<Void, Never>?
-    private var syncTask: Task<Void, Never>?
-    private var retryTask: Task<Void, Never>?
-    private var pausing: Task<Void, Never>?
-    private var syncRequested = false
-    private var refreshRequested = false
     private var generation = UUID()
     private var foreground = false
     private var connected = false
     private var scopeStarted = false
     init(
-        auth: (any AccountAuthenticating)?, cloud: (any CloudUserTransport)?, directory: URL,
+        auth: (any AccountAuthenticating)?, directory: URL,
         capabilities: AccountCapabilities = .init(), diagnostics: Diagnostics = Diagnostics(),
         nativeProfileConfiguration: NativeProfileConfiguration? = nil
     ) {
         self.capabilities = capabilities
         self.diagnostics = diagnostics
         self.auth = auth
-        self.cloud = cloud
         self.directory = directory
         self.nativeProfileConfiguration = nativeProfileConfiguration
     }
@@ -97,8 +73,6 @@ import Observation
         generation = UUID()
         scopeStarted = true
         let generation = generation
-        let oldStore = store
-        let oldEngine = engine
         let oldProfile = nativeProfile
         let oldScheduler = profileScheduler
         profileScheduler = nil
@@ -120,33 +94,13 @@ import Observation
         profileState = nil
         let previousTask = scopeTask
         scopeTask?.cancel()
-        syncTask?.cancel()
-        syncTask = nil
-        retryTask?.cancel()
-        retryTask = nil
-        #if DEBUG
-            tripPageTask?.cancel()
-            tripPageTask = nil
-            isLoadingMoreTrips = false
-            trips = nil
-        #endif
         tripLibraryMessage = nil
-        syncRequested = false
-        refreshRequested = false
         identity = next
-        state = nil
-        profile = nil
-        visits = nil
-        expeditions = nil
-        store = nil
-        engine = nil
-        entitlement.update(nil)
+        entitlement.clear()
         sessionMessage = nil
         requiresStorageRecovery = false
-        legacySyncing = false
         scopeTask = Task { [weak self] in
             await previousTask?.value
-            await oldEngine?.stop()
             await oldScheduler?.close()
             await oldProfileObservation?.value
             await tripEditingDrain?.value
@@ -156,7 +110,6 @@ import Observation
             await oldLeaderboard?.close()
             await oldGuestStore?.close()
             await oldProfile?.close()
-            await oldStore?.close()
             guard let self, !Task.isCancelled, generation == self.generation, next != nil || openGuest else {
                 return
             }
@@ -184,9 +137,6 @@ import Observation
                             try await NativeDraftHandoff.adopt(
                                 directory: self.directory, project: project,
                                 uid: next.uid, into: nativeStore)
-                        } else {
-                            try await NativeDraftHandoff.importEarlierGuestFiles(
-                                directory: self.directory, into: nativeStore)
                         }
                         try await feature.start()
                     } catch {
@@ -240,91 +190,7 @@ import Observation
                 }
                 // Guest planning is completely native and has no account graph.
                 if next == nil, self.nativeTrips != nil { return }
-                #if DEBUG
-                    // Historical regression fixtures only. This graph cannot be opened
-                    // by a Release build; native factories returned above.
-                    let signedInDirectory =
-                        self.nativeProfileConfiguration.map {
-                            self.directory.appendingPathComponent("native-feature-transition")
-                                .appendingPathComponent($0.project)
-                        } ?? self.directory
-                    // Guest planning has a separate local namespace, no Auth identity and no sync worker.
-                    let directory =
-                        next == nil ? self.directory.appendingPathComponent("GuestDrafts") : signedInDirectory
-                    let store = try await LocalStore.open(
-                        directory: directory, uid: next?.uid ?? "guest-drafts", isGuest: next == nil)
-                    guard !Task.isCancelled, self.generation == generation else {
-                        await store.close()
-                        return
-                    }
-                    if let next, self.nativeTrips == nil {
-                        do {
-                            try await GuestDraftHandoff.adopt(
-                                directory: self.directory, uid: next.uid, into: store)
-                        } catch {
-                            if !Task.isCancelled, self.generation == generation {
-                                self.diagnostics.accountFailure(error, at: .openStore)
-                                self.sessionMessage =
-                                    "Guest trips are retained for this account but could not be opened. Reopen the app to retry recovery."
-                            }
-                        }
-                        guard !Task.isCancelled, self.generation == generation else {
-                            await store.close()
-                            return
-                        }
-                    }
-                    self.store = store
-                    self.profile =
-                        next != nil && self.capabilities.profileWrites
-                            && self.nativeProfileConfiguration == nil
-                        ? ProfileRepository(store: store) : nil
-                    self.visits =
-                        self.nativeVisits == nil && next != nil && self.capabilities.profileWrites
-                        ? VisitRepository(store: store) : nil
-                    // Historical regression fixture only; no trip writer into the old graph in native mode.
-                    #if DEBUG
-                        self.trips =
-                            self.nativeTrips == nil && self.capabilities.profileWrites
-                            ? TripRepository(store: store) : nil
-                    #endif
-                    self.expeditions =
-                        next != nil && self.capabilities.profileWrites
-                        ? ExpeditionRepository(store: store) : nil
-                    if self.nativeProfileConfiguration == nil, let next, let cloud = self.cloud {
-                        self.engine = SyncEngine(
-                            store: store, cloud: cloud, uid: next.uid,
-                            allowsMutations: self.capabilities.profileWrites, diagnostics: self.diagnostics,
-                            observationFailed: { [weak self] delay in
-                                Task { @MainActor in
-                                    guard let self, self.generation == generation else { return }
-                                    self.sessionMessage =
-                                        "Cloud sync is unavailable. Your saved data and pending changes are safe on this iPhone."
-                                    self.scheduleRetry(after: delay)
-                                }
-                            })
-                    }
-                    if self.nativeProfileConfiguration == nil { self.requestSync() }
-                    for await state in try await store.updates() {
-                        guard !Task.isCancelled, self.generation == generation else { return }
-                        let activeChanged = self.state?.selectedTripID != state.selectedTripID
-                        let newIntents = Set(state.pending.map(\.id)).subtracting(
-                            self.state?.pending.map(\.id) ?? [])
-                        self.state = state
-                        if self.nativeProfileConfiguration == nil {
-                            self.entitlement.update(next == nil ? nil : state.baseline)
-                        }
-                        if self.nativeProfileConfiguration == nil, !newIntents.isEmpty { self.requestSync() }
-                        if activeChanged, self.foreground, self.connected {
-                            do { try await self.engine?.selectActiveTrip(state.selectedTripID) } catch {
-                                guard !Task.isCancelled, self.generation == generation else { return }
-                                self.diagnostics.accountFailure(error, at: .readCloud)
-                                self.requestSync(refresh: true)
-                            }
-                        }
-                    }
-                #else
-                    throw NativeStore.Failure.unavailable
-                #endif
+                throw NativeStore.Failure.unavailable
             } catch {
                 if !Task.isCancelled, self.generation == generation {
                     self.diagnostics.accountFailure(error, at: .openStore)
@@ -336,8 +202,8 @@ import Observation
                         return
                     }
                     self.requiresStorageRecovery =
-                        error is PersonalPayload.Failure
-                        || (error as? LocalStore.Failure) == .corrupt
+                        error is DecodingError
+                        || (error as? NativeStore.Failure) == .corrupt
                     self.sessionMessage =
                         self.requiresStorageRecovery
                         ? "Your saved account needs a compatible app update or recovery. Keep this app installed; your saved files have not been replaced."
@@ -382,7 +248,8 @@ import Observation
                     self.entitlement.update(value.entitlement, uid: feature.uid)
                     self.updateFeatureNetwork()
                     if value.entitlement != previous?.entitlement
-                        || !Set(value.pendingIDs).subtracting(previous?.pendingIDs ?? []).isEmpty {
+                        || !Set(value.pendingIDs).subtracting(previous?.pendingIDs ?? []).isEmpty
+                    {
                         self.requestSync()
                     }
                 }
@@ -413,122 +280,18 @@ import Observation
             pauseSync()
         }
     }
-    private func pauseSync() {
-        profileScheduler?.setAllowed(false)
-        #if DEBUG
-            tripPageTask?.cancel()
-            tripPageTask = nil
-            isLoadingMoreTrips = false
-        #endif
-        syncTask?.cancel()
-        syncTask = nil
-        retryTask?.cancel()
-        retryTask = nil
-        legacySyncing = false
-        syncRequested = false
-        refreshRequested = false
-        let previous = pausing
-        let engine = engine
-        let nativeProfile = nativeProfile
-        pausing = Task {
-            await previous?.value
-            await nativeProfile?.sync.pause()
-            await engine?.pause()
-        }
-    }
-    #if DEBUG
-        func loadMoreTrips() {
-            guard !isLoadingMoreTrips, hasMoreTrips else { return }
-            guard foreground, connected, let engine else {
-                tripLibraryMessage =
-                    "Connect to the internet to load more trips. Downloaded trips are still available."
-                return
-            }
-            isLoadingMoreTrips = true
-            tripLibraryMessage = nil
-            let generation = generation
-            tripPageTask = Task { [weak self] in
-                do { try await engine.loadMoreTrips() } catch {
-                    guard let self, !Task.isCancelled, self.generation == generation else { return }
-                    self.tripLibraryMessage =
-                        "More trips could not be loaded. Your downloaded trips are safe. Try again."
-                }
-                guard let self, !Task.isCancelled, self.generation == generation else { return }
-                self.isLoadingMoreTrips = false
-                self.tripPageTask = nil
-            }
-        }
-    #endif
+    private func pauseSync() { profileScheduler?.setAllowed(false) }
     func requestSync(refresh: Bool = false) {
         updateFeatureNetwork()
         nativeTrips?.requestSync(refresh: refresh)
         nativeVisits?.sync?.request(refresh: refresh)
         nativeExpeditions?.requestSync(refresh: refresh)
-        if nativeProfile != nil {
-            profileScheduler?.request(refresh: refresh)
-            return
-        }
-        guard foreground, connected, identity != nil, let engine else { return }
-        syncRequested = true
-        refreshRequested = refreshRequested || refresh
-        guard syncTask == nil else { return }
-        retryTask?.cancel()
-        retryTask = nil
-        let generation = generation
-        let pausing = pausing
-        syncTask = Task { [weak self] in
-            await pausing?.value
-            guard let self, !Task.isCancelled, self.generation == generation else { return }
-            self.legacySyncing = true
-            repeat {
-                self.syncRequested = false
-                let refresh = self.refreshRequested
-                self.refreshRequested = false
-                if self.identity?.serverConfirmed != true {
-                    do { try await self.auth?.reload() } catch { break }
-                }
-                guard !Task.isCancelled, self.generation == generation else { return }
-                guard self.identity?.serverConfirmed == true else { break }
-                let success = await engine.flush(refresh: refresh)
-                guard !Task.isCancelled, self.generation == generation else { return }
-                self.sessionMessage =
-                    success
-                    ? nil
-                    : "Cloud sync is unavailable. Your saved data and pending changes are safe on this iPhone."
-            } while self.syncRequested
-            guard !Task.isCancelled, self.generation == generation else { return }
-            let delay = await engine.nextDelay()
-            guard !Task.isCancelled, self.generation == generation else { return }
-            self.legacySyncing = false
-            self.syncTask = nil
-            if let delay { self.scheduleRetry(after: delay) }
-        }
+        profileScheduler?.request(refresh: refresh)
     }
     private func refreshNativeAccess() { profileScheduler?.request(refresh: true) }
-    private func scheduleRetry(after delay: Duration) {
-        guard foreground, connected, identity != nil else { return }
-        retryTask?.cancel()
-        let generation = generation
-        retryTask = Task { [weak self] in
-            do { try await Task.sleep(for: delay) } catch { return }
-            guard let self, self.generation == generation else { return }
-            self.requestSync()
-        }
-    }
-    func eraseDeletedAccount(uid: String) async throws {
-        // A later account must never be closed or erased by an earlier deletion completion.
-        guard identity?.uid == uid || identity == nil else { throw AccountFailure.accountChanged }
-        activate(nil, force: true, openGuest: false)
-        let generation = generation
-        let closing = scopeTask
-        await closing?.value
-        if self.generation == generation { scopeTask = nil }
-        try await LocalStore.removeAccount(directory: directory, uid: uid)
-    }
     func retryStorage() { activate(identity, force: true) }
     func waitForSync() async {
         requestSync()
-        await syncTask?.value
         await profileScheduler?.wait()
         await nativeTrips?.waitForSync()
         await nativeVisits?.sync?.wait()
@@ -553,9 +316,7 @@ import Observation
         pauseSync()
         activate(nil, force: true, openGuest: false)
         await scopeTask?.value
-        await pausing?.value
         scopeTask = nil
-        pausing = nil
         scopeStarted = false
     }
 }

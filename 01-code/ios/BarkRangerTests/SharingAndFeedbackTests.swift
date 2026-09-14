@@ -55,8 +55,6 @@ private actor FeedbackSaveGate {
         #expect(await service.requests.isEmpty)
         #expect(model.draft.message.isEmpty && model.receipt == nil)
         #expect(try await store.load(owner: "account:a")?.message == "Account A private report")
-        try await LocalStore.removeAccount(directory: directory, uid: "a")
-        #expect(try await store.load(owner: "account:a") == nil)
     }
 
     @Test func imagePreparationBoundsPixelsHonorsOrientationAndStripsGPS() async throws {

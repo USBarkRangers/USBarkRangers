@@ -10,7 +10,7 @@ nonisolated final class RouteDayInteractionTests: XCTestCase {
         defer { context.close() }
         try await context.start()
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let account = AccountSession(auth: nil, cloud: nil, directory: directory)
+        let account = AccountSession(auth: nil, directory: directory)
         account.start()
         try await eventually { account.nativeTrips?.repository != nil }
         let a = try XCTUnwrap(Coordinate(latitude: 44, longitude: -68))

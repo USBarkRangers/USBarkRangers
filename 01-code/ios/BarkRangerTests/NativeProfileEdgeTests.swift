@@ -59,7 +59,7 @@ struct NativeProfileEdgeTests {
                 revision: 2, premium: true, source: .sandbox,
                 validUntilMs: try NativeClientTime.milliseconds(Date().addingTimeInterval(60))), uid: "b")
         #expect(repository.access?.uid == "b" && repository.access?.premium == false)
-        repository.update(nil)
+        repository.clear()
         #expect(repository.access == nil)
     }
 

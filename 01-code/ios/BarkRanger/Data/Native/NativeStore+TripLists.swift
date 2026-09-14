@@ -3,7 +3,7 @@ import Foundation
 import SwiftData
 
 extension NativeStore {
-    struct TripLists: Sendable {
+    struct TripLists: Equatable, Sendable {
         let drafts: [NativeTripListItem]
         let pending: [NativeTripListItem]
         let conflicts: [String]

@@ -56,23 +56,4 @@ struct NativeDraftHandoffTests {
         await guest.close()
     }
 
-    @Test func olderGuestFileIsRecoveredWithoutRawExpectedDataEnteringNativeStorage() async throws {
-        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let legacy = try await LocalStore.open(
-            directory: directory.appendingPathComponent("GuestDrafts"), uid: "guest-drafts", isGuest: true)
-        let draft = LegacyTripDraft(trip: Trip(name: "Earlier on-device plan"))
-        try await legacy.saveDraft(draft)
-        await legacy.close()
-        let store = try await NativeStore.open(
-            directory: directory, project: "demo-bark-native", uid: "guest-drafts", guest: true)
-        try await NativeDraftHandoff.importEarlierGuestFiles(directory: directory, into: store)
-        let restored = try #require(try await store.currentNativeDraft(id: draft.id))
-        #expect(restored.trip == draft.trip)
-        let bytes = try JSONEncoder().encode(restored)
-        #expect(!String(decoding: bytes, as: UTF8.self).contains("expected"))
-        try await NativeDraftHandoff.importEarlierGuestFiles(directory: directory, into: store)
-        #expect(try await store.tripLocalLists().drafts.count == 1)
-        await store.close()
-    }
 }

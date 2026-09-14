@@ -82,23 +82,32 @@ nonisolated final class RecordingWriteGate: Sendable {
     static func make() async throws -> Self {
         let folder = URL.temporaryDirectory.appendingPathComponent(
             "BarkPhase5-recording-" + UUID().uuidString)
-        let local = try await NativeStore.open(directory: folder, project: "demo-bark-native", uid: "walker-a")
+        let local = try await NativeStore.open(
+            directory: folder, project: "demo-bark-native", uid: "walker-a")
         try await local.acceptProfile(.init(revision: 1, displayName: "Walker"))
-        let empty = try JSONDecoder().decode(NativeExpeditionSnapshot.self, from: JSONSerialization.data(withJSONObject: [
-            "version": 1, "activityID": NSNull(), "runID": NSNull(), "state": NSNull(), "progress": NSNull(),
-            "activity": NSNull(), "activityClaimed": false, "runs": [],
-            "readTime": ["seconds": Int64(Date().timeIntervalSince1970), "nanoseconds": 0],
-        ]))
+        let empty = try JSONDecoder().decode(
+            NativeExpeditionSnapshot.self,
+            from: JSONSerialization.data(withJSONObject: [
+                "version": 1, "activityID": NSNull(), "runID": NSNull(), "state": NSNull(),
+                "progress": NSNull(),
+                "activity": NSNull(), "activityClaimed": false, "runs": [],
+                "readTime": ["seconds": Int64(Date().timeIntervalSince1970), "nanoseconds": 0],
+            ]))
         try await local.acceptNativeExpedition(empty)
-        try await local.acceptEntitlement(.init(revision: 1, premium: true, source: .production,
-            validUntilMs: Int64(Date().addingTimeInterval(3600).timeIntervalSince1970 * 1000)))
+        try await local.acceptEntitlement(
+            .init(
+                revision: 1, premium: true, source: .production,
+                validUntilMs: Int64(Date().addingTimeInterval(3600).timeIntervalSince1970 * 1000)))
         await local.close()
         let auth = SyntheticAuth()
         let (app, _, _) = try AccountAssembly.nativeProfileEmulator(scope: UUID())
-        let configuration = NativeProfileConfiguration(project: "demo-bark-native", connect: {
-            try AccountAssembly.nativeProfileEmulatorClient(app: app, uid: $0)
-        })
-        let account = AccountSession(auth: auth, cloud: nil, directory: folder, capabilities: .editableTest,
+        let configuration = NativeProfileConfiguration(
+            project: "demo-bark-native",
+            connect: {
+                try AccountAssembly.nativeProfileEmulatorClient(app: app, uid: $0)
+            })
+        let account = AccountSession(
+            auth: auth, directory: folder, capabilities: .editableTest,
             nativeProfileConfiguration: configuration)
         account.setForeground(true)
         auth.select("walker-a")

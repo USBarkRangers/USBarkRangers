@@ -109,23 +109,23 @@ import Testing
     @Test func deletionIsAtomicOnDiskFailureAndRejectsAConcurrentDayEdit() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let fail = Mutex(false)
-        let store = try await LocalStore.open(
-            directory: directory, uid: "delete-test",
+        let store = try await NativeStore.open(
+            directory: directory, project: "demo-bark-native", uid: "delete-test",
             beforeSave: {
                 if fail.withLock({ $0 }) { throw CocoaError(.fileWriteOutOfSpace) }
             })
-        let repository = TripRepository(store: store)
-        let a = LegacyTripDraft(trip: Trip(id: "a"))
-        let b = LegacyTripDraft(trip: Trip(id: "b"))
-        try await store.applyServerSnapshot(
-            .init(uid: "delete-test", trips: [a.trip.record]), sequence: store.beginRead())
+        let repository = NativeTripRepository(store: store, cloud: nil)
+        let trip = Trip(id: "a")
+        let b = TripDraft(trip: Trip(id: "b"))
+        try await store.acceptTripSnapshot(nativeTripSnapshot(trip, revision: 1))
+        let a = try #require(try await store.cachedTrip(id: trip.id))
         try await store.seedPremium()
         try await repository.saveDraft(b)
         try await repository.saveDraft(a)
-        let before = try await store.readSnapshot()
+        let before = try await store.tripLocalLists()
         fail.withLock { $0 = true }
         await #expect(throws: (any Error).self) { try await repository.delete(matching: a) }
-        #expect(try await store.readSnapshot() == before)
+        #expect(try await store.tripLocalLists() == before)
         fail.withLock { $0 = false }
         try await repository.editDay(
             .init(tripID: a.id, dayID: a.trip.days[0].id),
@@ -134,8 +134,8 @@ import Testing
         let current = try #require(try await repository.currentDraft(id: a.id))
         #expect(current.trip.days[0].notes == "New Map edit")
         try await repository.delete(matching: current)
-        #expect(try await store.readSnapshot().drafts == [b])
-        #expect(try await store.readSnapshot().visible.trips.isEmpty)
+        #expect(try await store.tripLocalLists().drafts.map(\.id) == [b.id])
+        #expect(try await store.tripLocalLists().pending.first?.deleted == true)
         await store.close()
         try FileManager.default.removeItem(at: directory)
     }

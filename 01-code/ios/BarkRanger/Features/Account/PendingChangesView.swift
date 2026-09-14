@@ -8,6 +8,10 @@ struct PendingChangesView: View {
     @State private var confirming = false
     @State private var message: String?
     @State private var loaded = false
+    @State private var ownerUID: String?
+    private var scopedItems: [NativeStore.PendingChange] {
+        ownerUID == session.nativeProfile?.uid ? items : []
+    }
 
     var body: some View {
         List {
@@ -17,7 +21,7 @@ struct PendingChangesView: View {
                 )
                 .font(.footnote)
                 Button("Sync now") { session.requestSync(refresh: true) }
-                if items.count >= NativeSyncPolicy.queueWarning {
+                if scopedItems.count >= NativeSyncPolicy.queueWarning {
                     Text(
                         "Many changes are waiting. Sync when connected, or discard never-sent changes you no longer need. New park visits and recorded walks can still be saved."
                     )
@@ -26,9 +30,12 @@ struct PendingChangesView: View {
                 if let message { Text(message).font(.footnote) }
                 if let message = session.message { Text(message).font(.footnote) }
             }
-            if !loaded { ProgressView("Reading saved changes…") }
-            else if items.isEmpty { Text("No pending changes") }
-            ForEach(items) { item in
+            if !loaded {
+                ProgressView("Reading saved changes…")
+            } else if scopedItems.isEmpty {
+                Text("No pending changes")
+            }
+            ForEach(scopedItems) { item in
                 Section {
                     Text(item.title).font(.headline)
                     Text(item.detail)
@@ -44,7 +51,7 @@ struct PendingChangesView: View {
                                     review = value
                                     confirming = true
                                 } catch {
-                                    message = "This change has moved on. Refresh the list before discarding."
+                                    message = "This change can no longer be discarded. Nothing was removed."
                                 }
                             }
                         }
@@ -57,7 +64,7 @@ struct PendingChangesView: View {
             "Discard never-sent changes?", isPresented: $confirming, titleVisibility: .visible
         ) {
             Button("Discard \(review?.ids.count ?? 0) changes", role: .destructive) {
-                guard let review, let feature = session.nativeProfile else { return }
+                guard let review, let feature = session.nativeProfile, ownerUID == feature.uid else { return }
                 Task {
                     do {
                         try await feature.store.discardPending(review)
@@ -79,6 +86,10 @@ struct PendingChangesView: View {
         .task(id: session.nativeProfile?.uid) {
             items = []
             loaded = false
+            ownerUID = session.nativeProfile?.uid
+            review = nil
+            confirming = false
+            message = nil
             guard let feature = session.nativeProfile else { return }
             do {
                 for await _ in try await feature.store.changes(matching: [.pending]) {

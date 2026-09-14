@@ -10,15 +10,13 @@ final class SettingsRepository {
     let account: AccountSession?
     var syncsAppearance: Bool {
         account?.capabilities.profileWrites == true && account?.dataAccess.canEditAccount == true
-            && (account?.nativeProfileConfiguration == nil
-                || account?.profileState?.visible?.status == .active)
+            && account?.profileState?.visible?.status == .active
     }
     var value: AppSettings {
         var value = device
         if device.mapStyle != .overview, syncsAppearance,
             let style = account?.profileState?.visible?.mapStyle.rawValue
-                ?? (account?.nativeProfileConfiguration == nil
-                    ? account?.state?.visible.profile.mapStyleContent.string : nil)
+
         {
             if style == "default" { value.mapStyle = .standard }
             if style == "satellite" { value.mapStyle = .satellite }
@@ -49,15 +47,6 @@ final class SettingsRepository {
         if syncsAppearance, let native = account?.nativeProfile, style != .overview {
             let uid = account?.identity?.uid
             try await native.saveAppearance(style == .satellite ? .satellite : .default)
-            guard account?.identity?.uid == uid else { throw AccountFailure.accountChanged }
-            if device.mapStyle == .overview {
-                var next = device
-                next.mapStyle = .standard
-                saveDevice(next)
-            }
-        } else if syncsAppearance, let profile = account?.profile, style != .overview {
-            let uid = account?.identity?.uid
-            try await profile.saveMapAppearance(style == .satellite ? "satellite" : "default")
             guard account?.identity?.uid == uid else { throw AccountFailure.accountChanged }
             if device.mapStyle == .overview {
                 var next = device

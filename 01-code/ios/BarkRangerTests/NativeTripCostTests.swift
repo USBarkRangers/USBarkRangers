@@ -49,9 +49,12 @@ struct NativeTripCostTests {
         // One atomic note command contains neither itinerary nor untouched notes.
         // Canonical post-save detail confirmation remains separate measured work.
         #expect(command.bytes.count < 1000)
-        #expect(profileEvents.withLock { $0 } == 1)
+        // Account presentation now includes the all-feature pending count.
+        // The editor checkpoint itself still causes no profile notification.
+        try await eventually { profileEvents.withLock { $0 } == 2 }
+        #expect(try await store.profileView().totalPendingCount == 1)
         print(
-            "NATIVE_TRIP_COST stops=500 checkpoint_rows=\(checkpoint) draft_bytes=\(try JSONEncoder().encode(edit).count) command_bytes=\(command.bytes.count) profile_invalidations=0 all_commits=\(measurements.withLock { $0 })"
+            "NATIVE_TRIP_COST stops=500 checkpoint_rows=\(checkpoint) draft_bytes=\(try JSONEncoder().encode(edit).count) command_bytes=\(command.bytes.count) pending_count_notifications=1 all_commits=\(measurements.withLock { $0 })"
         )
         observation.cancel()
         try await observation.value

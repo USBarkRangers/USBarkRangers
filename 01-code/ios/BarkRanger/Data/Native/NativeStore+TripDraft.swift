@@ -42,7 +42,11 @@ extension NativeStore {
                         bytes: bytes))
             }
             try stageNativeSelection(tripID: draft.id, dayID: draft.activeDayID)
-            try stageCleanDraftRetention(selected: draft.id)
+            // Rebalance on selection changes or a new clean editor copy, not every
+            // keystroke in a protected dirty draft.
+            if selection.tripID != draft.id || (!dirty && current == nil) {
+                try stageCleanDraftRetention(selected: draft.id)
+            }
             try commit()
             var changes: Set<Change> = [.draft(draft.id), .tripEditor]
             if summaryChanged || selection.tripID != draft.id { changes.insert(.tripDrafts) }

@@ -19,7 +19,9 @@ import Testing
         try await eventually { map.draft?.id == fixture.a.id && !map.isOpening }
         map.stop()
         try await fixture.repository.delete(matching: fixture.a)
-        try await eventually { fixture.session.nativeTrips?.library.drafts.contains { $0.id == fixture.a.id } == false }
+        try await eventually {
+            fixture.session.nativeTrips?.library.drafts.contains { $0.id == fixture.a.id } == false
+        }
         map.start()
         try await eventually { map.context == nil && map.visibleRoutes == nil }
         try await eventually { map.routes.tripID == nil && map.activeTrip.tripID == nil }
@@ -48,7 +50,8 @@ extension MapTripLifecycleTests {
         query.search = "Acadia"
         map.setFilters(query)
         let request = StopSearchRequest(
-            scope: "user-a", tripID: fixture.a.id, destination: .day(try #require(day.draft?.activeDayID)))
+            scope: try #require(fixture.session.tripScope), tripID: fixture.a.id,
+            destination: .day(try #require(day.draft?.activeDayID)))
         map.beginAdding(request) {}
         try await eventually { map.searchFocusRequest != nil }
         #expect(map.consumeSearchFocusRequest())

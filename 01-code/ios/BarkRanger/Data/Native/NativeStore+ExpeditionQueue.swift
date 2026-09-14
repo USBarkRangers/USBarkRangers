@@ -87,9 +87,6 @@ extension NativeStore {
             throw error
         }
     }
-    func deferExpeditionSubmission(_ id: UUID, until date: Date) throws {
-        try deferSubmission(id, until: date)
-    }
     static let expeditionRejectionCodes: Set<String> = [
         "invalid", "operation-reused", "unsupported-contract", "premium-required", "account-deleting",
         "intent-expired", "forbidden", "activity-reused", "overlapping-activity", "incomplete-expedition",

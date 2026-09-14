@@ -6,53 +6,27 @@ import Testing
 
 @MainActor struct ScopedSettingsTests {
     @Test func deviceResetDoesNotKeepAnAppearanceHiddenByAnAccountOverride() async throws {
-        let folder = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let store = try await LocalStore.open(directory: folder, uid: "a")
-        let snapshot = PersonalSnapshot(
-            uid: "a",
-            profile: .init(fields: [
-                "entitlement": .object(["premium": .bool(true), "status": .string("active")]),
-                "settings": .object(["mapStyle": .string("default")]),
-            ]), confirmedAt: Date())
-        try await store.applyServerSnapshot(snapshot, sequence: store.beginRead())
-        await store.close()
-        let auth = SyntheticAuth()
-        let session = AccountSession(
-            auth: auth, cloud: ControlledUserCloud(), directory: folder, capabilities: .editableTest)
+        let f = try await NativeOfflineAccountFixture.make(signIn: false)
+        let session = f.session
         let settings = SettingsRepository(defaults: nil, account: session)
         try await settings.setMapStyle(.satellite)
-        session.setForeground(true)
-        auth.select("a")
-        try await eventually { session.state != nil }
+        f.auth.select("a")
+        try await eventually { session.profileState?.confirmed != nil }
         #expect(settings.value.mapStyle == .standard)
         settings.resetPreferences()
-        try auth.signOut()
+        try f.auth.signOut()
         try await eventually { session.identity == nil }
         #expect(settings.value.mapStyle == .standard)
-        await session.stopAndWait()
+        try await f.close()
     }
+
     @Test(arguments: [true, false])
     func cloudAppearanceNeverLeaksIntoDeviceDefaultsAndOverviewStaysLocal(editable: Bool) async throws {
-        let folder = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let store = try await LocalStore.open(directory: folder, uid: "a")
-        let snapshot = PersonalSnapshot(
-            uid: "a",
-            profile: .init(fields: [
-                "entitlement": .object(["premium": .bool(true), "status": .string("active")]),
-                "settings": .object(["mapStyle": .string("satellite"), "other": .number(7)]),
-            ]), confirmedAt: Date())
-        try await store.applyServerSnapshot(snapshot, sequence: store.beginRead())
-        await store.close()
-        let auth = SyntheticAuth()
-        let session = AccountSession(
-            auth: auth, cloud: ControlledUserCloud(), directory: folder,
+        let f = try await NativeOfflineAccountFixture.make(
+            mapStyle: .satellite,
             capabilities: .init(profileWrites: editable))
+        let session = f.session
         let settings = SettingsRepository(defaults: nil, account: session)
-        session.setForeground(true)
-        auth.select("a")
-        try await eventually { session.state != nil }
         #expect(settings.syncsAppearance == editable)
         #expect(settings.value.mapStyle == (editable ? .satellite : .standard))
         var value = settings.value
@@ -61,16 +35,16 @@ import Testing
         settings.update(value)
         try await settings.setMapStyle(.overview)
         #expect(settings.value.mapStyle == .overview)
-        #expect(session.state?.pending.isEmpty == true)
+        #expect(session.profileState?.totalPendingCount == 0)
         try await settings.setMapStyle(.standard)
         try await eventually { settings.value.mapStyle == .standard }
-        #expect(session.state?.pending.count == (editable ? 1 : 0))
-        #expect(session.state?.visible.profile.settings["other"] == .number(7))
-        try auth.signOut()
+        #expect(session.profileState?.pendingCount == (editable ? 1 : 0))
+        #expect(session.profileState?.visible?.displayName == "Ranger a")
+        try f.auth.signOut()
         try await eventually { session.identity == nil }
         #expect(settings.value.mapStyle == .standard)
         #expect(settings.value.filters.search == "Acadia")
         #expect(!settings.value.clustering)
-        await session.stopAndWait()
+        try await f.close()
     }
 }

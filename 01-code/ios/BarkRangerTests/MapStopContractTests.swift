@@ -9,17 +9,17 @@ import Testing
     @Test func failedMoveAndFailedFirstAddLeaveNoPartialDraftOrExtraDay() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let fail = Mutex(false)
-        let store = try await LocalStore.open(
-            directory: directory, uid: "stop-edit",
+        let store = try await NativeStore.open(
+            directory: directory, project: "demo-bark-native", uid: "stop-edit",
             beforeSave: {
                 if fail.withLock({ $0 }) { throw CocoaError(.fileWriteOutOfSpace) }
             })
         try await store.seedPremium()
-        let repository = TripRepository(store: store)
+        let repository = NativeTripRepository(store: store, cloud: nil)
         let stop = Trip.Stop(name: "Home", coordinate: try #require(Coordinate(latitude: 41, longitude: -81)))
-        let draft = LegacyTripDraft(trip: Trip(days: [.init(id: "day", stops: [stop])]))
+        let draft = TripDraft(trip: Trip(days: [.init(id: "day", stops: [stop])]))
         try await repository.saveDraft(draft)
-        let before = try await store.readSnapshot()
+        let before = try await store.tripLocalLists()
         fail.withLock { $0 = true }
         await #expect(throws: (any Error).self) {
             try await repository.editDay(
@@ -27,7 +27,7 @@ import Testing
                 edit: .moveToNewDay(stop: stop.id, day: .init(id: "new-day"), expectedOrder: [stop.id]))
         }
         await #expect(throws: (any Error).self) { try await repository.addStop(stop, tripID: nil) }
-        #expect(try await store.readSnapshot() == before)
+        #expect(try await store.tripLocalLists() == before)
         await store.close()
         try FileManager.default.removeItem(at: directory)
     }
@@ -39,10 +39,12 @@ import Testing
         day.open(tripID: fixture.a.id)
         try await eventually { !day.isOpening }
         let park = try #require(fixture.context.model.parks.first)
-        day.editor.prepareInsertion(.init(scope: "user-a", tripID: fixture.a.id, destination: .start))
+        day.editor.prepareInsertion(
+            .init(scope: try #require(fixture.session.tripScope), tripID: fixture.a.id, destination: .start))
         day.add(park) {}
         try await eventually { day.draft?.trip.start != nil && !day.isWorking }
-        day.editor.prepareInsertion(.init(scope: "user-a", tripID: fixture.a.id, destination: .end))
+        day.editor.prepareInsertion(
+            .init(scope: try #require(fixture.session.tripScope), tripID: fixture.a.id, destination: .end))
         guard
             case .add(let title, _, let add) = MapStopActions.action(
                 for: .park(park), model: day, openDay: {})

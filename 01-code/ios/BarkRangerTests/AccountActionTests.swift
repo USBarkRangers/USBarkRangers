@@ -16,14 +16,14 @@ import Testing
     func cancelledGoogleCompletionCannotAuthenticateOrClearANewerAction(_ operation: String) async throws {
         let folder = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let auth = SyntheticAuth()
-        let session = AccountSession(auth: auth, cloud: nil, directory: folder, capabilities: .editableTest)
+        let session = AccountSession(auth: auth, directory: folder, capabilities: .editableTest)
         let provider = DelayedGoogleCredential()
         let model = AccountModel(session: session, google: provider)
         let use: CredentialUse =
             operation == "signIn" ? .signIn : operation == "link" ? .link : .reauthenticate
         session.setForeground(true)
         auth.select("a")
-        try await eventually { session.state != nil }
+        try await eventually { session.identity?.uid == "a" }
         model.useGoogle(use)
         let cancelled = try #require(model.action)
         try await eventually { provider.waiting == 1 }
@@ -40,13 +40,16 @@ import Testing
         #expect(auth.credentialUses == [use])
         #expect(!model.busy)
         await session.stopAndWait()
-        try FileManager.default.removeItem(at: folder)
+        // Authentication-only tests need not create a personal-data directory.
+        if FileManager.default.fileExists(atPath: folder.path) {
+            try FileManager.default.removeItem(at: folder)
+        }
     }
 
     @Test func authenticationCapabilityDoesNotEnableProfileOrBillingWrites() async throws {
         let auth = SyntheticAuth()
         let session = AccountSession(
-            auth: auth, cloud: nil, directory: .temporaryDirectory,
+            auth: auth, directory: .temporaryDirectory,
             capabilities: .init(authenticationChanges: true))
         let model = AccountModel(session: session)
         model.resetPassword("synthetic@example.test")
@@ -59,7 +62,7 @@ import Testing
         #expect(!management.authenticationChanges && !management.profileWrites)
         let profileOnly = AccountModel(
             session: AccountSession(
-                auth: auth, cloud: nil,
+                auth: auth,
                 directory: .temporaryDirectory, capabilities: .init(profileWrites: true)))
         profileOnly.resetPassword("synthetic@example.test")
         #expect(profileOnly.action == nil && auth.passwordResets == 1)

@@ -25,7 +25,6 @@ struct AppComposition {
                 // Even malformed test configuration stays isolated; it never falls through to live.
                 return AppSandbox(scope: UUID(uuidString: scope) ?? UUID()).makeComposition(
                     manifestURL: environment["BARK_CATALOG_URL"].flatMap(URL.init(string:)),
-                    accountEmulators: environment["BARK_ACCOUNT_EMULATORS"] == "1",
                     emulatorHost: environment["BARK_EMULATOR_HOST"] ?? "127.0.0.1",
                     nativeAccounts: environment["BARK_NATIVE_ACCOUNT_EMULATORS"] == "1")
             }
@@ -44,7 +43,8 @@ struct AppComposition {
                 guard let scope = UUID(uuidString: "7A21F490-FBA4-4C29-A7E0-9B0B7A4A0004") else {
                     return makeLive(accountOverride: .unavailable(directory: directory))
                 }
-                return makeLive(accountOverride: .emulator(directory: directory, scope: scope, host: host))
+                return makeLive(
+                    accountOverride: .nativeEmulator(directory: directory, scope: scope, host: host))
             }
         #endif
         return makeLive()

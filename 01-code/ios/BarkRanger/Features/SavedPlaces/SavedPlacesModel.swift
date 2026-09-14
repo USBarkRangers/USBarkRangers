@@ -3,7 +3,7 @@ import Foundation
 import MapKit
 import Observation
 
-/// Read-only UI projection of SavedPlaceStore and one serialized local action. No trip/account access.
+/// Account-scoped local pin projection and one serialized disk action. No cloud or trip writes.
 /// Future saved-place notes/journal UI should reuse this storage boundary, not add another map draft.
 @MainActor @Observable final class SavedPlacesModel {
     private var visiblePlaces: [String: SavedPlaceIndex.Pin] = [:]

@@ -18,7 +18,8 @@ import Testing
         let before = try #require(model.draft)
         let target = try #require(model.target)
         let store = fixture.repository.store
-        try await store.acceptEntitlement(.init(revision: 2, premium: false, source: .production, validUntilMs: nil))
+        try await store.acceptEntitlement(
+            .init(revision: 2, premium: false, source: .production, validUntilMs: nil))
         try await eventually { !model.canEdit }
         let state = try await store.currentNativeDraft(id: before.id)
         #expect(!model.addStop(.init(park: parks[2])))
@@ -57,7 +58,8 @@ import Testing
         try await eventually { !model.saving }
         let saved = try #require(model.draft)
         let store = fixture.repository.store
-        try await store.acceptEntitlement(.init(revision: 2, premium: false, source: .production, validUntilMs: nil))
+        try await store.acceptEntitlement(
+            .init(revision: 2, premium: false, source: .production, validUntilMs: nil))
         try await eventually { !model.canEdit }
         let before = try await store.currentNativeDraft(id: saved.id)
         model.rename("Blocked")
@@ -91,8 +93,10 @@ import Testing
         // Navigation and opening saved content do not require editing privileges.
         model.selectDay(saved.trip.days[0].id)
         #expect(model.draft?.trip.days[0].notes == "Keep these notes")
-        try await store.acceptEntitlement(.init(revision: 3, premium: true, source: .production,
-            validUntilMs: Int64(Date().addingTimeInterval(3600).timeIntervalSince1970 * 1000)))
+        try await store.acceptEntitlement(
+            .init(
+                revision: 3, premium: true, source: .production,
+                validUntilMs: Int64(Date().addingTimeInterval(3600).timeIntervalSince1970 * 1000)))
         try await eventually { model.canEdit }
         model.rename("Editing restored")
         #expect(await model.awaitCheckpoint())
@@ -106,11 +110,13 @@ import Testing
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let auth = SyntheticAuth()
         let (app, _, _) = try AccountAssembly.nativeProfileEmulator(scope: UUID())
-        let configuration = NativeProfileConfiguration(project: "demo-bark-native", connect: {
-            try AccountAssembly.nativeProfileEmulatorClient(app: app, uid: $0)
-        })
+        let configuration = NativeProfileConfiguration(
+            project: "demo-bark-native",
+            connect: {
+                try AccountAssembly.nativeProfileEmulatorClient(app: app, uid: $0)
+            })
         let session = AccountSession(
-            auth: auth, cloud: nil, directory: directory, capabilities: .editableTest,
+            auth: auth, directory: directory, capabilities: .editableTest,
             nativeProfileConfiguration: configuration)
         session.start()
         try await eventually { session.nativeTrips != nil && session.identity == nil }
@@ -118,7 +124,10 @@ import Testing
         try await session.nativeTrips?.repository.saveDraft(guest)
         try await eventually { session.nativeTrips?.library.drafts.count == 1 }
         auth.select("free-a")
-        try await eventually { session.nativeTrips?.scope.hasSuffix(":free-a") == true && session.nativeTrips?.library.drafts.count == 1 }
+        try await eventually {
+            session.nativeTrips?.scope.hasSuffix(":free-a") == true
+                && session.nativeTrips?.library.drafts.count == 1
+        }
         #expect(try await session.nativeTrips?.repository.currentDraft(id: guest.id)?.trip == guest.trip)
         #expect(
             !session.dataAccess.canEditAccount
@@ -132,7 +141,7 @@ import Testing
         #expect(session.nativeTrips?.library.drafts.isEmpty == true)
         auth.select(nil)
         try await eventually { session.nativeTrips != nil && session.identity == nil }
-        #expect(session.nativeTrips?.library.drafts.isEmpty == true && session.state == nil)
+        #expect(session.nativeTrips?.library.drafts.isEmpty == true)
         auth.select("free-a")
         try await eventually { session.nativeTrips?.scope.hasSuffix(":free-a") == true }
         #expect(session.nativeTrips?.library.drafts.map(\.id) == [guest.id])
@@ -140,24 +149,4 @@ import Testing
         try FileManager.default.removeItem(at: directory)
     }
 
-    @Test func interruptedGuestHandoffIsBoundToOneAccountAndIdempotent() async throws {
-        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let guest = try await LocalStore.open(
-            directory: directory.appendingPathComponent("GuestDrafts"), uid: "guest-drafts", isGuest: true)
-        let draft = LegacyTripDraft(trip: Trip(name: "Interrupted handoff"))
-        try await guest.saveDraft(draft)
-        _ = try await guest.claimGuestDrafts(for: "a")
-        await guest.close()
-        let b = try await LocalStore.open(directory: directory, uid: "b")
-        try await GuestDraftHandoff.adopt(directory: directory, uid: "b", into: b)
-        #expect(try await b.readSnapshot().drafts?.isEmpty != false)
-        let a = try await LocalStore.open(directory: directory, uid: "a")
-        try await GuestDraftHandoff.adopt(directory: directory, uid: "a", into: a)
-        try await GuestDraftHandoff.adopt(directory: directory, uid: "a", into: a)
-        #expect(try await a.readSnapshot().drafts == [draft])
-        #expect(try await a.readSnapshot().pending.isEmpty)
-        await a.close()
-        await b.close()
-        try FileManager.default.removeItem(at: directory)
-    }
 }

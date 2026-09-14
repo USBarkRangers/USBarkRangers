@@ -1,6 +1,42 @@
 import XCTest
 
 nonisolated final class NativeAccountUITests: XCTestCase {
+    @MainActor func testPendingChangesOpensWithOneSyncActionAndNoPerItemNavigation() throws {
+        continueAfterFailure = false
+        guard ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1" else {
+            throw XCTSkip("Requires isolated demo-bark-native emulators.")
+        }
+        let app = XCUIApplication()
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
+        app.launchEnvironment["BARK_NATIVE_ACCOUNT_EMULATORS"] = "1"
+        app.launchEnvironment["BARK_EMULATOR_HOST"] = "127.0.0.1"
+        app.launch()
+        openAccount(app)
+        let email = app.textFields["Email"]
+        XCTAssertTrue(email.waitForExistence(timeout: 10))
+        email.tap()
+        email.typeText("profile-ui@native.invalid")
+        app.secureTextFields["Password"].tap()
+        app.secureTextFields["Password"].typeText("NativeOnly123!")
+        app.keyboards.buttons["Done"].tap()
+        app.buttons["Sign in"].tap()
+        dismissPasswordPrompt(app)
+        XCTAssertTrue(app.textFields["New display name"].waitForExistence(timeout: 15))
+        let pending = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Pending changes'")).firstMatch
+        for _ in 0..<10 where !pending.isHittable { app.swipeUp() }
+        XCTAssertTrue(pending.isHittable)
+        pending.tap()
+        XCTAssertTrue(app.navigationBars["Pending changes"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["No pending changes"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.buttons.matching(identifier: "Sync now").count, 1)
+        XCTAssertFalse(app.buttons["Open"].exists)
+        XCTAssertFalse(app.buttons["Retry"].exists)
+        app.buttons["Sync now"].tap()
+        XCTAssertTrue(app.staticTexts["No pending changes"].exists)
+        attach(app, name: "Native local pending list")
+        app.terminate()
+    }
+
     @MainActor func testTappingFormBackgroundDismissesKeyboardAndInputsCanRefocus() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

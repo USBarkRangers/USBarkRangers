@@ -59,7 +59,8 @@ import Testing
         }
         let shared = ActiveTripSession(account: fixture.session, routes: routes)
         let planner = fixture.model(activeTrip: shared)
-        let map = RouteDaySheetViewModel.testModel(account: fixture.session, routes: routes, activeTrip: shared)
+        let map = RouteDaySheetViewModel.testModel(
+            account: fixture.session, routes: routes, activeTrip: shared)
         shared.start()
         await planner.resumeActive()
         map.stop()  // Leaving Map must not stop an app-owned road worker.
@@ -102,10 +103,12 @@ import Testing
         defer { fixture.context.close() }
         var release: CheckedContinuation<Void, Never>?
         let routes = DayRouteService { _ in throw CancellationError() }
-        let shared = ActiveTripSession(account: fixture.session, routes: routes, checkpointDraft: { repo, draft, expected in
-            await withCheckedContinuation { release = $0 }
-            return try await repo.checkpoint(draft, replacing: expected)
-        })
+        let shared = ActiveTripSession(
+            account: fixture.session, routes: routes,
+            checkpointDraft: { repo, draft, expected in
+                await withCheckedContinuation { release = $0 }
+                return try await repo.checkpoint(draft, replacing: expected)
+            })
         let planner = fixture.model(activeTrip: shared)
         shared.start()
         await planner.resumeActive()
@@ -158,7 +161,6 @@ import Testing
             fixture.session.identity?.uid == "user-b"
                 && fixture.session.nativeTrips?.scope.hasSuffix(":user-b") == true
         }
-        #expect(fixture.session.state == nil)
         release?.resume()
         await #expect(throws: AccountFailure.accountChanged) { try await late.value }
         #expect(shared.draft == nil && !shared.isWorking)
@@ -169,31 +171,31 @@ import Testing
     @Test func clearIsReadOnlySelectionAtomicAndPersisted() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let failing = Mutex(false)
-        let store = try await LocalStore.open(
-            directory: directory, uid: "clear-test",
+        let store = try await NativeStore.open(
+            directory: directory, project: "demo-bark-native", uid: "clear-test",
             beforeSave: {
                 if failing.withLock({ $0 }) { throw CocoaError(.fileWriteOutOfSpace) }
             })
-        let a = LegacyTripDraft(trip: Trip(id: "a"))
+        let a = TripDraft(trip: Trip(id: "a"))
         try await store.seedPremium()
-        try await store.saveDraft(a)
-        let before = try await store.readSnapshot()
+        _ = try await store.checkpointNativeDraft(a, replacing: nil)
+        let before = try await store.tripLocalLists()
         failing.withLock { $0 = true }
-        await #expect(throws: (any Error).self) { try await store.clearActiveTrip(expectedID: a.id) }
-        #expect(try await store.readSnapshot() == before)
+        await #expect(throws: (any Error).self) { try await store.clearNativeTrip(expectedID: a.id) }
+        #expect(try await store.tripLocalLists() == before)
         failing.withLock { $0 = false }
-        var free = before.baseline
-        free.profile.fields["entitlement"] = .object(["premium": .bool(false)])
-        try await store.applyServerSnapshot(free, sequence: store.beginRead())
-        try await store.clearActiveTrip(expectedID: a.id)
-        #expect(try await store.readSnapshot().drafts == [a])
-        #expect(try await store.readSnapshot().pending.isEmpty)
+        try await store.acceptEntitlement(
+            .init(revision: 2, premium: false, source: .production, validUntilMs: nil))
+        try await store.clearNativeTrip(expectedID: a.id)
+        #expect(try await store.currentNativeDraft(id: a.id) == a)
+        #expect(try await store.pendingTripIDs().isEmpty)
         await store.close()
-        let reloaded = try await LocalStore.open(directory: directory, uid: "clear-test")
-        #expect(try await reloaded.restoreActiveDraft() == nil)
-        #expect(try await reloaded.readSnapshot().drafts == [a])
-        _ = try await reloaded.openTripDraft(id: a.id)
-        #expect(try await reloaded.restoreActiveDraft()?.id == a.id)
+        let reloaded = try await NativeStore.open(
+            directory: directory, project: "demo-bark-native", uid: "clear-test")
+        #expect(try await NativeTripRepository(store: reloaded, cloud: nil).restoreActiveDraft() == nil)
+        #expect(try await reloaded.currentNativeDraft(id: a.id) == a)
+        _ = try await reloaded.openNativeDraft(id: a.id)
+        #expect(try await NativeTripRepository(store: reloaded, cloud: nil).restoreActiveDraft()?.id == a.id)
         await reloaded.close()
         try FileManager.default.removeItem(at: directory)
     }

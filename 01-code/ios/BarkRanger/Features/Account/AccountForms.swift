@@ -61,8 +61,6 @@ struct AccountSecurity: View {
     let model: AccountModel
     @State private var email = ""
     @State private var password = ""
-    @State private var confirmation = ""
-    @State private var showDeletion = false
     var body: some View {
         if let identity = model.session.identity {
             Section("Sign-in methods") {
@@ -86,39 +84,6 @@ struct AccountSecurity: View {
             }
             if model.providerButtonsAvailable, model.capabilities.authenticationChanges {
                 AccountProviderButtons(model: model, use: .link)
-            }
-            if model.capabilities.accountManagement {
-                Section {
-                    DisclosureGroup("Delete account", isExpanded: $showDeletion) {
-                        Text(
-                            "This permanently removes this account and its cloud data. Existing Lemon Squeezy cancellation is attempted first. Identity deletion alone does not manage an Apple subscription."
-                        )
-                        Text(
-                            "Confirm your identity again, then type DELETE. Nothing is deleted until you press Delete account permanently."
-                        )
-                        if identity.providers.contains("password") {
-                            SecureField("Current password", text: $password).textContentType(.password)
-                            Button("Confirm identity") { model.reauthenticate(password: password) }
-                        }
-                        if model.providerButtonsAvailable {
-                            if model.capabilities.appleSignIn {
-                                SignInWithAppleButton(.continue, onRequest: model.prepareApple) {
-                                    model.finishApple($0, use: .reauthenticate)
-                                }
-                                .frame(height: 44)
-                            }
-                            if identity.providers.contains("google.com") {
-                                Button("Confirm with Google") { model.useGoogle(.reauthenticate) }
-                            }
-                        }
-                        TextField("Type DELETE", text: $confirmation).autocorrectionDisabled()
-                        Button("Delete account permanently", role: .destructive) {
-                            model.deleteAccount(confirmation: confirmation)
-                        }
-                        .foregroundStyle(Color("DestructiveAction"))
-                        .disabled(confirmation != "DELETE")
-                    }
-                }
             }
         }
     }

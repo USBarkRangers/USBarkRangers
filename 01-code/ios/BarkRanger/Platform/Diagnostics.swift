@@ -58,12 +58,11 @@ nonisolated struct Diagnostics: Sendable {
     static func accountReason(_ error: any Error) -> AccountFailure {
         switch error {
         case is CancellationError: return .cancelled
-        case is DecodingError, is CloudUserDecoder.Failure, is PersonalPayload.Failure: return .decoding
-        case is MutationSubmissionFailure: return .rejected
-        case LocalStore.Failure.wrongAccount, CloudUserClient.Failure.accountChanged: return .accountChanged
-        case CloudUserClient.Failure.changesUnavailable: return .unavailable
-        case LocalStore.Failure.unavailableAccess: return .denied
-        case is LocalStore.Failure: return .storage
+        case is DecodingError, NativeStore.Failure.corrupt: return .decoding
+        case NativeStore.Failure.wrongScope, NativeProfileCloud.Failure.accountChanged: return .accountChanged
+        case NativeStore.Failure.unavailable: return .denied
+        case is NativeStore.Failure: return .storage
+        case is NativeCallableTransport.ServerFailure: return .rejected
         default: break
         }
         let value = error as NSError

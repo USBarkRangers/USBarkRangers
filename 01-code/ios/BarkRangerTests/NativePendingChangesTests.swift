@@ -13,43 +13,56 @@ struct NativePendingChangesTests {
         let store = try await seeded(directory)
         let now = Date()
         for _ in 0..<2 {
-            let walk = try NativeActivitySummary(WalkSummary(source: .gps,
-                startedAt: now.addingTimeInterval(-600), endedAt: now, meters: 500, elapsedSeconds: 600))
-            try await store.stageNativeExpeditionOperation(.init(action: .record(walk), recordedTrailName: "Retained walk"))
+            let walk = try NativeActivitySummary(
+                WalkSummary(
+                    source: .gps,
+                    startedAt: now.addingTimeInterval(-600), endedAt: now, meters: 500, elapsedSeconds: 600))
+            try await store.stageNativeExpeditionOperation(
+                .init(action: .record(walk), recordedTrailName: "Retained walk"))
             let command = try #require(try await store.nextExpeditionSubmission())
             try await store.rejectExpeditionOperation(command.submission.id, code: "premium-required")
         }
         let before = try await store.expeditionQueue()
-        try await store.acceptEntitlement(.init(revision: 2, premium: false, source: .production, validUntilMs: 0))
+        try await store.acceptEntitlement(
+            .init(revision: 2, premium: false, source: .production, validUntilMs: 0))
         try await store.resumeAuthorizedSubmissions()
         #expect(try await store.expeditionQueue().allSatisfy { $0.state == "rejected" })
-        try await store.acceptEntitlement(.init(revision: 3, premium: true, source: .production,
-            validUntilMs: Int64(now.addingTimeInterval(3600).timeIntervalSince1970 * 1000)))
+        try await store.acceptEntitlement(
+            .init(
+                revision: 3, premium: true, source: .production,
+                validUntilMs: Int64(now.addingTimeInterval(3600).timeIntervalSince1970 * 1000)))
         try await store.resumeAuthorizedSubmissions()
         let after = try await store.expeditionQueue()
         #expect(after.map(\.id) == before.map(\.id))
         #expect(after.filter { $0.state == "sealed" }.count == 1)
         let first = try #require(try await store.nextExpeditionSubmission())
         await store.close()
-        let reopened = try await NativeStore.open(directory: directory, project: "demo-bark-native", uid: "pending-owner")
+        let reopened = try await NativeStore.open(
+            directory: directory, project: "demo-bark-native", uid: "pending-owner")
         #expect(try await reopened.nextExpeditionSubmission()?.submission == first.submission)
-        await #expect(throws: (any Error).self) { try await reopened.reviewPendingDiscard(first.submission.id) }
+        await #expect(throws: (any Error).self) {
+            try await reopened.reviewPendingDiscard(first.submission.id)
+        }
         await reopened.close()
     }
     @MainActor @Test func switchingAccountClearsVisiblePinsBeforeTheNextDiskRead() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let auth = SyntheticAuth()
-        let session = AccountSession(auth: auth, cloud: nil, directory: directory.appendingPathComponent("Account"))
+        let session = AccountSession(auth: auth, directory: directory.appendingPathComponent("Account"))
         let root = SavedPlaceStore(directory: directory.appendingPathComponent("Pins"))
-        let stop = Trip.Stop(name: "A private place", coordinate: try #require(Coordinate(latitude: 40, longitude: -80)))
+        let stop = Trip.Stop(
+            name: "A private place", coordinate: try #require(Coordinate(latitude: 40, longitude: -80)))
         let place = try #require(SavedPlace(stop: stop, subtitle: "A only"))
         try await root.scoped(project: "bark-ranger-ios", uid: "A").save(place)
         session.start()
         auth.select("A")
         try await eventually { session.identity?.uid == "A" }
         let model = SavedPlacesModel(store: root, account: session)
-        model.viewport(MKCoordinateRegion(center: .init(latitude: 40, longitude: -80), span: .init(latitudeDelta: 1, longitudeDelta: 1)), including: [])
+        model.viewport(
+            MKCoordinateRegion(
+                center: .init(latitude: 40, longitude: -80), span: .init(latitudeDelta: 1, longitudeDelta: 1)),
+            including: [])
         await model.waitForPending()
         try await eventually { model.places[place.id] != nil }
         auth.select("B")

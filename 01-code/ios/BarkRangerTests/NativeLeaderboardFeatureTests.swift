@@ -20,9 +20,13 @@ import Testing
             #expect(model.personal?.entry.id == model.currentUserID && model.personal?.entry.points == 1)
             #expect((model.personal?.rank ?? 0) > 0)
             let board = try #require(f.session.nativeLeaderboard)
-            await #expect(throws: NativeCallableTransport.Failure.invalidReply) { try await board.standing(uid: "someone-else") }
-            #expect(f.session.state == nil)
+            await #expect(throws: NativeCallableTransport.Failure.invalidReply) {
+                try await board.standing(uid: "someone-else")
+            }
             await f.close()
-        } catch { await f.close(); throw error }
+        } catch {
+            await f.close()
+            throw error
+        }
     }
 }

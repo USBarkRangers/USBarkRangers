@@ -1,5 +1,7 @@
 # Bark Ranger for iPhone
 
+Current native work: **mailroom simplification**, with shared delivery/scheduling, all-feature Pending Changes, account-separated local pins, 40/45-day policies and a larger protected cache. The retired account-wide storage/sync path is deleted. See [checkpoint counts and verification status](../../04-docs/reports/ios-native/MAILROOM_SIMPLIFICATION_2026_09_14.md) and [current ownership](ARCHITECTURE.md). Historical releases below do not describe the current database path. Use `test-ios-accounts.py --native-profile`, `--native-trips` or `--native-adventures` with `demo-bark-native`; no old-backend fixture is needed.
+
 Latest correction: **0.5.15 (74)** preserves the chosen Map day-popup height when tapping another route line and centers the shared stops/time/mileage summary in Map and Planner. Loading and confirmation remain inline without shifting the stop list. Eighteen focused app checks, 51 domain checks, visual review and the signed iPhone build pass. Installed and launched on the connected iPhone 15 Pro Max on September 13; ready for device testing.
 
 Scrolling correction: **0.5.14 (73)** fixes [expanded Map day-popup scrolling](../../04-docs/reports/ios-native/ITINERARY_NORMAL_SCROLL_0_5_14.md), including Acadia clipping/overlap. The shared timeline uses normal scrolling, stable row heights and a small bottom fade. The 11-stop Map test, reorder workflow, focused regressions and signed build pass. Installed and launched on the connected iPhone 15 Pro Max on September 13; ready for physical-device testing.

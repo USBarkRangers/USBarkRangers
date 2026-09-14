@@ -79,10 +79,6 @@ extension NativeStore {
         }
     }
 
-    func deferProfileSubmission(_ id: UUID, until date: Date) throws {
-        try deferSubmission(id, until: date)
-    }
-
     func profileRetryAt() throws -> Date? {
         try requireOpen()
         guard let row = try profileOperations().first,

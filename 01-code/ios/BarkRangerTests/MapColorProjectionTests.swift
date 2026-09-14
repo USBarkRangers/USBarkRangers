@@ -10,7 +10,7 @@ import Testing
         defer { context.close() }
         try await context.start()
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let account = AccountSession(auth: nil, cloud: nil, directory: directory)
+        let account = AccountSession(auth: nil, directory: directory)
         account.start()
         try await eventually { account.nativeTrips != nil }
         let repository = try #require(account.nativeTrips?.repository)

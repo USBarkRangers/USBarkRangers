@@ -57,6 +57,7 @@ import Testing
         let cloud = NativeVisitCloud(transport: transport)
         let firstOutcome = try await cloud.submit(first.submission)
         #expect(firstOutcome.status == .accepted)
+        #expect(firstOutcome.confirmation?.visit?.id == a.id)
         let confirmed = try NativeVisitSelection(
             snapshot: await cloud.visit(id: a.id, officialPlaceID: a.officialPlaceID))
         failSave.withLock { $0 = true }
@@ -74,7 +75,11 @@ import Testing
             beforeSave: { if failSave.withLock({ $0 }) { throw CocoaError(.fileWriteOutOfSpace) } })
         #expect(try await reopened.nextVisitSubmission()?.submission == first.submission)
         let sync = NativeVisitSync(store: reopened, cloud: cloud)
+        _ = await transport.recordedCallKinds(reset: true)
         let result = try await sync.synchronize()
+        let calls = await transport.recordedCallKinds(reset: true)
+        #expect(calls == ["markVisit", "updateVisitDate", "markVisit", "deleteVisits", "visitSelection"])
+        print("NATIVE_VISIT_QUEUE_CALLS=\(calls)")
         #expect(result.pendingCount == 0 && !result.needsDecision && result.retryAt == nil)
         #expect(try await reopened.nativeProgress()?.sites == 0)
         #expect(try await reopened.nativeVisitHistory().isEmpty)

@@ -6,6 +6,52 @@ import Testing
 @testable import BarkRanger
 
 extension NativeTripStoreTests {
+    @Test func compactConfirmationFallsBackForMissingCacheOrConcurrentUntouchedNotes() async throws {
+        let trip = noteTrip()
+        let snapshot = try nativeTripSnapshot(trip, revision: 1)
+        let original = TripDraft(
+            trip: trip,
+            nativeBase: .init(
+                contentRevision: 1,
+                notes: Dictionary(uniqueKeysWithValues: snapshot.notes.map { ($0.id, $0) }),
+                contentFingerprint: try NativeTripBase.fingerprint(trip)))
+        var edited = original
+        edited.trip.days[0].stops[0].notes = "Own writing"
+        let intent = NativeTripIntent.notes(edited)
+        let (oldOutcome, canonical) = try noteAcknowledgment(intent, id: UUID(), metadataRevision: 2)
+        let compact = NativeTripOutcome(
+            operationID: oldOutcome.operationID, status: .accepted,
+            revisions: oldOutcome.revisions, confirmation: canonical.metadata)
+        let reconstructed = try #require(
+            try intent.confirmedSnapshot(
+                compact, cached: original,
+                cachedMetadata: snapshot.metadata))
+        #expect(reconstructed.metadata == canonical.metadata)
+        #expect(reconstructed.content == canonical.content)
+        #expect(Set(reconstructed.notes.map(\.text)) == Set(canonical.notes.map(\.text)))
+        #expect(try intent.confirmedSnapshot(compact, cached: nil, cachedMetadata: snapshot.metadata) == nil)
+        let (_, later) = try noteAcknowledgment(intent, id: UUID(), metadataRevision: 3)
+        let concurrent = NativeTripOutcome(
+            operationID: compact.operationID, status: .accepted,
+            revisions: .init(trip: 1, metadata: 3, notes: compact.revisions.notes),
+            confirmation: later.metadata)
+        #expect(
+            try intent.confirmedSnapshot(concurrent, cached: original, cachedMetadata: snapshot.metadata)
+                == nil)
+        // Full saves can also leave untouched remote writing behind. All note versions must match.
+        var renamed = original
+        renamed.trip.name = "Renamed"
+        let full = NativeTripIntent.save(renamed)
+        let (fullOutcome, fullSnapshot) = try noteAcknowledgment(full, id: UUID(), metadataRevision: 2)
+        var changed = try #require(fullOutcome.revisions.notes)
+        changed[try #require(changed.keys.first)] = 2
+        let remote = NativeTripOutcome(
+            operationID: fullOutcome.operationID, status: .accepted,
+            revisions: .init(trip: 2, metadata: 2, notes: changed), confirmation: fullSnapshot.metadata)
+        #expect(
+            try full.confirmedSnapshot(remote, cached: original, cachedMetadata: snapshot.metadata) == nil)
+    }
+
     @Test func noteBatchSurvivesReopenFailedAcknowledgmentAndDependentFullSaveAndDelete() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

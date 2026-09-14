@@ -56,7 +56,12 @@ function createDeleteVisits({ catalog }) {
             revisions.progress = progress.revision;
             const first = await firstPlaceEvidence(tx, db, uid, progress);
             const awards = evaluateAwards(progress, catalog, { first, nowMs });
-            return { status: 'accepted', revisions, commit(transaction) {
+            const only = context.confirmSingle === true ? entries[0] : null;
+            return { status: 'accepted', revisions,
+                ...(only ? { confirmation: { version: 1, visitID: only.visit.id,
+                    officialPlaceID: only.park.id, siteID: only.park.siteID,
+                    visit: only.visit, placeProgress: only.nextPlace,
+                    progress: { ...progress, updatedAt: stamp }, readTime: stamp } } : {}), commit(transaction) {
                 for (const entry of entries) {
                     transaction.set(entry.visitRef, entry.visit);
                     transaction.set(entry.placeRef, entry.nextPlace);
@@ -67,10 +72,10 @@ function createDeleteVisits({ catalog }) {
             } };
         },
     };
-    const single = { ...bulk, parse: parseDelete, rateGroup: 'visits', rateMaximum: 60,
+    const single = { ...bulk, parse: parseDelete, rateGroup: 'visits', rateMaximum: 60, confirmationNeedsTimestamp: true,
         async prepare(context) {
             const payload = bulk.parse({ visits: [{ ...context.payload, expectedRevision: context.expectedRevision }] });
-            const result = await bulk.prepare({ ...context, payload, expectedRevision: 0 });
+            const result = await bulk.prepare({ ...context, payload, expectedRevision: 0, confirmSingle: true });
             const siteID = catalog.park(context.payload.officialPlaceID).siteID;
             return { ...result, revisions: { visit: result.revisions.visits[context.payload.visitID],
                 placeProgress: result.revisions.places[siteID], progress: result.revisions.progress } };

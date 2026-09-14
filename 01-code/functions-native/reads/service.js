@@ -49,8 +49,9 @@ function createReadService(db) {
             v.identifier(input.query.tripID);
         }
         const user = db.collection('users').doc(uid), rate = user.collection('readLimits').doc(input.kind);
-        // Admit before expensive reads. Per-account limits isolate abuse without a global hot row.
-        await db.runTransaction(async tx => {
+        // Ordinary owner reads have no side effects and no throttle write. Keep
+        // admission on ranking/cache writes and large recovery/selection operations.
+        if (['leaderboard', 'tripRecovery', 'visitSelection', 'activityClaims'].includes(input.kind)) await db.runTransaction(async tx => {
             const [profile, previous] = await tx.getAll(user, rate);
             requireWritableProfile(profile.data(), false); // Active free accounts retain read access.
             tx.set(rate, nextRate(previous.data(), Date.now(), handler.maximum));

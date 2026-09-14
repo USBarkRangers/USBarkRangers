@@ -48,6 +48,7 @@ public struct NativeVisitOutcome: Codable, Equatable, Sendable {
     public let operationID: UUID
     public let status: Status
     public let revisions: Revisions
+    public let confirmation: NativeVisitSnapshot?
     public enum Status: String, Codable, Sendable { case accepted, conflict }
     public struct Revisions: Codable, Equatable, Sendable {
         public let visit: Int64
@@ -59,5 +60,12 @@ public struct NativeVisitOutcome: Codable, Equatable, Sendable {
         try NativeRecordValidation.revision(revisions.visit, allowZero: true)
         try NativeRecordValidation.revision(revisions.placeProgress, allowZero: true)
         try NativeRecordValidation.revision(revisions.progress, allowZero: true)
+        if let confirmation {
+            try confirmation.validate()
+            guard status == .accepted, confirmation.visit?.revision == revisions.visit,
+                confirmation.placeProgress?.revision == revisions.placeProgress,
+                confirmation.progress?.revision == revisions.progress
+            else { throw NativeRecordValidation.Failure.malformed }
+        }
     }
 }

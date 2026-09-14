@@ -122,17 +122,22 @@ try:
     os.fchmod(descriptor, 0o600)
     with os.fdopen(descriptor, "wb") as output:
         plistlib.dump(settings, output)
-    result = pathlib.Path(tempfile.mkdtemp(prefix="BarkAccountChecks-")) / "Acceptance.xcresult"
-    subprocess.run([
+    # CI must retain the native result too, including failures before the shell suite.
+    # Never place credential-bearing live acceptance artifacts in the upload directory.
+    result = pathlib.Path(tempfile.mkdtemp(prefix="BarkAccountChecks-",
+        dir=os.environ.get("RUNNER_TEMP") if not args.native_cloud_fixture else None)) / "Acceptance.xcresult"
+    execution = subprocess.run([
         "xcodebuild", "-xctestrun", str(copy), "-destination", args.destination,
         "-resultBundlePath", str(result),
         "-parallel-testing-enabled", "NO", *[f"-only-testing:{test}" for test in tests],
         "test-without-building", "-quiet",
-    ], check=True)
+    ], check=False)
     summary = json.loads(subprocess.check_output([
         "xcrun", "xcresulttool", "get", "test-results", "summary", "--path", str(result),
     ], text=True))
-    if (summary.get("passedTests", 0) < 1 or summary.get("failedTests", 0) > 0
+    if execution.returncode != 0:
+        print(json.dumps(summary.get("testFailures", []), indent=2), flush=True)
+    if (execution.returncode != 0 or summary.get("passedTests", 0) < 1 or summary.get("failedTests", 0) > 0
             or (args.native_cloud_fixture and summary.get("skippedTests", 0) > 0)):
         raise RuntimeError(f"No passing selected checks, a failure, or skipped cloud acceptance: {result}")
     print(f"Verified {summary['passedTests']} passed checks. Evidence: {result}")

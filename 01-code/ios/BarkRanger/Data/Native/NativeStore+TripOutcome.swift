@@ -3,6 +3,19 @@ import Foundation
 import SwiftData
 
 extension NativeStore {
+    func confirmedTripSnapshot(_ outcome: NativeTripOutcome) throws -> NativeTripSnapshot? {
+        try requireOpen()
+        guard outcome.status == .accepted, outcome.confirmation != nil,
+            let row = try operation(outcome.operationID), row.state == "sealed", row.sealedBytes != nil
+        else { return nil }
+        let intent = try JSONDecoder().decode(NativeTripIntent.self, from: row.intent)
+        guard row.entityKey == "trip:\(intent.tripID)", row.expectedRevision == intent.baseRevision
+        else { throw Failure.corrupt }
+        return try intent.confirmedSnapshot(
+            outcome, cached: cachedTrip(id: intent.tripID),
+            cachedMetadata: tripCacheStamp(intent.tripID)?.metadata)
+    }
+
     func acceptTripOutcome(_ outcome: NativeTripOutcome, snapshot: NativeTripSnapshot) throws {
         try requireOpen()
         try outcome.validate()

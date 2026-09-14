@@ -91,6 +91,8 @@ struct NativeAdventureCostTests {
             let walks = try #require(f.walks.repository.cloud?.transport)
             let profile = try #require(f.session.nativeProfile?.sync)
             let profileReads = await profile.recordedDocumentReadCount()
+            let progressReader = try #require(f.visits.repository.cloud?.progressReader)
+            let progressReads = await progressReader.documentReadCount
             for transport in [trips, visits, walks] { _ = await transport.recordedCallKinds(reset: true) }
             for _ in 0..<3 {
                 f.session.setForeground(false)
@@ -104,13 +106,15 @@ struct NativeAdventureCostTests {
             print("NATIVE_REFRESH_COST three_quiet_returns=\(calls)")
             #expect(calls.isEmpty)
             #expect(await profile.recordedDocumentReadCount() == profileReads)
+            #expect(await progressReader.documentReadCount == progressReads)
 
             // A forced refresh still observes another device; it is not suppressed
             // by the recent successful foreground refresh or by an empty outbox.
             f.session.requestSync(refresh: true)
             await f.session.waitForSync()
             #expect(await trips.recordedCallKinds().contains("tripChanges"))
-            #expect(await visits.recordedCallKinds().contains("progress"))
+            #expect(!((await visits.recordedCallKinds()).contains("progress")))
+            #expect(await progressReader.documentReadCount == progressReads + 1)
             #expect(await walks.recordedCallKinds().contains("expedition"))
             #expect(await profile.recordedDocumentReadCount() > profileReads)
             await f.close()

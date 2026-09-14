@@ -3,6 +3,7 @@ import Foundation
 
 nonisolated struct NativeVisitCloud: Sendable {
     let transport: NativeCallableTransport
+    var progressReader: NativeProgressCloud? = nil
     nonisolated private struct Read<Query: Encodable & Sendable>: Encodable, Sendable {
         let kind: String
         let query: Query
@@ -47,11 +48,16 @@ nonisolated struct NativeVisitCloud: Sendable {
         return value
     }
     func progress() async throws -> NativeProgressSnapshot {
+        if let value = try await progressReader?.current() { return value }
         let value = try await transport.call(
             "nativeRead", input: Read(kind: "progress", query: ["version": 1]),
             as: NativeProgressSnapshot.self)
         try value.validate()
         return value
+    }
+    func close() async {
+        await progressReader?.close()
+        await transport.close()
     }
     /// A current-day presence signal, not authored offline history. The server's day
     /// guard makes it idempotent independently of transport receipt retention.
@@ -63,7 +69,10 @@ nonisolated struct NativeVisitCloud: Sendable {
             let operationID: String
             let createdAtMs: Int64
             let payload: Payload
-            struct Payload: Encodable, Sendable { let day: String; let timeZone: String }
+            struct Payload: Encodable, Sendable {
+                let day: String
+                let timeZone: String
+            }
         }
         struct Outcome: Decodable, Sendable {
             let version: Int
@@ -73,11 +82,14 @@ nonisolated struct NativeVisitCloud: Sendable {
             struct Revisions: Decodable, Sendable { let progress: Int64 }
         }
         let id = UUID().uuidString.lowercased()
-        let outcome = try await transport.call("nativeCommand",
-            input: Command(operationID: id, createdAtMs: NativeClientTime.milliseconds(Date()),
+        let outcome = try await transport.call(
+            "nativeCommand",
+            input: Command(
+                operationID: id, createdAtMs: NativeClientTime.milliseconds(Date()),
                 payload: .init(day: day, timeZone: timeZone)), as: Outcome.self)
         guard outcome.version == 1, outcome.operationID == id, outcome.status == "accepted",
-            outcome.revisions.progress >= 0 else { throw NativeCallableTransport.Failure.invalidReply }
+            outcome.revisions.progress >= 0
+        else { throw NativeCallableTransport.Failure.invalidReply }
         let snapshot = try await progress()
         guard (snapshot.progress?.revision ?? 0) >= outcome.revisions.progress else {
             throw NativeCallableTransport.Failure.invalidReply

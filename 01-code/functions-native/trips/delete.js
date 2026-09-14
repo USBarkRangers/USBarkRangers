@@ -8,7 +8,7 @@ const { noteIDs } = require('./save');
 const { TOMBSTONE_RETENTION_MS, detachedPlanningNote } = require('./retention');
 const deleteTrip = {
     parse(payload) { v.object(payload, ['tripID']); v.identifier(payload.tripID); return payload; },
-    requiresPremium: true, rateGroup: 'trip', rateMaximum: 30,
+    requiresPremium: true, rateGroup: 'trip', rateMaximum: 30, confirmationNeedsTimestamp: true,
     async prepare({ tx, user, payload, expectedRevision, stamp, nowMs }) {
         const ref = user.collection('trips').doc(payload.tripID);
         const contentRef = ref.collection('content').doc('itinerary');
@@ -19,12 +19,13 @@ const deleteTrip = {
             return { status: 'conflict', revisions: { trip: current } };
         }
         const next = nextRevision(current), metadataRevision = nextRevision(revision(trip));
-        return { status: 'accepted', revisions: { trip: next, metadata: metadataRevision }, commit(transaction) {
+        const confirmedMetadata = { id: payload.tripID, schemaVersion: 1, revision: metadataRevision, contentRevision: next,
+            deleted: true, createdAt: trip.createdAt, updatedAt: stamp,
+            expiresAt: Timestamp.fromMillis(nowMs + TOMBSTONE_RETENTION_MS) };
+        return { status: 'accepted', revisions: { trip: next, metadata: metadataRevision }, confirmation: confirmedMetadata, commit(transaction) {
             // Keep a bounded tombstone for incremental clients; never infer deletion from
             // leaving a ten-row library window. Retention exceeds the intent acceptance window.
-            transaction.set(ref, { id: payload.tripID, schemaVersion: 1, revision: metadataRevision, contentRevision: next,
-                deleted: true, createdAt: trip.createdAt, updatedAt: stamp,
-                expiresAt: Timestamp.fromMillis(nowMs + TOMBSTONE_RETENTION_MS) });
+            transaction.set(ref, confirmedMetadata);
             transaction.delete(contentRef);
             for (const id of noteIDs(contentSnapshot.data())) transaction.update(user.collection('notes').doc(id),
                 detachedPlanningNote(stamp, nowMs));

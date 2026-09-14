@@ -25,7 +25,7 @@ function parse(payload) {
 // A first note, day notes or changed itinerary references still use saveTrip. Only
 // that handler establishes links; clients cannot forge linkedToTrip or note ownership.
 const saveTripNotes = {
-    parse, requiresPremium: true, rateGroup: 'trip', rateMaximum: 30,
+    parse, requiresPremium: true, rateGroup: 'trip', rateMaximum: 30, confirmationNeedsTimestamp: true,
     async prepare({ tx, user, payload, expectedRevision, stamp }) {
         const tripRef = user.collection('trips').doc(payload.tripID);
         const noteRefs = payload.notes.map(note => user.collection('notes').doc(note.id));
@@ -49,6 +49,7 @@ const saveTripNotes = {
         const metadataRevision = nextRevision(revision(trip));
         const nextNotes = Object.fromEntries(payload.notes.map(edit => [edit.id, nextRevision(edit.expectedRevision)]));
         return { status: 'accepted', revisions: { trip: tripRevision, metadata: metadataRevision, notes: nextNotes },
+            confirmation: { ...trip, contentBytes, revision: metadataRevision, updatedAt: stamp },
             commit(transaction) {
                 for (const [i, edit] of payload.notes.entries()) {
                     transaction.update(noteRefs[i], { text: edit.text, revision: nextNotes[edit.id], updatedAt: stamp });

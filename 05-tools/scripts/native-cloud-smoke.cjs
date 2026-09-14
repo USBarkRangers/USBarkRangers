@@ -105,10 +105,14 @@ async function main() {
         notes: [{ id: noteID, expectedRevision: 0, text: 'Saved on the real backend 🐕' }] };
     const saved = await send('nativeCommand', command('saveTrip', 0, trip));
     assert.equal(saved.body.result?.status, 'accepted', JSON.stringify(saved));
+    assert.equal(saved.body.result.confirmation?.contentRevision, 1);
+    assert.ok(saved.body.result.confirmation.updatedAt.nanoseconds >= 0);
+    assert.ok(!JSON.stringify(saved.body.result).includes('Saved on the real backend'));
     const noteCommand = command('saveTripNotes', 1, { tripID,
         notes: [{ id: noteID, stopID, expectedRevision: 1, text: 'Note-only cloud acceptance' }] });
     const note = await send('nativeCommand', noteCommand);
     assert.equal(note.body.result?.status, 'accepted', JSON.stringify(note));
+    assert.equal(note.body.result.confirmation?.revision, 2);
     assert.deepEqual((await send('nativeCommand', noteCommand)).body, note.body, 'Receipt retry is exact');
     const pinRemoved = await send('nativeCommand', command('setSavedPin', 0, { ...bookmark, saved: false }));
     assert.equal(pinRemoved.body.result?.confirmation?.saved, false, JSON.stringify(pinRemoved));
@@ -117,10 +121,23 @@ async function main() {
     assert.equal(changedPins.body.result?.items?.[0]?.saved, false, 'Old replay cannot resurrect a removed bookmark');
     const detail = await send('nativeRead', { kind: 'trip', query: { version: 1, tripID } });
     assert.equal(detail.body.result?.notes[0]?.text, 'Note-only cloud acceptance', JSON.stringify(detail));
+    assert.deepEqual(detail.body.result.metadata, note.body.result.confirmation);
+    const park = require('../../01-code/functions-native/catalog/catalog.json').parks.find(p => !p.isRetired);
+    const visitCommand = command('markVisit', 0, { visitID: randomUUID(), officialPlaceID: park.id,
+        expectedPlaceRevision: 0, happenedAtMs: Date.now(), timeZone: 'UTC' });
+    const visit = await send('nativeCommand', visitCommand);
+    assert.equal(visit.body.result?.confirmation?.visit?.id, visitCommand.payload.visitID, JSON.stringify(visit));
+    assert.deepEqual((await send('nativeCommand', visitCommand)).body, visit.body);
+    const progress = await fetch(`${documents}/users/${uid}/state/progress`, { headers });
+    assert.equal(progress.status, 200, 'Owner summary read bypasses functions');
+    assert.equal((await progress.json()).fields.sites.integerValue, '1');
+    assert.equal((await fetch(`${documents}/users/${uid}/state/progress`, { method: 'PATCH', headers,
+        body: JSON.stringify({ fields: { sites: { integerValue: '999' } } }) })).status, 403);
     console.log(JSON.stringify({ cloudAcceptance: 'passed', uid, tripID, expiresAt: expiry.toISOString(),
         verified: ['real sign-up', 'App Check required', 'authentication required', 'free write denied',
             'direct entitlement write denied', '44-day acceptance / 46-day rejection',
             'profile overwrites preserve unrelated fields', 'free saved-pin sync / confirmation / removal / old replay',
+            'compact trip/note/visit confirmation', 'direct owner progress read / forged points denied',
             'trip and note save', 'exact replay', 'server persistence after bookmark removal'],
         privateFixture: '06-config/native-ios/cloud-acceptance.local.json' }));
 }

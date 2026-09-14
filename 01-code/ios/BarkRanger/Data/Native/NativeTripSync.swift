@@ -33,8 +33,12 @@ actor NativeTripSync {
         guard let command = try await store.nextTripSubmission(id: id) else { return nil }
         return .init(command: command) { [cloud, store] in
             let outcome = try await cloud.submit(command)
-            // Untouched notes may have changed elsewhere. Confirm canonical content.
-            let confirmed = try await cloud.trip(id)
+            let confirmed: NativeTripSnapshot
+            if let local = try await store.confirmedTripSnapshot(outcome) {
+                confirmed = local
+            } else {
+                confirmed = try await cloud.trip(id)
+            }
             try Task.checkCancellation()
             try await store.acceptTripOutcome(outcome, snapshot: confirmed)
         }

@@ -1,7 +1,7 @@
 import BarkDomain
 import FirebaseAuth
 import FirebaseCore
-import FirebaseFirestore
+@preconcurrency import FirebaseFirestore
 import Foundation
 import Testing
 
@@ -104,6 +104,14 @@ import Testing
         #expect(try await store.nativeVisit(id: visitID)?.deleted == true)
         #expect(try await store.nativeProgress()?.points == 0)
         try await stage("refresh final progress") { try await store.acceptNativeProgress(cloud.progress()) }
+        let direct = try NativeProgressCloud(uid: user.uid, auth: auth, db: db)
+        let directCloud = NativeVisitCloud(transport: transport, progressReader: direct)
+        _ = await transport.recordedCallKinds(reset: true)
+        let summary = try await directCloud.progress()
+        #expect(summary.progress == deleted.progress)
+        #expect(summary.readTime == deleted.progress?.updatedAt)
+        #expect(await direct.documentReadCount == 1)
+        #expect(await transport.recordedCallKinds(reset: true).isEmpty)
         let finalQuery = try await store.markerChangesQuery()
         await store.close()
         let reopened = try await stage("reopen visit store") {
@@ -113,6 +121,8 @@ import Testing
         #expect(try await reopened.markerChangesQuery() == finalQuery)
         #expect(try await reopened.nativeVisit(id: visitID)?.deleted == true)
         try auth.signOut()
+        await #expect(throws: NativeProfileCloud.Failure.accountChanged) { try await directCloud.progress() }
+        await direct.close()
         await #expect(throws: NativeCallableTransport.Failure.accountChanged) { try await cloud.progress() }
         await transport.close()
         await sync.stop()

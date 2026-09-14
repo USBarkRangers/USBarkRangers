@@ -104,7 +104,9 @@ import Foundation
                     try NativeTripCloud(transport: NativeCallableTransport(uid: $0, auth: auth))
                 },
                 connectVisits: {
-                    try NativeVisitCloud(transport: NativeCallableTransport(uid: $0, auth: auth))
+                    try NativeVisitCloud(
+                        transport: NativeCallableTransport(uid: $0, auth: auth),
+                        progressReader: NativeProgressCloud(uid: $0, auth: auth, db: db))
                 },
                 connectExpeditions: {
                     try NativeExpeditionCloud(transport: NativeCallableTransport(uid: $0, auth: auth))

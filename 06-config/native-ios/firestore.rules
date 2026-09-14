@@ -10,6 +10,7 @@ service cloud.firestore {
     match /users/{uid} {
       allow get: if owns(uid);
       match /state/entitlement { allow get: if owns(uid); }
+      match /state/progress { allow get: if owns(uid); }
     }
     // Trips, visits, walks and standings use authenticated, bounded nativeRead calls,
     // not a recursive owner rule. Rank caches, purchase mappings and receipts stay private.

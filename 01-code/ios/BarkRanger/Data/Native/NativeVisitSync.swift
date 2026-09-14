@@ -32,8 +32,18 @@ actor NativeVisitSync {
             } else {
                 let outcome = try await cloud.submit(pending.submission)
                 guard let reference = references.first else { throw NativeStore.Failure.corrupt }
-                let snapshot = try await cloud.visit(
-                    id: reference.visitID, officialPlaceID: reference.officialPlaceID)
+                let snapshot: NativeVisitSnapshot
+                if let confirmed = outcome.confirmation {
+                    guard confirmed.visitID == reference.visitID,
+                        confirmed.officialPlaceID == reference.officialPlaceID
+                    else {
+                        throw NativeCallableTransport.Failure.invalidReply
+                    }
+                    snapshot = confirmed
+                } else {
+                    snapshot = try await cloud.visit(
+                        id: reference.visitID, officialPlaceID: reference.officialPlaceID)
+                }
                 let selected = try NativeVisitSelection(snapshot: snapshot)
                 try Task.checkCancellation()
                 try await store.acceptNativeVisitOutcome(outcome, selection: selected)
@@ -61,6 +71,6 @@ actor NativeVisitSync {
     func resume() async throws { try await jobs.resume() }
     func stop() async {
         await jobs.close()
-        await cloud.transport.close()
+        await cloud.close()
     }
 }

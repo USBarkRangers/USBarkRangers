@@ -45,6 +45,13 @@ test('actual callable auth and Firestore rules isolate native profiles end to en
     const entitlement = await fetch(`${documents}/users/${a.uid}/state/entitlement`, { headers: a.headers });
     assert.equal(entitlement.status, 200);
     assert.equal((await entitlement.json()).fields.premium.booleanValue, false);
+    const progressPath = `${documents}/users/${a.uid}/state/progress`;
+    assert.equal((await fetch(progressPath, { headers: a.headers })).status, 404); // Permitted missing owner document.
+    assert.equal((await fetch(progressPath, { headers: b.headers })).status, 403);
+    assert.equal((await fetch(progressPath)).status, 403);
+    assert.equal((await fetch(`${documents}/users/${a.uid}/state`, { headers: a.headers })).status, 403);
+    assert.equal((await fetch(progressPath, { method: 'PATCH', headers: a.headers,
+        body: JSON.stringify({ fields: { sites: { integerValue: '999' } } }) })).status, 403);
     assert.equal((await fetch(`${documents}/users/${a.uid}`, { headers: b.headers })).status, 403);
     assert.equal((await fetch(`${documents}/users/${a.uid}`)).status, 403);
     assert.equal((await fetch(`${documents}/users`, { headers: a.headers })).status, 403);

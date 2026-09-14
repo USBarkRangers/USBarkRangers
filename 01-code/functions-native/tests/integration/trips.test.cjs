@@ -15,6 +15,7 @@ const { planningNoteID } = require('../../trips/identity');
 const { storageID } = require('../../shared/placeIdentity');
 const { createTripRecoveryReader } = require('../../reads/tripRecovery');
 const { createReadService } = require('../../reads/service');
+const { meter } = require('../support/meter.cjs');
 
 assert.equal(process.env.GCLOUD_PROJECT, 'demo-bark-native');
 assert.equal(process.env.FIRESTORE_EMULATOR_HOST, '127.0.0.1:8188');
@@ -26,13 +27,7 @@ const handlers = { bootstrapAccount, saveTrip: createSaveTrip({ catalog: { canon
 
 async function fixture() {
     const uid = `trip-${randomUUID()}`, reads = [], writes = [];
-    const tracked = { collection: path => db.collection(path), runTransaction: (work, options) => db.runTransaction(tx => work({
-        get(ref) { reads.push(ref.path); return tx.get(ref); },
-        getAll(...refs) { reads.push(...refs.map(ref => ref.path)); return tx.getAll(...refs); },
-        ...Object.fromEntries(['set', 'create', 'update', 'delete'].map(method => [method, (ref, ...args) => {
-            writes.push(ref.path); return tx[method](ref, ...args);
-        }])),
-    }), options) };
+    const tracked = meter(db, event => (event.type === 'read' ? reads : writes).push(event.path)).db;
     const execute = createExecutor({ db: tracked, handlers });
     const command = (kind, payload, expectedRevision = 0) => ({ version: 1, operationID: randomUUID(),
         createdAtMs: Date.now(), kind, payload, expectedRevision });
@@ -156,7 +151,7 @@ test('maximum 500-stop creation and bulk note update fit the logical budget with
     assert.equal(accepted.status, 'accepted');
     assert.equal(Object.keys(accepted.revisions.notes).length, 500);
     assert.equal(accepted.revisions.trip, 2);
-    assert.equal(f.reads.length, 505); assert.equal(f.writes.length, 503);
+    assert.equal(f.reads.length, 505); assert.equal(f.writes.length, 502);
 });
 
 test('reproduction: full-save path reads the entire 500-stop reference set for one existing note edit', async () => {
@@ -165,20 +160,20 @@ test('reproduction: full-save path reads the entire 500-stop reference set for o
     f.reads.length = 0; f.writes.length = 0;
     await f.readTrip(a.tripID);
     const preflightReads = f.reads.length, preflightWrites = f.writes.length;
-    assert.equal(preflightReads, 504); assert.equal(preflightWrites, 1);
+    assert.equal(preflightReads, 502); assert.equal(preflightWrites, 0);
     f.reads.length = 0; f.writes.length = 0;
     const outcome = await f.send('saveTrip', { ...a,
         notes: [{ ...a.notes[0], expectedRevision: 1, text: 'One changed note' }] }, 1);
     const itinerary = f.user.collection('trips').doc(a.tripID).collection('content').doc('itinerary');
     assert.equal(outcome.status, 'accepted');
     assert.equal(outcome.revisions.trip, 2);
-    assert.equal(f.reads.length, 1006);
+    assert.equal(f.reads.length, 1007); // Includes resolving the receipt's server timestamps.
     assert.equal(f.writes.length, 5);
     assert.ok(f.reads.includes(itinerary.path) && f.writes.includes(itinerary.path));
     console.log(`FULL_SAVE_ONE_NOTE_500_STOPS reads=${f.reads.length} writes=${f.writes.length}`);
     await f.readTrip(a.tripID);
-    assert.equal(preflightReads + f.reads.length, 2014);
-    assert.equal(preflightWrites + f.writes.length, 7);
+    assert.equal(preflightReads + f.reads.length, 2011);
+    assert.equal(preflightWrites + f.writes.length, 5);
     console.log(`OLD_SAVE_PLUS_TWO_DETAILS reads=${preflightReads + f.reads.length} writes=${preflightWrites + f.writes.length}`);
     const before = (await itinerary.get()).data();
     f.reads.length = 0; f.writes.length = 0;
@@ -190,13 +185,13 @@ test('reproduction: full-save path reads the entire 500-stop reference set for o
     assert.equal(result.revisions.metadata, 3);
     assert.equal(result.revisions.notes[a.notes[0].id], 3);
     assert.equal(f.reads.length, 6);
-    assert.equal(f.writes.length, 4);
+    assert.equal(f.writes.length, 3);
     assert.ok(![...f.reads, ...f.writes].some(path => path.includes('/places/') || path.includes('/content/')));
     assert.deepEqual((await itinerary.get()).data(), before);
     console.log(`NOTE_SAVE_ONE_NOTE_500_STOPS reads=${f.reads.length} writes=${f.writes.length}`);
     await f.readTrip(a.tripID);
-    assert.equal(f.reads.length, 510); assert.equal(f.writes.length, 5);
-    console.log(`NEW_SAVE_PLUS_ONE_DETAIL reads=${f.reads.length} writes=${f.writes.length}`);
+    assert.equal(f.reads.length, 508); assert.equal(f.writes.length, 3);
+    console.log(`NOTE_SAVE_WITH_OPTIONAL_DETAIL reads=${f.reads.length} writes=${f.writes.length}`);
     f.reads.length = 0; f.writes.length = 0;
     assert.deepEqual(await f.execute(command), result);
     assert.equal(f.reads.length, 1);
@@ -214,7 +209,7 @@ test('multi-note Save is all-or-nothing, retains untouched remote notes and exac
     f.reads.length = 0; f.writes.length = 0;
     const accepted = await f.send('saveTripNotes', payload, 1);
     assert.equal(accepted.status, 'accepted');
-    assert.equal(f.reads.length, 7); assert.equal(f.writes.length, 5);
+    assert.equal(f.reads.length, 7); assert.equal(f.writes.length, 4);
     assert.equal(accepted.revisions.trip, 1); assert.equal(accepted.revisions.metadata, 3);
     const size = text => Buffer.byteLength(JSON.stringify(text));
     assert.equal((await tripRef.get()).get('contentBytes'), before - 3 * size('Planning note')

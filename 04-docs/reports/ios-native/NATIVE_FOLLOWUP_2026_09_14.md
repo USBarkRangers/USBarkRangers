@@ -37,8 +37,33 @@ Unrelated pre-existing working-tree changes are excluded from every commit.
 - Cloud deployment is native-only. The new place index reached **READY**. First acceptance encountered the still-building index, not a successful query; that disposable account was deleted. A fresh real-cloud run then passed free save/confirmation/change-page/removal/replay, shared place identity with a trip, and preserved trip notes. Its disposable account/debug registration were also removed through the verified deletion lifecycle. Owner data was not deleted.
 - Runtime size: iOS **25,941 → 26,722 lines (+781), 298 → 305 files**; backend **2,334 → 2,394 lines (+60), 52 → 53 files**. This adds synchronization, local transactional/index projection and UI integration; it is not a code-reduction claim. No journal/media UI or old-web work was added.
 
+## 4 — Avoidable save/read work
+
+- Trip saves now return compact canonical metadata and note revisions. The iOS client reconstructs its exact accepted content only when all required versions match. Missing preimages, metadata gaps and untouched remote note edits use the existing coherent read. Receipts never duplicate itinerary/note text. One post-commit receipt read resolves real server timestamps; an exact retry is still **1 read / 0 writes**, with the original confirmation, even after later edits. No device-clock timestamp is used as proof.
+- Single visit/date/removal commands return the server-calculated visit, place marker and progress. Bulk removals keep a bounded selection read rather than copying hundreds of activities into a receipt. No points calculation moved to the client. The four-visit badge avoids its two neighbor queries when fewer than four current sites exist; backdated/equal-time/fourth-visit verification remains.
+- Ordinary bounded edits omit throttle rows; new/expensive command kinds remain throttled by default. Free commands do not read an unused entitlement document. Paid commands retain current profile/entitlement validation. All receipts remain; no custom-claims migration or create-by-ID rewrite.
+- Ordinary owner reads no longer write admission rows. Ranking/cache mutation and larger recovery/selection reads retain admission. Authenticated owners can read their remaining records during deletion, like direct owner rules; new writes remain blocked by the deleting profile, and the worker removes Auth and those records.
+- Progress uses a direct, exact, server-source owner read with pre/post account checks and nanosecond-preserving decoding. Rules permit only that document's `get`, never listing or writes. A missing summary falls back for a genuine server absence timestamp. Trip details remain **one** coherent backend transaction: the iOS SDK lacks a batch-get API for hundreds of independent notes and exposes no read timestamp. This checkpoint does **not** claim zero functions for an uncached trip, or add an unmeasured multi-request client read algorithm.
+
+Actual handler document operations below use the **same isolated fixture**: ten custom places, ten existing planning notes and one first unverified catalog visit. Empty queries count as one read. Counts include receipts, profile, entitlement and admission, but exclude transaction retries, network overhead, TTL deletes and index billing. The meter instruments transaction and non-transaction document reads, not just requested references.
+
+| Action | Before R / W / function calls | After R / W / function calls |
+| --- | ---: | ---: |
+| New ten-note trip | 40 / 25 / 2 | 27 / 24 / 1 |
+| Rename ten-note trip | 40 / 5 / 2 | 27 / 4 / 1 |
+| One existing note edit | 20 / 5 / 2 | 6 / 3 / 1 |
+| Uncached ten-note trip open | 14 / 1 / 1 | 12 / 0 / 1 |
+| First unverified visit | 15 / 8 / 2 | 8 / 6 / 1 |
+| First daily Passport activity + progress | 8 / 4 / 2 | 5 / 2 / 1 |
+| Free saved pin | 5 / 3 / 1 | 3 / 2 / 1 |
+
+- First visit includes two receipt reads, profile, entitlement, visit, site marker, progress and one empty-leader query. More rivals/new awards change bounded evidence and write counts. One-note edit includes two receipt reads, profile, entitlement, trip metadata and the changed note. Earlier aspirational **6-read visit / 4-read note** targets are not met; current access checks and reliable server-stamped confirmation are retained explicitly. A cached open/map pin inspection remains zero cloud work. The first Passport row is not every Passport tap.
+- Focused real-SDK simulator verification: **29 passed, zero failures/skips**, including exact replay after lost local acknowledgment, single-command note saves, no follow-up visit reads, retained conflicting note text and direct progress equality. Evidence: `BarkAccountChecks-n6duk1vn/Acceptance.xcresult`. Domain **48 passed**; backend **98 passed**; project/CI guards **7 passed**. Full native acceptance: **184 passed / 1 failed / zero skipped** (`BarkAccountChecks-8wjjocha/Acceptance.xcresult`). The sole failed cost assertion expected a progress function call; it now counts direct reads as well, proving quiet foreground returns perform none and a forced refresh performs exactly one. The corrected cost, trip-store and real-SDK groups then **20 passed / zero failures/skips** (`BarkAccountChecks-zqk_4usj/Acceptance.xcresult`). This is not presented as a single fully-green rerun of all 185 checks.
+- Native cloud deployment and disposable QA passed compact trip/note/visit confirmations, exact retry, direct progress read, forged-points denial and full deletion cleanup. Its Auth account/debug registration/private fixture were removed. Existing production/web remain untouched.
+- CI finding: checkpoint 2's GitHub native run failed two asynchronous feature checks before reaching the shell suite; no native result artifact had been retained. Local focused checks pass, but that does not make the historical CI green. The runner now reports failure details and CI retains native `.xcresult` evidence on failure. No test is disabled and live QA credentials are excluded from that upload location.
+- Runtime size: iOS **26,722 → 26,907 lines (+185), 305 → 307 files**; backend **2,394 → 2,423 lines (+29), 53 files unchanged**. This buys measured network savings and canonical confirmation, not code-size reduction.
+
 ## Remaining ordered work
 
-4. Reduce avoidable save/read work; measure identical actions before/after.
 5. Remove repeated queue-wide trip validation from the hot path.
 6. Leaderboard measurement at 1K/10K/100K; measurement only, no speculative rewrite.

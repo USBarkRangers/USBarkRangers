@@ -5,7 +5,7 @@ const { revision, nextRevision, noteBytes } = require('./records');
 const { invalid } = require('../shared/errors');
 
 const editNote = {
-    parse: validation.editNote, requiresPremium: true, rateGroup: 'note', rateMaximum: 60,
+    parse: validation.editNote, requiresPremium: true, rateGroup: 'note', rateMaximum: 60, confirmationNeedsTimestamp: true,
     async prepare({ tx, user, payload, expectedRevision, stamp }) {
         const noteRef = user.collection('notes').doc(payload.noteID);
         const tripRef = user.collection('trips').doc(payload.tripID);
@@ -23,7 +23,8 @@ const editNote = {
         if (!Number.isSafeInteger(contentBytes) || contentBytes < 0 || contentBytes > 350_000) invalid('Trip content exceeds the supported size.');
         const next = nextRevision(current);
         return { status: 'accepted', revisions: { trip: tripRevision, metadata: nextRevision(metadataRevision),
-            notes: { [payload.noteID]: next } }, commit(transaction) {
+            notes: { [payload.noteID]: next } },
+            confirmation: { ...trip, contentBytes, revision: nextRevision(metadataRevision), updatedAt: stamp }, commit(transaction) {
             transaction.update(noteRef, { text: payload.text, revision: next, updatedAt: stamp });
             // Do not touch itinerary/revision or route geometry for an independent note edit.
             transaction.update(tripRef, { contentBytes, revision: nextRevision(metadataRevision), updatedAt: stamp });

@@ -69,16 +69,21 @@ test('incremental scan fixes server upper bound, retains equal-time rows and rec
     assert.equal(expired.needsBootstrap, true); assert.deepEqual(expired.items, []);
 });
 
-test('read admission is owner-scoped, bounded and available without Premium; deletion status denies reads', async () => {
+test('ordinary owner reads have no throttle writes; expensive reads still require an active account', async () => {
     const f = await fixture(1), other = await fixture(2), read = createReadService(db);
     const result = await read(f.uid, { kind: 'library', query: { version: 1 } });
     assert.equal(result.items.length, 1);
     await assert.rejects(read(f.uid, { kind: 'library', query: { version: 1, uid: other.uid } }), error => error.code === 'invalid');
     const rate = f.user.collection('readLimits').doc('library');
     await rate.set({ windowStartMs: Math.floor(Date.now() / 60_000) * 60_000, count: 60 });
-    await assert.rejects(read(f.uid, { kind: 'library', query: { version: 1 } }), error => error.code === 'rate-limited');
+    const before = (await rate.get()).data();
+    assert.equal((await read(f.uid, { kind: 'library', query: { version: 1 } })).items.length, 1);
+    assert.deepEqual((await rate.get()).data(), before);
     await f.user.update({ status: 'deleting' });
-    await assert.rejects(read(f.uid, { kind: 'trip', query: { version: 1, tripID: 'trip-0000' } }), error => error.code === 'account-deleting');
+    await assert.rejects(read(f.uid, { kind: 'tripRecovery', query: { version: 1, tripID: 'trip-0000', stopIDs: [] } }), error => error.code === 'account-deleting');
+    // Like direct owner reads, a still-valid token may read its remaining data
+    // during deletion. It cannot write it or address another account's path.
+    assert.equal((await read(f.uid, { kind: 'library', query: { version: 1 } })).items.length, 1);
     const absent = await createTripReader(db)(other.uid, { version: 1, tripID: 'does-not-exist' });
     assert.equal(absent.metadata, null); assert.equal(absent.content, null); assert.deepEqual(absent.notes, []);
     assert.ok(timestamp(absent.readTime) instanceof Timestamp);

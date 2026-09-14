@@ -13,7 +13,7 @@ function noteIDs(content) {
 }
 
 function createSaveTrip({ catalog }) {
-    return { parse: validation.saveTrip, requiresPremium: true, rateGroup: 'trip', rateMaximum: 30,
+    return { parse: validation.saveTrip, requiresPremium: true, rateGroup: 'trip', rateMaximum: 30, confirmationNeedsTimestamp: true,
         async prepare({ tx, user, payload, expectedRevision, stamp, nowMs }) {
             const tripRef = user.collection('trips').doc(payload.tripID);
             const contentRef = tripRef.collection('content').doc('itinerary');
@@ -86,10 +86,12 @@ function createSaveTrip({ catalog }) {
                 }
             }
             const removedNoteIDs = [...noteIDs(previousContent)].filter(id => !noteStops.has(id));
-            return { status: 'accepted', revisions: { trip: next, metadata: nextMetadata, notes: noteRevisions }, commit(transaction) {
-                transaction.set(tripRef, { id: payload.tripID, schemaVersion: 1, revision: nextMetadata, contentRevision: next, title: payload.name,
-                    dayCount: payload.days.length, stopCount: payload.stops.length,
-                    contentBytes, deleted: false, createdAt: metadata?.createdAt ?? stamp, updatedAt: stamp });
+            const confirmedMetadata = { id: payload.tripID, schemaVersion: 1, revision: nextMetadata, contentRevision: next, title: payload.name,
+                dayCount: payload.days.length, stopCount: payload.stops.length,
+                contentBytes, deleted: false, createdAt: metadata?.createdAt ?? stamp, updatedAt: stamp };
+            return { status: 'accepted', revisions: { trip: next, metadata: nextMetadata, notes: noteRevisions },
+                confirmation: confirmedMetadata, commit(transaction) {
+                transaction.set(tripRef, confirmedMetadata);
                 transaction.set(contentRef, { ...content, updatedAt: stamp });
                 for (const { ref, value } of [...placeWrites, ...noteWrites]) transaction.set(ref, value);
                 for (const id of removedNoteIDs) transaction.update(user.collection('notes').doc(id),

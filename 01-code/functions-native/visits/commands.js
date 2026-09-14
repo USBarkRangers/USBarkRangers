@@ -12,7 +12,7 @@ const { createDeleteVisits } = require('./delete');
 
 function createVisitHandlers({ catalog }) {
     function handler(action, parse) {
-        return { parse, requiresPremium: true, rateGroup: 'visits', rateMaximum: 60,
+        return { parse, requiresPremium: true, rateGroup: 'visits', rateMaximum: 60, confirmationNeedsTimestamp: true,
             async prepare(context) {
                 const { tx, db, user, uid, profile, payload, expectedRevision, stamp, nowMs, createdAtMs } = context;
                 const park = catalog.park(payload.officialPlaceID);
@@ -40,7 +40,8 @@ function createVisitHandlers({ catalog }) {
                 const nextPlace = makePlaceProgress(place, visit, stamp);
                 const progress = visitProgress(oldProgress, previous, visit);
                 const [marathon, first] = await Promise.all([
-                    marathonEvidence(tx, user, visit, progress.awards.marathoner),
+                    // Fewer than four current sites cannot earn the four-visit badge.
+                    progress.sites < 4 ? false : marathonEvidence(tx, user, visit, progress.awards.marathoner),
                     firstPlaceEvidence(tx, db, uid, progress),
                 ]);
                 const awards = evaluateAwards(progress, catalog, { visit, marathon, first, nowMs });
@@ -48,7 +49,9 @@ function createVisitHandlers({ catalog }) {
                 const oldBoard = projection(readProgress(oldProgress), profile.displayName);
                 const boardChanged = !oldProgress || JSON.stringify(board) !== JSON.stringify(oldBoard);
                 return { status: 'accepted', revisions: { visit: visit.revision, placeProgress: nextPlace.revision,
-                    progress: progress.revision }, commit(transaction) {
+                    progress: progress.revision }, confirmation: { version: 1, visitID: visit.id,
+                        officialPlaceID: park.id, siteID: park.siteID, visit, placeProgress: nextPlace,
+                        progress: { ...progress, updatedAt: stamp }, readTime: stamp }, commit(transaction) {
                     transaction.set(visitRef, visit);
                     transaction.set(placeRef, nextPlace);
                     transaction.set(progressRef, { ...progress, updatedAt: stamp });

@@ -38,7 +38,7 @@ test('free bookmark save confirms in one command; replay cannot resurrect a late
     const f = await fixture(), value = pin(), input = command('setSavedPin', value);
     const first = await f.send(input);
     assert.equal(first.confirmation.saved, true); assert.equal(first.confirmation.id, value.pinID);
-    assert.equal(f.reads.length, 5); assert.equal(f.writes.length, 3);
+    assert.equal(f.reads.length, 3); assert.equal(f.writes.length, 2);
     assert.ok(!JSON.stringify(first).includes('notes'));
     console.log(`SAVED_PIN_NEW reads=${f.reads.length} writes=${f.writes.length} functionCalls=1 confirmationBytes=${Buffer.byteLength(JSON.stringify(first))}`);
     f.reads.length = f.writes.length = 0;

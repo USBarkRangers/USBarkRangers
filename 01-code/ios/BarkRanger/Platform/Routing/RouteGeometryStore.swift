@@ -69,6 +69,15 @@ actor RouteGeometryStore {
         }
     }
     private enum Failure: Error { case invalid }
+    /// Historical cache filenames hash owner+route together; they cannot be reverse-mapped.
+    /// On account deletion, clear this disposable geometry cache (never authored trips).
+    func clearForAccountDeletion() throws {
+        if FileManager.default.fileExists(atPath: directory.path) {
+            try FileManager.default.removeItem(at: directory)
+        }
+        files = [:]
+        scannedAt = nil
+    }
     private func location(key: String, scope: String) -> URL {
         let value = "\(scope.utf8.count):\(scope)|\(key)"
         let hash = SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()

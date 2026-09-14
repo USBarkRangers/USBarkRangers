@@ -182,6 +182,43 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         app.terminate()
     }
 
+    @MainActor func testDisposableNativeAccountDeletionRequiresConfirmationAndReturnsToSignIn() throws {
+        continueAfterFailure = false
+        guard ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1" else {
+            throw XCTSkip("Requires isolated demo-bark-native emulators.")
+        }
+        let app = XCUIApplication()
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
+        app.launchEnvironment["BARK_NATIVE_ACCOUNT_EMULATORS"] = "1"
+        app.launchEnvironment["BARK_EMULATOR_HOST"] = "127.0.0.1"
+        app.launch()
+        openAccount(app)
+        let email = app.textFields["Email"]
+        XCTAssertTrue(email.waitForExistence(timeout: 10))
+        email.tap()
+        email.typeText("ui-delete-\(UUID().uuidString.lowercased())@native.invalid")
+        app.secureTextFields["Password"].tap()
+        app.secureTextFields["Password"].typeText("NativeOnly123!")
+        app.keyboards.buttons["Done"].tap()
+        app.switches["Create a new account"].coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        app.buttons["Create account"].tap()
+        dismissPasswordPrompt(app)
+        XCTAssertTrue(app.staticTexts["Ranger"].waitForExistence(timeout: 15))
+        let remove = app.buttons["account.delete"]
+        for _ in 0..<12 where !remove.isHittable { app.swipeUp() }
+        XCTAssertTrue(remove.isHittable)
+        remove.tap()
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(remove.exists)
+        remove.tap()
+        app.buttons["Permanently delete account"].tap()
+        XCTAssertTrue(email.waitForExistence(timeout: 20))
+        app.terminate()
+        app.launch()
+        openAccount(app)
+        XCTAssertTrue(email.waitForExistence(timeout: 10))
+    }
+
     @MainActor private func openAccount(_ app: XCUIApplication) {
         XCTAssertTrue(app.tabBars.buttons["Account"].waitForExistence(timeout: 15))
         app.tabBars.buttons["Account"].tap()

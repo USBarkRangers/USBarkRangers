@@ -1,11 +1,11 @@
 'use strict';
 
-const { FieldValue, Timestamp } = require('firebase-admin/firestore');
+const { Timestamp } = require('firebase-admin/firestore');
 const v = require('../shared/validation');
 const { revision, nextRevision } = require('./records');
 const { noteIDs } = require('./save');
 
-const TOMBSTONE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+const { TOMBSTONE_RETENTION_MS, detachedPlanningNote } = require('./retention');
 const deleteTrip = {
     parse(payload) { v.object(payload, ['tripID']); v.identifier(payload.tripID); return payload; },
     requiresPremium: true, rateGroup: 'trip', rateMaximum: 30,
@@ -27,9 +27,8 @@ const deleteTrip = {
                 expiresAt: Timestamp.fromMillis(nowMs + TOMBSTONE_RETENTION_MS) });
             transaction.delete(contentRef);
             for (const id of noteIDs(contentSnapshot.data())) transaction.update(user.collection('notes').doc(id),
-                { linkedToTrip: false, revision: FieldValue.increment(1), updatedAt: stamp });
-            // J1: places and canonical notes have independent ownership. Trip deletion does
-            // not erase them or future shared journal/media content.
+                detachedPlanningNote(stamp, nowMs));
+            // Independently owned places and future journal/media are not trip content.
         } };
     },
 };

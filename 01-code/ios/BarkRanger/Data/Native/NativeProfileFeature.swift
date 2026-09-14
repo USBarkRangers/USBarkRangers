@@ -10,6 +10,8 @@ nonisolated struct NativeProfileConfiguration: Sendable {
     var connectVisits: (@MainActor @Sendable (String) throws -> NativeVisitCloud)? = nil
     var connectExpeditions: (@MainActor @Sendable (String) throws -> NativeExpeditionCloud)? = nil
     var connectLeaderboard: (@MainActor @Sendable (String) throws -> NativeLeaderboardRepository)? = nil
+    var deleteAccount: (@MainActor @Sendable (String) async throws -> Void)? = nil
+    var forgetDeletedIdentity: (@MainActor @Sendable (String) throws -> Void)? = nil
 }
 
 nonisolated struct NativeProfileFeature: Sendable {

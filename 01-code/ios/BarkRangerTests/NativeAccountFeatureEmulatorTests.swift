@@ -63,7 +63,7 @@ import Testing
         await model.action?.value
         try await eventually { session.profileState?.confirmed?.displayName == "Ranger" }
         try await eventually { session.nativeTrips != nil && session.nativeExpeditions != nil }
-        #expect(!model.canEditData && !session.capabilities.accountManagement)
+        #expect(!model.canEditData && session.capabilities.accountManagement)
         model.verifyEmail()
         await model.action?.value
         #expect(model.notice == "Verification link is in the local Auth emulator log.")

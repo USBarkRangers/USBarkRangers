@@ -108,6 +108,17 @@ actor SavedPlaceStore {
             throw error
         }
     }
+    /// Account deletion only; the caller drains the old account's writer first.
+    func eraseAccountFiles() throws {
+        guard directory.deletingLastPathComponent().lastPathComponent == "accounts-v1",
+            directory.lastPathComponent.count == 64,
+            directory.lastPathComponent.allSatisfy({ "0123456789abcdef".contains($0) })
+        else { throw Failure.invalidRecord }
+        index = nil
+        if FileManager.default.fileExists(atPath: directory.path) {
+            try FileManager.default.removeItem(at: directory)
+        }
+    }
     private func read(_ id: String) throws -> SavedPlace {
         guard id.count == 64, id.allSatisfy({ "0123456789abcdef".contains($0) }) else {
             throw Failure.invalidRecord

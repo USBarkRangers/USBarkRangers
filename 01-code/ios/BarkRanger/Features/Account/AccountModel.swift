@@ -154,8 +154,9 @@ import Observation
         guard let auth = session.auth, let uid = session.identity?.uid else { return }
         perform(success: "Sign-in method removed.") { try await auth.unlink(provider, uid: uid) }
     }
-    // Native account deletion requires its own reviewed backend lifecycle before
-    // launch. No hidden call into the retired web account/payment system remains.
+    func deleteAccount() {
+        perform { try await self.session.deleteAccount() }
+    }
     func cancel() {
         actionID = UUID()
         action?.cancel()
@@ -192,6 +193,8 @@ import Observation
     }
     static func message(_ error: any Error) -> String {
         switch error {
+        case let failure as NativeCallableTransport.ServerFailure where failure.reason == "recent-auth-required":
+            "Confirm your password or sign-in provider, then try deleting the account again."
         case NativeProfileEdit.Failure.invalid:
             "Use a display name of 2–30 characters, without control characters or angle brackets."
         case NativeStore.Failure.unavailable:

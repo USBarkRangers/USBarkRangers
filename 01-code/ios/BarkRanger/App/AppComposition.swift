@@ -126,6 +126,14 @@ struct AppComposition {
             account: accounts.session,
             store: RecordingStore(directory: accounts.session.directory),
             location: location, motion: PedometerClient(), activity: LiveActivityService())
+        let accountProject = accounts.session.nativeProfileConfiguration?.project ?? "bark-ranger-ios"
+        accounts.session.eraseAdditionalAccountData = { [weak recorder, weak discovery, weak activeTrip] uid in
+            guard let recorder, let discovery, let activeTrip else { throw NativeStore.Failure.unavailable }
+            await recorder.activateAccount() // Drains recording writes after identity has been cleared.
+            try activeTrip.forgetDeletedAccount(scope: accountProject + ":" + uid)
+            try await discovery.savedPlaces?.eraseClosedAccount(uid)
+            try await routeCache.clearForAccountDeletion()
+        }
         let expeditions = ExpeditionModel(
             account: accounts.session, recorder: recorder,
             geometry: TrailRepository(), health: HealthWorkoutImporter())

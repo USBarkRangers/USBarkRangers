@@ -161,6 +161,13 @@ import Observation
         }
     }
     func dismissMessage() { message = nil }
+    func eraseClosedAccount(_ uid: String) async throws {
+        guard account?.identity?.uid != uid else { throw AccountFailure.accountChanged }
+        bindAccount()
+        await waitForPending()
+        try await rootStore.scoped(project: account?.nativeProfileConfiguration?.project ?? "bark-ranger-ios", uid: uid)
+            .eraseAccountFiles()
+    }
     func waitForPending() async {
         await task?.value
         await query?.value

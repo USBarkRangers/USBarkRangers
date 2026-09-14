@@ -53,9 +53,12 @@ tests = [
     "BarkRangerTests/CorrectnessPolicyTests", "BarkRangerTests/NativePendingChangesTests",
     "BarkRangerTests/NativeMailroomTests", "BarkRangerTests/NativeCacheRetentionTests",
     "BarkRangerTests/AccountDiagnosticsTests", "BarkRangerUITests/NativeAccountUITests",
+    "BarkRangerTests/NativeAccountDeletionTests",
 ]
+if not args.native_profile:
+    tests = []
 if args.native_trips:
-    tests = [
+    tests += [
         "BarkRangerTests/NativeTripFeatureEmulatorTests", "BarkRangerTests/NativeTripEmulatorTests",
         "BarkRangerTests/NativeTripStoreTests", "BarkRangerTests/NativeTripReconciliationTests",
         "BarkRangerTests/NativeTripIdentityTests",
@@ -73,7 +76,7 @@ if args.native_trips:
         "BarkRangerUITests/NativeAccountUITests",
     ]
 if args.native_adventures:
-    tests = [
+    tests += [
         "BarkRangerTests/NativeVisitActionTests", "BarkRangerTests/NativeVisitQueueTests",
         "BarkRangerTests/NativeVisitConflictTests", "BarkRangerTests/NativeVisitOutboxEmulatorTests",
         "BarkRangerTests/NativeVisitEmulatorTests", "BarkRangerTests/PendingVisitMarkerTests",
@@ -86,6 +89,8 @@ if args.native_adventures:
         "BarkRangerTests/MapColorProjectionTests", "BarkRangerTests/NativeSyncJobsTests",
         "BarkRangerUITests/NativeAdventureUITests",
     ]
+# Multiple checkpoints form a union, not last-flag-wins or repeated UI launches.
+tests = list(dict.fromkeys(tests))
 if args.native_cloud_fixture:
     with args.native_cloud_fixture.open() as source:
         fixture = json.load(source)

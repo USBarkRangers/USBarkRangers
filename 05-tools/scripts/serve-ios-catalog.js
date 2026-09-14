@@ -9,7 +9,7 @@ const root = path.resolve(__dirname, "../..");
 const baseBytes = fs.readFileSync(path.join(root, "01-code/ios/BarkRanger/Resources/catalog.json"));
 const base = JSON.parse(baseBytes);
 const baseManifest = JSON.parse(fs.readFileSync(path.join(root, "01-code/ios/BarkRanger/Resources/catalog-manifest.json")));
-const scenarios = ["unchanged", "valid", "malformed", "shrunk", "hash-mismatch", "stalled", "slow", "recovery", "large", "throttled"];
+const scenarios = ["unchanged", "valid", "polling", "malformed", "shrunk", "hash-mismatch", "stalled", "slow", "recovery", "large", "throttled"];
 const args = process.argv.slice(2);
 const option = (name, fallback) => args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
 const host = option("--host", "127.0.0.1"), port = Number(option("--port", "8787"));

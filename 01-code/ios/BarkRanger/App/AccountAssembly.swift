@@ -16,7 +16,7 @@ import Foundation
     // Activation replacement for the last argument below: appleSignIn: true
     // Approval alone is not proof that signing or Firebase provider setup is complete.
     static let capabilities = AccountCapabilities(
-        profileWrites: true, authenticationChanges: true, accountManagement: false, appleSignIn: false)
+        profileWrites: true, authenticationChanges: true, accountManagement: true, appleSignIn: false)
 
     static func unavailable(directory: URL) -> Self {
         Self(session: AccountSession(auth: nil, directory: directory), google: nil)
@@ -112,6 +112,16 @@ import Foundation
                 connectLeaderboard: {
                     try NativeLeaderboardRepository(
                         transport: NativeCallableTransport(uid: $0, auth: auth), uid: $0)
+                }, deleteAccount: { uid in
+                    struct Request: Encodable, Sendable { let version = 1; let confirmed = true }
+                    struct Reply: Decodable, Sendable { let version: Int; let status: String }
+                    let transport = try NativeCallableTransport(uid: uid, auth: auth)
+                    let reply = try await transport.call("nativeDeleteAccount", input: Request(), as: Reply.self)
+                    guard reply.version == 1, ["accepted", "complete"].contains(reply.status) else {
+                        throw NativeCallableTransport.Failure.invalidReply
+                    }
+                }, forgetDeletedIdentity: { uid in
+                    if auth.currentUser?.uid == uid { try auth.signOut() }
                 })
             return Self(
                 session: AccountSession(

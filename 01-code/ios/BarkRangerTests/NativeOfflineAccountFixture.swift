@@ -17,7 +17,8 @@ import Testing
 
     static func make(
         uid: String = "a", mapStyle: NativeProfile.MapStyle = .default,
-        capabilities: AccountCapabilities = .editableTest, signIn: Bool = true
+        capabilities: AccountCapabilities = .editableTest, signIn: Bool = true,
+        deleteAccount: (@MainActor @Sendable (String) async throws -> Void)? = nil
     ) async throws -> Self {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = try await NativeStore.open(directory: directory, project: "demo-bark-native", uid: uid)
@@ -30,7 +31,7 @@ import Testing
             project: "demo-bark-native",
             connect: {
                 try AccountAssembly.nativeProfileEmulatorClient(app: app, uid: $0)
-            })
+            }, deleteAccount: deleteAccount)
         let session = AccountSession(
             auth: auth, directory: directory, capabilities: capabilities,
             nativeProfileConfiguration: configuration)

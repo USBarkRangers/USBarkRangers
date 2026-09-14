@@ -14,6 +14,7 @@ const HTTP_CODES = Object.freeze({
     'operation-reused': 'already-exists', 'rate-limited': 'resource-exhausted', unavailable: 'unavailable',
     'activity-reused': 'already-exists', 'overlapping-activity': 'failed-precondition',
     'incomplete-expedition': 'failed-precondition',
+    'recent-auth-required': 'failed-precondition',
 });
 
 // The SDK verifies bearer tokens and App Check before this adapter; never accept uid in data.
@@ -40,7 +41,7 @@ function createCommandCallable({ runtime, execute, reportFailure }) {
     return async request => {
         try {
             const uid = verifiedAccount(request, runtime);
-            return await execute(uid, request.data);
+            return await execute(uid, request.data, { authTime: request.auth.token.auth_time });
         } catch (error) {
             if (error instanceof NativeError && Object.hasOwn(HTTP_CODES, error.code)) {
                 throw new HttpsError(HTTP_CODES[error.code], error.message, error.details);

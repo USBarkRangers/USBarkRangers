@@ -4,6 +4,7 @@ const { FieldPath } = require('firebase-admin/firestore');
 const v = require('../shared/validation');
 const { NativeError } = require('../shared/errors');
 const { publicEntryID } = require('../profile/commands');
+const { requireWritableProfile } = require('../commands/access');
 
 function parseLeaderboard(query) {
     v.object(query, ['version']);
@@ -46,7 +47,12 @@ function createLeaderboardReader(db, { now = Date.now } = {}) {
                     rank = higher.data().count + 1;
                     // One replaceable cache row per account, not an accumulating archive.
                     // Account deletion must include this private subcollection.
-                    await cache.set({ schemaVersion: 1, points: personal.points, rank, calculatedAtMs: at });
+                    // Admission happened before the count. Serialize this delayed write
+                    // with deletion so an in-flight read cannot resurrect a private cache.
+                    await db.runTransaction(async tx => {
+                        requireWritableProfile((await tx.get(cache.parent.parent)).data(), false);
+                        tx.set(cache, { schemaVersion: 1, points: personal.points, rank, calculatedAtMs: at });
+                    });
                 }
                 standing = { entry: personal, rank };
             }

@@ -13,7 +13,7 @@ struct AccountView: View {
                     Text(
                         model.session.nativeProfileConfiguration == nil
                             ? "Billing and recovery actions are simulated."
-                            : "Connected to isolated native emulators. Purchases and account deletion are not enabled yet."
+                            : "Connected to isolated native emulators. Purchases are not enabled."
                     ).font(.footnote)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -64,6 +64,7 @@ struct AccountView: View {
                 }
                 NativeAccountDetails(model: model).id(identity.uid)
                 AccountSecurity(model: model).id(identity.uid)
+                AccountDeletionSection(model: model).id(identity.uid)
             } else {
                 AccountForms(model: model)
             }
@@ -71,6 +72,9 @@ struct AccountView: View {
                 Section { Text(notice).accessibilityIdentifier("account.notice") }
             }
             if model.busy { Section { ProgressView("Working…") } }
+            if let message = model.session.deletionMessage {
+                Section { Text(message).accessibilityIdentifier("account.deletion-status") }
+            }
         }
         .scrollDismissesKeyboard(.interactively)
         .background(KeyboardDismissalArea())

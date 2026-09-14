@@ -49,8 +49,7 @@ import SwiftData
             throw Failure.wrongScope
         }
         let scope = "\(project):\(guest ? "guest" : "account"):\(uid)"
-        let name = SHA256.hash(data: Data(scope.utf8)).map { String(format: "%02x", $0) }.joined()
-        let folder = directory.appendingPathComponent("entities-v1").appendingPathComponent(name)
+        let folder = try scopeDirectory(directory: directory, project: project, uid: uid, guest: guest)
         try FileManager.default.createDirectory(
             at: folder, withIntermediateDirectories: true,
             attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
@@ -62,6 +61,19 @@ import SwiftData
         let store = NativeStore(modelContainer: container)
         try await store.initialize(scope: scope, guest: guest, beforeSave: beforeSave)
         return store
+    }
+
+    nonisolated static func scopeDirectory(directory: URL, project: String, uid: String, guest: Bool = false) throws -> URL {
+        guard ["bark-ranger-ios", "demo-bark-native"].contains(project), !uid.isEmpty else { throw Failure.wrongScope }
+        let scope = "\(project):\(guest ? "guest" : "account"):\(uid)"
+        let name = SHA256.hash(data: Data(scope.utf8)).map { String(format: "%02x", $0) }.joined()
+        return directory.appendingPathComponent("entities-v1").appendingPathComponent(name)
+    }
+
+    /// Only after explicit account deletion and lifecycle drain, never on ordinary sign-out.
+    func eraseClosedAccount() throws {
+        guard closed, !isGuest else { throw Failure.wrongScope }
+        try modelContainer.erase()
     }
 
     private func initialize(scope: String, guest: Bool, beforeSave: (@Sendable () throws -> Void)?) throws {

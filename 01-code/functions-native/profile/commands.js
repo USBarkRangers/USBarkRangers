@@ -2,7 +2,7 @@
 
 const { createHash } = require('node:crypto');
 const validate = require('../shared/validation');
-const { invalid } = require('../shared/errors');
+const { invalid, NativeError } = require('../shared/errors');
 
 function publicEntryID(uid) {
     return createHash('sha256').update(`bark-native-leaderboard:${uid}`).digest('hex');
@@ -35,7 +35,12 @@ function updateHandler(parse, update) {
 const bootstrapAccount = {
     parse(payload) { return validate.object(payload, []); },
     allowCreation: true, requiresPremium: false, rateGroup: 'bootstrap', rateMaximum: 10,
-    async prepare({ user, profile, expectedRevision, stamp }) {
+    async prepare({ tx, db, uid, user, profile, expectedRevision, stamp }) {
+        // Auth deletion invalidates refresh tokens, not every already-issued ID token.
+        // Only bootstrap pays for this fence read; ordinary commands require an active profile.
+        if ((await tx.get(db.collection('nativeAccountDeletions').doc(uid))).exists) {
+            throw new NativeError('account-deleting', 'This account is being deleted.');
+        }
         if (profile) return { status: 'accepted', revisions: { profile: profile.revision } };
         if (expectedRevision !== 0) return { status: 'conflict', revisions: { profile: 0 } };
         return { status: 'accepted', revisions: { profile: 1, entitlement: 1 }, commit(tx) {

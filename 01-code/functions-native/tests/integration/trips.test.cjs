@@ -94,12 +94,13 @@ test('a note-only update has bounded reads, preserves itinerary revision and blo
     assert.equal((await f.user.collection('notes').doc(a.notes[0].id).get()).get('text'), 'Edited');
 });
 
-test('removing stops and deleting trips preserve notes and keep deletion revisions', async () => {
+test('removed trip notes retain offline recovery text with bounded expiry and keep deletion revisions', async () => {
     const f = await fixture(), a = trip();
     await f.send('saveTrip', a);
     await f.send('saveTrip', { ...a, days: [{ ...a.days[0], stops: [] }], notes: [] }, 1);
     const note = f.user.collection('notes').doc(a.notes[0].id);
     assert.equal((await note.get()).get('linkedToTrip'), false);
+    assert.ok((await note.get()).get('expiresAt').toMillis() > Date.now() + 89 * 24 * 3600_000);
     const recovery = await createTripRecoveryReader(db)(f.uid, { version: 1, tripID: a.tripID, stopIDs: ['stop-0'] });
     assert.equal(recovery.notes.length, 1);
     assert.equal(recovery.notes[0].linkedToTrip, false);
@@ -116,6 +117,23 @@ test('removing stops and deleting trips preserve notes and keep deletion revisio
     assert.ok(metadata.expiresAt.toMillis() > Date.now() + 89 * 24 * 3600_000);
     assert.equal((await note.get()).get('text'), 'Planning note');
     assert.equal((await f.send('saveTrip', a, 0)).revisions.trip, 3);
+});
+
+test('relinking cancels planning-note expiry, deleting an attached note restores it, and independent notes survive', async () => {
+    const f = await fixture(), a = trip();
+    await f.send('saveTrip', a);
+    await f.send('saveTrip', { ...a, days: [{ ...a.days[0], stops: [] }], notes: [] }, 1);
+    const note = f.user.collection('notes').doc(a.notes[0].id);
+    assert.ok((await note.get()).get('expiresAt'));
+    assert.equal((await f.send('saveTrip', { ...a, notes: [] }, 2)).status, 'accepted');
+    assert.equal((await note.get()).get('expiresAt'), undefined);
+    assert.equal((await note.get()).get('linkedToTrip'), true);
+    const independent = f.user.collection('notes').doc('independent-owner');
+    await independent.set({ text: 'Independent content is not trip-owned' });
+    await f.send('deleteTrip', { tripID: a.tripID }, 3);
+    assert.ok((await note.get()).get('expiresAt'));
+    assert.equal((await independent.get()).get('expiresAt'), undefined);
+    assert.equal((await independent.get()).get('text'), 'Independent content is not trip-owned');
 });
 
 test('maximum 500-stop creation and bulk note update fit the logical budget without a split commit', async () => {

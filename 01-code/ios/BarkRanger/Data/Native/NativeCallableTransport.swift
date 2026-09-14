@@ -46,7 +46,7 @@ actor NativeCallableTransport {
         async throws -> Output
     {
         try check()
-        guard ["nativeCommand", "nativeRead"].contains(endpoint), bytes.count <= 400_000 else {
+        guard ["nativeCommand", "nativeRead", "nativeDeleteAccount"].contains(endpoint), bytes.count <= 400_000 else {
             throw Failure.invalidReply
         }
         let callable = functions.httpsCallable(endpoint)

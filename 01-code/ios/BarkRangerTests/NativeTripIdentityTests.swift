@@ -5,6 +5,24 @@ import Testing
 @testable import BarkRanger
 
 @MainActor struct NativeTripIdentityTests {
+    @Test func deletedAccountDropsItsFailedCheckpointRecoveryBuffer() async throws {
+        let fixture = try await PlannerFixture.make()
+        defer { fixture.context.close() }
+        let editor = fixture.model(checkpoint: { _, _, _ in throw CocoaError(.fileWriteOutOfSpace) })
+        editor.activeTrip.start()
+        editor.open(fixture.a)
+        let removedScope = try #require(fixture.session.tripScope)
+        editor.rename("Private deleted unsaved buffer")
+        await editor.activeTrip.waitForCheckpoint()
+        #expect(editor.checkpointNeedsRetry)
+        fixture.auth.select("user-b")
+        try await eventually { fixture.session.nativeTrips?.scope.hasSuffix(":user-b") == true }
+        try editor.activeTrip.forgetDeletedAccount(scope: removedScope)
+        fixture.auth.select("user-a")
+        try await eventually { fixture.session.nativeTrips?.scope.hasSuffix(":user-a") == true }
+        #expect(editor.draft?.trip.name != "Private deleted unsaved buffer")
+        await fixture.session.stopAndWait()
+    }
     @Test func failedCheckpointBlocksSignOutAndForcedSwitchRetainsOnlyTheOriginalScopesBuffer() async throws {
         let fixture = try await PlannerFixture.make()
         defer { fixture.context.close() }

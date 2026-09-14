@@ -355,6 +355,10 @@ import Observation
             if wasActive { self.start() }
         }
     }
+    func forgetDeletedAccount(scope removedScope: String) throws {
+        guard account.tripScope != removedScope else { throw AccountFailure.accountChanged }
+        recoveries.removeValue(forKey: removedScope)
+    }
     func resetScope() {
         generation = UUID()
         stop()

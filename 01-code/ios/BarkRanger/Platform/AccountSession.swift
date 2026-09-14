@@ -39,6 +39,9 @@ import Observation
     private var foreground = false
     private var connected = false
     private var scopeStarted = false
+    var eraseAdditionalAccountData: ((String) async throws -> Void)?
+    private var deletionTask: Task<Void, Error>?
+    private(set) var deletionMessage: String?
     init(
         auth: (any AccountAuthenticating)?, directory: URL,
         capabilities: AccountCapabilities = .init(), diagnostics: Diagnostics = Diagnostics(),
@@ -57,6 +60,11 @@ import Observation
             return
         }
         authTask = Task { [weak self] in
+            do { try await self?.resumeAccountRemoval() }
+            catch {
+                self?.deletionMessage = "Device cleanup could not finish. Keep the app installed and reopen it to retry. Cloud deletion is still queued."
+                return
+            }
             for await identity in auth.changes() {
                 guard !Task.isCancelled else { return }
                 self?.activate(identity)
@@ -318,5 +326,45 @@ import Observation
         await scopeTask?.value
         scopeTask = nil
         scopeStarted = false
+    }
+
+    func deleteAccount() async throws {
+        guard capabilities.accountManagement, let uid = identity?.uid,
+            let configuration = nativeProfileConfiguration, let remove = configuration.deleteAccount,
+            let auth else { throw NativeStore.Failure.unavailable }
+        let store = nativeProfile?.store
+        if let deletionTask { return try await deletionTask.value }
+        // The lifecycle owns completion; dismissing the form cannot cancel accepted cleanup.
+        let task = Task { @MainActor in
+            try await remove(uid)
+            let request = NativeAccountRemovalFiles.Request(project: configuration.project, uid: uid)
+            try NativeAccountRemovalFiles.retain(request, directory: directory)
+            guard identity?.uid == uid else { throw AccountFailure.accountChanged }
+            await stopAndWait()
+            try auth.signOut()
+            do {
+                try await store?.eraseClosedAccount()
+                try await resumeAccountRemoval()
+                deletionMessage = "Account deletion requested. Device data removed; cloud cleanup continues automatically."
+            } catch {
+                deletionMessage = "Account deletion is queued. Device cleanup will retry when you reopen the app."
+                start()
+                throw error
+            }
+            start()
+        }
+        deletionTask = task
+        defer { deletionTask = nil }
+        try await task.value
+    }
+
+    private func resumeAccountRemoval() async throws {
+        for request in try NativeAccountRemovalFiles.pending(directory: directory) {
+            guard request.project == nativeProfileConfiguration?.project else { throw NativeStore.Failure.wrongScope }
+            try nativeProfileConfiguration?.forgetDeletedIdentity?(request.uid)
+            try await eraseAdditionalAccountData?(request.uid)
+            try NativeAccountRemovalFiles.eraseClosedAccount(request, directory: directory)
+            try NativeAccountRemovalFiles.finish(request, directory: directory)
+        }
     }
 }

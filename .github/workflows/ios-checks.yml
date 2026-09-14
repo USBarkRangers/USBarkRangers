@@ -17,7 +17,7 @@ concurrency:
 jobs:
   shell:
     runs-on: macos-26
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
@@ -40,20 +40,6 @@ jobs:
             -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
             -derivedDataPath "$RUNNER_TEMP/BarkDerivedData" \
             CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES build-for-testing
-      - name: Run catalog, discovery and accessibility tests
-        run: |
-          node 05-tools/scripts/serve-ios-catalog.js > "$RUNNER_TEMP/catalog-fixtures.log" 2>&1 &
-          BARK_FIXTURE_PID=$!
-          trap 'kill "$BARK_FIXTURE_PID"' EXIT
-          for attempt in 1 2 3 4 5; do
-            if curl --fail --silent http://127.0.0.1:8787/unchanged/manifest.json > /dev/null; then break; fi
-            sleep 1
-          done
-          xcodebuild -project 01-code/ios/BarkRanger.xcodeproj -scheme BarkRanger \
-            -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
-            -derivedDataPath "$RUNNER_TEMP/BarkDerivedData" \
-            -resultBundlePath "$RUNNER_TEMP/BarkShell.xcresult" \
-            -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES test-without-building
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
@@ -70,9 +56,21 @@ jobs:
           node_modules/.bin/firebase emulators:exec --config firebase.native.json \
             --project demo-bark-native --only auth,firestore,functions \
             "GCLOUD_PROJECT=demo-bark-native node 05-tools/scripts/seed-native-profile-ui.cjs && \
-            python3 05-tools/scripts/test-ios-accounts.py --native-profile --products '$RUNNER_TEMP/BarkDerivedData/Build/Products' --destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' && \
-            python3 05-tools/scripts/test-ios-accounts.py --native-trips --products '$RUNNER_TEMP/BarkDerivedData/Build/Products' --destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' && \
-            python3 05-tools/scripts/test-ios-accounts.py --native-adventures --products '$RUNNER_TEMP/BarkDerivedData/Build/Products' --destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5'"
+            python3 05-tools/scripts/test-ios-accounts.py --native-profile --native-trips --native-adventures --products '$RUNNER_TEMP/BarkDerivedData/Build/Products' --destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5'"
+      - name: Run catalog, discovery and accessibility tests
+        run: |
+          node 05-tools/scripts/serve-ios-catalog.js > "$RUNNER_TEMP/catalog-fixtures.log" 2>&1 &
+          BARK_FIXTURE_PID=$!
+          trap 'kill "$BARK_FIXTURE_PID"' EXIT
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent http://127.0.0.1:8787/unchanged/manifest.json > /dev/null; then break; fi
+            sleep 1
+          done
+          xcodebuild -project 01-code/ios/BarkRanger.xcodeproj -scheme BarkRanger \
+            -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
+            -derivedDataPath "$RUNNER_TEMP/BarkDerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/BarkShell.xcresult" \
+            -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES test-without-building
       - name: Keep test evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

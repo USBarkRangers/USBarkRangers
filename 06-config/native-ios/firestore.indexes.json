@@ -25,7 +25,10 @@
   "fieldOverrides": [
     { "collectionGroup": "content", "fieldPath": "*", "indexes": [] },
     { "collectionGroup": "notes", "fieldPath": "text", "indexes": [] },
+    { "collectionGroup": "notes", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "nativeAccountDeletions", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
     { "collectionGroup": "nativeOperationReceipts", "fieldPath": "*", "indexes": [] },
+    { "collectionGroup": "nativeOperationReceipts", "fieldPath": "uid", "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION" }] },
     { "collectionGroup": "nativeOperationReceipts", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
     { "collectionGroup": "trips", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
     { "collectionGroup": "visits", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },

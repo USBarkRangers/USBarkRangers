@@ -4,7 +4,7 @@ const validation = require('./validation');
 const { revision, nextRevision, logicalSize, assertPlanningNote } = require('./records');
 const { canonicalJSON } = require('../shared/validation');
 const { invalid } = require('../shared/errors');
-const { FieldValue } = require('firebase-admin/firestore');
+const { detachedPlanningNote } = require('./retention');
 
 function noteIDs(content) {
     if (!content) return new Set();
@@ -14,7 +14,7 @@ function noteIDs(content) {
 
 function createSaveTrip({ catalog }) {
     return { parse: validation.saveTrip, requiresPremium: true, rateGroup: 'trip', rateMaximum: 30,
-        async prepare({ tx, user, payload, expectedRevision, stamp }) {
+        async prepare({ tx, user, payload, expectedRevision, stamp, nowMs }) {
             const tripRef = user.collection('trips').doc(payload.tripID);
             const contentRef = tripRef.collection('content').doc('itinerary');
             const [metadataSnapshot, contentSnapshot] = await tx.getAll(tripRef, contentRef);
@@ -93,10 +93,9 @@ function createSaveTrip({ catalog }) {
                 transaction.set(contentRef, { ...content, updatedAt: stamp });
                 for (const { ref, value } of [...placeWrites, ...noteWrites]) transaction.set(ref, value);
                 for (const id of removedNoteIDs) transaction.update(user.collection('notes').doc(id),
-                    { linkedToTrip: false, revision: FieldValue.increment(1), updatedAt: stamp });
-                // J1: these are private place references, not starred journal entries. Old
-                // planning notes removed from an itinerary remain contextual history; no GC
-                // deletes content merely because a trip/stop is no longer on screen.
+                    detachedPlanningNote(stamp, nowMs));
+                // Private place references have independent ownership. Only detached
+                // trip-owned planning notes enter bounded recovery retention.
             } };
         },
     };

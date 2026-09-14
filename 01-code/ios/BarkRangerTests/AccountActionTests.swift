@@ -8,7 +8,7 @@ import Testing
     @Test func normalAccountConfigurationEnablesPhaseThreeAndKeepsAppleDisabled() {
         let capabilities = AccountAssembly.capabilities
         #expect(capabilities.profileWrites && capabilities.authenticationChanges)
-        #expect(!capabilities.accountManagement && !capabilities.isReadOnly)
+        #expect(capabilities.accountManagement && !capabilities.isReadOnly)
         #expect(!capabilities.appleSignIn)
     }
 

@@ -18,7 +18,7 @@ the web app, existing production project, old users or old payments are authoriz
    then offline editing and reconnect. Record the actual evidence and any incomplete step.
 6. Push the integration changes and report the installed version and remaining gates.
 
-## Current status — September 14, approximately 01:40 EDT
+## Current status — September 14
 
 Native backend is deployed; **0.5.16 (75)** is signed, installed and launched on the
 owner's connected iPhone 15 Pro Max. This is a first cloud-connected development build,
@@ -79,22 +79,29 @@ The old web app and existing Firebase project were not modified or deployed.
 ## Owner access and email gates
 
 The authorized test account is **junior.ranger423@gmail.com** (no dot before 423).
-At the latest check its native account/profile exists but emailVerified is false.
-**No owner development grant has been issued.** After genuine email verification,
-run the exact-target administrator helper for this email, at most 14 days, then
-refresh the app account. Never manually mark the owner's email verified or use their
-private verification link. No owner password was requested or used in automated QA.
+The owner confirmed a freshly received verification email works; a server lookup then
+confirmed emailVerified=true and disabled=false. The exact-target administrator helper
+issued the approved **14-day development grant**, revision two, bound to the owner's
+UID only, expiring **2026-09-28T05:49:34.582Z**. A separate server read confirmed the
+source, UID, Premium flag, revision and expiry. Refresh the app account to load access.
+The owner completed verification themselves; their password/private link was not used
+by the assistant. This is temporary development access, not an App Store purchase.
 
 The existing app uses Account → Send verification email, followed by I verified my
 email after opening the received link. Automatic verification-on-signup is not added.
-The reported browser error remains unresolved for the owner's specific email: a real
-generated link verified a disposable probe successfully, while Firebase's console
-preview contains dummy `mode=action&oobCode=code` parameters that produce that exact
-error. This is a possible explanation, not proof of what the owner clicked.
+The latest real email link succeeded according to the owner and server state. A real
+generated link also verified a disposable probe. Firebase's console preview contains
+dummy `mode=action&oobCode=code` parameters that produce the previously reported error;
+the exact cause of the earlier failed link was not established. Do not present the
+preview-link explanation as a confirmed diagnosis or the successful retry as a code fix.
 
 Owner approved **noreply@ios.usbarkrangersmap.com**. Firebase's native sender display
-name/reply-to are configured; custom-domain DNS is **not added yet** because Cloudflare
-requires the owner's sign-in. The wizard provided these exact new-subdomain records:
+name/reply-to are configured. After the owner signed in to Cloudflare, **all four
+native-only DNS records were added and publicly resolved**. Both DKIM targets publish
+signing keys. A before/after comparison found 16 records versus the original 12, with
+all 12 original rows unchanged. Firebase accepted the verification request at
+2026-09-14T05:49:16.828Z and currently reports **IN_PROGRESS**, not verified/active.
+The exact new-subdomain records are:
 
 | Type | Name | Value |
 | --- | --- | --- |
@@ -103,17 +110,16 @@ requires the owner's sign-in. The wizard provided these exact new-subdomain reco
 | CNAME | firebase1._domainkey.ios.usbarkrangersmap.com | mail-ios-usbarkrangersmap-com.dkim1._domainkey.firebasemail.com. |
 | CNAME | firebase2._domainkey.ios.usbarkrangersmap.com | mail-ios-usbarkrangersmap-com.dkim2._domainkey.firebasemail.com. |
 
-Use DNS-only CNAMEs, check for existing exact-name records before adding, then verify
-in the native Firebase wizard and confirm the resulting sender. Do not alter root
+Both CNAMEs are DNS-only. Wait for native Firebase verification, then activate/confirm
+the resulting sender; do not create duplicate records on a retry. Do not alter root
 SPF/DKIM, existing Email Routing or the web project's templates. Authentication improves
 sender legitimacy but cannot guarantee Gmail inbox placement. Do not redeploy a web app
 to address Firebase's hosted verification handler.
 
 ## Remaining acceptance
 
-1. Owner signs in to Cloudflare; add/verify native-only sender records.
-2. Resolve the owner's received verification link, confirm verified identity, issue
-   the authorized expiring grant, and confirm access is visible after account refresh.
+1. Firebase finishes native custom-domain verification; activate/confirm the sender.
+2. Confirm the issued development grant is visible after the owner's account refresh.
 3. On the actual phone, save a trip/note through the UI, relaunch and confirm persistence,
    then perform a real offline edit and reconnect. Not yet completed on the owner's account.
 4. Apple sign-in/purchases, real StoreKit/server verification, native account deletion,

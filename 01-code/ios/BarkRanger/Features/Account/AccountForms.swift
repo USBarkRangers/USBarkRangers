@@ -4,19 +4,27 @@ import SwiftUI
 /// Form-only input remains temporary and is discarded when account identity changes.
 struct AccountForms: View {
     let model: AccountModel
+    private enum Field { case email, password }
     @State private var email = ""
     @State private var password = ""
     @State private var create = false
+    @FocusState private var focusedField: Field?
     var body: some View {
         Section("Sign in") {
             TextField("Email", text: $email).textContentType(.emailAddress)
                 .keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
+                .focused($focusedField, equals: .email).submitLabel(.next)
+                .onSubmit { focusedField = .password }
             SecureField("Password", text: $password).textContentType(create ? .newPassword : .password)
-            Toggle("Create a new account", isOn: $create)
+                .focused($focusedField, equals: .password).submitLabel(.done)
+                .onSubmit { focusedField = nil }
+            if model.capabilities.authenticationChanges { Toggle("Create a new account", isOn: $create) }
             Button(create ? "Create account" : "Sign in") {
                 model.email(email, password: password, create: create)
             }
-            Button("Reset password") { model.resetPassword(email) }
+            if model.capabilities.authenticationChanges {
+                Button("Reset password") { model.resetPassword(email) }
+            }
         }
         if model.providerButtonsAvailable { AccountProviderButtons(model: model, use: .signIn) }
     }
@@ -27,11 +35,19 @@ struct AccountProviderButtons: View {
     let use: CredentialUse
     var body: some View {
         Section {
-            SignInWithAppleButton(.continue, onRequest: model.prepareApple) { result in
-                model.finishApple(result, use: use)
+            if model.capabilities.appleSignIn,
+                use != .link || model.session.identity?.providers.contains("apple.com") != true
+            {
+                SignInWithAppleButton(.continue, onRequest: model.prepareApple) { result in
+                    model.finishApple(result, use: use)
+                }
+                .frame(height: 44)
             }
-            .frame(height: 44)
-            if model.google?.clientID != nil { Button("Continue with Google") { model.useGoogle(use) } }
+            if model.google?.isConfigured == true,
+                use != .link || model.session.identity?.providers.contains("google.com") != true
+            {
+                Button(use == .link ? "Link Google" : "Continue with Google") { model.useGoogle(use) }
+            }
         }
     }
 }
@@ -49,13 +65,13 @@ struct AccountSecurity: View {
                     HStack {
                         Text(provider == "password" ? "Email and password" : provider)
                         Spacer()
-                        if identity.providers.count > 1 {
+                        if identity.providers.count > 1, model.capabilities.authenticationChanges {
                             Button("Unlink", role: .destructive) { model.unlink(provider) }
                                 .foregroundStyle(Color("DestructiveAction"))
                         }
                     }
                 }
-                if !identity.providers.contains("password") {
+                if !identity.providers.contains("password"), model.capabilities.authenticationChanges {
                     TextField("Email to link", text: $email).keyboardType(.emailAddress)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField("New password", text: $password)
@@ -63,34 +79,40 @@ struct AccountSecurity: View {
                 }
                 Button("Sign out", action: model.signOut)
             }
-            if model.providerButtonsAvailable { AccountProviderButtons(model: model, use: .link) }
-            Section {
-                DisclosureGroup("Delete account", isExpanded: $showDeletion) {
-                    Text(
-                        "This permanently removes this account and its cloud data. Existing Lemon Squeezy cancellation is attempted first. Identity deletion alone does not manage an Apple subscription."
-                    )
-                    Text(
-                        "Confirm your identity again, then type DELETE. Nothing is deleted until you press Delete account permanently."
-                    )
-                    if identity.providers.contains("password") {
-                        SecureField("Current password", text: $password).textContentType(.password)
-                        Button("Confirm identity") { model.reauthenticate(password: password) }
-                    }
-                    if model.providerButtonsAvailable {
-                        SignInWithAppleButton(.continue, onRequest: model.prepareApple) {
-                            model.finishApple($0, use: .reauthenticate)
+            if model.providerButtonsAvailable, model.capabilities.authenticationChanges {
+                AccountProviderButtons(model: model, use: .link)
+            }
+            if model.capabilities.accountManagement {
+                Section {
+                    DisclosureGroup("Delete account", isExpanded: $showDeletion) {
+                        Text(
+                            "This permanently removes this account and its cloud data. Existing Lemon Squeezy cancellation is attempted first. Identity deletion alone does not manage an Apple subscription."
+                        )
+                        Text(
+                            "Confirm your identity again, then type DELETE. Nothing is deleted until you press Delete account permanently."
+                        )
+                        if identity.providers.contains("password") {
+                            SecureField("Current password", text: $password).textContentType(.password)
+                            Button("Confirm identity") { model.reauthenticate(password: password) }
                         }
-                        .frame(height: 44)
-                        if identity.providers.contains("google.com") {
-                            Button("Confirm with Google") { model.useGoogle(.reauthenticate) }
+                        if model.providerButtonsAvailable {
+                            if model.capabilities.appleSignIn {
+                                SignInWithAppleButton(.continue, onRequest: model.prepareApple) {
+                                    model.finishApple($0, use: .reauthenticate)
+                                }
+                                .frame(height: 44)
+                            }
+                            if identity.providers.contains("google.com") {
+                                Button("Confirm with Google") { model.useGoogle(.reauthenticate) }
+                            }
                         }
+                        TextField("Type DELETE", text: $confirmation).autocorrectionDisabled()
+                        Button("Delete account permanently", role: .destructive) {
+                            model.deleteAccount(confirmation: confirmation)
+                        }
+                        .foregroundStyle(Color("DestructiveAction"))
+                        .disabled(confirmation != "DELETE")
                     }
-                    TextField("Type DELETE", text: $confirmation).autocorrectionDisabled()
-                    Button("Delete account permanently", role: .destructive) {
-                        model.deleteAccount(confirmation: confirmation)
-                    }
-                    .foregroundStyle(Color("DestructiveAction"))
-                    .disabled(confirmation != "DELETE")
                 }
             }
         }

@@ -6,6 +6,95 @@ import XCTest
 
 nonisolated final class MapSelectionFramingTests: XCTestCase {
     @MainActor
+    func testSearchFocusFramesThePinWithOneCameraDestination() async throws {
+        let context = try DiscoveryTestContext()
+        defer { context.close() }
+        try await context.start()
+        let map = MotionRecordingMap(frame: CGRect(x: 0, y: 0, width: 390, height: 760))
+        let coordinator = MapCoordinator(model: context.model)
+        coordinator.apply(to: map)
+        map.regionUpdates = 0
+        let park = try XCTUnwrap(context.model.parks.first)
+        context.model.selectPark(id: park.id)
+        coordinator.apply(to: map, detailFramingHeight: 430, topObstruction: 100)
+        XCTAssertEqual(map.regionUpdates, 1, "Search focus must not be followed by a second competing pan")
+        XCTAssertTrue(map.cameraAnimations.isEmpty)
+        let point = CLLocationCoordinate2D(
+            latitude: park.coordinate.latitude, longitude: park.coordinate.longitude)
+        XCTAssertEqual(map.convert(point, toPointTo: map).x, 195, accuracy: 1)
+        XCTAssertEqual(map.convert(point, toPointTo: map).y, 290, accuracy: 3)
+        try await Task.sleep(for: .milliseconds(400))
+        for height in [200.0, 430, 752, 430] {
+            coordinator.apply(to: map, detailFramingHeight: height, topObstruction: 100)
+        }
+        XCTAssertEqual(map.regionUpdates, 1)
+        XCTAssertTrue(map.cameraAnimations.isEmpty, "Sheet layout must not queue a follow-up glide")
+        XCTAssertEqual(context.model.selectedID, park.id)
+    }
+
+    @MainActor
+    func testPanKeepsZoomDuringViewportChangeAndDoesNotReplayAfterSettlement() async throws {
+        let point = try XCTUnwrap(Coordinate(latitude: 44.4, longitude: -68.2))
+        let annotation = ParkAnnotation(
+            park: Park(
+                id: .init(rawValue: "acadia"), siteID: .init(rawValue: "acadia"), name: "Acadia",
+                coordinate: point))
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 843)
+        let host = UIViewController()
+        let map = MKMapView(frame: CGRect(x: 0, y: 0, width: 390, height: 760))
+        host.view.addSubview(map)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previous?.makeKeyAndVisible()
+        }
+        map.setRegion(
+            .init(
+                center: annotation.coordinate,
+                span: .init(latitudeDelta: 0.12, longitudeDelta: 0.12)), animated: false)
+        map.addAnnotation(annotation)
+        map.layoutIfNeeded()
+        let framing = MapSelectionFraming()
+        let distance = map.camera.centerCoordinateDistance
+        framing.apply(
+            to: map, annotation: annotation, framingSheetHeight: 430,
+            topObstruction: 100, animated: true)
+        // UIKit's bottom tab-bar area returns as the keyboard leaves. The window itself stays fixed.
+        try await Task.sleep(for: .milliseconds(80))
+        map.frame.size.height += 83
+        map.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertFalse(framing.isAnimating)
+        XCTAssertEqual(map.camera.centerCoordinateDistance, distance, accuracy: 1)
+        let center = map.centerCoordinate
+        framing.apply(
+            to: map, annotation: annotation, framingSheetHeight: 700,
+            topObstruction: 100, animated: true)
+        XCTAssertFalse(framing.isAnimating, "A settled selection must not start moving with the sheet")
+        XCTAssertEqual(map.centerCoordinate.latitude, center.latitude, accuracy: 0.000001)
+
+        // A further center-only pan at the existing zoom must not perform a zoom-out camera flight.
+        var distances: [Double] = []
+        map.setCenter(.init(latitude: 44.5, longitude: -68.3), animated: false)
+        framing.apply(
+            to: map, annotation: annotation, cameraChanged: true,
+            framingSheetHeight: 430, topObstruction: 100, animated: true)
+        for _ in 0..<25 {
+            try await Task.sleep(for: .milliseconds(20))
+            distances.append(map.camera.centerCoordinateDistance)
+        }
+        XCTAssertTrue(
+            distances.allSatisfy { abs($0 - distance) < 1 }, "Zoom remains fixed throughout the native pan")
+        framing.cancel()
+        XCTAssertFalse(framing.isAnimating)
+    }
+
+    @MainActor
     func testGroupingChangesReenrollCanonicalAnnotationsAndPreserveSelection() async throws {
         let context = try DiscoveryTestContext()
         defer { context.close() }
@@ -103,14 +192,14 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
             XCTAssertEqual((map.selectedAnnotations.first as? ParkAnnotation)?.park.id, park.id)
             XCTAssertEqual(model.detail.park?.id, park.id)
         }
-        XCTAssertEqual(map.centerAnimations, [true, true, false])
-        XCTAssertEqual(map.centerDurations, [0.3, 0.3, 0])
+        XCTAssertEqual(map.cameraAnimations, [false])
+        XCTAssertEqual(map.cameraDurations, [0])
         for height in 200..<500 {
             coordinator.apply(
                 to: map, detailFramingHeight: CGFloat(height),
                 topObstruction: 100, reduceMotion: true)
         }
-        XCTAssertEqual(map.centerAnimations, [true, true, false], "Sheet movement must not restart a glide")
+        XCTAssertEqual(map.cameraAnimations, [false], "Sheet movement must not restart a glide")
         let cluster = MKClusterAnnotation(memberAnnotations: Array(coordinator.annotations.values.prefix(2)))
         coordinator.mapView(map, didSelect: cluster)
         XCTAssertEqual(map.clusterAnimations, [false])
@@ -120,7 +209,7 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
         coordinator.mapView(map, didSelect: cluster)
         XCTAssertEqual(map.clusterAnimations, [false, true])
         XCTAssertEqual(
-            map.centerAnimations, [true, true, false], "Changing the preference must not replay motion")
+            map.cameraAnimations, [false], "Changing the preference must not replay motion")
     }
 
     @MainActor
@@ -153,7 +242,7 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
         }
         XCTAssertEqual(map.layoutMargins, margins)
         XCTAssertEqual(
-            map.centerAnimations.count, 1, "Presentation layout changes must not command another pan")
+            map.cameraAnimations.count, 1, "Presentation layout changes must not command another pan")
     }
 
     @MainActor
@@ -222,8 +311,13 @@ nonisolated final class MapSelectionFramingTests: XCTestCase {
 /// Captures native movement policy while keeping geometry assertions deterministic.
 @MainActor
 private final class MotionRecordingMap: MKMapView {
-    var centerAnimations: [Bool] = []
-    var centerDurations: [TimeInterval] = []
+    var cameraAnimations: [Bool] = []
+    var regionUpdates = 0
+    override func setRegion(_ region: MKCoordinateRegion, animated: Bool) {
+        regionUpdates += 1
+        super.setRegion(region, animated: animated)
+    }
+    var cameraDurations: [TimeInterval] = []
     var clusterAnimations: [Bool] = []
     var enrolled: Set<ParkID> = []
     var removed: Set<ParkID> = []
@@ -235,10 +329,10 @@ private final class MotionRecordingMap: MKMapView {
         removed = Set(annotations.compactMap { ($0 as? ParkAnnotation)?.park.id })
         super.removeAnnotations(annotations)
     }
-    override func setCenter(_ coordinate: CLLocationCoordinate2D, animated: Bool) {
-        centerAnimations.append(animated)
-        centerDurations.append(UIView.inheritedAnimationDuration)
-        super.setCenter(coordinate, animated: false)
+    override func setCamera(_ camera: MKMapCamera, animated: Bool) {
+        cameraAnimations.append(animated)
+        cameraDurations.append(UIView.inheritedAnimationDuration)
+        super.setCamera(camera, animated: false)
     }
     override func showAnnotations(_ annotations: [any MKAnnotation], animated: Bool) {
         clusterAnimations.append(animated)

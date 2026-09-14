@@ -9,6 +9,17 @@ public struct Entitlement: Equatable, Sendable {
     public let validUntil: Date?
     public let isLemon: Bool
 
+    /// Native access projection does not manufacture an old PersonalSnapshot or
+    /// import legacy provider fields. The signed-in scope supplies the owner UID.
+    public init(native: NativeEntitlement, uid: String, now: Date = Date()) {
+        self.uid = uid
+        premium = native.permitsEditing(at: now)
+        status = premium ? "active" : "free"
+        source = native.source.rawValue
+        validUntil = native.validUntilMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+        isLemon = false
+    }
+
     public init(snapshot: PersonalSnapshot, now: Date = Date()) {
         uid = snapshot.uid
         let fields = snapshot.profile.fields["entitlement"]?.object ?? [:]

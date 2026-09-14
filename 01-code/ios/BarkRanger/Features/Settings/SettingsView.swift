@@ -15,7 +15,7 @@ struct SettingsView: View {
                     ForEach(AppSettings.MapStyle.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
                 .disabled(model.isSavingPreference)
-                if model.preferences.account?.entitlement.access?.premium == true {
+                if model.preferences.syncsAppearance {
                     Text(
                         "Standard and Satellite sync with your account. Offline overview stays on this iPhone."
                     ).font(.footnote)
@@ -26,9 +26,7 @@ struct SettingsView: View {
                 Picker("Distance units", selection: preference(\.units)) {
                     ForEach(AppSettings.Units.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
-                .disabled(true)
-                Text("Distance measurements are not available yet.")
-                    .font(.footnote).foregroundStyle(.secondary)
+
                 Button("Location permission settings", action: model.openSystemSettings)
             }
             Section("Park catalog") {
@@ -44,6 +42,8 @@ struct SettingsView: View {
                 Button("Check for updates", action: model.refreshCatalog)
                     .disabled(
                         model.catalogState.status == .checking || model.catalogState.status == .notConfigured)
+                Text("Checks about every 5 minutes while the app is open. Updates are saved for offline use.")
+                    .font(.footnote).foregroundStyle(.secondary)
                 Text(
                     "Park records, search, details and the geographic overview work offline. Apple street and satellite imagery need a connection unless already available on your device."
                 ).font(.footnote)
@@ -56,7 +56,9 @@ struct SettingsView: View {
                     }
                 }
                 Text(
-                    "Device preferences stay on this iPhone. Signed-in Premium accounts also sync Standard or Satellite appearance."
+                    model.preferences.syncsAppearance
+                        ? "Device preferences stay on this iPhone. Standard and Satellite sync with your account."
+                        : "Your map preferences are saved on this iPhone."
                 )
                 .font(.footnote).foregroundStyle(.secondary)
             }

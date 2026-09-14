@@ -6,27 +6,31 @@ struct MapScreen: View {
     @Bindable var model: MapFeatureModel
     @FocusState private var searchFocused: Bool
     @State private var showsFilters = false
-    @State private var resultsCollapsed = false
-    @State private var detailPosition = ParkSheetPosition.low
+    @State private var recentersAfterFilters = false
+    @State private var resultsCollapsed = true
+    @State private var detailPosition = MapSheetPosition.low
     @State private var detailHeight: CGFloat = 0
+    @State private var routeHeight: CGFloat = 0
+    @State private var isVisible = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var searchHeight: CGFloat = 60
-    @State private var tabBarOverlap: CGFloat = 0
+    @State private var controlsHeight: CGFloat = 60
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geometry in
-            let sheetLayout = ParkSheetLayout(
+            let sheetLayout = MapSheetLayout(
                 availableHeight: geometry.size.height + geometry.safeAreaInsets.bottom,
-                bottomOverlap: tabBarOverlap, searchHeight: searchHeight)
-            let hidesChrome = model.selectedID != nil && sheetLayout.hidesChrome(at: detailHeight)
+                bottomOverlap: geometry.safeAreaInsets.bottom, searchHeight: searchHeight)
+            let showsDay = model.routeDay?.target != nil
+            let sheetHeight = model.selectionID != nil ? detailHeight : showsDay ? routeHeight : 0
+            let hidesChrome = sheetLayout.hidesChrome(at: sheetHeight)
             ZStack(alignment: .top) {
                 NativeMapView(
                     model: model, detailFramingHeight: sheetLayout.height(at: .medium),
-                    topObstruction: geometry.safeAreaInsets.top + searchHeight
-                ) {
-                    resultsCollapsed = true
-                    searchFocused = false
-                }
+                    topObstruction: geometry.safeAreaInsets.top + searchHeight,
+                    interactionBegan: dismissSearch
+                )
                 .accessibilityLabel("Park map")
                 .accessibilityValue("\(model.result.matchingCount) matching parks")
                 .accessibilityIdentifier("park-map")
@@ -49,16 +53,23 @@ struct MapScreen: View {
                                 model.dismissPark()
                                 showsFilters = true
                             })
-                        FilterChipsView(query: model.query, update: model.setFilters)
+                        FilterChipsView(
+                            query: model.query, update: model.setFilters,
+                            trip: model.routeDay, showRoute: model.showTripRoute,
+                            openTrip: model.openTrip,
+                            emptySpaceTapped: dismissSearch)
                     }
                     .onGeometryChange(for: CGFloat.self) {
                         $0.size.height
                     } action: {
-                        searchHeight = $0 + ParkSheetLayout.topInset
+                        searchHeight = $0 + MapSheetLayout.topInset
                     }
                     if searchFocused || (model.parks.isEmpty && !resultsCollapsed) {
                         MapSearchResults(
-                            parks: model.parks,
+                            parks: model.projection?.searchParks ?? [], places: model.placeSearch,
+                            selectPlace: { suggestion in
+                                model.placeSearch.select(suggestion) { model.selectPlace($0) }
+                            },
                             maximumHeight: max(100, min(360, geometry.size.height * 0.55)),
                             select: { id in
                                 searchFocused = false
@@ -67,29 +78,24 @@ struct MapScreen: View {
                             clear: { model.setFilters(.init()) })
                     }
                 }
-                .padding(.horizontal, 12).padding(.top, ParkSheetLayout.topInset)
+                .onGeometryChange(for: CGFloat.self) {
+                    $0.size.height
+                } action: {
+                    controlsHeight = $0
+                }
+                .padding(.horizontal, 12).padding(.top, MapSheetLayout.topInset)
                 .offset(
-                    y: reduceMotion || !hidesChrome ? 0 : -(searchHeight + geometry.safeAreaInsets.top + 16)
+                    y: reduceMotion || !hidesChrome ? 0 : -(controlsHeight + geometry.safeAreaInsets.top + 16)
                 )
                 .opacity(reduceMotion && hidesChrome ? 0 : 1)
-                .animation(.easeInOut(duration: ParkSheetLayout.chromeDuration), value: hidesChrome)
+                .animation(.easeInOut(duration: MapSheetLayout.chromeDuration), value: hidesChrome)
                 .allowsHitTesting(!hidesChrome)
                 .accessibilityHidden(hidesChrome)
             }
             .background(MapTabBarTransition(hidesChrome: hidesChrome, reduceMotion: reduceMotion))
             .background(Color(uiColor: .systemBackground).ignoresSafeArea())
-            .overlay(alignment: .bottomTrailing) {
-                if !searchFocused && model.selectedID == nil {
-                    Button(action: model.locateMe) {
-                        Image(systemName: "location.fill").frame(width: 48, height: 48)
-                    }
-                    .buttonStyle(.borderedProminent).buttonBorderShape(.circle)
-                    .accessibilityLabel(model.isLocating ? "Locating…" : "Locate me")
-                    .disabled(model.isLocating).padding(12)
-                }
-            }
             .overlay(alignment: .bottomLeading) {
-                if model.usesOfflineMap && !searchFocused && model.selectedID == nil {
+                if model.usesOfflineMap && !searchFocused && model.selectionID == nil && !showsDay {
                     Text("Offline geographic overview · Natural Earth")
                         .font(.footnote).foregroundStyle(Color.primary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -98,27 +104,35 @@ struct MapScreen: View {
                 }
             }
             .overlay(alignment: .bottom) {
-                ZStack(alignment: .bottom) {
-                    if model.selectedID != nil && !showsFilters {
-                        ParkDetailSheet(
-                            model: model.detail, position: $detailPosition, layout: sheetLayout,
-                            dismiss: model.dismissPark
-                        ) { height in
-                            detailHeight = height
-                        }
-                        .offset(y: geometry.safeAreaInsets.bottom)
-                        .transition(reduceMotion ? .opacity : .move(edge: .bottom))
-                    }
+                if !showsFilters {
+                    MapSelectionSheets(
+                        model: model, parkPosition: $detailPosition, layout: sheetLayout,
+                        addStop: {
+                            model.routeDay?.position = .low
+                            searchFocused = true
+                        },
+                        parkHeightChanged: { detailHeight = $0 }, dayHeightChanged: { routeHeight = $0 }
+                    )
+                    .offset(y: geometry.safeAreaInsets.bottom)
                 }
-                .animation(.easeInOut(duration: 0.26), value: model.selectedID != nil)
-            }
-            .onChange(of: geometry.safeAreaInsets.bottom, initial: true) { _, overlap in
-                // Retain the resting overlap while the sheet and native bar move above it.
-                if model.selectedID == nil && !searchFocused { tabBarOverlap = overlap }
             }
         }
-        .sheet(isPresented: $showsFilters) {
-            FilterSheet(model: model, dismiss: { showsFilters = false })
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .sheet(
+            isPresented: $showsFilters,
+            onDismiss: {
+                // Present a possible permission/failure alert only after the filter sheet has closed.
+                guard recentersAfterFilters else { return }
+                recentersAfterFilters = false
+                model.locateMe()
+            }
+        ) {
+            FilterSheet(
+                model: model, dismiss: { showsFilters = false },
+                recenter: {
+                    recentersAfterFilters = true
+                    showsFilters = false
+                })
         }
         .alert(
             "Location unavailable",
@@ -129,10 +143,11 @@ struct MapScreen: View {
         } message: {
             Text(model.locationMessage ?? "")
         }
-        .onChange(of: model.selectedID) { _, id in
+        .onChange(of: model.selectionID) { _, id in
             // Keep the user's low/medium browsing height across selections and dismissals.
             // Reset high on the next selection so the departing sheet keeps its full height.
             if id != nil {
+                resultsCollapsed = true
                 if detailPosition == .high { detailPosition = .low }
                 searchFocused = false
             } else {
@@ -143,9 +158,55 @@ struct MapScreen: View {
             if focused {
                 resultsCollapsed = false
                 model.dismissPark()
+                model.routeDay?.position = .low
             }
+            refreshPlaces()
         }
-        .onChange(of: model.query) { _, _ in resultsCollapsed = false }
-        .onDisappear { searchFocused = false }
+        .onChange(of: model.query) { _, _ in
+            resultsCollapsed = false
+            refreshPlaces()
+        }
+        .onChange(of: model.canSearchPlaces) { _, _ in refreshPlaces() }
+        .onChange(of: model.isOffline) { _, _ in refreshPlaces() }
+        .onChange(of: model.searchFocusRequest) { _, _ in focusRequestedSearch() }
+        .onChange(of: model.routeDay?.target) { _, target in
+            if target != nil { searchFocused = false } else { routeHeight = 0 }
+        }
+        .onAppear {
+            isVisible = true
+            model.routeDay?.start()
+            focusRequestedSearch()
+        }
+        .onDisappear {
+            isVisible = false
+            searchFocused = false
+            model.placeSearch.cancel()
+            model.routeDay?.stop()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active && isVisible {
+                model.routeDay?.start()
+                refreshPlaces()
+            }
+            if phase == .background { model.placeSearch.cancel() }
+        }
     }
+    private func dismissSearch() {
+        resultsCollapsed = true
+        searchFocused = false
+    }
+    private func focusRequestedSearch() {
+        guard isVisible, model.consumeSearchFocusRequest() else { return }
+        searchFocused = true
+    }
+    private func refreshPlaces() {
+        guard searchFocused else {
+            model.placeSearch.cancel()
+            return
+        }
+        model.placeSearch.update(
+            query: model.query.search, region: model.lastRegion,
+            permitted: model.canSearchPlaces, connected: !model.isOffline)
+    }
+
 }

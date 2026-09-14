@@ -1,0 +1,30 @@
+{
+  "functions": [
+    {
+      "source": "01-code/functions-native",
+      "codebase": "native-ios",
+      "runtime": "nodejs22",
+      "ignore": ["node_modules", "tests", ".git", "*.log", ".env*", ".secret*"],
+      "predeploy": [
+        "node \"$PROJECT_DIR/05-tools/scripts/check-native-firebase-project.cjs\" \"$GCLOUD_PROJECT\"",
+        "npm --prefix \"$RESOURCE_DIR\" test"
+      ]
+    }
+  ],
+  "firestore": {
+    "rules": "06-config/native-ios/firestore.rules",
+    "indexes": "06-config/native-ios/firestore.indexes.json",
+    "predeploy": [
+      "node \"$PROJECT_DIR/05-tools/scripts/check-native-firebase-project.cjs\" \"$GCLOUD_PROJECT\""
+    ]
+  },
+  "emulators": {
+    "auth": { "host": "127.0.0.1", "port": 9198 },
+    "functions": { "host": "127.0.0.1", "port": 5108 },
+    "firestore": { "host": "127.0.0.1", "port": 8188 },
+    "hub": { "host": "127.0.0.1", "port": 4508 },
+    "logging": { "host": "127.0.0.1", "port": 4608 },
+    "ui": { "enabled": false },
+    "singleProjectMode": true
+  }
+}

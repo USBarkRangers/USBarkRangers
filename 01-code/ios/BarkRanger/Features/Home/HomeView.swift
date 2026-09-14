@@ -44,14 +44,18 @@ struct HomeView: View {
                 } label: {
                     Label("Explore parks", systemImage: "map")
                         .font(.headline)
-                        .foregroundStyle(.background)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, minHeight: 32)
                 }
-                .buttonStyle(.borderedProminent)
+                .barkActionStyle(prominent: true)
                 .controlSize(.large)
                 .accessibilityHint("Opens the park map and searchable results")
 
+                HStack {
+                    Button("Share & export") { open(.sheet(.sharing)) }
+                    Spacer()
+                    Button("Help & feedback") { open(.sheet(.support)) }
+                }.barkActionStyle()
                 VStack(alignment: .leading, spacing: 12) {
                     Label("The B.A.R.K. principles", systemImage: "pawprint")
                         .font(.headline)

@@ -1,0 +1,3 @@
+# Download the exact bark-ranger-ios registration locally; never copy old configuration.
+GoogleService-Info.plist
+*.local.json

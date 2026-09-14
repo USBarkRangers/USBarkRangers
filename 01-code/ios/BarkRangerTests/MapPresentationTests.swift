@@ -10,14 +10,15 @@ nonisolated final class MapPresentationTests: XCTestCase {
     func testDetailRevealGrowsGraduallyAndReversesWithoutScrolling() async throws {
         let model = ParkDetailModel(maps: MapsHandoff(open: { _ in true }))
         model.show(try park(name: "Acadia National Park Hulls Cove Visitor Center"))
-        let layout = ParkSheetLayout(availableHeight: 760, bottomOverlap: 83, searchHeight: 100)
+        let layout = MapSheetLayout(availableHeight: 760, bottomOverlap: 83, searchHeight: 100)
         func content(_ fraction: CGFloat) -> some View {
             let height =
                 layout.height(at: .low)
                 + (layout.height(at: .medium) - layout.height(at: .low)) * fraction
             return ParkDetailView(
                 model: model, position: layout.presentation(at: height),
-                expansion: layout.expansion(at: height), allowsScrolling: false,
+                expansion: layout.expansion(at: height), detailExpansion: layout.detailExpansion(at: height),
+                allowsScrolling: false,
                 bottomOverlap: 83, expand: {}, dismiss: {}, atTopChanged: { _ in }
             ).frame(height: height - 32).frame(maxHeight: .infinity, alignment: .bottom)
         }
@@ -37,7 +38,7 @@ nonisolated final class MapPresentationTests: XCTestCase {
             (view as? UIScrollView) ?? view.subviews.lazy.compactMap { outerScroll(in: $0) }.first
         }
         var heights: [CGFloat] = []
-        for fraction: CGFloat in [0, 0.02, 0.15, 0.4, 0.7, 1, 0.4, 0] {
+        for fraction: CGFloat in [0, 0.02, 0.15, 0.4, 0.7, 1, 1.01, 1.15, 1, 0.4, 0] {
             host.rootView = content(fraction)
             host.view.setNeedsLayout()
             host.view.layoutIfNeeded()
@@ -55,9 +56,16 @@ nonisolated final class MapPresentationTests: XCTestCase {
             add(attachment)
         }
         XCTAssertLessThan(heights[1] - heights[0], 10, "A small lift must not install the full medium layout")
-        for index in 1..<6 { XCTAssertGreaterThan(heights[index], heights[index - 1]) }
-        XCTAssertEqual(heights[6], heights[3], accuracy: 1, "Reversing has no separate reveal state")
-        XCTAssertEqual(heights[7], heights[0], accuracy: 1)
+        // The compact title reserves the close button's footprint; its first few points can stay level.
+        for index in 1..<6 { XCTAssertGreaterThanOrEqual(heights[index], heights[index - 1]) }
+        XCTAssertGreaterThan(heights[5], heights[0] + 100)
+        for index in 6...8 {
+            XCTAssertEqual(
+                heights[index], heights[5], accuracy: 1,
+                "Crossing Medium reveals existing content without inserting/removing blocks")
+        }
+        XCTAssertEqual(heights[9], heights[3], accuracy: 1, "Reversing has no separate reveal state")
+        XCTAssertEqual(heights[10], heights[0], accuracy: 1)
     }
 
     @MainActor
@@ -102,7 +110,7 @@ nonisolated final class MapPresentationTests: XCTestCase {
         try await waitForRendering { controller.isVisible }
         let restingFrame = tabs.tabBar.frame
         let restingInsets = controller.view.safeAreaInsets
-        let layout = ParkSheetLayout(availableHeight: 760, bottomOverlap: 83, searchHeight: 100)
+        let layout = MapSheetLayout(availableHeight: 760, bottomOverlap: 83, searchHeight: 100)
         let medium = layout.height(at: .medium)
         XCTAssertFalse(layout.hidesChrome(at: medium))
         controller.hidesChrome = layout.hidesChrome(at: medium + 20)
@@ -192,10 +200,12 @@ nonisolated final class MapPresentationTests: XCTestCase {
         let first = try park()
         let annotation = ParkAnnotation(park: first)
         let view = ParkAnnotationView(annotation: annotation, reuseIdentifier: "park")
-        view.configure(park: first, clustering: true, visited: true, inTrip: true)
+        view.configure(
+            park: first, clustering: true, visited: true,
+            day: .init(dayID: "third", index: 2, color: TripDayColor.palette[2]))
         view.setSelected(true, animated: false)
         XCTAssertEqual(view.clusteringIdentifier, "parks")
-        XCTAssertEqual(view.accessibilityValue, "Visited, In trip")
+        XCTAssertEqual(view.accessibilityValue, "Visited, Day 3")
         XCTAssertTrue(view.accessibilityTraits.contains(.selected))
         XCTAssertTrue(view.annotation === annotation)
         XCTAssertEqual(view.transform.a, 1.12, accuracy: 0.001)
@@ -205,6 +215,10 @@ nonisolated final class MapPresentationTests: XCTestCase {
         let next = try park("next", category: .state)
         view.annotation = ParkAnnotation(park: next)
         view.configure(park: next, clustering: false)
+        let outline = try XCTUnwrap(view.layer.sublayers?.first { $0.name == "park.state" } as? CAShapeLayer)
+        XCTAssertEqual(outline.fillColor, UIColor(red: 0.13, green: 0.59, blue: 0.95, alpha: 1).cgColor)
+        XCTAssertEqual(outline.strokeColor, UIColor(red: 0.13, green: 0.59, blue: 0.95, alpha: 1).cgColor)
+        XCTAssertEqual(outline.lineWidth, 2.5)
         XCTAssertFalse(view.isSelected)
         XCTAssertEqual(view.transform, .identity)
         XCTAssertFalse(view.accessibilityTraits.contains(.selected))
@@ -228,7 +242,9 @@ nonisolated final class MapPresentationTests: XCTestCase {
             .enumerated()
         {
             let view = ParkAnnotationView(annotation: ParkAnnotation(park: park), reuseIdentifier: "park")
-            view.configure(park: park, clustering: true, visited: flags.0, inTrip: flags.1)
+            view.configure(
+                park: park, clustering: true, visited: flags.0,
+                day: flags.1 ? .init(dayID: "third", index: 2, color: TripDayColor.palette[2]) : nil)
             view.setSelected(index == 1 || index == 4, animated: false)
             view.center = CGPoint(x: 40 + index * 82, y: 40)
             canvas.addSubview(view)
@@ -259,5 +275,107 @@ nonisolated final class MapPresentationTests: XCTestCase {
         attachment.name = "Normal, selected, visited, in-trip, combined; clusters 2, 219, 5000"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    @MainActor
+    func testVisitedDayAndSelectionRingsComposeAndRestoreAcrossReuse() throws {
+        let park = try park()
+        let canvas = UIView(frame: CGRect(x: 0, y: 0, width: 440, height: 560))
+        canvas.backgroundColor = UIColor(white: 0.17, alpha: 1)
+        for index in 0..<16 {
+            let park = try self.park(category: index < 8 ? .national : .state)
+            let visited = index & 1 != 0
+            let inTrip = index & 2 != 0
+            let selected = index & 4 != 0
+            let day = TripDayColor.Assignment(dayID: "third", index: 2, color: TripDayColor.palette[2])
+            let view = ParkAnnotationView(annotation: ParkAnnotation(park: park), reuseIdentifier: "park")
+            view.configure(park: park, clustering: true, visited: visited, day: inTrip ? day : nil)
+            func ring(_ name: String) throws -> CAShapeLayer {
+                try XCTUnwrap(view.layer.sublayers?.first { $0.name == name } as? CAShapeLayer)
+            }
+            let state = try ring("park.state")
+            let visit = try ring("park.visited")
+            let selection = try ring("park.selected")
+            let expected =
+                inTrip
+                ? day.color.uiColor
+                : visited
+                    ? UIColor.systemGreen
+                    : park.category == .national
+                        ? .black : UIColor(red: 0.13, green: 0.59, blue: 0.95, alpha: 1)
+            XCTAssertEqual(try XCTUnwrap(state.strokeColor), expected.cgColor)
+            XCTAssertEqual(visit.isHidden, !(visited && inTrip))
+            XCTAssertLessThan(visit.lineWidth, 1)
+            view.setSelected(selected, animated: false)
+            XCTAssertEqual(selection.isHidden, !selected)
+            XCTAssertEqual(
+                try XCTUnwrap(state.strokeColor), expected.cgColor, "Selection retains membership color")
+            XCTAssertEqual(try XCTUnwrap(selection.strokeColor), UIColor.systemYellow.cgColor)
+            XCTAssertEqual(
+                state.lineWidth, 2.5,
+                "State color occupies the same visible border as the reduced category padding")
+            XCTAssertTrue((1.5...2).contains(selection.lineWidth / state.lineWidth))
+            let selectionInside = try XCTUnwrap(selection.path).boundingBoxOfPath.insetBy(
+                dx: selection.lineWidth / 2, dy: selection.lineWidth / 2)
+            let stateOutside = try XCTUnwrap(state.path).boundingBoxOfPath.insetBy(
+                dx: -state.lineWidth / 2, dy: -state.lineWidth / 2)
+            XCTAssertTrue(selectionInside.contains(stateOutside), "Yellow stays outside the state ring")
+            XCTAssertEqual(stateOutside.size, CGSize(width: 30, height: 36))
+            let baseColor: UIColor =
+                park.category == .national ? .black : UIColor(red: 0.13, green: 0.59, blue: 0.95, alpha: 1)
+            XCTAssertEqual(state.fillColor, baseColor.cgColor)
+            if !visited && !inTrip {
+                XCTAssertEqual(state.fillColor, state.strokeColor, "Default ring is connected to its body")
+            }
+            XCTAssertEqual(view.bounds.size, CGSize(width: 44, height: 54))
+            XCTAssertEqual(view.transform.a, selected ? 1.12 : 1, accuracy: 0.001)
+            XCTAssertEqual(view.layer.shadowOpacity, 0)
+            XCTAssertEqual(
+                selection.shadowOpacity, 0, "Selection has a clean outer ring without a noisy glow")
+            for ring in [state, visit, selection] {
+                XCTAssertNotEqual(ring.strokeColor, UIColor.white.cgColor)
+            }
+            XCTAssertEqual(
+                view.subviews.compactMap { $0 as? UIImageView }.count, 1, "Artwork only; no state badges")
+            view.center = CGPoint(x: 55 + (index % 4) * 110, y: 40 + (index / 4) * 130)
+            canvas.addSubview(view)
+            let label = UILabel(
+                frame: CGRect(x: (index % 4) * 110, y: 80 + (index / 4) * 130, width: 110, height: 45))
+            label.text = [
+                visited ? "Visited" : "Unvisited", inTrip ? "Day 3" : "No trip", selected ? "Selected" : nil,
+            ].compactMap { $0 }.joined(separator: "\n")
+            label.font = .systemFont(ofSize: 11)
+            label.textColor = .white
+            label.numberOfLines = 3
+            label.textAlignment = .center
+            canvas.addSubview(label)
+        }
+        for dark in [false, true] {
+            canvas.backgroundColor = UIColor(white: dark ? 0.17 : 0.92, alpha: 1)
+            for label in canvas.subviews.compactMap({ $0 as? UILabel }) {
+                label.textColor = dark ? .white : .black
+            }
+            let rendered = UIGraphicsImageRenderer(size: canvas.bounds.size).image {
+                canvas.layer.render(in: $0.cgContext)
+            }
+            let attachment = XCTAttachment(image: rendered)
+            attachment.name = "Compact black and blue pins; eight states each; \(dark ? "dark" : "light")"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        for view in canvas.subviews.compactMap({ $0 as? ParkAnnotationView }) {
+            let state = try XCTUnwrap(
+                view.layer.sublayers?.first { $0.name == "park.state" } as? CAShapeLayer)
+            let color = state.strokeColor
+            view.setSelected(false, animated: false)
+            XCTAssertEqual(state.strokeColor, color)
+            view.prepareForReuse()
+            view.configure(park: park, clustering: true)
+            XCTAssertEqual(state.strokeColor, UIColor.black.cgColor)
+            XCTAssertEqual(state.fillColor, state.strokeColor)
+            XCTAssertTrue(
+                view.layer.sublayers?.filter { ["park.selected", "park.visited"].contains($0.name ?? "") }
+                    .allSatisfy(\.isHidden) == true)
+        }
     }
 }

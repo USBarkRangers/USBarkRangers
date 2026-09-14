@@ -38,10 +38,9 @@ import Testing
         let trip = try CloudUserDecoder.trip(#require(snapshot.trips.first))
         #expect(trip.id == "stored-route-id")
         #expect(trip.days.count == 2)
-        let expedition = CloudUserDecoder.expedition(
-            try #require(snapshot.profile.fields["completed_expeditions"]?.array?.first), completed: true)
-        #expect(expedition.distanceMeters == 80467.2)
-        #expect(expedition.completedAt == visit.visitedAt)
+        let completed = try #require(Expedition(profile: snapshot.profile).completed.first)
+        #expect(CloudUserDecoder.meters(fromStoredMiles: completed["miles"]) == 80467.2)
+        #expect(completed["date_completed"]?.date == visit.visitedAt)
         #expect(snapshot.completedExpeditionCount == 1)
         let days = try #require(snapshot.trips.first?.fields["tripDays"]?.array)
         #expect(days[0].object?["notes"] == .string("First day notes"))

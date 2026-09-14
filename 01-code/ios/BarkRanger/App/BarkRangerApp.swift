@@ -17,7 +17,10 @@ struct BarkRangerApp: App {
         WindowGroup {
             RootView(
                 router: composition.router, startup: composition.startup, discovery: composition.discovery,
-                settings: composition.settings, account: composition.account
+                settings: composition.settings, account: composition.account, trips: composition.trips,
+                passport: composition.passport, expeditions: composition.expeditions,
+                support: composition.support, mapExpedition: composition.mapExpedition,
+                catalog: composition.catalog
             )
             .onChange(of: scenePhase, initial: true) { _, phase in
                 composition.lifecycle.sceneChanged(phase)

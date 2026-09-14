@@ -1,6 +1,22 @@
 @preconcurrency import FirebaseAuth
 import Foundation
 
+/// Build capabilities are explicit composition choices, separate from identity and paid access.
+nonisolated struct AccountCapabilities: Equatable, Sendable {
+    var profileWrites = false
+    var authenticationChanges = false
+    var accountManagement = false
+    var appleSignIn = false
+    var isReadOnly: Bool { !profileWrites && !authenticationChanges && !accountManagement }
+    func allows(_ use: CredentialUse) -> Bool {
+        switch use {
+        case .signIn: true
+        case .link: authenticationChanges
+        case .reauthenticate: authenticationChanges || accountManagement
+        }
+    }
+}
+
 nonisolated struct AccountIdentity: Equatable, Sendable {
     let uid: String
     let email: String?
@@ -96,6 +112,7 @@ enum CredentialUse { case signIn, link, reauthenticate }
         }
     }
     func credential(_ credential: AuthCredential, use: CredentialUse, uid: String?) async throws {
+        try Task.checkCancellation()
         if use != .signIn {
             guard let uid, auth.currentUser?.uid == uid else { throw AccountFailure.accountChanged }
         }

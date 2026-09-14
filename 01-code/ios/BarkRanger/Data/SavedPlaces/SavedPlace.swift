@@ -1,0 +1,49 @@
+import BarkDomain
+import Foundation
+
+/// A device bookmark, independent of trip membership and account-backed park/stop notes.
+/// Saved places and their notes are local on this device for now, for future journal integration.
+/// No expiry or account cleanup: retain until explicitly removed or the app is deleted.
+/// A later saved-places/journal feature belongs around this record/store, not inside MapFeatureModel.
+nonisolated struct SavedPlace: Codable, Equatable, Sendable, Identifiable {
+    let id: String
+    let name: String
+    let coordinate: Coordinate
+    let subtitle: String
+    let locality: String
+    let appleID: String?
+    let stopID: String
+    let customPlaceID: String?
+    let savedAt: Date
+    // Reserved local note storage; this pass intentionally has no note editor or journal UI.
+    // Never copy trip notes here or send this field when adding the place to a trip.
+    var notes: String = ""
+
+    init?(stop: Trip.Stop, subtitle: String, savedAt: Date = Date()) {
+        guard let id = Self.identity(for: stop), let coordinate = stop.coordinate else { return nil }
+        self.id = id
+        self.name = stop.name
+        self.coordinate = coordinate
+        self.subtitle = subtitle
+        self.locality = stop.state
+        self.appleID = stop.applePlaceID
+        self.stopID = stop.id
+        self.customPlaceID = stop.customPlaceID
+        self.savedAt = savedAt
+    }
+
+    /// A known provider identity deduplicates saves; arbitrary pins retain their original identity.
+    /// J1: never fuzzy-merge nearby pins or derive private identity from a mutable label/coordinate.
+    static func identity(for stop: Trip.Stop) -> String? {
+        guard stop.parkID == nil, stop.coordinate != nil, stop.placeIdentity.isValid else { return nil }
+        return stop.placeIdentity.storageID
+    }
+
+    /// A projection only, with a stable marker/stop identity. Local notes stay in this record.
+    var stop: Trip.Stop {
+        let identity: PlaceIdentity = appleID.map { .provider(name: "apple", id: $0) }
+            ?? .custom(customPlaceID ?? "saved:" + id)
+        return Trip.Stop(id: stopID, placeIdentity: identity,
+            name: name, coordinate: coordinate, state: locality)
+    }
+}

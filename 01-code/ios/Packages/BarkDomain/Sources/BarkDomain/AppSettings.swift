@@ -27,12 +27,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var mapStyle: MapStyle = .standard
     public var units: Units = .miles
     public var clustering = true
+    public var showSavedPins = true
     public var rememberMapPosition = true
     public var camera: Camera?
     public var filters = ParkFilter.Query()
     public init() {}
     private enum CodingKeys: String, CodingKey {
-        case mapStyle, units, clustering, rememberMapPosition, camera, filters
+        case mapStyle, units, clustering, rememberMapPosition, camera, filters, showSavedPins
     }
     /// New or unrecognized preferences fall back individually, preserving other saved choices.
     public init(from decoder: any Decoder) throws {
@@ -40,6 +41,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         mapStyle = (try? values.decode(MapStyle.self, forKey: .mapStyle)) ?? mapStyle
         units = (try? values.decode(Units.self, forKey: .units)) ?? units
+        showSavedPins = (try? values.decode(Bool.self, forKey: .showSavedPins)) ?? showSavedPins
         clustering = (try? values.decode(Bool.self, forKey: .clustering)) ?? clustering
         rememberMapPosition =
             (try? values.decode(Bool.self, forKey: .rememberMapPosition)) ?? rememberMapPosition

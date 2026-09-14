@@ -3,7 +3,12 @@
 <plist version="1.0">
 <dict>
     <key>BarkCatalogManifestURL</key><string>$(BARK_CATALOG_MANIFEST_URL)</string>
-    <key>NSLocationWhenInUseUsageDescription</key><string>Use your location when you tap Locate me to center the park map.</string>
+    <key>BarkDeviceAccountHost</key><string>$(BARK_DEVICE_ACCOUNT_HOST)</string>
+    <key>NSLocationWhenInUseUsageDescription</key><string>Locate nearby parks or record a walk you start, including while the screen is locked.</string>
+    <key>UIBackgroundModes</key><array><string>location</string></array>
+    <key>NSMotionUsageDescription</key><string>Use system-estimated walking distance when you choose a motion-based walk.</string>
+    <key>NSHealthShareUsageDescription</key><string>Import only the completed walking or hiking workouts you choose into your expedition history.</string>
+    <key>NSSupportsLiveActivities</key><true/>
     <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
     <key>CFBundleDisplayName</key><string>Bark Ranger</string>
     <key>CFBundleURLTypes</key>

@@ -32,7 +32,7 @@ final class AppRouter {
     }
 
     enum Sheet: String, Identifiable {
-        case about, settings
+        case about, settings, expeditions, sharing, support
         var id: Self { self }
     }
 
@@ -74,6 +74,7 @@ final class AppRouter {
         else { return rejectLink() }
 
         switch components.host?.lowercased() {
+        case "walk": open(.sheet(.expeditions))
         case "home": open(.tab(.home))
         case "about": open(.sheet(.about))
         case "map": open(.tab(.map))

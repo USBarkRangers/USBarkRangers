@@ -18,7 +18,7 @@ struct StartupView: View {
             } description: {
                 Text("The saved catalog could not be read. Try again when a connection is available.")
             } actions: {
-                Button("Try again", action: model.retry).buttonStyle(.borderedProminent)
+                Button("Try again", action: model.retry).barkActionStyle(prominent: true)
             }
         case .ready: EmptyView()
         }

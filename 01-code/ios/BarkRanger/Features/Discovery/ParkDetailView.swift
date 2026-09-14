@@ -4,17 +4,24 @@ import SwiftUI
 /// Scrollable facts and working actions, with a compact single-line preview at the low position.
 struct ParkDetailView: View, Animatable {
     @Bindable var model: ParkDetailModel
-    let position: ParkSheetPosition
+    let position: MapSheetPosition
     var expansion: CGFloat
-    var animatableData: CGFloat {
-        get { expansion }
-        set { expansion = newValue }
+    var detailExpansion: CGFloat = 0
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { .init(expansion, detailExpansion) }
+        set {
+            expansion = newValue.first
+            detailExpansion = newValue.second
+        }
     }
     let allowsScrolling: Bool
     let bottomOverlap: CGFloat
     let expand: () -> Void
     let dismiss: () -> Void
     let atTopChanged: (Bool) -> Void
+    var tripAction: ParkTripAction? = nil
+    var tripError: String? = nil
+    var savedPlaceAction: SavedPlaceButton? = nil
     @Environment(\.dynamicTypeSize) private var textSize
     @ScaledMetric(relativeTo: .headline) private var compactTitleSize = 17
     @ScaledMetric(relativeTo: .title2) private var expandedTitleSize = 22
@@ -28,30 +35,43 @@ struct ParkDetailView: View, Animatable {
         ScrollViewReader { scroll in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if let park = model.park {
+                    if let selection = model.selection {
                         ParkDetailReveal(progress: title) {
-                            Text(park.name).font(titleFont).lineLimit(1)
+                            Text(selection.name).font(titleFont).lineLimit(1)
                                 .transaction { $0.animation = nil }
                                 .opacity(1 - title).accessibilityHidden(title >= 0.5)
                                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("park-detail-name")
-                            Text(park.name).font(titleFont)
+                            Text(selection.name).font(titleFont)
                                 .transaction { $0.animation = nil }
                                 .opacity(title).accessibilityHidden(title < 0.5)
                                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("park-detail-name")
                         }
                         .clipped().padding(.trailing, 48)
-                        reveal(metadata) { ParkDetailMetadata(park: park) }
-                        ParkDetailActions(isOpeningMaps: model.isOpeningMaps) {
-                            model.navigate()
-                        } showInfo: {
-                            expand()
+                        .frame(minHeight: 38, alignment: .leading)
+                        if let park = model.park {
+                            reveal(metadata) { ParkDetailMetadata(park: park) }
+                        } else if let subtitle = model.subtitle, !subtitle.isEmpty {
+                            reveal(metadata) { Text(subtitle).font(.subheadline).foregroundStyle(.secondary) }
                         }
+                        ParkDetailActions(
+                            isOpeningMaps: model.isOpeningMaps, directions: model.navigate,
+                            showInfo: model.park == nil ? nil : expand,
+                            adventure: model.park == nil ? nil : model, tripAction: tripAction,
+                            savedPlaceAction: savedPlaceAction
+                        )
+                        .id(selection.id)
                         .padding(.top, 12)
-                        if let message = model.message {
+                        if let message = tripError ?? model.message {
                             Text(message).foregroundStyle(.red).padding(.top, 12)
                         }
-                        reveal(photos) { ParkThumbnailStrip() }
-                        if position == .high { ParkDetailContent(park: park).padding(.top, 12) }
+                        if let park = model.park {
+                            reveal(photos) { ParkThumbnailStrip() }
+                            // Keep full details in the scroll content; the sheet reveals them by height.
+                            // Crossing Medium must not insert/remove an entire block during a small drag.
+                            ParkDetailContent(park: park).padding(.top, 12)
+                                .opacity(min(1, detailExpansion * 2))
+                                .accessibilityHidden(!allowsScrolling)
+                        }
                     } else {
                         ProgressView("Opening park details…")
                     }
@@ -86,12 +106,14 @@ struct ParkDetailView: View, Animatable {
                     )
                     .background(Color(uiColor: .tertiarySystemFill), in: Circle())
                 }
-                .tint(.primary).accessibilityLabel("Close park details").padding(.trailing, 12)
+                .tint(.primary).accessibilityLabel(
+                    model.park == nil ? "Close place details" : "Close park details"
+                ).padding(.trailing, 12)
             }
             .onChange(of: allowsScrolling) { _, enabled in
                 if !enabled { scroll.scrollTo("top", anchor: .top) }
             }
-            .onChange(of: model.park?.id) { _, _ in scroll.scrollTo("top", anchor: .top) }
+            .onChange(of: model.selection?.id) { _, _ in scroll.scrollTo("top", anchor: .top) }
         }
         .onAppear { if textSize.isAccessibilitySize { expand() } }
     }

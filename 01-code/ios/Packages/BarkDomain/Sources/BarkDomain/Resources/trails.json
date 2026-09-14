@@ -1,0 +1,57 @@
+[
+  {
+    "id": "angels_landing",
+    "name": "Angels Landing",
+    "meters": 8046.72
+  },
+  {
+    "id": "cascade_pass",
+    "name": "Cascade Pass / Sahale Arm",
+    "meters": 19473.0624
+  },
+  {
+    "id": "emerald_lake",
+    "name": "Emerald Lake",
+    "meters": 5149.9008
+  },
+  {
+    "id": "grand_canyon_rim2rim",
+    "name": "Grand Canyon Rim to Rim",
+    "meters": 70811.136
+  },
+  {
+    "id": "half_dome",
+    "name": "Half Dome",
+    "meters": 25749.504
+  },
+  {
+    "id": "harding_icefield",
+    "name": "Harding Icefield",
+    "meters": 13196.620799999999
+  },
+  {
+    "id": "highline_trail",
+    "name": "Highline Trail",
+    "meters": 18990.2592
+  },
+  {
+    "id": "old_rag",
+    "name": "Old Rag Trail",
+    "meters": 14966.899200000002
+  },
+  {
+    "id": "precipice_trail",
+    "name": "Precipice Trail",
+    "meters": 5149.9008
+  },
+  {
+    "id": "skyline_loop",
+    "name": "Skyline Trail Loop",
+    "meters": 8851.392
+  },
+  {
+    "id": "zion_narrows",
+    "name": "Zion Narrows",
+    "meters": 25749.504
+  }
+]

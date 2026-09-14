@@ -10,6 +10,7 @@ import Testing
         let folder = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         let store = try await LocalStore.open(directory: folder, uid: "a")
+        try await store.seedPremium()
         try await store.commit(kind: .profile, value: .string("First name"))
         try await store.commit(kind: .profile, value: .string("Second name"))
         let saved = try await store.readSnapshot()
@@ -34,6 +35,7 @@ import Testing
         let folder = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         let store = try await LocalStore.open(directory: folder, uid: "a")
+        try await store.seedPremium()
         let sequence = try await store.beginRead()
         try await store.commit(kind: .profile, value: .string("Local name"))
         let operation = try #require(try await store.readSnapshot().pending.first?.operation)
@@ -57,6 +59,7 @@ import Testing
         let folder = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         let store = try await LocalStore.open(directory: folder, uid: "a")
+        try await store.seedPremium()
         try await store.commit(kind: .profile, value: .string("Local"))
         let op = try #require(try await store.readSnapshot().pending.first?.operation)
         try await store.acknowledge(
@@ -81,6 +84,7 @@ import Testing
         let folder = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         let store = try await LocalStore.open(directory: folder, uid: "a", beforeSave: { try gate.check() })
+        try await store.seedPremium()
         try await store.commit(kind: .profile, value: .string("Durable"))
         let before = try await store.readSnapshot()
         gate.fail()
@@ -98,6 +102,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: folder) }
         let a = try await LocalStore.open(directory: folder, uid: "a")
         let b = try await LocalStore.open(directory: folder, uid: "b")
+        try await a.seedPremium()
         try await a.commit(kind: .profile, value: .string("Only A"))
         let read = try await b.beginRead()
         await #expect(throws: (any Error).self) {
@@ -113,6 +118,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: folder) }
         let a = try await LocalStore.open(directory: folder, uid: "a")
         let b = try await LocalStore.open(directory: folder, uid: "b")
+        try await b.seedPremium()
         try await b.commit(kind: .profile, value: .string("Keep B"))
         await a.close()
         try await LocalStore.removeAccount(directory: folder, uid: "a")

@@ -98,6 +98,10 @@ nonisolated final class ParkDetailSheetUITests: XCTestCase {
         XCTAssertTrue(sheet.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Directions in Apple Maps"].isHittable)
         XCTAssertTrue(app.buttons["Park Info"].isHittable)
+        XCTAssertLessThanOrEqual(
+            app.buttons["Close park details"].frame.maxY + 8,
+            app.buttons["Directions in Apple Maps"].frame.minY,
+            "Low close control must not overlap the actions")
         XCTAssertFalse(app.staticTexts["Park photos coming soon"].exists)
         XCTAssertTrue(search.isHittable)
         XCTAssertTrue(app.tabBars.buttons["Map"].isHittable)

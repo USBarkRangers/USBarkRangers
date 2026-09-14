@@ -10,6 +10,9 @@ final class AppLifecycle {
     private let settings: SettingsModel
     private let diagnostics: Diagnostics
     private let account: AccountSession?
+    private let trips: ActiveTripSession?
+    private let recorder: WalkRecorder?
+    private var recordingCheckpoint: Task<Void, Never>?
     private var connectivity: Task<Void, Never>?
     private var polling: Task<Void, Never>?
     private var catalogStop: Task<Void, Never>?
@@ -18,8 +21,10 @@ final class AppLifecycle {
     init(
         startup: StartupModel, catalog: CatalogRepository, network: NetworkMonitor,
         discovery: MapFeatureModel, settings: SettingsModel, diagnostics: Diagnostics,
-        account: AccountSession? = nil
+        account: AccountSession? = nil, trips: ActiveTripSession? = nil, recorder: WalkRecorder? = nil
     ) {
+        self.recorder = recorder
+        self.trips = trips
         self.account = account
         self.startup = startup
         self.catalog = catalog
@@ -39,6 +44,8 @@ final class AppLifecycle {
         diagnostics.record(.enteredForeground)
         account?.setForeground(true)
         account?.connectivityChanged(network.isConnected == true)
+        trips?.connectivityChanged(network.isConnected != false)
+        trips?.start()
         discovery.start()
         settings.load()
         let previousConnection = network.isConnected
@@ -86,7 +93,13 @@ final class AppLifecycle {
         network.stop()
         startup.stop()
         discovery.stop()
+        trips?.stop()
         settings.stop()
+        let previousCheckpoint = recordingCheckpoint
+        recordingCheckpoint = Task {
+            await previousCheckpoint?.value
+            await recorder?.checkpointForBackground()
+        }
         let previousStop = catalogStop
         catalogStop = Task {
             await previousStop?.value
@@ -96,7 +109,10 @@ final class AppLifecycle {
     /// Teardown can await outstanding disk work before removing an isolated store.
     func stopAndWait() async {
         stop()
+        await discovery.savedPlaces?.waitForPending()
         await catalogStop?.value
+        await recordingCheckpoint?.value
+        await recorder?.suspend()
         await account?.stopAndWait()
     }
 }

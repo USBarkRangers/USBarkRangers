@@ -16,31 +16,37 @@ actor CatalogRepository {
     private let client: CatalogHTTPClient?
     private let validator: CatalogValidator
     private let diagnostics: Diagnostics
+    private let now: @Sendable () -> ContinuousClock.Instant
     private var accepted: CatalogDiskStore.Envelope?
     private var state = State()
     private var observers: [UUID: AsyncStream<State>.Continuation] = [:]
     private var inFlight: Task<Void, Never>?
     private var refreshID: UUID?
     private var etag: String?
-    private var nextRegular = ContinuousClock.now
-    private var nextRetry = ContinuousClock.now
-    private var serverRetry = ContinuousClock.now
+    private var nextRegular: ContinuousClock.Instant
+    private var nextRetry: ContinuousClock.Instant
+    private var serverRetry: ContinuousClock.Instant
     private var failures = 0
 
     init(
         disk: CatalogDiskStore, client: CatalogHTTPClient?, validator: CatalogValidator = CatalogValidator(),
-        diagnostics: Diagnostics = Diagnostics()
+        diagnostics: Diagnostics = Diagnostics(),
+        now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
     ) {
         self.disk = disk
         self.client = client
         self.validator = validator
         self.diagnostics = diagnostics
+        self.now = now
+        nextRegular = now()
+        nextRetry = nextRegular
+        serverRetry = nextRegular
     }
     func current() -> State { state }
     /// The lifecycle sleeps until this owner's next permitted request, not a separate retry policy.
     func nextRefreshDelay() -> Duration {
         guard client != nil else { return .seconds(60) }
-        return max(.seconds(1), ContinuousClock.now.duration(to: max(nextRegular, nextRetry, serverRetry)))
+        return max(.seconds(1), now().duration(to: max(nextRegular, nextRetry, serverRetry)))
     }
     func updates() -> AsyncStream<State> {
         let id = UUID()
@@ -93,7 +99,7 @@ actor CatalogRepository {
             publish()
             return
         }
-        let now = ContinuousClock.now
+        let now = now()
         guard now >= serverRetry else { return }
         if reason != .manual && reason != .reconnect && reason != .startup && now < nextRegular { return }
         if now < nextRetry { return }
@@ -157,8 +163,8 @@ actor CatalogRepository {
             failures = 0
             state.status = .fresh
             state.checkedAt = Date()
-            nextRegular = .now.advanced(by: .seconds(60))
-            nextRetry = .now
+            nextRegular = now().advanced(by: .seconds(300))
+            nextRetry = now()
         } catch {
             diagnostics.catalogFailure(
                 Self.failureReason(Task.isCancelled ? CancellationError() : error, at: stage), at: stage)
@@ -167,12 +173,12 @@ actor CatalogRepository {
                 publish()
                 return
             }
-            nextRegular = .now
+            nextRegular = now()
             failures = min(failures + 1, 8)
             let delay = min(pow(2, Double(failures)), 300) + Double.random(in: 0...1)
-            nextRetry = .now.advanced(by: .seconds(delay))
+            nextRetry = now().advanced(by: .seconds(delay))
             if case CatalogHTTPClient.Failure.retryAfter(let seconds) = error {
-                serverRetry = .now.advanced(by: .seconds(seconds))
+                serverRetry = now().advanced(by: .seconds(seconds))
             }
             state.status = .unavailable
         }

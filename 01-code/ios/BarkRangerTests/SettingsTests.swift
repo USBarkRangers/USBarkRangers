@@ -99,6 +99,7 @@ struct SettingsTests {
         let coordinator = MapCoordinator(model: model)
         var settings = context.settings.value
         settings.mapStyle = .satellite
+        settings.showSavedPins = false
         context.settings.update(settings)
         coordinator.apply(to: map, reduceMotion: true)
         #expect(map.mapType == .satellite && map.overlays.isEmpty)

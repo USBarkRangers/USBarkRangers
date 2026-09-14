@@ -118,6 +118,9 @@ nonisolated final class MapInteractionUITests: XCTestCase {
         let toggle = app.switches["Group nearby pins"]
         toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
         XCTAssertEqual(toggle.value as? String, "0")
+        let remember = app.switches["Remember map position"]
+        remember.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        XCTAssertEqual(remember.value as? String, "0")
         app.buttons["Done"].tap()
         app.tabBars.buttons["Map"].tap()
         let search = app.textFields["park-search"]
@@ -156,8 +159,12 @@ nonisolated final class MapInteractionUITests: XCTestCase {
         XCTAssertGreaterThan(abs(firstPin.frame.midY - beforeDrag), 25)
         XCTAssertFalse(firstPin.isSelected || secondPin.isSelected)
         XCTAssertFalse(app.scrollViews["park-detail-sheet"].exists, "Dragging from a pin must not select it")
+        let unselectedSeparation = CGVector(
+            dx: secondPin.frame.midX - firstPin.frame.midX, dy: secondPin.frame.midY - firstPin.frame.midY)
         firstPin.tap()
         waitForPinToSettle(firstPin, in: app)
+        XCTAssertEqual(secondPin.frame.midX - firstPin.frame.midX, unselectedSeparation.dx, accuracy: 3)
+        XCTAssertEqual(secondPin.frame.midY - firstPin.frame.midY, unselectedSeparation.dy, accuracy: 3)
         let count = app.staticTexts["park-count"].label
         let separation = CGVector(
             dx: secondPin.frame.midX - firstPin.frame.midX, dy: secondPin.frame.midY - firstPin.frame.midY)

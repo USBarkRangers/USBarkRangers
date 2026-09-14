@@ -2,10 +2,18 @@ import FirebaseAuth
 import GoogleSignIn
 import UIKit
 
+/// A credential boundary permits controlled late completion tests without opening provider UI.
+@MainActor protocol GoogleCredentialProviding {
+    var isConfigured: Bool { get }
+    func credential() async throws -> AuthCredential
+    func handle(_ url: URL) -> Bool
+}
+
 /// Native provider UI; the owning account model decides sign-in, linking or reauthentication.
-@MainActor struct GoogleSignInAdapter {
+@MainActor struct GoogleSignInAdapter: GoogleCredentialProviding {
     let clientID: String?
     let serverClientID: String?
+    var isConfigured: Bool { clientID?.isEmpty == false }
     func credential() async throws -> AuthCredential {
         guard let clientID, !clientID.isEmpty,
             let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })

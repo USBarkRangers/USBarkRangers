@@ -16,13 +16,16 @@ BARK_DEVELOPMENT_TEAM = V7Y6NA8G23
 // Optional developer-owned overrides; never checked in.
 #include? "Signing.local.xcconfig"
 
-// Set only after native catalog assets have been provisioned and verified.
-BARK_CATALOG_MANIFEST_URL =
+// Public native-only assets. The manifest is conditional; changed catalogs are saved atomically on device.
+BARK_CATALOG_MANIFEST_URL = https:/$()/storage.googleapis.com/barkrangermap-auth-native-catalog/native-catalog/v1/manifest.json
 #include? "Catalog.local.xcconfig"
 
 // Native provider callback is developer-owned until Firebase iOS registration is supplied.
 BARK_GOOGLE_REVERSED_CLIENT_ID = barkranger-google-unconfigured
 #include? "Accounts.local.xcconfig"
+
+// Empty for normal/Release builds. Debug may opt into a Mac's local test account services.
+BARK_DEVICE_ACCOUNT_HOST =
 
 // Apply to our targets only; third-party packages may intentionally suppress their own warnings.
 SWIFT_TREAT_WARNINGS_AS_ERRORS = YES

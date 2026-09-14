@@ -1,6 +1,28 @@
 # Bark Ranger for iPhone
 
-Version **0.3.0 (19)** adds Phase 3 accounts, account-scoped SwiftData storage, offline profile/map-appearance edits, exact server receipts, existing membership access and native auth adapters. Use **BarkRanger Local Accounts** for the isolated emulator testing build; [start here](../../04-docs/operations/NATIVE_ACCOUNT_TESTING.md). Live Apple/Google setup still requires a registered Firebase iOS app. Trips/passport actions remain later phases. The existing web app and deployed backend continue operating independently.
+Latest correction: **0.5.15 (74)** preserves the chosen Map day-popup height when tapping another route line and centers the shared stops/time/mileage summary in Map and Planner. Loading and confirmation remain inline without shifting the stop list. Eighteen focused app checks, 51 domain checks, visual review and the signed iPhone build pass. Installed and launched on the connected iPhone 15 Pro Max on September 13; ready for device testing.
+
+Scrolling correction: **0.5.14 (73)** fixes [expanded Map day-popup scrolling](../../04-docs/reports/ios-native/ITINERARY_NORMAL_SCROLL_0_5_14.md), including Acadia clipping/overlap. The shared timeline uses normal scrolling, stable row heights and a small bottom fade. The 11-stop Map test, reorder workflow, focused regressions and signed build pass. Installed and launched on the connected iPhone 15 Pro Max on September 13; ready for physical-device testing.
+
+Latest feature: **0.5.13 (72)** adds [device-only saved places](../../04-docs/reports/ios-native/SAVED_PLACES_0_5_13.md). Searched-place popups have Save/Saved → Remove; saved locations remain as stars independently of trips. Filters includes Show saved pins. The separate storage boundary reserves local notes for future journal work; no journal editor or cloud synchronization is added. Persistence, UI and signed-device build checks passed.
+
+Latest presentation update: **0.5.12 (71)** keeps route loading in the driving-time slot and briefly shows “Day updated” beside mileage, using the same stable stats row in Map and Planner. Fourteen focused checks and the signed iPhone build pass.
+
+Latest routing update: **0.5.11 (70)** adds a [30-day device-only route cache](../../04-docs/reports/ios-native/ROUTE_CACHE_0_5_11.md). Completed road lines and estimated totals survive trip switching and process restarts. Restoring cached lines needs no network or cloud reads; edits request only missing connections. Historical checkpoints below describe their original implementation.
+
+Version **0.5.2 (61)** contains phases 1–5: offline discovery, native accounts, account-scoped persistence/sync, visits, shared Map/Planner/Overview trip editing and Passport. Map and Trips share one authoritative editable draft. Free accounts retain read-only access to existing data; Premium permits account-backed edits. Google and non-Apple account features are enabled in the normal build; Apple sign-in remains capability-gated. See [Config/README.md](Config/README.md) for the active provider/build configuration and the [account runbook](../../04-docs/operations/NATIVE_ACCOUNT_TESTING.md) for isolated tests.
+
+The [0.5.2 efficiency update](../../04-docs/reports/ios-native/RECEIPTS_AND_TRIP_PAGING_0_5_2.md) loads ten recent trips plus the active trip, shares Load more between Map/Trips, and preserves downloaded archives and drafts. Successful native receipt storage is compact and backward-readable; that backend optimization awaits deployment.
+
+Version 0.4.35 applies one shared native action-button style: charcoal fills and teal labels/icons in dark mode, preserving the existing light-mode styles.
+
+The 0.4.33 correction resets the horizontal park-action row when a different pin is selected. It preserves the row's scroll position when resizing the same park sheet, with no new model or stored scroll state.
+
+The [0.4.32 update](../../04-docs/reports/ios-native/PASSPORT_NAVIGATION_0_4_32.md) simplifies Passport navigation, orders state progress using nearby parks and removes the duplicate day-menu button. It also records the confirmed production leaderboard-format mismatch and the pending rollout decision; the UI update does not silently convert historical scores into validated ranks.
+
+The [current pre-Phase-5 review](../../04-docs/reports/ios-native/PHASE_5_READINESS_0_4_31.md) records ownership, measured checks, fixed Passport/cancellation issues and remaining growth concerns. **Phase 5 is now implemented; use the [Phase 5 handoff](../../04-docs/reports/ios-native/PHASE_5.md) for current status and physical-test/deployment gates.** Historical checkpoints below describe how Discovery evolved; use [ARCHITECTURE.md](ARCHITECTURE.md) and the current review for present contracts.
+
+## Historical Discovery checkpoints
 
 Phase 2 retains **393 bundled parks**, local search/filters, full details, native MapKit, offline geographic overview, Locate Me, Apple Maps directions and device settings.
 
@@ -39,7 +61,7 @@ Toolchain: **Xcode 26.6 (17F113), Swift 6.3.3**, Swift 6 language mode with comp
 - `BarkRanger/App`: assembly, navigation, lifecycle and startup.
 - `BarkRanger/Data/Catalog`: accepted revisions, HTTP, validation and atomic disk storage.
 - `BarkRanger/Data/User`: scoped personal store, decoder, sync/receipts, membership and device/account preference boundary.
-- `BarkRanger/Features`: Home, Discovery, Settings and Account views/models.
+- `BarkRanger/Features`: Home, Discovery, Settings, Account, Trips and Passport views/models; shared itinerary state/components live in Itinerary.
 - `BarkRanger/Platform`: native location/maps, offline geography, connectivity and redacted local diagnostics.
 - `Packages/BarkDomain`: immutable values and pure catalog/filter/search policies; Foundation only.
 - `Resources`: approved public snapshot, exact provenance, local geography and static education/legal content.
@@ -82,6 +104,8 @@ The native workflow pins Xcode 26.6 and starts its own loopback server. The cata
 
 ## Phase handoff
 
+- [Current pre-Phase-5 review and corrections](../../04-docs/reports/ios-native/PHASE_5_READINESS_0_4_31.md)
+- [Phase 4 implementation report](../../04-docs/reports/ios-native/PHASE_4.md)
 - [Phase 3 report and testing checklist](../../04-docs/reports/ios-native/PHASE_3.md)
 - [Local account/emulator instructions](../../04-docs/operations/NATIVE_ACCOUNT_TESTING.md)
 - [Phase 2 report and testing checklist](../../04-docs/reports/ios-native/PHASE_2.md)
@@ -89,6 +113,6 @@ The native workflow pins Xcode 26.6 and starts its own loopback server. The cata
 - [Complete proposed Swift map](../../04-docs/plans/ios-native-2026-09-09/SWIFT_FILE_MAP.md)
 - [Catalog publisher and rollback runbook](../../04-docs/operations/NATIVE_CATALOG_PUBLICATION.md)
 
-Phase 3 is ready for the user's testing/fixes. Phase 4 requires a separate explicit start. No users, purchases or cloud records move during these build phases.
+Phase 5 was explicitly started and is implemented. Passport opens Walks & expeditions below its header; Home opens Share & export and Help & feedback; Passport also opens sharing. Phase 6 requires a separate explicit start. The current review is not a user migration, production deployment or release-readiness certification.
 
 GitHub destination: [USBarkRangers/USBarkRangers](https://github.com/USBarkRangers/USBarkRangers), branch `codex/ios-native-setup`, remote `usbarkrangers`. Never push this native work through the multi-remote `both` alias or deploy the old web app as a side effect.

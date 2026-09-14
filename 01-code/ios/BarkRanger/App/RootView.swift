@@ -1,12 +1,20 @@
+import BarkDomain
 import SwiftUI
 
 /// Assembles the shell. Future feature placeholders stay here until replaced.
 struct RootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Bindable var router: AppRouter
     let startup: StartupModel
     let discovery: MapFeatureModel
     let settings: SettingsModel
     var account: AccountModel? = nil
+    var trips: TripEditorModel? = nil
+    var passport: PassportModel? = nil
+    var expeditions: ExpeditionModel? = nil
+    var support: SupportDependencies? = nil
+    var mapExpedition: MapExpeditionOverlay? = nil
+    var catalog: CatalogRepository? = nil
 
     var body: some View {
         Group {
@@ -17,15 +25,59 @@ struct RootView: View {
                             NavigationStack {
                                 destination(for: tab)
                                     .navigationTitle(
-                                        tab == .map ? "" : tab == .home ? "Bark Ranger" : tab.title
+                                        tab == .map || tab == .trips
+                                            ? "" : tab == .home ? "Bark Ranger" : tab.title
                                     )
-                                    .toolbar(tab == .map ? .hidden : .visible, for: .navigationBar)
+                                    .toolbar(
+                                        tab == .map || tab == .trips || tab == .passport ? .hidden : .visible,
+                                        for: .navigationBar
+                                    )
+                            }
+                            // Keep the shared progress projection alive in pushed Passport destinations.
+                            .task(id: tab == .passport ? passport?.input : nil) {
+                                if tab == .passport { await passport?.observeProgress() }
                             }
                         }
                     }
                 }
                 .sheet(item: $router.sheet) { sheet in
                     switch sheet {
+                    case .sharing:
+                        if let account, let catalog {
+                            NavigationStack {
+                                SharingView(account: account.session, catalog: catalog).toolbar {
+                                    ToolbarItem(placement: .confirmationAction) {
+                                        Button("Done", action: router.dismissSheet)
+                                    }
+                                }
+                            }
+                        }
+                    case .support:
+                        if let support {
+                            NavigationStack {
+                                SupportView(dependencies: support).toolbar {
+                                    ToolbarItem(placement: .confirmationAction) {
+                                        Button("Done", action: router.dismissSheet)
+                                    }
+                                }
+                            }
+                        }
+                    case .expeditions:
+                        if let expeditions {
+                            NavigationStack {
+                                ExpeditionView(
+                                    model: expeditions,
+                                    showMap: { trail in
+                                        mapExpedition?.show(trail: trail)
+                                        router.open(.tab(.map))
+                                    }
+                                ).toolbar {
+                                    ToolbarItem(placement: .confirmationAction) {
+                                        Button("Done", action: router.dismissSheet)
+                                    }
+                                }
+                            }
+                        }
                     case .about: aboutSheet
                     case .settings:
                         NavigationStack {
@@ -41,6 +93,30 @@ struct RootView: View {
                 StartupView(model: startup)
             }
         }
+        .environment(\.support, support)
+        .environment(\.expeditionOverlay, mapExpedition)
+        .task(id: expeditions?.recorder.pathRevision) {
+            await mapExpedition?.updateWalk(expeditions?.recorder.points ?? [])
+        }
+        .task(id: account?.session.identity?.uid) {
+            mapExpedition?.clear()
+            expeditions?.resetScope()
+            await expeditions?.recorder.activateAccount()
+        }
+        .onChange(of: account?.session.nativeVisits?.scope) { _, _ in passport?.recordActivity() }
+        .onChange(of: passport?.canEdit) { _, allowed in if allowed == true { passport?.recordActivity() } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background {
+                passport?.leaderboard.cancel()
+            }
+            if phase == .active { passport?.recordActivity() }
+        }
+        .onChange(of: account?.session.identity?.uid) { _, _ in
+            discovery.routeDay?.stop()
+            discovery.cancelPlaceSelection()
+            trips?.resetScope()
+            passport?.resetScope()
+        }
     }
 
     @ViewBuilder
@@ -51,13 +127,24 @@ struct RootView: View {
         case .map:
             MapScreen(model: discovery)
         case .trips:
-            developmentScreen(
-                "Room for your next adventure", symbol: tab.symbol,
-                detail: "Trip planning and saved routes will arrive in phase 4.")
+            if let trips {
+                TripsView(
+                    model: trips, units: settings.preferences.value.units,
+                    previewDay: { target in
+                        discovery.previewTripDay(target)
+                        router.open(.tab(.map))
+                    },
+                    search: { request in
+                        discovery.beginAdding(request) { router.open(.tab(.map)) }
+                    })
+            }
         case .passport:
-            developmentScreen(
-                "Every visit tells a story", symbol: tab.symbol,
-                detail: "Park visits, stamps and achievements will arrive in phase 4.")
+            if let passport {
+                PassportView(
+                    model: passport,
+                    openWalks: { router.open(.sheet(.expeditions)) },
+                    share: { router.open(.sheet(.sharing)) })
+            }
         case .account:
             if let account {
                 AccountView(model: account)
@@ -65,28 +152,6 @@ struct RootView: View {
                 ContentUnavailableView(
                     "Account unavailable in this preview", systemImage: "person.crop.circle")
             }
-        }
-    }
-
-    private func developmentScreen(
-        _ title: LocalizedStringKey, symbol: String, detail: LocalizedStringKey
-    ) -> some View {
-        ScrollView {
-            ContentUnavailableView {
-                Label(title, systemImage: symbol)
-            } description: {
-                Text("Development preview")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Text(detail)
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } actions: {
-                Button("Back to Home") { router.open(.tab(.home)) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-            }
-            .padding(.vertical, 32)
         }
     }
 
@@ -100,7 +165,7 @@ struct RootView: View {
                     Text("Development preview")
                         .font(.headline)
                     Text(
-                        "Explore offline park records, local search, filters and Apple Maps directions. Account testing is available in this development build; adventure tools are still being built."
+                        "Explore offline park records, local search, filters and Apple Maps directions. Record visits, plan trips and build your passport. Record walks and follow virtual expeditions. New purchases are planned for Phase 6."
                     )
                     Text("Your existing Bark Ranger app is still available as usual.")
                         .fixedSize(horizontal: false, vertical: true)
@@ -114,8 +179,7 @@ struct RootView: View {
                     Spacer()
                     Button("Done", action: router.dismissSheet)
                         .font(.body)
-                        .foregroundStyle(.background)
-                        .buttonStyle(.borderedProminent)
+                        .barkActionStyle(prominent: true)
                         .controlSize(.large)
                 }
                 .padding()
@@ -130,7 +194,8 @@ struct RootView: View {
         let composition = AppSandbox().makeComposition(preview: true)
         RootView(
             router: composition.router, startup: composition.startup, discovery: composition.discovery,
-            settings: composition.settings, account: composition.account)
+            settings: composition.settings, account: composition.account, trips: composition.trips,
+            passport: composition.passport)
     }
 
 #endif

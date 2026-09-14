@@ -1,0 +1,30 @@
+import Foundation
+import SwiftData
+
+extension NativeStore {
+    struct Submission: Equatable, Sendable {
+        let id: UUID
+        let bytes: Data
+        let attempts: Int
+    }
+    func operation(_ id: UUID) throws -> NativeLocalSchema.PendingOperation? {
+        let key = id.uuidString.lowercased()
+        var request = FetchDescriptor<NativeLocalSchema.PendingOperation>(
+            predicate: #Predicate { $0.id == key })
+        request.fetchLimit = 2
+        let rows = try modelContext.fetch(request)
+        guard rows.count <= 1 else { throw Failure.corrupt }
+        return rows.first
+    }
+    /// Shared durable ordering only. Each feature defines its own conflict/dependency rules.
+    func nextNativeSequence() throws -> Int64 {
+        var query = FetchDescriptor<NativeLocalSchema.Metadata>()
+        query.fetchLimit = 2
+        let rows = try modelContext.fetch(query)
+        guard rows.count == 1, let row = rows.first, (0..<Int64.max).contains(row.sequence) else {
+            throw Failure.corrupt
+        }
+        row.sequence += 1
+        return row.sequence
+    }
+}

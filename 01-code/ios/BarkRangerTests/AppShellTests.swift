@@ -9,6 +9,20 @@ import Testing
 struct AppShellTests {
     private let diagnostics = Diagnostics(enabled: false)
 
+    @Test(arguments: ["localhost", "127.0.0.1", "10.0.0.2", "192.168.1.2", "172.16.0.2", "172.31.255.254"])
+    func accountEmulatorsAcceptOnlyLocalEndpoints(_ host: String) {
+        #expect(AccountAssembly.allowsEmulatorHost(host))
+    }
+
+    @Test(arguments: ["", "example.com", "8.8.8.8", "172.15.0.1", "172.32.0.1", "0.0.0.0",
+                      "10.0.0.256", "10.0.0", "10.0.0.1:9098", "http://10.0.0.1", "10.0.0.+1"])
+    func invalidAccountEndpointCannotFallThroughToLiveFirebase(_ host: String) {
+        #expect(!AccountAssembly.allowsEmulatorHost(host))
+        let accounts = AccountAssembly.emulator(directory: URL.temporaryDirectory, scope: UUID(), host: host)
+        #expect(accounts.session.auth == nil)
+        #expect(accounts.session.cloud == nil)
+    }
+
     @Test func navigationDismissesSheetsWhenChangingDestination() {
         let router = AppRouter(diagnostics: diagnostics)
         router.open(.sheet(.about))

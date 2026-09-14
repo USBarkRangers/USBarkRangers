@@ -56,11 +56,11 @@ struct MapTabBarTransition: UIViewControllerRepresentable {
             let move = CABasicAnimation(keyPath: "sublayerTransform")
             move.fromValue = NSValue(caTransform3D: current.sublayerTransform)
             move.toValue = NSValue(caTransform3D: target)
-            move.duration = ParkSheetLayout.chromeDuration
+            move.duration = MapSheetLayout.chromeDuration
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = current.opacity
             fade.toValue = opacity
-            fade.duration = ParkSheetLayout.chromeDuration
+            fade.duration = MapSheetLayout.chromeDuration
             // Only rendered contents move. UIKit retains the bar's resting frame and safe areas.
             layer.removeAnimation(forKey: "bark.chrome")
             CATransaction.begin()
@@ -71,7 +71,7 @@ struct MapTabBarTransition: UIViewControllerRepresentable {
             guard animated else { return }
             let transition = CAAnimationGroup()
             transition.animations = reduceMotion ? [fade] : [move, fade]
-            transition.duration = ParkSheetLayout.chromeDuration
+            transition.duration = MapSheetLayout.chromeDuration
             transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             // A reversal starts at the visible presentation, not the old destination. Layout passes
             // with the same destination return above, so holding the finger cannot restart the slide.

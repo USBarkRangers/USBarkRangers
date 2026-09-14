@@ -12,6 +12,7 @@
 		BA4C30000000000000000002 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000002 /* FirebaseFirestore */; };
 		BA4C30000000000000000003 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000003 /* FirebaseFunctions */; };
 		BA4C30000000000000000004 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000004 /* GoogleSignIn */; };
+		BA4C50000000000000000001 /* BarkRangerActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BA4C50000000000000000002 /* BarkRangerActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -29,7 +30,28 @@
 			remoteGlobalIDString = 8B2A66BB2FD504090093FDAD;
 			remoteInfo = BarkRanger;
 		};
+		BA4C50000000000000000010 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8B2A66B42FD504090093FDAD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BA4C50000000000000000005;
+			remoteInfo = BarkRangerActivity;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		BA4C50000000000000000012 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				BA4C50000000000000000001 /* BarkRangerActivity.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		8B2A66BC2FD504090093FDAD /* BarkRanger.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BarkRanger.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -47,6 +69,7 @@
 		BA4C10000000000000000014 /* CONTRIBUTING.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CONTRIBUTING.md; sourceTree = "<group>"; };
 		BA4C10000000000000000019 /* BarkRangerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BarkRangerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BA4C10000000000000000024 /* BarkRangerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BarkRangerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		BA4C50000000000000000002 /* BarkRangerActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BarkRangerActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -63,6 +86,16 @@
 		BA4C10000000000000000023 /* BarkRangerUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = BarkRangerUITests;
+			sourceTree = "<group>";
+		};
+		BA4C50000000000000000003 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		BA4C50000000000000000004 /* BarkRangerActivity */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BarkRangerActivity;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -94,12 +127,21 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BA4C50000000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		8B2A66B32FD504090093FDAD = {
 			isa = PBXGroup;
 			children = (
+				BA4C50000000000000000003 /* Shared */,
+				BA4C50000000000000000004 /* BarkRangerActivity */,
 				8B2A66BE2FD504090093FDAD /* BarkRanger */,
 				BA4C10000000000000000010 /* Config */,
 				BA4C10000000000000000011 /* Packages/BarkDomain */,
@@ -117,6 +159,7 @@
 			isa = PBXGroup;
 			children = (
 				8B2A66BC2FD504090093FDAD /* BarkRanger.app */,
+				BA4C50000000000000000002 /* BarkRangerActivity.appex */,
 				BA4C10000000000000000019 /* BarkRangerTests.xctest */,
 				BA4C10000000000000000024 /* BarkRangerUITests.xctest */,
 			);
@@ -156,13 +199,16 @@
 				8B2A66B82FD504090093FDAD /* Sources */,
 				8B2A66B92FD504090093FDAD /* Frameworks */,
 				8B2A66BA2FD504090093FDAD /* Resources */,
+				BA4C50000000000000000012 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				BA4C50000000000000000011 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				8B2A66BE2FD504090093FDAD /* BarkRanger */,
+				BA4C50000000000000000003 /* Shared */,
 			);
 			name = BarkRanger;
 			packageProductDependencies = (
@@ -218,6 +264,27 @@
 			productReference = BA4C10000000000000000024 /* BarkRangerUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		BA4C50000000000000000005 /* BarkRangerActivity */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BA4C50000000000000000006 /* Build configuration list for PBXNativeTarget "BarkRangerActivity" */;
+			buildPhases = (
+				BA4C50000000000000000007 /* Sources */,
+				BA4C50000000000000000008 /* Frameworks */,
+				BA4C50000000000000000009 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				BA4C50000000000000000003 /* Shared */,
+				BA4C50000000000000000004 /* BarkRangerActivity */,
+			);
+			name = BarkRangerActivity;
+			productName = BarkRangerActivity;
+			productReference = BA4C50000000000000000002 /* BarkRangerActivity.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -260,6 +327,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				BA4C50000000000000000005 /* BarkRangerActivity */,
 				8B2A66BB2FD504090093FDAD /* BarkRanger */,
 				BA4C10000000000000000022 /* BarkRangerTests */,
 				BA4C1000000000000000002D /* BarkRangerUITests */,
@@ -283,6 +351,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		BA4C10000000000000000027 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BA4C50000000000000000009 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -313,6 +388,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BA4C50000000000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -325,6 +407,11 @@
 			isa = PBXTargetDependency;
 			target = 8B2A66BB2FD504090093FDAD /* BarkRanger */;
 			targetProxy = BA4C10000000000000000028 /* PBXContainerItemProxy */;
+		};
+		BA4C50000000000000000011 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BA4C50000000000000000005 /* BarkRangerActivity */;
+			targetProxy = BA4C50000000000000000010 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -449,7 +536,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/BarkRanger.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 74;
 				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -460,7 +547,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.3.0;
+				MARKETING_VERSION = 0.5.15;
 				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -474,7 +561,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/BarkRanger.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 74;
 				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -485,7 +572,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.3.0;
+				MARKETING_VERSION = 0.5.15;
 				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -562,6 +649,48 @@
 			};
 			name = Release;
 		};
+		BA4C50000000000000000013 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 74;
+				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Config/ActivityInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.5.15;
+				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS.Activity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		BA4C50000000000000000014 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 74;
+				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Config/ActivityInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.5.15;
+				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS.Activity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -597,6 +726,15 @@
 			buildConfigurations = (
 				BA4C1000000000000000002A /* Debug */,
 				BA4C1000000000000000002B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BA4C50000000000000000006 /* Build configuration list for PBXNativeTarget "BarkRangerActivity" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BA4C50000000000000000013 /* Debug */,
+				BA4C50000000000000000014 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

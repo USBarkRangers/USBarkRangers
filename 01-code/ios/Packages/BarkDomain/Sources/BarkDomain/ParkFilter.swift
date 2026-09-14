@@ -36,7 +36,7 @@ public enum ParkFilter {
     public static func reset() -> Query { Query() }
     public static func apply(
         catalog: CatalogSnapshot, visitedParkIDs: Set<ParkID> = [], tripParkIDs: Set<ParkID> = [],
-        query: Query, searchIDs: [ParkID]? = nil
+        query: Query, searchIDs: [ParkID]? = nil, includedParkIDs: Set<ParkID> = []
     ) -> Result {
         let rankedIDs =
             searchIDs
@@ -44,22 +44,29 @@ public enum ParkFilter {
         let searchSet = rankedIDs.map(Set.init)
         let active = catalog.parks.filter { !$0.isRetired }
         let matches = active.filter { park in
-            (searchSet?.contains(park.id) ?? true)
-                && (query.categories.isEmpty || query.categories.contains(park.category))
-                && (query.swag.isEmpty || query.swag.contains(park.swag))
-                && {
-                    switch query.personal {
-                    case .all: true
-                    case .visited: visitedParkIDs.contains(park.id)
-                    case .unvisited: !visitedParkIDs.contains(park.id)
-                    case .trip: tripParkIDs.contains(park.id)
-                    }
-                }()
+            includedParkIDs.contains(park.id) || park.aliases.contains(where: includedParkIDs.contains)
+                || (searchSet?.contains(park.id) ?? true)
+                    && (query.categories.isEmpty || query.categories.contains(park.category))
+                    && (query.swag.isEmpty || query.swag.contains(park.swag))
+                    && {
+                        switch query.personal {
+                        case .all: true
+                        case .visited:
+                            visitedParkIDs.contains(park.id)
+                                || park.aliases.contains(where: visitedParkIDs.contains)
+                        case .unvisited:
+                            !visitedParkIDs.contains(park.id)
+                                && !park.aliases.contains(where: visitedParkIDs.contains)
+                        case .trip:
+                            tripParkIDs.contains(park.id)
+                                || park.aliases.contains(where: tripParkIDs.contains)
+                        }
+                    }()
         }
         let ranks = Dictionary(uniqueKeysWithValues: (rankedIDs ?? []).enumerated().map { ($1, $0) })
         let ordered = matches.sorted { lhs, rhs in
-            let left = ranks[lhs.id] ?? 0
-            let right = ranks[rhs.id] ?? 0
+            let left = ranks[lhs.id] ?? Int.max
+            let right = ranks[rhs.id] ?? Int.max
             if left != right { return left < right }
             if lhs.name != rhs.name {
                 return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending

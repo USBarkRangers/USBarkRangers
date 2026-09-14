@@ -1,0 +1,42 @@
+{
+  "indexes": [
+    { "collectionGroup": "trips", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "deleted", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" },
+      { "fieldPath": "__name__", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "activities", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "deleted", "order": "ASCENDING" },
+      { "fieldPath": "happenedAtMs", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "activityIntervals", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "startMs", "order": "DESCENDING" },
+      { "fieldPath": "endMs", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "visits", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "deleted", "order": "ASCENDING" },
+      { "fieldPath": "happenedAtMs", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "visits", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "deleted", "order": "ASCENDING" },
+      { "fieldPath": "happenedAtMs", "order": "ASCENDING" }
+    ] }
+  ],
+  "fieldOverrides": [
+    { "collectionGroup": "content", "fieldPath": "*", "indexes": [] },
+    { "collectionGroup": "notes", "fieldPath": "text", "indexes": [] },
+    { "collectionGroup": "nativeOperationReceipts", "fieldPath": "*", "indexes": [] },
+    { "collectionGroup": "nativeOperationReceipts", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "trips", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "visits", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "visits", "fieldPath": "proximity", "indexes": [] },
+    { "collectionGroup": "activities", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "activities", "fieldPath": "originalMeters", "indexes": [] },
+    { "collectionGroup": "activities", "fieldPath": "elapsedSeconds", "indexes": [] },
+    { "collectionGroup": "activities", "fieldPath": "startedAtMs", "indexes": [] },
+    { "collectionGroup": "activities", "fieldPath": "endedAtMs", "indexes": [] },
+    { "collectionGroup": "activities", "fieldPath": "trailName", "indexes": [] },
+    { "collectionGroup": "activityClaims", "fieldPath": "*", "indexes": [] },
+    { "collectionGroup": "state", "fieldPath": "awards", "indexes": [] }
+  ]
+}

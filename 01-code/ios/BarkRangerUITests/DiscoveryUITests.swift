@@ -2,6 +2,44 @@ import XCTest
 
 nonisolated final class DiscoveryUITests: XCTestCase {
     @MainActor
+    func testLiveCatalogUpdateSurvivesOfflineRelaunch() throws {
+        guard let value = ProcessInfo.processInfo.environment["BARK_LIVE_CATALOG_COUNT"],
+            let count = Int(value)
+        else { throw XCTSkip("Opt-in live public catalog check through the loopback mirror on port 8788.") }
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
+        app.launchEnvironment["BARK_CATALOG_URL"] = "http://127.0.0.1:8788/manifest.json"
+        app.launchArguments = ["-AppleInterfaceStyle", "Dark"]
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Map"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["Map"].tap()
+        let accepted = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "\(count) of \(count) parks"),
+            object: app.staticTexts["park-count"])
+        XCTAssertEqual(XCTWaiter.wait(for: [accepted], timeout: 10), .completed)
+        let search = app.textFields["park-search"]
+        search.tap()
+        search.typeText("Mendenhall Glacier")
+        let addedPark = app.buttons["park-result-25f95cf4-b7f6-48f0-802f-cb1b20add101"]
+        XCTAssertTrue(addedPark.waitForExistence(timeout: 5))
+        XCTAssertTrue(addedPark.label.contains("Mendenhall Glacier"))
+        capture("Live sheet park searchable in updated catalog", app: app)
+
+        app.terminate()
+        app.launchEnvironment["BARK_CATALOG_URL"] = ""  // No catalog client: only the saved offline envelope.
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Map"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["Map"].tap()
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        XCTAssertEqual(search.value as? String, "Mendenhall Glacier")
+        search.tap()
+        XCTAssertTrue(addedPark.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["park-count"].label, "1 of \(count) parks")
+        capture("Updated park and catalog retained with catalog networking disabled", app: app)
+    }
+
+    @MainActor
     private func launch(largeText: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
@@ -152,7 +190,9 @@ nonisolated final class DiscoveryUITests: XCTestCase {
             return false
         }
         defer { removeUIInterruptionMonitor(interruption) }
-        app.buttons["Locate me"].tap()
+        XCTAssertFalse(app.buttons["Locate me"].exists)
+        app.buttons["Filters"].tap()
+        app.buttons["Recenter on my location"].tap()
         app.tap()
         XCTAssertTrue(app.alerts["Location unavailable"].waitForExistence(timeout: 5))
         app.alerts["Location unavailable"].buttons["OK"].tap()

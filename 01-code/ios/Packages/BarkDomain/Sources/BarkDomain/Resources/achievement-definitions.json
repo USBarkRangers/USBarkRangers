@@ -1,0 +1,637 @@
+[
+  {
+    "id": "bronzePaw",
+    "name": "Bronze Paw",
+    "category": "paws",
+    "rule": "visits",
+    "target": 10,
+    "criteria": "Visit 10 distinct park sites",
+    "classified": false
+  },
+  {
+    "id": "silverPaw",
+    "name": "Silver Paw",
+    "category": "paws",
+    "rule": "visits",
+    "target": 25,
+    "criteria": "Visit 25 distinct park sites",
+    "classified": false
+  },
+  {
+    "id": "goldPaw",
+    "name": "Gold Paw",
+    "category": "paws",
+    "rule": "visits",
+    "target": 50,
+    "criteria": "Visit 50 distinct park sites",
+    "classified": false
+  },
+  {
+    "id": "platinumPaw",
+    "name": "Platinum Paw",
+    "category": "paws",
+    "rule": "visits",
+    "target": 100,
+    "criteria": "Visit 100 distinct park sites",
+    "classified": false
+  },
+  {
+    "id": "obsidianPaw",
+    "name": "Obsidian Paw",
+    "category": "paws",
+    "rule": "visits",
+    "target": 200,
+    "criteria": "Visit 200 distinct park sites",
+    "classified": false
+  },
+  {
+    "id": "theExplorer",
+    "name": "The Explorer",
+    "category": "rareFeats",
+    "rule": "states",
+    "target": 5,
+    "criteria": "Visit five states",
+    "classified": false
+  },
+  {
+    "id": "theLocalLegend",
+    "name": "The Local Legend",
+    "category": "rareFeats",
+    "rule": "stateVisits",
+    "target": 3,
+    "criteria": "Visit three sites in one state",
+    "classified": false
+  },
+  {
+    "id": "coastToCoast",
+    "name": "Coast-to-Coast",
+    "category": "rareFeats",
+    "rule": "coasts",
+    "target": 1,
+    "criteria": "Visit the East and West coasts",
+    "classified": false
+  },
+  {
+    "id": "fiftyStateClub",
+    "name": "50-State Club",
+    "category": "rareFeats",
+    "rule": "states",
+    "target": 50,
+    "criteria": "Visit all 50 states",
+    "classified": false
+  },
+  {
+    "id": "alphaDog",
+    "name": "The Alpha Dog",
+    "category": "rareFeats",
+    "rule": "rank",
+    "target": 1,
+    "criteria": "Reach number one on the leaderboard",
+    "classified": true
+  },
+  {
+    "id": "nightRanger",
+    "name": "The Night Ranger",
+    "category": "rareFeats",
+    "rule": "night",
+    "target": 1,
+    "criteria": "Visit between midnight and 4 AM",
+    "classified": true
+  },
+  {
+    "id": "earlyBird",
+    "name": "The Early Bird",
+    "category": "rareFeats",
+    "rule": "early",
+    "target": 1,
+    "criteria": "Visit between 4 AM and 7 AM",
+    "classified": true
+  },
+  {
+    "id": "marathoner",
+    "name": "The Marathoner",
+    "category": "rareFeats",
+    "rule": "marathon",
+    "target": 4,
+    "criteria": "Visit four parks within 24 hours",
+    "classified": true
+  },
+  {
+    "id": "loneWolf",
+    "name": "The Lone Wolf",
+    "category": "rareFeats",
+    "rule": "christmas",
+    "target": 1,
+    "criteria": "Visit on Christmas Day",
+    "classified": true
+  },
+  {
+    "id": "mapConqueror",
+    "name": "The Map Conqueror",
+    "category": "rareFeats",
+    "rule": "complete",
+    "target": 1,
+    "criteria": "Visit every official site in the catalog",
+    "classified": true
+  },
+  {
+    "id": "state-al",
+    "name": "Alabama",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "AL",
+    "criteria": "Visit every catalog site in Alabama",
+    "classified": false
+  },
+  {
+    "id": "state-ak",
+    "name": "Alaska",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "AK",
+    "criteria": "Visit every catalog site in Alaska",
+    "classified": false
+  },
+  {
+    "id": "state-az",
+    "name": "Arizona",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "AZ",
+    "criteria": "Visit every catalog site in Arizona",
+    "classified": false
+  },
+  {
+    "id": "state-ar",
+    "name": "Arkansas",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "AR",
+    "criteria": "Visit every catalog site in Arkansas",
+    "classified": false
+  },
+  {
+    "id": "state-ca",
+    "name": "California",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "CA",
+    "criteria": "Visit every catalog site in California",
+    "classified": false
+  },
+  {
+    "id": "state-co",
+    "name": "Colorado",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "CO",
+    "criteria": "Visit every catalog site in Colorado",
+    "classified": false
+  },
+  {
+    "id": "state-ct",
+    "name": "Connecticut",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "CT",
+    "criteria": "Visit every catalog site in Connecticut",
+    "classified": false
+  },
+  {
+    "id": "state-de",
+    "name": "Delaware",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "DE",
+    "criteria": "Visit every catalog site in Delaware",
+    "classified": false
+  },
+  {
+    "id": "state-fl",
+    "name": "Florida",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "FL",
+    "criteria": "Visit every catalog site in Florida",
+    "classified": false
+  },
+  {
+    "id": "state-ga",
+    "name": "Georgia",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "GA",
+    "criteria": "Visit every catalog site in Georgia",
+    "classified": false
+  },
+  {
+    "id": "state-hi",
+    "name": "Hawaii",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "HI",
+    "criteria": "Visit every catalog site in Hawaii",
+    "classified": false
+  },
+  {
+    "id": "state-id",
+    "name": "Idaho",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "ID",
+    "criteria": "Visit every catalog site in Idaho",
+    "classified": false
+  },
+  {
+    "id": "state-il",
+    "name": "Illinois",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "IL",
+    "criteria": "Visit every catalog site in Illinois",
+    "classified": false
+  },
+  {
+    "id": "state-in",
+    "name": "Indiana",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "IN",
+    "criteria": "Visit every catalog site in Indiana",
+    "classified": false
+  },
+  {
+    "id": "state-ia",
+    "name": "Iowa",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "IA",
+    "criteria": "Visit every catalog site in Iowa",
+    "classified": false
+  },
+  {
+    "id": "state-ks",
+    "name": "Kansas",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "KS",
+    "criteria": "Visit every catalog site in Kansas",
+    "classified": false
+  },
+  {
+    "id": "state-ky",
+    "name": "Kentucky",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "KY",
+    "criteria": "Visit every catalog site in Kentucky",
+    "classified": false
+  },
+  {
+    "id": "state-la",
+    "name": "Louisiana",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "LA",
+    "criteria": "Visit every catalog site in Louisiana",
+    "classified": false
+  },
+  {
+    "id": "state-me",
+    "name": "Maine",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "ME",
+    "criteria": "Visit every catalog site in Maine",
+    "classified": false
+  },
+  {
+    "id": "state-md",
+    "name": "Maryland",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "MD",
+    "criteria": "Visit every catalog site in Maryland",
+    "classified": false
+  },
+  {
+    "id": "state-ma",
+    "name": "Massachusetts",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "MA",
+    "criteria": "Visit every catalog site in Massachusetts",
+    "classified": false
+  },
+  {
+    "id": "state-mi",
+    "name": "Michigan",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "MI",
+    "criteria": "Visit every catalog site in Michigan",
+    "classified": false
+  },
+  {
+    "id": "state-mn",
+    "name": "Minnesota",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "MN",
+    "criteria": "Visit every catalog site in Minnesota",
+    "classified": false
+  },
+  {
+    "id": "state-ms",
+    "name": "Mississippi",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "MS",
+    "criteria": "Visit every catalog site in Mississippi",
+    "classified": false
+  },
+  {
+    "id": "state-mo",
+    "name": "Missouri",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "MO",
+    "criteria": "Visit every catalog site in Missouri",
+    "classified": false
+  },
+  {
+    "id": "state-mt",
+    "name": "Montana",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "MT",
+    "criteria": "Visit every catalog site in Montana",
+    "classified": false
+  },
+  {
+    "id": "state-ne",
+    "name": "Nebraska",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "NE",
+    "criteria": "Visit every catalog site in Nebraska",
+    "classified": false
+  },
+  {
+    "id": "state-nv",
+    "name": "Nevada",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "NV",
+    "criteria": "Visit every catalog site in Nevada",
+    "classified": false
+  },
+  {
+    "id": "state-nh",
+    "name": "New Hampshire",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "NH",
+    "criteria": "Visit every catalog site in New Hampshire",
+    "classified": false
+  },
+  {
+    "id": "state-nj",
+    "name": "New Jersey",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "NJ",
+    "criteria": "Visit every catalog site in New Jersey",
+    "classified": false
+  },
+  {
+    "id": "state-nm",
+    "name": "New Mexico",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "NM",
+    "criteria": "Visit every catalog site in New Mexico",
+    "classified": false
+  },
+  {
+    "id": "state-ny",
+    "name": "New York",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "NY",
+    "criteria": "Visit every catalog site in New York",
+    "classified": false
+  },
+  {
+    "id": "state-nc",
+    "name": "North Carolina",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "NC",
+    "criteria": "Visit every catalog site in North Carolina",
+    "classified": false
+  },
+  {
+    "id": "state-nd",
+    "name": "North Dakota",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "ND",
+    "criteria": "Visit every catalog site in North Dakota",
+    "classified": false
+  },
+  {
+    "id": "state-oh",
+    "name": "Ohio",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "OH",
+    "criteria": "Visit every catalog site in Ohio",
+    "classified": false
+  },
+  {
+    "id": "state-ok",
+    "name": "Oklahoma",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "OK",
+    "criteria": "Visit every catalog site in Oklahoma",
+    "classified": false
+  },
+  {
+    "id": "state-or",
+    "name": "Oregon",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "OR",
+    "criteria": "Visit every catalog site in Oregon",
+    "classified": false
+  },
+  {
+    "id": "state-pa",
+    "name": "Pennsylvania",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "PA",
+    "criteria": "Visit every catalog site in Pennsylvania",
+    "classified": false
+  },
+  {
+    "id": "state-ri",
+    "name": "Rhode Island",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "RI",
+    "criteria": "Visit every catalog site in Rhode Island",
+    "classified": false
+  },
+  {
+    "id": "state-sc",
+    "name": "South Carolina",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "SC",
+    "criteria": "Visit every catalog site in South Carolina",
+    "classified": false
+  },
+  {
+    "id": "state-sd",
+    "name": "South Dakota",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "SD",
+    "criteria": "Visit every catalog site in South Dakota",
+    "classified": false
+  },
+  {
+    "id": "state-tn",
+    "name": "Tennessee",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "TN",
+    "criteria": "Visit every catalog site in Tennessee",
+    "classified": false
+  },
+  {
+    "id": "state-tx",
+    "name": "Texas",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "TX",
+    "criteria": "Visit every catalog site in Texas",
+    "classified": false
+  },
+  {
+    "id": "state-ut",
+    "name": "Utah",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "UT",
+    "criteria": "Visit every catalog site in Utah",
+    "classified": false
+  },
+  {
+    "id": "state-vt",
+    "name": "Vermont",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "VT",
+    "criteria": "Visit every catalog site in Vermont",
+    "classified": false
+  },
+  {
+    "id": "state-va",
+    "name": "Virginia",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "VA",
+    "criteria": "Visit every catalog site in Virginia",
+    "classified": false
+  },
+  {
+    "id": "state-wa",
+    "name": "Washington",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "WA",
+    "criteria": "Visit every catalog site in Washington",
+    "classified": false
+  },
+  {
+    "id": "state-wv",
+    "name": "West Virginia",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "WV",
+    "criteria": "Visit every catalog site in West Virginia",
+    "classified": false
+  },
+  {
+    "id": "state-wi",
+    "name": "Wisconsin",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "WI",
+    "criteria": "Visit every catalog site in Wisconsin",
+    "classified": false
+  },
+  {
+    "id": "state-wy",
+    "name": "Wyoming",
+    "category": "states",
+    "rule": "state",
+    "target": 1,
+    "state": "WY",
+    "criteria": "Visit every catalog site in Wyoming",
+    "classified": false
+  }
+]

@@ -18,7 +18,8 @@ import Testing
         try await store.applyServerSnapshot(snapshot, sequence: store.beginRead())
         await store.close()
         let auth = SyntheticAuth()
-        let session = AccountSession(auth: auth, cloud: nil, directory: folder)
+        let session = AccountSession(
+            auth: auth, cloud: ControlledUserCloud(), directory: folder, capabilities: .editableTest)
         let settings = SettingsRepository(defaults: nil, account: session)
         try await settings.setMapStyle(.satellite)
         session.setForeground(true)
@@ -31,7 +32,8 @@ import Testing
         #expect(settings.value.mapStyle == .standard)
         await session.stopAndWait()
     }
-    @Test func cloudAppearanceNeverLeaksIntoDeviceDefaultsAndOverviewStaysLocal() async throws {
+    @Test(arguments: [true, false])
+    func cloudAppearanceNeverLeaksIntoDeviceDefaultsAndOverviewStaysLocal(editable: Bool) async throws {
         let folder = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         let store = try await LocalStore.open(directory: folder, uid: "a")
@@ -44,12 +46,15 @@ import Testing
         try await store.applyServerSnapshot(snapshot, sequence: store.beginRead())
         await store.close()
         let auth = SyntheticAuth()
-        let session = AccountSession(auth: auth, cloud: nil, directory: folder)
+        let session = AccountSession(
+            auth: auth, cloud: ControlledUserCloud(), directory: folder,
+            capabilities: .init(profileWrites: editable))
         let settings = SettingsRepository(defaults: nil, account: session)
         session.setForeground(true)
         auth.select("a")
         try await eventually { session.state != nil }
-        #expect(settings.value.mapStyle == .satellite)
+        #expect(settings.syncsAppearance == editable)
+        #expect(settings.value.mapStyle == (editable ? .satellite : .standard))
         var value = settings.value
         value.filters.search = "Acadia"
         value.clustering = false
@@ -59,7 +64,7 @@ import Testing
         #expect(session.state?.pending.isEmpty == true)
         try await settings.setMapStyle(.standard)
         try await eventually { settings.value.mapStyle == .standard }
-        #expect(session.state?.pending.count == 1)
+        #expect(session.state?.pending.count == (editable ? 1 : 0))
         #expect(session.state?.visible.profile.settings["other"] == .number(7))
         try auth.signOut()
         try await eventually { session.identity == nil }

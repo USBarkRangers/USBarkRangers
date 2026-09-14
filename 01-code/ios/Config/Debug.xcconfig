@@ -3,4 +3,5 @@ SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) DEBUG
 SWIFT_OPTIMIZATION_LEVEL = -Onone
 ENABLE_TESTABILITY = YES
 
-INFOPLIST_KEY_NSLocalNetworkUsageDescription = Connect to your local park catalog for development testing.
+INFOPLIST_KEY_NSLocalNetworkUsageDescription = Connect to your Mac for local park and test-account development.
+#include? "DeviceTesting.local.xcconfig"

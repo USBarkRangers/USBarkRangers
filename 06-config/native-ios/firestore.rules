@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owns(uid) {
+      return request.auth != null && request.auth.uid == uid
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    // Only small, exact owner profile/access projections allow direct SDK reads.
+    // Neither collection listing nor direct writes can bypass the command boundary.
+    match /users/{uid} {
+      allow get: if owns(uid);
+      match /state/entitlement { allow get: if owns(uid); }
+    }
+    // Trips, visits, walks and standings use authenticated, bounded nativeRead calls,
+    // not a recursive owner rule. Rank caches, purchase mappings and receipts stay private.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

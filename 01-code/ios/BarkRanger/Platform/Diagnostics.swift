@@ -5,6 +5,7 @@ import OSLog
 nonisolated struct Diagnostics: Sendable {
     enum Event: String {
         case enteredForeground, enteredBackground, unsupportedLink
+        case routeCacheReadFailed, routeCacheWriteFailed, routeCacheCleanupDeferred
     }
 
     enum Operation: String {
@@ -21,12 +22,22 @@ nonisolated struct Diagnostics: Sendable {
     }
     private let catalogLogger = Logger(subsystem: "swarm.USBARKRANGERS", category: "Catalog")
     private let catalogSink: (@Sendable (CatalogStage, CatalogFailure) -> Void)?
+    enum AccountStage: String, Sendable {
+        case openStore, readStore, submit, acknowledge, readCloud, saveSnapshot
+    }
+    enum AccountFailure: String, Sendable {
+        case cancelled, accountChanged, denied, network, decoding, storage, unavailable, rejected, unknown
+    }
+    private let accountLogger = Logger(subsystem: "swarm.USBARKRANGERS", category: "Account")
+    private let accountSink: (@Sendable (AccountStage, AccountFailure) -> Void)?
     private let enabled: Bool
 
     init(
         enabled: Bool = true,
-        catalogSink: (@Sendable (CatalogStage, CatalogFailure) -> Void)? = nil
+        catalogSink: (@Sendable (CatalogStage, CatalogFailure) -> Void)? = nil,
+        accountSink: (@Sendable (AccountStage, AccountFailure) -> Void)? = nil
     ) {
+        self.accountSink = accountSink
         self.enabled = enabled
         self.catalogSink = catalogSink
     }
@@ -35,6 +46,37 @@ nonisolated struct Diagnostics: Sendable {
         guard enabled else { return }
         catalogLogger.notice(
             "failure stage=\(stage.rawValue, privacy: .public) reason=\(reason.rawValue, privacy: .public)")
+    }
+
+    func accountFailure(_ error: any Error, at stage: AccountStage) {
+        let reason = Self.accountReason(error)
+        accountSink?(stage, reason)
+        guard enabled, reason != .cancelled else { return }
+        accountLogger.notice(
+            "failure stage=\(stage.rawValue, privacy: .public) reason=\(reason.rawValue, privacy: .public)")
+    }
+    static func accountReason(_ error: any Error) -> AccountFailure {
+        switch error {
+        case is CancellationError: return .cancelled
+        case is DecodingError, is CloudUserDecoder.Failure, is PersonalPayload.Failure: return .decoding
+        case is MutationSubmissionFailure: return .rejected
+        case LocalStore.Failure.wrongAccount, CloudUserClient.Failure.accountChanged: return .accountChanged
+        case CloudUserClient.Failure.changesUnavailable: return .unavailable
+        case LocalStore.Failure.unavailableAccess: return .denied
+        case is LocalStore.Failure: return .storage
+        default: break
+        }
+        let value = error as NSError
+        if value.domain == NSURLErrorDomain {
+            return value.code == NSURLErrorCancelled ? .cancelled : .network
+        }
+        if value.domain == NSCocoaErrorDomain { return .storage }
+        // SDK domains/codes only; underlying descriptions, URLs and user fields never enter the log.
+        if ["FIRFirestoreErrorDomain", "com.firebase.functions"].contains(value.domain) {
+            if [7, 16].contains(value.code) { return .denied }
+            if [4, 14].contains(value.code) { return .network }
+        }
+        return .unknown
     }
 
     func record(_ event: Event) {

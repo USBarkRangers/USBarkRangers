@@ -4,6 +4,8 @@ import SwiftUI
 /// All supplied long-form facts and approved external links; empty fields stay omitted.
 struct ParkDetailContent: View {
     let park: Park
+    @Environment(\.support) private var support
+    @State private var reporting = false
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             if park.isRetired {
@@ -16,6 +18,17 @@ struct ParkDetailContent: View {
             section("Restrictions", park.restrictions)
             section("Hazards and safety", park.hazards)
             section("Extra swag", park.extraSwag)
+            ParkShareView(park: park)
+            if let support {
+                Button("Suggest a correction") { reporting = true }
+                    .sheet(isPresented: $reporting) {
+                        NavigationStack {
+                            SupportView(dependencies: support, park: park).toolbar {
+                                Button("Done") { reporting = false }
+                            }
+                        }
+                    }
+            }
             links("Source website", urls: park.websites)
             links("Swag picture", urls: park.pictures)
             links("Swearing-in video", urls: park.videos)

@@ -6,6 +6,10 @@ import Foundation
 /// The only SDK/current-format conversion boundary. Unknown fields survive; incomplete reads fail closed.
 nonisolated struct CloudUserDecoder {
     enum Failure: Error { case malformed, incomplete }
+    static func record(_ document: DocumentSnapshot) throws -> SavedRecord {
+        guard let data = document.data(), let fields = try value(data).object else { throw Failure.malformed }
+        return SavedRecord(id: document.documentID, fields: fields)
+    }
     static func value(_ raw: Any) throws -> UserValue {
         switch raw {
         case is NSNull: return .null
@@ -38,6 +42,13 @@ nonisolated struct CloudUserDecoder {
         achievements: [SavedRecord], now: Date = Date()
     ) throws -> PersonalSnapshot {
         guard let fields = try value(user).object else { throw Failure.malformed }
+        return try snapshot(
+            uid: uid, fields: fields, trips: trips, achievements: achievements, confirmedAt: now)
+    }
+    static func snapshot(
+        uid: String, fields: [String: UserValue], trips: [SavedRecord],
+        achievements: [SavedRecord], confirmedAt: Date?
+    ) throws -> PersonalSnapshot {
         for key in ["visitedPlaces", "completed_expeditions", "completedExpeditions"] {
             if let field = fields[key], field != .null, field.array == nil { throw Failure.incomplete }
         }
@@ -58,32 +69,17 @@ nonisolated struct CloudUserDecoder {
         }
         return PersonalSnapshot(
             uid: uid, profile: UserProfile(fields: fields), trips: trips,
-            achievements: achievements, unresolved: unresolved, confirmedAt: now)
+            achievements: achievements, unresolved: unresolved, confirmedAt: confirmedAt)
     }
     static func receipt(_ raw: Any) throws -> MutationReceipt {
         let data = try JSONEncoder().encode(value(raw))
         return try JSONDecoder().decode(MutationReceipt.self, from: data)
     }
     static func visit(_ record: UserValue) -> Visit {
-        Visit(parkID: record.object?["id"]?.string, visitedAt: record.object?["ts"]?.date)
+        Visit(record: record, fallbackID: "unresolved")
     }
     static func trip(_ record: SavedRecord) throws -> Trip {
-        guard let days = record.fields["tripDays"]?.array else { throw Failure.malformed }
-        return Trip(
-            id: record.id, name: record.fields["tripName"]?.string,
-            days: try days.map { day in
-                guard let fields = day.object, let stops = fields["stops"]?.array else {
-                    throw Failure.malformed
-                }
-                return Trip.Day(notes: fields["notes"]?.string, stops: stops)
-            })
-    }
-    static func expedition(_ record: UserValue, completed: Bool) -> Expedition {
-        let fields = record.object ?? [:]
-        return Expedition(
-            trailID: fields[completed ? "id" : "active_trail"]?.string,
-            distanceMeters: meters(fromStoredMiles: fields[completed ? "miles" : "miles_logged"]),
-            completedAt: fields["date_completed"]?.date)
+        try Trip(record: record)
     }
     static func meters(fromStoredMiles value: UserValue?) -> Double? {
         guard let miles = value?.number ?? value?.string.flatMap(Double.init), miles.isFinite, miles >= 0

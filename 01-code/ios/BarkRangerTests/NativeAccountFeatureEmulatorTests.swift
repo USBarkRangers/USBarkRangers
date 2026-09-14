@@ -1,0 +1,158 @@
+import BarkDomain
+import FirebaseAuth
+import FirebaseCore
+@preconcurrency import FirebaseFirestore
+import Foundation
+import Testing
+
+@testable import BarkRanger
+
+@MainActor struct NativeAccountFeatureEmulatorTests {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1"))
+    func unavailableUnconvertedFilesCannotBlockTheNativeProfile() async throws {
+        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // Deliberately obstruct the retired transitional directory, not native storage.
+        try Data("retained fixture".utf8).write(
+            to: directory.appendingPathComponent("native-feature-transition"))
+        let scope = UUID()
+        let assembly = AccountAssembly.nativeEmulator(directory: directory, scope: scope)
+        let session = assembly.session
+        let model = AccountModel(session: session)
+        session.setForeground(true)
+        session.connectivityChanged(true)
+        model.email("\(UUID().uuidString)@native.invalid", password: "NativeOnly123!", create: true)
+        await model.action?.value
+        try await eventually { session.profileState?.confirmed != nil && session.nativeTrips != nil && session.nativeExpeditions != nil }
+        #expect(session.tripLibraryMessage == nil && session.nativeVisits != nil)
+        #expect(try Data(contentsOf: directory.appendingPathComponent("native-feature-transition")) == Data("retained fixture".utf8))
+        #expect(session.state == nil && session.profileState?.visible?.displayName == "Ranger")
+        let app = try #require(FirebaseApp.app(name: "BarkNativeUI-\(scope.uuidString)"))
+        let uid = try #require(session.identity?.uid)
+        try await NativeEmulatorFixture.seedAccess(uid: uid, app: app)
+        session.requestSync(refresh: true)
+        try await eventually { model.canEditData }
+        model.saveName("Independent profile")
+        await model.action?.value
+        try await eventually { session.profileState?.confirmed?.displayName == "Independent profile" }
+        #expect(session.state == nil)
+        await session.stopAndWait()
+        try await Firestore.firestore(app: app).terminate()
+        await withCheckedContinuation { continuation in app.delete { _ in continuation.resume() } }
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1"))
+    func actualAccountActionsPreserveOfflineEditsLostRepliesAndReviewedConflicts() async throws {
+        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let scope = UUID()
+        let assembly = AccountAssembly.nativeEmulator(directory: directory, scope: scope)
+        let session = assembly.session
+        let model = AccountModel(session: session)
+        let app = try #require(FirebaseApp.app(name: "BarkNativeUI-\(scope.uuidString)"))
+        let auth = Auth.auth(app: app)
+        let db = Firestore.firestore(app: app)
+        session.setForeground(true)
+        session.connectivityChanged(true)
+        model.email("\(UUID().uuidString)@native.invalid", password: "NativeOnly123!", create: true)
+        await model.action?.value
+        try await eventually { session.profileState?.confirmed?.displayName == "Ranger" }
+        #expect(session.cloud == nil && session.profile == nil)
+        try await eventually { session.nativeTrips != nil && session.nativeExpeditions != nil }
+        #expect(session.state == nil)
+        #expect(!model.canEditData && !session.capabilities.accountManagement)
+        model.verifyEmail()
+        await model.action?.value
+        #expect(model.notice == "Verification link is in the local Auth emulator log.")
+        model.resetPassword(session.identity?.email ?? "")
+        await model.action?.value
+        #expect(model.notice?.contains("password reset instructions") == true)
+        model.unlink("password")
+        await model.action?.value
+        #expect(model.notice?.contains("at least one") == true)
+        model.saveName("Not permitted")
+        #expect(model.notice == AccountDataAccess.readOnlyMessage)
+        let uid = try #require(session.identity?.uid)
+        try await NativeEmulatorFixture.seedAccess(uid: uid, app: app)
+        session.requestSync(refresh: true)
+        try await eventually { model.canEditData }
+        session.connectivityChanged(false)
+        let feature = try #require(session.nativeProfile)
+        await feature.sync.pause()
+        model.saveName("Offline Ranger")
+        await model.action?.value
+        let settings = SettingsRepository(defaults: nil, account: session)
+        try await settings.setMapStyle(.satellite)
+        try await eventually { session.profileState?.pendingCount == 2 }
+        #expect(session.profileState?.visible?.displayName == "Offline Ranger")
+        #expect(settings.value.mapStyle == .satellite)
+        #expect(session.state == nil)
+        let retainedIDs = try #require(session.profileState?.pendingIDs)
+        let command = try #require(try await feature.store.nextProfileSubmission())
+        let wire = try NativeProfileCloud(uid: uid, auth: auth, db: db)
+        let accepted = try await wire.submit(command)  // Intentionally lose the reply locally.
+        #expect(accepted.revisions.profile == 2)
+        await session.stopAndWait()
+        let reopened = AccountSession(
+            auth: session.auth, cloud: nil, directory: directory,
+            capabilities: AccountAssembly.capabilities,
+            nativeProfileConfiguration: session.nativeProfileConfiguration)
+        reopened.setForeground(true)  // Offline first; only durable local state may publish.
+        try await eventually { reopened.profileState?.pendingCount == 2 }
+        #expect(reopened.profileState?.pendingIDs == retainedIDs)
+        #expect(reopened.profileState?.visible?.displayName == "Offline Ranger")
+        reopened.connectivityChanged(true)
+        try await eventually { reopened.profileState?.pendingCount == 0 }
+        #expect(reopened.profileState?.confirmed?.revision == 3)
+        #expect(reopened.profileState?.confirmed?.mapStyle == .satellite)
+        let editor = AccountModel(session: reopened)
+        reopened.connectivityChanged(false)
+        let resumedFeature = try #require(reopened.nativeProfile)
+        await resumedFeature.sync.pause()
+        editor.saveName("Local choice")
+        await editor.action?.value
+        try await eventually { reopened.profileState?.pendingCount == 1 }
+        let otherID = UUID()
+        let other = NativeProfileCommand(
+            operationID: otherID,
+            createdAtMs: try NativeClientTime.milliseconds(Date()), expectedRevision: 3,
+            edit: .displayName("Remote choice"))
+        _ = try await wire.submit(.init(id: otherID, bytes: JSONEncoder().encode(other), attempts: 0))
+        reopened.connectivityChanged(true)
+        try await eventually { reopened.profileState?.conflict == true }
+        let reviewed = try #require(reopened.profileState)
+        #expect(
+            reviewed.confirmed?.displayName == "Remote choice"
+                && reviewed.visible?.displayName == "Local choice")
+        editor.saveName("Later typing")
+        await editor.action?.value
+        try await eventually { reopened.profileState?.pendingCount == 2 }
+        editor.resolveNativeProfile(reviewed, keepLocal: false)
+        await editor.action?.value
+        #expect(reopened.profileState?.pendingCount == 2)
+        #expect(editor.notice?.contains("changed while") == true)
+        let fresh = try #require(reopened.profileState)
+        editor.resolveNativeProfile(fresh, keepLocal: true)
+        await editor.action?.value
+        try await eventually { reopened.profileState?.pendingCount == 0 }
+        #expect(reopened.profileState?.confirmed?.displayName == "Later typing")
+        #expect(reopened.profileState?.confirmed?.revision == 6)
+        editor.signOut()
+        await editor.action?.value
+        try await eventually { reopened.identity == nil && reopened.profileState == nil }
+        #expect(reopened.entitlement.access == nil && reopened.nativeProfile == nil)
+        editor.email("\(UUID().uuidString)@native.invalid", password: "WrongPassword123!", create: false)
+        await editor.action?.value
+        #expect(reopened.identity == nil && editor.notice != nil)
+        editor.email("\(UUID().uuidString)@native.invalid", password: "NativeOnly123!", create: true)
+        await editor.action?.value
+        try await eventually { reopened.profileState?.confirmed != nil }
+        #expect(reopened.identity?.uid != uid && reopened.profileState?.visible?.displayName == "Ranger")
+        #expect(!editor.canEditData)
+        await reopened.stopAndWait()
+        await wire.close()
+        try await db.terminate()
+        await withCheckedContinuation { continuation in app.delete { _ in continuation.resume() } }
+    }
+}

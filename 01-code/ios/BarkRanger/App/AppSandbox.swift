@@ -16,7 +16,10 @@
 
         init(scope: UUID = UUID()) { self.scope = scope }
 
-        func makeComposition(manifestURL: URL? = nil, preview: Bool = false, accountEmulators: Bool = false)
+        func makeComposition(
+            manifestURL: URL? = nil, preview: Bool = false, accountEmulators: Bool = false,
+            emulatorHost: String = "127.0.0.1", nativeAccounts: Bool = false
+        )
             -> AppComposition
         {
             let client = manifestURL.flatMap { url -> CatalogHTTPClient? in
@@ -29,17 +32,25 @@
             let catalog = CatalogRepository(disk: disk, client: client, diagnostics: diagnostics)
             // A failed suite remains in memory; there is deliberately no standard-defaults fallback.
             let accounts =
-                accountEmulators && !preview
-                ? AccountAssembly.emulator(
-                    directory: directory.appendingPathComponent("Accounts"), scope: scope)
-                : AccountAssembly.unavailable(directory: directory.appendingPathComponent("Accounts"))
+                nativeAccounts && !preview
+                ? AccountAssembly.nativeEmulator(
+                    directory: directory.appendingPathComponent("Accounts"), scope: scope, host: emulatorHost)
+                : accountEmulators && !preview
+                    ? AccountAssembly.emulator(
+                        directory: directory.appendingPathComponent("Accounts"), scope: scope,
+                        host: emulatorHost)
+                    : AccountAssembly.unavailable(directory: directory.appendingPathComponent("Accounts"))
             let preferences = SettingsRepository(
                 defaults: preview ? nil : UserDefaults(suiteName: suite), account: accounts.session)
             return AppComposition.assemble(
-                catalog: catalog, network: NetworkMonitor(fixedConnection: client != nil),
+                catalog: catalog,
+                network: accountEmulators || nativeAccounts
+                    ? NetworkMonitor() : NetworkMonitor(fixedConnection: client != nil),
                 location: LocationClient(manager: nil), maps: MapsHandoff(open: { _ in false }),
                 settings: SettingsModel(preferences: preferences, catalog: catalog, openSettings: {}),
-                diagnostics: diagnostics, accounts: accounts, initialState: preview ? .ready : .loading)
+                diagnostics: diagnostics, accounts: accounts,
+                savedPlaceStore: SavedPlaceStore(directory: directory.appendingPathComponent("SavedPlaces")),
+                initialState: preview ? .ready : .loading)
         }
 
         /// Call only after awaiting lifecycle shutdown. Other scopes and normal app storage are untouched.

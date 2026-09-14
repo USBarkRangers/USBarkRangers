@@ -12,7 +12,7 @@ struct MapSearchBar: View {
         HStack(spacing: 0) {
             Image(systemName: "magnifyingglass").font(.system(size: 17))
                 .padding(.leading, 16).accessibilityHidden(true)
-            TextField("Search parks", text: $text)
+            TextField("Search parks or places", text: $text)
                 .font(.body)
                 .focused(focused)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()

@@ -4,6 +4,8 @@ import SwiftUI
 /// An accessible dropdown over the map. It renders the same ordered parks as the map's annotations.
 struct MapSearchResults: View {
     let parks: [Park]
+    var places: MapPlaceSearchModel? = nil
+    var selectPlace: (MapSearchClient.Suggestion) -> Void = { _ in }
     let maximumHeight: CGFloat
     let select: (ParkID) -> Void
     let clear: () -> Void
@@ -12,6 +14,7 @@ struct MapSearchResults: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
+                Text("BARK parks").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(12)
                 if parks.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("No matching parks").font(.headline)
@@ -19,7 +22,7 @@ struct MapSearchResults: View {
                         Button("Clear filters", action: clear).frame(minHeight: 44)
                     }.padding(16)
                 } else {
-                    ForEach(parks) { park in
+                    ForEach(Array(parks.prefix(12))) { park in
                         Button {
                             select(park.id)
                         } label: {
@@ -37,12 +40,38 @@ struct MapSearchResults: View {
                         if park.id != parks.last?.id { Divider().padding(.horizontal, 16) }
                     }
                 }
+                if let places {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Places from Apple Maps").font(.caption.weight(.semibold)).foregroundStyle(
+                            .secondary)
+                        if places.isSearching || places.isResolving {
+                            ProgressView(places.isResolving ? "Opening place…" : "Searching places…")
+                        }
+                        if let notice = places.notice {
+                            Text(notice).font(.footnote).foregroundStyle(.secondary)
+                        }
+                        ForEach(places.suggestions) { place in
+                            Button {
+                                selectPlace(place)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(place.title).font(.body.weight(.medium))
+                                    Text(place.subtitle).font(.caption).foregroundStyle(.secondary)
+                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(
+                                    Rectangle())
+                            }.buttonStyle(.plain).disabled(places.isResolving)
+                                .accessibilityIdentifier("place-result-" + place.id)
+                        }
+                    }.padding(16)
+                }
             }
         }
         .scrollDismissesKeyboard(.never)
         .frame(
             maxHeight: min(
-                maximumHeight, parks.isEmpty ? rowHeight * 2 : rowHeight * CGFloat(min(parks.count, 4)))
+                maximumHeight,
+                rowHeight * CGFloat(min(5, max(2, parks.count + (places?.suggestions.count ?? 0) + 1))))
         )
         .foregroundStyle(Color.primary)
         .background(.background, in: RoundedRectangle(cornerRadius: 20))

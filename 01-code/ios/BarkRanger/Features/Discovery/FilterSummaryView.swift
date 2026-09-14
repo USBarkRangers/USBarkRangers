@@ -13,7 +13,7 @@ struct FilterSummaryView: View {
                 .accessibilityIdentifier("park-count")
                 Spacer(minLength: 8)
                 if !result.labels.isEmpty {
-                    Button("Clear", action: clear).buttonStyle(.bordered).controlSize(.large)
+                    Button("Clear", action: clear).barkActionStyle().controlSize(.large)
                 }
             }
             if !result.labels.isEmpty {

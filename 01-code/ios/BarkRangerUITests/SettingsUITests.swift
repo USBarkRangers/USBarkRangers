@@ -9,7 +9,9 @@ nonisolated final class SettingsUITests: XCTestCase {
         app.launch()
         app.buttons["Settings"].tap()
         choose("Offline overview", in: "Map appearance", app: app)
-        XCTAssertFalse(app.buttons["Distance units, Miles"].isEnabled)
+        // Units also serve trip distances, so the geographic overview does not disable them.
+        XCTAssertTrue(app.buttons["Distance units, Miles"].isEnabled)
+        choose("Kilometers", in: "Distance units", app: app)
         for label in ["Group nearby pins", "Remember map position"] {
             app.switches[label].coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
             XCTAssertEqual(app.switches[label].value as? String, "0")
@@ -23,7 +25,7 @@ nonisolated final class SettingsUITests: XCTestCase {
         app.launch()
         app.buttons["Settings"].tap()
         XCTAssertTrue(app.buttons["Map appearance, Offline overview"].exists)
-        XCTAssertTrue(app.buttons["Distance units, Miles"].exists)
+        XCTAssertTrue(app.buttons["Distance units, Kilometers"].exists)
         XCTAssertEqual(app.switches["Group nearby pins"].value as? String, "0")
         XCTAssertEqual(app.switches["Remember map position"].value as? String, "0")
         let reset = app.buttons["Reset device preferences"]

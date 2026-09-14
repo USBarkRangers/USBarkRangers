@@ -27,7 +27,10 @@ struct MapTripFilterControls: View {
                             }.accessibilityLabel(choice.label)
                         }
                         if model.account.nativeTrips?.hasMore == true {
-                            Button(model.account.nativeTrips?.loading == true ? "Loading trips…" : "Load more trips") {
+                            Button(
+                                model.account.nativeTrips?.loading == true
+                                    ? "Loading trips…" : "Load more trips"
+                            ) {
                                 model.account.nativeTrips?.loadMore()
                             }.disabled(model.account.nativeTrips?.loading == true)
                         }
@@ -44,6 +47,7 @@ struct MapTripFilterControls: View {
                 .accessibilityIdentifier("map-displayed-trip")
                 Button(action: model.clearMap) {
                     Image(systemName: "xmark").font(.caption.bold()).frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }.accessibilityLabel("Clear trip")
             }
             .disabled(model.account.nativeTrips == nil || model.isWorking)

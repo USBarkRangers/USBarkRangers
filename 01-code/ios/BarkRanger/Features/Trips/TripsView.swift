@@ -38,7 +38,9 @@ struct TripsView: View {
                         model.notice
                             ?? (model.canEdit
                                 ? "Choose parks and organize your days. Drafts stay on this iPhone."
-                                : AccountDataAccess.readOnlyMessage))
+                                : AccountDataAccess.readOnlyMessage)
+                    )
+                    .foregroundStyle(.primary)
                 } actions: {
                     if model.canEdit {
                         Button("New trip", systemImage: "plus") { model.newTrip() }

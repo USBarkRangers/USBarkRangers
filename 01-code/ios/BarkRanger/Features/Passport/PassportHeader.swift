@@ -18,12 +18,9 @@ struct PassportHeader: View {
                     .accessibilityIdentifier("passport-name")
             }
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                Button(action: openVisits) {
-                    stat("Sites Visited", value: summary?.sites, symbol: "mappin.and.ellipse")
-                }.buttonStyle(.plain).disabled(summary == nil)
-                Button(action: openStates) {
-                    stat("States", value: summary?.states.count, symbol: "map")
-                }.buttonStyle(.plain).disabled(summary == nil)
+                navigableStat(
+                    "Sites Visited", value: summary?.sites, symbol: "mappin.and.ellipse", action: openVisits)
+                navigableStat("States", value: summary?.states.count, symbol: "map", action: openStates)
                 stat("Total Points", value: summary?.points, symbol: "star.fill")
                 stat("Verified", value: summary?.verifiedSites, symbol: "checkmark.seal.fill")
             }
@@ -37,6 +34,17 @@ struct PassportHeader: View {
         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24))
     }
 
+    @ViewBuilder private func navigableStat(
+        _ title: String, value: Int?, symbol: String, action: @escaping () -> Void
+    ) -> some View {
+        // Missing progress is readable information, not a faded, inactive navigation control.
+        if summary == nil {
+            stat(title, value: value, symbol: symbol)
+        } else {
+            Button(action: action) { stat(title, value: value, symbol: symbol) }.buttonStyle(.plain)
+        }
+    }
+
     private func stat(_ title: String, value: Int?, symbol: String) -> some View {
         VStack(spacing: 4) {
             Text(value.map { $0.formatted() } ?? "—")
@@ -46,7 +54,7 @@ struct PassportHeader: View {
                     Image(systemName: symbol).font(.system(size: 12)).foregroundStyle(Color.accentColor)
                         .accessibilityHidden(true)
                 }
-            Text(title).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+            Text(title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                 .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                 .multilineTextAlignment(.center)
         }

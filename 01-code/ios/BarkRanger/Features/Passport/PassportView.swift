@@ -23,9 +23,12 @@ struct PassportView: View {
                 .barkActionStyle()
                 .controlSize(.large)
                 if model.account.identity == nil {
-                    ContentUnavailableView(
-                        "Your next chapter starts here", systemImage: "book.closed",
-                        description: Text("Sign in from Account to record visits and build your passport."))
+                    ContentUnavailableView {
+                        Label("Your next chapter starts here", systemImage: "book.closed")
+                    } description: {
+                        Text("Sign in from Account to record visits and build your passport.")
+                            .foregroundStyle(.primary)
+                    }
                     watermarkLink
                 } else if let content = model.content {
                     AchievementVaultView(
@@ -58,7 +61,9 @@ struct PassportView: View {
                     ProgressView("Opening your passport…")
                 }
                 if let notice = model.notice { Text(notice).font(.footnote) }
-                if let message = model.account.nativeVisits?.message ?? model.account.nativeVisits?.sync?.message {
+                if let message = model.account.nativeVisits?.message
+                    ?? model.account.nativeVisits?.sync?.message
+                {
                     Text(message).font(.footnote)
                 }
             }.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24)

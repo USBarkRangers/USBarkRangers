@@ -29,9 +29,18 @@ nonisolated final class RouteDayUITests: XCTestCase {
         XCTAssertTrue(add.waitForExistence(timeout: 5))
         XCTAssertTrue(add.label.contains("Add to Day 1"))
         add.tap()
+        XCTAssertTrue(app.buttons["park-trip-membership"].waitForExistence(timeout: 5))
+        XCTAssertFalse(add.exists)
+        // Adding now keeps the selected park open and replaces Add with its membership.
+        app.buttons["Close park details"].tap()
         XCTAssertTrue(handle.waitForExistence(timeout: 5))
-        XCTAssertEqual(handle.value as? String, "Medium")
-        XCTAssertTrue(app.staticTexts["Added to Day 1"].waitForExistence(timeout: 5))
+        expectValue("Low", element: handle)
+        handle.tap()
+        expectValue("Medium", element: handle)
+        XCTAssertEqual(
+            app.otherElements.matching(
+                NSPredicate(format: "identifier BEGINSWITH %@", "route-stop-")
+            ).count, 1)
         XCTAssertTrue(app.tabBars.buttons["Trips"].isHittable)
         capture(app, "Route day — medium after adding park")
         handle.tap()
@@ -120,10 +129,15 @@ nonisolated final class RouteDayUITests: XCTestCase {
         XCTAssertEqual(rows.element(boundBy: 2).identifier, original[2])
         XCTAssertEqual(rows.element(boundBy: 3).identifier, original[0])
         app.buttons["Close day"].tap()
+        XCTAssertTrue(handle.waitForNonExistence(timeout: 5))
         let tripChip = app.buttons["map-displayed-trip"]
         XCTAssertTrue(tripChip.isHittable)
         XCTAssertFalse(app.buttons["Choose Trip"].exists)
-        app.buttons["Clear trip"].tap()
+        let clear = app.buttons["Clear trip"]
+        XCTAssertTrue(clear.isEnabled)
+        XCTAssertGreaterThanOrEqual(clear.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(clear.frame.height, 44)
+        clear.tap()
         XCTAssertTrue(tripChip.waitForNonExistence(timeout: 5))
         XCTAssertFalse(handle.exists)
         app.tabBars.buttons["Trips"].tap()
@@ -133,7 +147,8 @@ nonisolated final class RouteDayUITests: XCTestCase {
         XCTAssertTrue(saved.waitForExistence(timeout: 5), "Clearing must retain the trip")
         saved.tap()
         app.tabBars.buttons["Map"].tap()
-        XCTAssertTrue(handle.waitForExistence(timeout: 5))
+        XCTAssertTrue(tripChip.waitForExistence(timeout: 5))
+        XCTAssertFalse(handle.exists, "Restoring a trip does not reopen the day the user closed")
         search.tap()
         if app.buttons["Clear search"].exists { app.buttons["Clear search"].tap() }
         search.typeText("hulls cove")
@@ -152,6 +167,7 @@ nonisolated final class RouteDayUITests: XCTestCase {
         XCTAssertEqual(rows.count, 4)
     }
     @MainActor private func addPark(_ query: String, app: XCUIApplication) {
+        let handle = app.otherElements["route-day-handle"]
         let search = app.textFields["park-search"]
         search.tap()
         if app.buttons["Clear search"].exists { app.buttons["Clear search"].tap() }
@@ -163,7 +179,13 @@ nonisolated final class RouteDayUITests: XCTestCase {
         let add = app.buttons["add-to-route-day"]
         XCTAssertTrue(add.waitForExistence(timeout: 5))
         add.tap()
-        expectValue("Medium", element: app.otherElements["route-day-handle"])
+        XCTAssertTrue(app.buttons["park-trip-membership"].waitForExistence(timeout: 5))
+        XCTAssertFalse(add.exists)
+        app.buttons["Close park details"].tap()
+        // Focusing search intentionally collapses the day; dismissing a park retains that height.
+        expectValue("Low", element: handle)
+        handle.tap()
+        expectValue("Medium", element: handle)
     }
     @MainActor private func expectValue(_ value: String, element: XCUIElement) {
         let expected = XCTNSPredicateExpectation(

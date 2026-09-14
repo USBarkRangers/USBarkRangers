@@ -17,7 +17,9 @@ concurrency:
 jobs:
   shell:
     runs-on: macos-26
-    timeout-minutes: 60
+    # Native acceptance takes ~29m; the hosted runner's first nine UI cases took
+    # 794s versus 328s locally. Budget the complete serial suite, without relaxing test timeouts.
+    timeout-minutes: 150
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:

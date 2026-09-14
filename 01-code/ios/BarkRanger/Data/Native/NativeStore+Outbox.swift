@@ -7,6 +7,14 @@ extension NativeStore {
         let bytes: Data
         let attempts: Int
     }
+    func deferSubmission(_ id: UUID, until date: Date) throws {
+        try requireOpen()
+        guard let row = try operation(id), row.state == "sealed", row.sealedBytes != nil,
+            row.attempts < Int.max else { throw Failure.corrupt }
+        row.attempts += 1
+        row.nextAttemptAt = date
+        try commit()
+    }
     func operation(_ id: UUID) throws -> NativeLocalSchema.PendingOperation? {
         let key = id.uuidString.lowercased()
         var request = FetchDescriptor<NativeLocalSchema.PendingOperation>(

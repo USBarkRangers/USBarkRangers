@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Foreground scheduling shared by visits and walks. Feature work owns its queries
+/// Foreground scheduling shared by all native features. Feature work owns its queries
 /// and conflict rules; this owner only coalesces requests, pauses, drains and retries.
 @MainActor @Observable final class NativeFeatureSync {
     private(set) var message: String?

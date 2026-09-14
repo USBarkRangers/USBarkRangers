@@ -11,7 +11,8 @@ import Observation
     private(set) var conflicts: [String] = []
     private(set) var selectedID: String?
     private(set) var revision = 0
-    private(set) var message: String?
+    private var localMessage: String?
+    var message: String? { localMessage ?? sync?.message }
     private(set) var loading = false
     private(set) var hasMore: Bool
     private let worker: NativeTripSync?
@@ -19,15 +20,11 @@ import Observation
     private var cursor: NativeTripPage.Cursor?
     private var headLoaded = false
     private var observation: Task<Void, Never>?
-    private var synchronization: Task<Void, Never>?
+    private var sync: NativeFeatureSync?
     private var pageTask: Task<Void, Never>?
-    private var retry: Task<Void, Never>?
-    private var drain: Task<Void, Never>?
     private var permitted = false
     private var closed = false
-    private var requested = false
-    private var refreshRequested = false
-    private var freshness = NativeRefreshCadence()
+    private var changeScanPending = false
     private var pendingIDs: [String] = []
     private var localLists = NativeStore.TripLists(drafts: [], pending: [], conflicts: [])
     // Deletion floors only for previously displayed rows. They prevent an older page
@@ -39,6 +36,13 @@ import Observation
         repository = NativeTripRepository(store: store, cloud: cloud)
         worker = cloud.map { NativeTripSync(store: store, cloud: $0) }
         hasMore = cloud != nil
+        if let worker {
+            sync = NativeFeatureSync(
+                label: "Trips",
+                work: { [weak self] refresh in
+                    try await self?.synchronize(refresh: refresh)
+                }, pause: { await worker.pause() })
+        }
     }
 
     func start() async throws {
@@ -59,7 +63,7 @@ import Observation
                 }
             } catch {
                 guard let self, !Task.isCancelled, !self.closed else { return }
-                self.message = "Trips could not be read. Your saved files are retained."
+                self.localMessage = "Trips could not be read. Your saved files are retained."
             }
         }
     }
@@ -133,92 +137,62 @@ import Observation
         }
     }
 
-    /// AccountSession supplies readiness/connectivity. No observer may reopen a paused scope.
+    /// AccountSession alone supplies readiness/connectivity.
     func setNetworkAllowed(_ allowed: Bool) {
-        guard !closed, permitted != allowed else { return }
+        guard !closed else { return }
         permitted = allowed
-        if allowed { requestSync() } else { pause() }
+        sync?.setAllowed(allowed)
+        if !allowed { pageTask?.cancel() }
     }
+    func requestSync(refresh: Bool = false) { sync?.request(refresh: refresh) }
 
-    func requestSync(refresh: Bool = false) {
-        guard permitted, !closed, let worker, let cloud = repository.cloud else { return }
-        requested = true
-        refreshRequested = refreshRequested || refresh
-        guard synchronization == nil else { return }
-        retry?.cancel()
-        let previousDrain = drain
-        synchronization = Task { [weak self] in
-            await previousDrain?.value
-            guard let self, !Task.isCancelled, !self.closed else { return }
-            var retryAt: Date?
-            var attemptedRefresh = false
-            do {
-                try await worker.resume()
-                repeat {
-                    self.requested = false
-                    let refresh = self.refreshRequested || self.freshness.isDue(at: Date())
-                    attemptedRefresh = refresh
-                    self.refreshRequested = false
-                    if refresh {
-                        let page = try await cloud.library()
-                        try Task.checkCancellation()
-                        let accepted = try await self.repository.store.acceptTripLibraryPage(page)
-                        try Task.checkCancellation()
-                        self.merge(accepted)
-                        if !self.headLoaded {
-                            self.cursor = page.next
-                            self.hasMore = page.next != nil
-                            self.headLoaded = true
-                        }
-                    }
-                    let ids = try await self.repository.store.pendingTripIDs()
-                    for id in ids {
-                        try Task.checkCancellation()
-                        let result = try await worker.synchronize(id)
-                        if case .retry(let date) = result { retryAt = min(retryAt ?? date, date) }
-                    }
-                    // Metadata invalidates exact cache stamps. The active editor's
-                    // repository alone loads stale/missing detail, on demand. Foreground
-                    // and selection changes must not independently download it again.
-                    if refresh {
-                        // Page/cursor commits are resumable. Selected content is useful first;
-                        // a large archive never has to download before the editor opens.
-                        for pageIndex in 0..<4 {
-                            let query = try await self.repository.store.tripChangesQuery()
-                            let page = try await cloud.changes(query)
-                            try Task.checkCancellation()
-                            if try await self.repository.store.acceptTripChanges(page, requested: query) {
-                                if query.since == nil { try await self.reloadLibraryAfterRebuild(cloud) }
-                                break
-                            }
-                            if pageIndex == 3 { self.refreshRequested = true }
-                        }
-                        try Task.checkCancellation()
-                        self.freshness.accepted(at: Date())
-                    }
-                    try await self.reloadLocal(changes: [.tripDrafts, .pending, .selection])
-                    self.message = nil
-                } while self.requested && !Task.isCancelled
-            } catch {
-                guard !Task.isCancelled, !self.closed else { return }
-                self.refreshRequested = self.refreshRequested || attemptedRefresh
-                self.message = "Trip sync could not finish. Your drafts and saved changes are retained."
-                if NativeProfileCloud.isTransient(error) { retryAt = Date().addingTimeInterval(30) }
-            }
-            guard !Task.isCancelled, !self.closed else { return }
-            self.synchronization = nil
-            if let retryAt {
-                self.scheduleRetry(at: retryAt)
-            } else if self.refreshRequested, self.message == nil {
-                self.scheduleRetry(at: Date().addingTimeInterval(1))
+    private func synchronize(refresh: Bool) async throws -> Date? {
+        guard let worker, let cloud = repository.cloud else { return nil }
+        try await worker.resume()
+        let refresh = refresh || changeScanPending
+        if refresh {
+            let page = try await cloud.library()
+            try Task.checkCancellation()
+            let accepted = try await repository.store.acceptTripLibraryPage(page)
+            try Task.checkCancellation()
+            merge(accepted)
+            if !headLoaded {
+                cursor = page.next
+                hasMore = page.next != nil
+                headLoaded = true
             }
         }
+        var retryAt: Date?
+        for id in try await repository.store.pendingTripIDs() {
+            try Task.checkCancellation()
+            if case .retry(let date) = try await worker.synchronize(id) {
+                retryAt = min(retryAt ?? date, date)
+            }
+        }
+        // The selected editor alone downloads detail; summary refresh only invalidates stamps.
+        if refresh {
+            changeScanPending = true
+            for _ in 0..<4 {
+                let query = try await repository.store.tripChangesQuery()
+                let page = try await cloud.changes(query)
+                try Task.checkCancellation()
+                if try await repository.store.acceptTripChanges(page, requested: query) {
+                    if query.since == nil { try await reloadLibraryAfterRebuild(cloud) }
+                    changeScanPending = false
+                    break
+                }
+            }
+        }
+        try await reloadLocal(changes: [.tripDrafts, .pending, .selection])
+        localMessage = nil
+        if changeScanPending { return min(retryAt ?? .distantFuture, Date().addingTimeInterval(1)) }
+        return retryAt
     }
 
     func loadMore() {
         guard !loading, hasMore, !closed else { return }
         guard permitted, let cloud = repository.cloud else {
-            message = "Connect to the internet to load more trips. Downloaded trips are still available."
+            localMessage = "Connect to the internet to load more trips. Downloaded trips are still available."
             return
         }
         loading = true
@@ -239,10 +213,10 @@ import Observation
                 self.hasMore = page.next != nil
                 self.headLoaded = true
                 try await self.reloadLocal(changes: [.tripDrafts, .pending, .selection])
-                self.message = nil
+                self.localMessage = nil
             } catch {
                 if !Task.isCancelled, !self.closed {
-                    self.message = "More trips could not be loaded. Try again."
+                    self.localMessage = "More trips could not be loaded. Try again."
                 }
             }
         }
@@ -278,37 +252,15 @@ import Observation
             $0.createdAt == $1.createdAt ? $0.id > $1.id : $0.createdAt > $1.createdAt
         }
     }
-    private func scheduleRetry(at date: Date) {
-        retry = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(max(1, date.timeIntervalSinceNow))) } catch { return }
-            self?.requestSync()
-        }
-    }
-    private func pause() {
-        let sync = synchronization
-        let page = pageTask
-        sync?.cancel()
-        page?.cancel()
-        retry?.cancel()
-        synchronization = nil
-        requested = false
-        let previous = drain
-        let worker = worker
-        drain = Task {
-            await previous?.value
-            await worker?.pause()
-            await sync?.value
-            await page?.value
-        }
-    }
     func close() async {
         closed = true
         permitted = false
-        pause()
+        pageTask?.cancel()
         observation?.cancel()
+        await sync?.close()
+        await pageTask?.value
         await observation?.value
-        await drain?.value
         await worker?.stop()
     }
-    func waitForSync() async { await synchronization?.value }
+    func waitForSync() async { await sync?.wait() }
 }

@@ -1,15 +1,9 @@
 import BarkDomain
 import Foundation
 
-/// One uncertain command at a time, with exact-byte replay. A settled conflict only
-/// blocks commands sharing its activity/run/selection dependencies.
+/// One uncertain command at a time; settled conflicts block only overlapping dependencies.
 actor NativeExpeditionSync {
-    struct Result: Equatable, Sendable {
-        let pendingCount: Int
-        let needsDecision: Bool
-        let retryAt: Date?
-        let requiresAccessRefresh: Bool
-    }
+    typealias Result = NativeMailroom.QueueResult
     private let store: NativeStore
     private let cloud: NativeExpeditionCloud
     private let jobs = NativeSyncJobs<String, Result>()
@@ -18,51 +12,32 @@ actor NativeExpeditionSync {
         self.cloud = cloud
     }
     func synchronize() async throws -> Result {
-        try await jobs.run("expedition") { try await self.run() }
-    }
-    func pause() async { await jobs.pause() }
-    func resume() async throws { try await jobs.resume() }
-    /// The scope assembly closes the transport after all its consumers have drained.
-    func stop() async { await jobs.close() }
-
-    private func run() async throws -> Result {
-        for _ in 0..<128 {
-            try Task.checkCancellation()
-            guard let pending = try await store.nextExpeditionSubmission() else { return try await result() }
-            let command = pending.submission
-            do {
-                let outcome = try await cloud.submit(command)
-                let snapshot = try await cloud.current(
-                    activityID: pending.operation.action.activityID, runID: pending.operation.selectedRunID)
-                try Task.checkCancellation()
-                try await store.acceptNativeExpeditionOutcome(outcome, snapshot: snapshot)
-            } catch NativeStore.Failure.staleRead {
-                try Task.checkCancellation()
-                return try await result(notBefore: deferSubmission(command, minimum: 1))
-            } catch let failure as NativeCallableTransport.ServerFailure {
-                try Task.checkCancellation()
-                if NativeStore.expeditionRejectionCodes.contains(failure.reason) {
-                    try await store.rejectExpeditionOperation(command.id, code: failure.reason)
-                    if ["premium-required", "account-deleting", "forbidden"].contains(failure.reason) {
-                        return try await result(requiresAccessRefresh: true)
-                    }
-                    continue
-                }
-                guard ["unavailable", "rate-limited"].contains(failure.reason) else { throw failure }
-                let retry = try await deferSubmission(
-                    command,
-                    minimum: Double(max(1000, min(failure.retryAfterMs ?? 0, 3_600_000))) / 1000)
-                return try await result(notBefore: retry)
-            } catch {
-                try Task.checkCancellation()
-                guard (error as NSError).domain == NSURLErrorDomain else { throw error }
-                return try await result(notBefore: deferSubmission(command, minimum: 1))
-            }
+        try await jobs.run("expedition") {
+            let stop = try await NativeMailroom.drain(
+                store: self.store, next: { try await self.next() },
+                reject: { try await self.store.rejectExpeditionOperation($0, code: $1) },
+                continueAfterRejection: true, rejectionCodes: NativeStore.expeditionRejectionCodes,
+                retryable: { error in
+                    if case NativeStore.Failure.staleRead = error { return true }
+                    return (error as NSError).domain == NSURLErrorDomain
+                })
+            return try await self.result(stop)
         }
-        return try await result()
     }
-    private func result(requiresAccessRefresh: Bool = false, notBefore: Date? = nil) async throws -> Result {
+    private func next() async throws -> NativeMailroom.Delivery? {
+        guard let pending = try await store.nextExpeditionSubmission() else { return nil }
+        return .init(command: pending.submission) { [cloud, store] in
+            let outcome = try await cloud.submit(pending.submission)
+            let snapshot = try await cloud.current(
+                activityID: pending.operation.action.activityID, runID: pending.operation.selectedRunID)
+            try Task.checkCancellation()
+            try await store.acceptNativeExpeditionOutcome(outcome, snapshot: snapshot)
+        }
+    }
+    private func result(_ stop: NativeMailroom.Stop) async throws -> Result {
         let queue = try await store.expeditionQueue()
+        let access: Bool
+        if case .blocked(let value) = stop { access = value } else { access = false }
         var retry: Date?
         if let uncertain = queue.first(where: { $0.state == "sealed" }) {
             retry = uncertain.retryAt
@@ -75,15 +50,13 @@ actor NativeExpeditionSync {
                 earlier.append(entry.keys)
             }
         }
+        if case .retry(let date) = stop { retry = retry.map { max($0, date) } }
         return .init(
             pendingCount: queue.count, needsDecision: queue.contains(where: \.needsDecision),
-            retryAt: requiresAccessRefresh ? nil : retry.map { max($0, notBefore ?? $0) },
-            requiresAccessRefresh: requiresAccessRefresh)
+            retryAt: access ? nil : retry, requiresAccessRefresh: access)
     }
-    private func deferSubmission(_ command: NativeStore.Submission, minimum: Double) async throws -> Date {
-        let backoff = min(300, pow(2, Double(min(command.attempts + 1, 9))))
-        let date = Date().addingTimeInterval(max(minimum, backoff * Double.random(in: 0.8...1.2)))
-        try await store.deferExpeditionSubmission(command.id, until: date)
-        return date
-    }
+    func pause() async { await jobs.pause() }
+    func resume() async throws { try await jobs.resume() }
+    /// The scope assembly closes the shared transport after all consumers drain.
+    func stop() async { await jobs.close() }
 }

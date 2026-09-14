@@ -82,19 +82,7 @@ extension NativeStore {
     }
 
     func deferProfileSubmission(_ id: UUID, until date: Date) throws {
-        try requireOpen()
-        guard let row = try operation(id), row.state == "sealed", row.sealedBytes != nil else {
-            throw Failure.corrupt
-        }
-        do {
-            guard row.attempts < Int.max else { throw Failure.corrupt }
-            row.attempts += 1
-            row.nextAttemptAt = date
-            try commit()
-        } catch {
-            modelContext.rollback()
-            throw error
-        }
+        try deferSubmission(id, until: date)
     }
 
     func profileRetryAt() throws -> Date? {

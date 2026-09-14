@@ -42,17 +42,6 @@ extension NativeStore {
     }
 
     func deferTripSubmission(_ id: UUID, until date: Date) throws {
-        try requireOpen()
-        guard let row = try operation(id), row.entityKey.hasPrefix("trip:"), row.state == "sealed",
-            row.sealedBytes != nil, row.attempts < Int.max
-        else { throw Failure.corrupt }
-        do {
-            row.attempts += 1
-            row.nextAttemptAt = date
-            try commit()
-        } catch {
-            modelContext.rollback()
-            throw error
-        }
+        try deferSubmission(id, until: date)
     }
 }

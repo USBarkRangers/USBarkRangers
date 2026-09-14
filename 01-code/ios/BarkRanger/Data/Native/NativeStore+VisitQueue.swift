@@ -76,20 +76,7 @@ extension NativeStore {
         return nil
     }
     func deferVisitSubmission(_ id: UUID, until date: Date) throws {
-        try requireOpen()
-        guard let row = try operation(id), row.entityKey == "visits", row.state == "sealed",
-            row.attempts < Int.max
-        else {
-            throw Failure.corrupt
-        }
-        do {
-            row.attempts += 1
-            row.nextAttemptAt = date
-            try commit()
-        } catch {
-            modelContext.rollback()
-            throw error
-        }
+        try deferSubmission(id, until: date)
     }
     func rejectVisitOperation(_ id: UUID, code: String) throws {
         try requireOpen()

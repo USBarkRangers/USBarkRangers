@@ -89,18 +89,7 @@ extension NativeStore {
         }
     }
     func deferExpeditionSubmission(_ id: UUID, until date: Date) throws {
-        try requireOpen()
-        guard let row = try operation(id), row.entityKey == "expedition", row.state == "sealed",
-            row.attempts < Int.max
-        else { throw Failure.corrupt }
-        do {
-            row.attempts += 1
-            row.nextAttemptAt = date
-            try commit()
-        } catch {
-            modelContext.rollback()
-            throw error
-        }
+        try deferSubmission(id, until: date)
     }
     static let expeditionRejectionCodes: Set<String> = [
         "invalid", "operation-reused", "unsupported-contract", "premium-required", "account-deleting",

@@ -72,6 +72,8 @@ struct AccountView: View {
             }
             if model.busy { Section { ProgressView("Working…") } }
         }
+        .scrollDismissesKeyboard(.interactively)
+        .background(KeyboardDismissalArea())
         // A UID transition starts fresh form controls, including signed-out credentials/create mode.
         .id(model.session.identity?.uid)
         .font(.body)

@@ -11,6 +11,10 @@ struct NativeAccountDetails: View {
                 accountValue(
                     "Access", value: model.session.entitlement.access?.premium == true ? "Premium" : "Free")
                 accountValue("Status", value: model.session.entitlement.access?.status ?? "Unconfirmed")
+                if model.session.entitlement.access?.source == "development" {
+                    Text("Temporary development access. No App Store purchase or subscription is active.")
+                        .font(.footnote)
+                }
                 if model.session.entitlement.access?.premium == true,
                     let until = model.session.entitlement.access?.validUntil
                 {

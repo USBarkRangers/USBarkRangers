@@ -26,7 +26,7 @@ import Foundation
             let options = FirebaseOptions(contentsOfFile: path),
             options.projectID == "bark-ranger-ios",
             options.bundleID == Bundle.main.bundleIdentifier,
-            options.googleAppID.range(of: "^1:[0-9]+:ios:[a-f0-9]+$", options: .regularExpression) != nil,
+            options.googleAppID == "1:360077919845:ios:cd94b1ea6899f95da6e88c",
             let apiKey = options.apiKey, !apiKey.isEmpty
         else {
             return unavailable(directory: directory)
@@ -89,6 +89,7 @@ import Foundation
         emulatorHost: String = "127.0.0.1"
     ) -> Self {
         // Firebase's registry is SDK-owned. The composition calls this once for each app/test lifetime.
+        NativeAppCheck.configure()
         if FirebaseApp.app(name: name) == nil { FirebaseApp.configure(name: name, options: options) }
         guard let app = FirebaseApp.app(name: name) else { return unavailable(directory: directory) }
         let auth = Auth.auth(app: app)
@@ -113,10 +114,19 @@ import Foundation
             let configuration = NativeProfileConfiguration(
                 project: project,
                 connect: { try NativeProfileCloud(uid: $0, auth: auth, db: db) },
-                connectTrips: { try NativeTripCloud(transport: NativeCallableTransport(uid: $0, auth: auth)) },
-                connectVisits: { try NativeVisitCloud(transport: NativeCallableTransport(uid: $0, auth: auth)) },
-                connectExpeditions: { try NativeExpeditionCloud(transport: NativeCallableTransport(uid: $0, auth: auth)) },
-                connectLeaderboard: { try NativeLeaderboardRepository(transport: NativeCallableTransport(uid: $0, auth: auth), uid: $0) })
+                connectTrips: {
+                    try NativeTripCloud(transport: NativeCallableTransport(uid: $0, auth: auth))
+                },
+                connectVisits: {
+                    try NativeVisitCloud(transport: NativeCallableTransport(uid: $0, auth: auth))
+                },
+                connectExpeditions: {
+                    try NativeExpeditionCloud(transport: NativeCallableTransport(uid: $0, auth: auth))
+                },
+                connectLeaderboard: {
+                    try NativeLeaderboardRepository(
+                        transport: NativeCallableTransport(uid: $0, auth: auth), uid: $0)
+                })
             return Self(
                 session: AccountSession(
                     auth: service, cloud: nil, directory: directory, capabilities: capabilities,

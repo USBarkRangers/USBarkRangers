@@ -1,6 +1,27 @@
 import XCTest
 
 nonisolated final class NativeAccountUITests: XCTestCase {
+    @MainActor func testTappingFormBackgroundDismissesKeyboardAndInputsCanRefocus() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
+        app.launchEnvironment["BARK_NATIVE_ACCOUNT_EMULATORS"] = "1"
+        app.launchEnvironment["BARK_EMULATOR_HOST"] = "127.0.0.1"
+        app.launch()
+        openAccount(app)
+        let email = app.textFields["Email"]
+        XCTAssertTrue(email.waitForExistence(timeout: 10))
+        email.tap()
+        email.typeText("keyboard@native.invalid")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        email.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertEqual(email.value as? String, "keyboard@native.invalid")
+        app.terminate()
+    }
+
     @MainActor func testNativeTripSaveMapAndRelaunchThroughCurrentScreens() throws {
         continueAfterFailure = false
         guard ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1" else {

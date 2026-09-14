@@ -33,10 +33,12 @@ const execute = createExecutor({ db: getFirestore(app),
 // Conservative development capacity, not the verified 100K-user launch configuration.
 // Raise only after measured workloads and the approved spending envelope are reviewed.
 exports.nativeCommand = onCall({ region: runtime.region, enforceAppCheck: !runtime.emulator,
+    serviceAccount: runtime.emulator ? undefined : 'native-ios-runtime@bark-ranger-ios.iam.gserviceaccount.com',
     minInstances: 0, maxInstances: 2, concurrency: 10, cpu: 1, memory: '256MiB', timeoutSeconds: 30,
 }, createCommandCallable({ runtime, execute, reportFailure: detail => logger.error(detail) }));
 
 exports.nativeRead = onCall({ region: runtime.region, enforceAppCheck: !runtime.emulator,
+    serviceAccount: runtime.emulator ? undefined : 'native-ios-runtime@bark-ranger-ios.iam.gserviceaccount.com',
     minInstances: 0, maxInstances: 2, concurrency: 10, cpu: 1, memory: '256MiB', timeoutSeconds: 30,
 }, createCommandCallable({ runtime, execute: createReadService(getFirestore(app)),
     reportFailure: () => logger.error({ event: 'native-read-failed', reason: 'internal' }) }));

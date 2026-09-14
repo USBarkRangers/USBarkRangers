@@ -1,6 +1,6 @@
 # Native iOS rebuild execution record
 
-Started September 13, 2026. Scope: Phase 1 of the approved [rebuild plan](../plans/IOS_NATIVE_BACKEND_REBUILD_PLAN_2026-09-13.md). Phase 1 is **in progress**, not accepted or ready for owner testing. Follow the [five recovery prompts](../plans/IOS_NATIVE_REBUILD_RECOVERY_PROMPTS_2026-09-13.md) for the remaining work; the source-review correction below supersedes any implied readiness from earlier passing checks.
+Started September 13, 2026. Scope: Phase 1 of the approved [rebuild plan](../plans/IOS_NATIVE_BACKEND_REBUILD_PLAN_2026-09-13.md). Phase 1 is **in progress**, not accepted. As of September 14 the isolated native backend is deployed and version 0.5.16 (75) is installed on the owner's iPhone; owner email verification/test-access and physical trip/offline acceptance remain pending. The [current cloud acceptance record](IOS_NATIVE_CLOUD_ACCEPTANCE.md) supersedes historical undeployed/configuration-pending statements below. Follow the [recovery prompts](../plans/IOS_NATIVE_REBUILD_RECOVERY_PROMPTS_2026-09-13.md) for remaining work; local passes alone do not establish readiness.
 
 ## Boundaries
 

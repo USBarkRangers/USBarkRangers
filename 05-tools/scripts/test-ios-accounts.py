@@ -6,9 +6,13 @@ Use --native-profile for the iOS-only demo-bark-native account/profile checkpoin
 Only a temporary xctestrun copy is changed; the ordinary scheme stays isolated.
 """
 import argparse
+import datetime
+import json
+import os
 import pathlib
 import plistlib
 import subprocess
+import tempfile
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--products", required=True, type=pathlib.Path)
@@ -16,10 +20,13 @@ parser.add_argument("--destination", required=True)
 parser.add_argument("--native-profile", action="store_true", help="Native account/profile checks; requires demo-bark-native loopback emulators and seed-native-profile-ui.cjs")
 parser.add_argument("--native-trips", action="store_true", help="Native trip/map checkpoint; same isolated emulators and account seed")
 parser.add_argument("--native-adventures", action="store_true", help="Native visits/walks/progress checkpoint; isolated demo-bark-native emulators")
+parser.add_argument("--native-cloud-fixture", type=pathlib.Path, help="Explicit live acceptance using a private, unexpired disposable QA fixture")
 parser.add_argument("--only-testing", action="append", help="Run a named test/suite from the selected checkpoint instead of its entire set")
 parser.add_argument("--host", default="127.0.0.1", help="Mac's private IPv4 address for physical-device tests")
 parser.add_argument("--functional-only", action="store_true", help="Skip the automated accessibility audit; keep account and largest-text interaction checks")
 args = parser.parse_args()
+if args.native_cloud_fixture and (args.native_profile or args.native_trips or args.native_adventures):
+    parser.error("Live acceptance cannot be combined with emulator checkpoints")
 products = args.products.resolve()
 platform = "iphoneos" if "platform=iOS," in args.destination else "iphonesimulator"
 candidates = list(products.glob(f"BarkRanger_{platform}*.xctestrun"))
@@ -78,17 +85,49 @@ if args.native_adventures:
         "BarkRangerTests/MapColorProjectionTests", "BarkRangerTests/NativeSyncJobsTests",
         "BarkRangerUITests/NativeAdventureUITests",
     ]
+if args.native_cloud_fixture:
+    with args.native_cloud_fixture.open() as source:
+        fixture = json.load(source)
+    if (fixture.get("project") != "bark-ranger-ios"
+            or not fixture.get("email", "").startswith("cloud-acceptance-")
+            or not fixture.get("email", "").endswith("@native.invalid")
+            or datetime.datetime.fromisoformat(fixture["expiresAt"].replace("Z", "+00:00"))
+            <= datetime.datetime.now(datetime.timezone.utc)):
+        parser.error("An unexpired, disposable bark-ranger-ios QA fixture is required")
+    for target in ("BarkRangerTests", "BarkRangerUITests"):
+        environment = settings[target].setdefault("EnvironmentVariables", {})
+        for key in ("BARK_RUN_ACCOUNT_EMULATOR_TESTS", "BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS", "BARK_EMULATOR_HOST"):
+            environment.pop(key, None)
+    settings["BarkRangerTests"]["EnvironmentVariables"].update({
+        "BARK_RUN_NATIVE_CLOUD_ACCEPTANCE": "1",
+        "BARK_CLOUD_TEST_EMAIL": fixture["email"], "BARK_CLOUD_TEST_PASSWORD": fixture["password"],
+        "BARK_CLOUD_TEST_UID": fixture["uid"], "AppCheckDebugToken": fixture["debugToken"],
+    })
+    copy = products / "BarkNativeCloud.xctestrun"
+    tests = ["BarkRangerTests/NativeCloudAcceptanceTests"]
 if args.only_testing:
     if not all(any(item == suite or item.startswith(suite + "/") for suite in tests) for item in args.only_testing):
         parser.error("Requested test must belong to the selected checkpoint")
     tests = args.only_testing
 try:
-    with copy.open("wb") as output:
+    # Live fixtures contain short-lived QA credentials; never create a world-readable manifest.
+    descriptor = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(descriptor, 0o600)
+    with os.fdopen(descriptor, "wb") as output:
         plistlib.dump(settings, output)
+    result = pathlib.Path(tempfile.mkdtemp(prefix="BarkAccountChecks-")) / "Acceptance.xcresult"
     subprocess.run([
         "xcodebuild", "-xctestrun", str(copy), "-destination", args.destination,
+        "-resultBundlePath", str(result),
         "-parallel-testing-enabled", "NO", *[f"-only-testing:{test}" for test in tests],
         "test-without-building", "-quiet",
     ], check=True)
+    summary = json.loads(subprocess.check_output([
+        "xcrun", "xcresulttool", "get", "test-results", "summary", "--path", str(result),
+    ], text=True))
+    if (summary.get("passedTests", 0) < 1 or summary.get("failedTests", 0) > 0
+            or (args.native_cloud_fixture and summary.get("skippedTests", 0) > 0)):
+        raise RuntimeError(f"No passing selected checks, a failure, or skipped cloud acceptance: {result}")
+    print(f"Verified {summary['passedTests']} passed checks. Evidence: {result}")
 finally:
     copy.unlink(missing_ok=True)

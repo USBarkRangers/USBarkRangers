@@ -6,6 +6,7 @@ public struct NativeEntitlement: Codable, Equatable, Sendable {
         case none
         case production = "app-store-production"
         case sandbox = "app-store-sandbox"
+        case development
     }
     public let schemaVersion: Int
     public let revision: Int64
@@ -29,10 +30,13 @@ public struct NativeEntitlement: Codable, Equatable, Sendable {
         }
     }
     public func permitsEditing(at now: Date) -> Bool {
-        // APPLE-ACTIVATION: remain fail-closed while enrollment/products are unavailable.
-        // Sandbox acceptance needs an explicit isolated verification policy, not a relaxed
-        // production check. A purchase result alone must never populate this projection.
-        schemaVersion == 1 && premium && source == .production
+        // Only a server-confirmed administrative grant enables development builds.
+        // Release never treats development or Apple sandbox data as paid access.
+        var acceptedSource = source == .production
+        #if DEBUG
+            acceptedSource = acceptedSource || source == .development
+        #endif
+        return schemaVersion == 1 && premium && acceptedSource
             && validUntilMs.map { Double($0) > now.timeIntervalSince1970 * 1000 } == true
     }
 }

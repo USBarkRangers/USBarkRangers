@@ -2,7 +2,7 @@
 
 ## iOS-only rebuild — connected account, trips, visits and walks, September 14
 
-The historical build notes below describe the previous backend. The rebuild is not yet a deployed or accepted replacement. Its current execution record is [IOS_NATIVE_REBUILD_PROGRESS](../../04-docs/operations/IOS_NATIVE_REBUILD_PROGRESS.md).
+The historical build notes below describe the previous backend. The native backend is deployed to the isolated bark-ranger-ios project as of September 14; it is not an accepted production replacement. Its current execution record is [IOS_NATIVE_REBUILD_PROGRESS](../../04-docs/operations/IOS_NATIVE_REBUILD_PROGRESS.md), with deployment/device evidence in [IOS_NATIVE_CLOUD_ACCEPTANCE](../../04-docs/operations/IOS_NATIVE_CLOUD_ACCEPTANCE.md).
 
 The connected account path is now `AccountView / SettingsRepository → AccountModel / NativeProfileFeature → NativeStore profile rows + durable intents → NativeProfileSync → NativeProfileCloud → nativeCommand`. Confirmed profile, visible local edits and server-confirmed access stay separate; none is copied into `PersonalSnapshot` or `UserValue`. `AccountSession` remains the single identity/lifecycle owner. It clears the visible scope immediately, cancels/drains and closes the old feature, and only then opens the next. `NativeSyncJobs` owns shared job cancellation, not whichever caller happens to await it.
 

@@ -22,7 +22,7 @@ function requireWritableProfile(profile, allowCreation) {
     if (profile.status !== 'active') throw new NativeError('account-deleting', 'This account is being deleted.');
 }
 
-function requirePremium(entitlement, nowMs) {
+function requirePremium(entitlement, nowMs, uid) {
     // APPLE-ACTIVATION: enrollment pending. A separate server verification boundary must
     // validate signed Apple transactions, bundle/product/environment, account ownership,
     // expiry/revocation and duplicate notification IDs before writing this entitlement.
@@ -31,8 +31,16 @@ function requirePremium(entitlement, nowMs) {
     // Never enable a client-write/test-grant endpoint or import legacy payment providers.
     const validUntilMs = typeof entitlement?.validUntil?.toMillis === 'function'
         ? entitlement.validUntil.toMillis() : NaN;
+    const grantedAtMs = typeof entitlement?.developmentGrantedAt?.toMillis === 'function'
+        ? entitlement.developmentGrantedAt.toMillis() : NaN;
+    // Administrative development grants are distinct from purchase evidence, bound
+    // to the exact account and limited to 14 days. No callable can issue these fields.
+    const development = entitlement?.source === 'development'
+        && typeof uid === 'string' && entitlement.developmentUID === uid
+        && Number.isFinite(grantedAtMs) && grantedAtMs <= nowMs + 60_000
+        && validUntilMs > grantedAtMs && validUntilMs <= grantedAtMs + 14 * 24 * 3600_000;
     if (entitlement?.schemaVersion !== 1 || entitlement.premium !== true
-        || entitlement.source !== 'app-store-production'
+        || (entitlement.source !== 'app-store-production' && !development)
         || !Number.isFinite(validUntilMs) || validUntilMs <= nowMs) {
         throw new NativeError('premium-required', 'Premium is required to edit account data.');
     }

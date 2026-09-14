@@ -30,7 +30,7 @@ function createExecutor({ db, handlers, clock = Date.now }) {
                 user, user.collection('state').doc('entitlement'), rateRef);
             const profile = profileSnapshot.data();
             requireWritableProfile(profile, handler.allowCreation === true);
-            if (handler.requiresPremium) requirePremium(entitlementSnapshot.data(), nowMs);
+            if (handler.requiresPremium) requirePremium(entitlementSnapshot.data(), nowMs, uid);
             const rate = nextRate(rateSnapshot.data(), nowMs, handler.rateMaximum);
             // prepare performs all feature reads/validation, then returns a synchronous write closure.
             // External requests, side effects and account-wide scans never belong in this transaction.

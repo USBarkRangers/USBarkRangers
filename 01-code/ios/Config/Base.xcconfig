@@ -17,7 +17,7 @@ BARK_DEVELOPMENT_TEAM = V7Y6NA8G23
 #include? "Signing.local.xcconfig"
 
 // Public native-only assets. The manifest is conditional; changed catalogs are saved atomically on device.
-BARK_CATALOG_MANIFEST_URL = https:/$()/storage.googleapis.com/barkrangermap-auth-native-catalog/native-catalog/v1/manifest.json
+BARK_CATALOG_MANIFEST_URL = https:/$()/storage.googleapis.com/bark-ranger-ios-public-catalog/native-catalog/v1/manifest.json
 #include? "Catalog.local.xcconfig"
 
 // Native provider callback is developer-owned until Firebase iOS registration is supplied.
@@ -29,3 +29,5 @@ BARK_DEVICE_ACCOUNT_HOST =
 
 // Apply to our targets only; third-party packages may intentionally suppress their own warnings.
 SWIFT_TREAT_WARNINGS_AS_ERRORS = YES
+// Firebase's Swift Package Objective-C components (including App Check) must register at startup.
+OTHER_LDFLAGS = $(inherited) -ObjC

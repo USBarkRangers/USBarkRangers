@@ -12,6 +12,7 @@
 		BA4C30000000000000000002 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000002 /* FirebaseFirestore */; };
 		BA4C30000000000000000003 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000003 /* FirebaseFunctions */; };
 		BA4C30000000000000000004 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000004 /* GoogleSignIn */; };
+		BA4C30000000000000000005 /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000005 /* FirebaseAppCheck */; };
 		BA4C50000000000000000001 /* BarkRangerActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BA4C50000000000000000002 /* BarkRangerActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -108,6 +109,7 @@
 				BA4C10000000000000000017 /* BarkDomain in Frameworks */,
 				BA4C30000000000000000004 /* GoogleSignIn in Frameworks */,
 				BA4C30000000000000000003 /* FirebaseFunctions in Frameworks */,
+				BA4C30000000000000000005 /* FirebaseAppCheck in Frameworks */,
 				BA4C30000000000000000002 /* FirebaseFirestore in Frameworks */,
 				BA4C30000000000000000001 /* FirebaseAuth in Frameworks */,
 			);
@@ -196,6 +198,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 8B2A66C72FD5040A0093FDAD /* Build configuration list for PBXNativeTarget "BarkRanger" */;
 			buildPhases = (
+				BA4C60000000000000000001 /* Validate native Firebase registration */,
 				8B2A66B82FD504090093FDAD /* Sources */,
 				8B2A66B92FD504090093FDAD /* Frameworks */,
 				8B2A66BA2FD504090093FDAD /* Resources */,
@@ -214,6 +217,7 @@
 			packageProductDependencies = (
 				BA4C31000000000000000004 /* GoogleSignIn */,
 				BA4C31000000000000000003 /* FirebaseFunctions */,
+				BA4C31000000000000000005 /* FirebaseAppCheck */,
 				BA4C31000000000000000002 /* FirebaseFirestore */,
 				BA4C31000000000000000001 /* FirebaseAuth */,
 				BA4C10000000000000000016 /* BarkDomain */,
@@ -365,6 +369,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		BA4C60000000000000000001 /* Validate native Firebase registration */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Config/check-native-configuration.sh",
+				"$(SRCROOT)/BarkRanger/GoogleService-Info.plist",
+			);
+			name = "Validate native Firebase registration";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/bin/sh \"$SRCROOT/Config/check-native-configuration.sh\"";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		8B2A66B82FD504090093FDAD /* Sources */ = {
@@ -536,7 +560,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/BarkRanger.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 74;
+				CURRENT_PROJECT_VERSION = 75;
 				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -547,7 +571,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.5.15;
+				MARKETING_VERSION = 0.5.16;
 				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -561,7 +585,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/BarkRanger.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 74;
+				CURRENT_PROJECT_VERSION = 75;
 				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -572,7 +596,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.5.15;
+				MARKETING_VERSION = 0.5.16;
 				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -654,7 +678,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 74;
+				CURRENT_PROJECT_VERSION = 75;
 				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/ActivityInfo.plist;
@@ -663,7 +687,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.5.15;
+				MARKETING_VERSION = 0.5.16;
 				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS.Activity;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -675,7 +699,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 74;
+				CURRENT_PROJECT_VERSION = 75;
 				DEVELOPMENT_TEAM = "$(BARK_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/ActivityInfo.plist;
@@ -684,7 +708,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.5.15;
+				MARKETING_VERSION = 0.5.16;
 				PRODUCT_BUNDLE_IDENTIFIER = swarm.USBARKRANGERS.Activity;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -792,6 +816,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = BA4C32000000000000000002 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignIn;
+		};
+		BA4C31000000000000000005 /* FirebaseAppCheck */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BA4C32000000000000000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAppCheck;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -1,0 +1,26 @@
+import Foundation
+import Testing
+
+@testable import BarkDomain
+
+struct NativeDevelopmentAccessTests {
+    @Test func developmentAccessExpiresAndIsNeverAnApplePurchase() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let access = NativeEntitlement(
+            revision: 2, premium: true, source: .development,
+            validUntilMs: 1_800_000_001_000)
+        try access.validate()
+        #expect(access.source.rawValue == "development")
+        #if DEBUG
+            #expect(access.permitsEditing(at: now))
+        #else
+            #expect(!access.permitsEditing(at: now))
+        #endif
+        #expect(!access.permitsEditing(at: now.addingTimeInterval(1)))
+        #expect(
+            !NativeEntitlement(
+                revision: 2, premium: true, source: .sandbox,
+                validUntilMs: 1_800_000_001_000
+            ).permitsEditing(at: now))
+    }
+}

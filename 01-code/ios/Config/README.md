@@ -1,29 +1,84 @@
 # Native configuration
 
-Base.xcconfig pins iPhone/iOS 18.4, Swift 6 and complete concurrency checking. Xcode 26.6/Swift 6.3.3 is the verified toolchain. Bundle ID is `swarm.USBARKRANGERS`; device signing uses the existing BARK_DEVELOPMENT_TEAM or ignored Signing.local.xcconfig override. A genuine native Firebase app and Personal Team device profile were configured September 10 for the owner's Google account test.
+Current target: **bark-ranger-ios** only. Do not restore old account/provider configuration.
+Bundle ID: `swarm.USBARKRANGERS`; iOS 18.4 minimum, Swift 6 with complete concurrency
+checking. Xcode 26.6 / Swift 6.3.3 is the locally verified toolchain.
 
-Info.plist declares public navigation, location-on-action wording and the separate Google callback scheme. BarkRanger.entitlements declares the application Keychain group; Sign in with Apple is temporarily commented out while paid team activation is pending. AccountAssembly also keeps the Apple capability disabled. Restore both after genuine Apple capability/provisioning setup, before Apple provider testing or release. Simulator Auth tests require an ad-hoc signature (`CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES`); no signing certificate is needed for that local simulator test. No background location, HealthKit, Live Activity, push, associated-domain or StoreKit integration is added.
+## Registration and signing
 
-## Catalog
+Download the exact Firebase iOS registration
+`1:360077919845:ios:cd94b1ea6899f95da6e88c` from `bark-ranger-ios` and place its
+`GoogleService-Info.plist` in `BarkRanger/`. The plist and all `*.local.xcconfig`
+overrides stay out of Git. The build guard and AccountAssembly validate the exact
+project, app and bundle. Wrong configuration fails the build; absent configuration
+blocks Release and leaves Debug accounts unavailable, with public discovery intact.
 
-As of 0.5.10 (69), Base.xcconfig supplies the verified public native manifest at `https://storage.googleapis.com/barkrangermap-auth-native-catalog/native-catalog/v1/manifest.json`. Normal builds no longer require a private catalog override. Use `https:/$()/host/path/manifest.json` in xcconfig so `//` is not parsed as a comment. The app checks every five minutes while foregrounded and saves accepted updates atomically for offline launches. The source publisher also runs every five minutes. See [the live runbook](../../../04-docs/operations/NATIVE_CATALOG_PUBLICATION.md). Release accepts HTTPS only; Debug retains explicit local fixture overrides. Normal browsing never asks for location.
+`BARK_DEVELOPMENT_TEAM` or ignored `Signing.local.xcconfig` controls device signing.
+The owner currently uses a Personal Team; paid Apple enrollment is pending.
+Simulator SDK tests need ad-hoc signing (`CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES`).
 
-## Accounts
+## Accounts and App Check
 
-Firebase **12.19.1** and GoogleSignIn **10.0.0** are pinned in the project and committed Package.resolved. The app links Auth, Firestore and Functions; no Analytics product is linked. AccountAssembly configures Firestore memory cache; SwiftData owns durable personal data and pending writes.
+Firebase 12.19.1 and GoogleSignIn 10.0.0 are pinned. Auth, Firestore, Functions and
+App Check are linked, not Analytics. Email/password is enabled in the new project.
+Native composition does not use existing users, Lemon Squeezy or old web API keys.
+Firestore uses memory cache; the account-scoped native store owns durable data and
+pending writes.
 
-The genuine **Bark Ranger iOS** app is registered under **barkrangermap-auth** with bundle `swarm.USBARKRANGERS` and app ID `1:564465144962:ios:828a2174941919dbd5d09b`. Its downloaded `GoogleService-Info.plist` lives in the app folder and is ignored by Git. Another developer must obtain this same app's configuration from Firebase; a web app ID is not a native configuration. AccountAssembly validates project/bundle/native app-ID shape and otherwise leaves account sign-in unavailable while public discovery continues.
+NativeAppCheck configures the SDK provider before Firebase construction. Debug uses
+privately registered device tokens; never commit them or share raw logs. Release
+uses App Attest and still requires paid-team registration, entitlement and device
+verification. `-ObjC` ensures Firebase components register. The SDK test-token
+environment variable is **AppCheckDebugToken**, not FIRAppCheckDebugToken.
 
-For Google, set `BARK_GOOGLE_REVERSED_CLIENT_ID` to the genuine REVERSED_CLIENT_ID from that plist in ignored `Accounts.local.xcconfig`; this Mac is configured. Its checked-in default remains an intentionally unconfigured non-provider scheme. The adapter is only enabled if the actual client ID matches the app's URL schemes. The owner completed real Google sign-in on the phone September 10 and confirmed their existing account details and membership. Linking, credential cancellation and Apple revocation need separate provider verification.
+Cloud functions and Firestore are in us-east1. Under Node 22, deploy from the repository
+root with `node 05-tools/scripts/deploy-native-ios.cjs bark-ranger-ios`. This uses the
+native-only impersonated deployer, firebase.native.json and exact-target guard.
+Never use root firebase.json or a default alias. Functions require Authentication
+and App Check; direct client entitlement writes are denied.
 
-AccountAssembly.capabilities enables profile writes, authentication changes and account management in both the normal app and emulator integration tests. Only Apple sign-in remains disabled. On September 11 the owner explicitly authorized non-Apple live enablement: applyUserMutation, deleteNativeAccount, restoreNativeAccess, getNativeBillingURL and cancelNativeSubscription were deployed to barkrangermap-auth, with the receipt-denial rule and receipt TTL. The existing 24 endpoints were verified unchanged. Ordinary account operations use Firebase HTTPS directly and require no Mac or local Wi-Fi connection. Leave BARK_DEVICE_ACCOUNT_HOST empty for this normal build.
+Temporary development access is an administrator-issued, UID-bound grant limited to
+14 days, accepted by Debug only, never represented as an Apple purchase. The grant
+helper requires an explicitly authorized verified account:
+`node 05-tools/scripts/grant-native-development-access.cjs bark-ranger-ios EMAIL 14`.
+There is no callable that grants access.
 
-Google/email creation/sign-in, reset/verification/linking, profile editing, eligible cloud appearance settings and existing-account management are enabled. Existing Lemon subscriptions retain their management contract; no new purchase flow or customer migration was added. StoreKit purchasing remains Phase 6. Restore the Apple entitlement and shared assembly capability only after genuine paid-team/Firebase Apple-provider setup, then verify the real Apple flow. Membership approval alone does not modify an already installed build.
+Google sign-in remains hidden without a genuine new-project client ID and callback
+scheme. Do not reuse old Accounts.local.xcconfig values. Apple sign-in, real StoreKit
+purchasing/server verification, native account deletion and support submission remain
+unfinished. Approval alone does not implement those services or update an installed
+build. Complete implementation and device verification at the APPLE-ACTIVATION
+boundaries before release.
 
-## Local testing
+## Catalog and email
 
-The separate **BarkRanger Local Accounts** shared scheme enables the explicit Debug-only demo emulator assembly and stable disposable sandbox. Normal **BarkRanger** Run remains separate. Ordinary Test uses inert accounts; the opt-in emulator test helper selects actual SDK/UI contracts. Release ignores all test launch flags. See [the setup/test checklist](../../../04-docs/operations/NATIVE_ACCOUNT_TESTING.md).
+The native manifest is
+`https://storage.googleapis.com/bark-ranger-ios-public-catalog/native-catalog/v1/manifest.json`.
+Only reviewed public catalog assets belong in this bucket, never account/journal/photo
+data. The initial 393-park snapshot has verified length/checksum. Automated native
+catalog publication is not yet connected. The app conditionally checks the manifest
+and atomically saves changes for offline browsing. Use `https:/$()/host/path` in
+xcconfig so the slash pair is not parsed as a comment.
 
-For physical iPhone testing, ignored `DeviceTesting.local.xcconfig` may set `BARK_DEVICE_ACCOUNT_HOST` to the Mac's private IPv4 address. Only Debug includes that file; Release keeps the value empty and has no test startup branch. The standard BarkRanger scheme then uses real map/platform behavior with separate demo account storage, including after Home Screen relaunch. Keep the Mac's local emulators and foreground `serve-ios-account-device.cjs` connection running. No native production Firebase registration is required for this path.
+Firebase hosts the native verification handler at /__/auth/action. Real links must
+contain Firebase-generated mode, action code and API key. The console's dummy preview
+link is not usable for verification. The separate sender
+`noreply@ios.usbarkrangersmap.com` is owner-approved; DNS verification is pending.
+Never overwrite the existing web sender's root SPF/DKIM records.
 
-Never add production customer credentials, fake provider registrations or JDDM configuration here. The owner's requested native registration is complete; customer migration remains outside this test. The separately authorized September 11 account deployment is recorded above.
+## Testing
+
+Ordinary tests use inert accounts. Native emulator checks explicitly select
+demo-bark-native on loopback through test-ios-accounts.py. Release ignores test flags.
+Keep BARK_DEVICE_ACCOUNT_HOST empty for the normal cloud-connected build.
+
+native-cloud-smoke.cjs performs one explicitly authorized, small live QA run. It
+creates a private disposable fixture and refuses to overwrite an existing one.
+test-ios-accounts.py --native-cloud-fixture PATH opts into iOS SDK cloud checks with
+credentials injected through a temporary mode-0600 manifest, removed after testing.
+Never automate with the owner's password. Confirm a nonzero test count and zero
+failures/skips; a zero-test exit is not acceptance. Retire disposable accounts and
+debug registrations after use.
+
+See [cloud acceptance](../../../04-docs/operations/IOS_NATIVE_CLOUD_ACCEPTANCE.md)
+for evidence and remaining device/release gates.

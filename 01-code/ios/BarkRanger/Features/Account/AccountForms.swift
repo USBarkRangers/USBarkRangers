@@ -20,12 +20,17 @@ struct AccountForms: View {
                 .onSubmit { focusedField = nil }
             if model.capabilities.authenticationChanges { Toggle("Create a new account", isOn: $create) }
             Button(create ? "Create account" : "Sign in") {
+                focusedField = nil
                 model.email(email, password: password, create: create)
             }
             if model.capabilities.authenticationChanges {
-                Button("Reset password") { model.resetPassword(email) }
+                Button("Reset password") {
+                    focusedField = nil
+                    model.resetPassword(email)
+                }
             }
         }
+        .onChange(of: create) { _, _ in focusedField = nil }
         if model.providerButtonsAvailable { AccountProviderButtons(model: model, use: .signIn) }
     }
 }

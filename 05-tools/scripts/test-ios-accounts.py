@@ -63,6 +63,7 @@ if args.native_trips:
         "BarkRangerTests/NativeTripStoreTests", "BarkRangerTests/NativeTripReconciliationTests",
         "BarkRangerTests/NativeTripIdentityTests",
         "BarkRangerTests/NativeTripCostTests",
+        "BarkRangerTests/NativeTripQueuePerformanceTests",
         "BarkRangerTests/AccessStabilizationTests", "BarkRangerTests/AccountIsolationTests",
         "BarkRangerTests/CorrectnessPolicyTests", "BarkRangerTests/MapColorProjectionTests",
         "BarkRangerTests/NativeCacheRetentionTests", "BarkRangerTests/TripLibraryPagingTests",

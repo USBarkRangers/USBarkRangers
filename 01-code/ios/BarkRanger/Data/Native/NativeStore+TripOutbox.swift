@@ -10,7 +10,7 @@ extension NativeStore {
         var submitted = draft
         let pending = try tripOperations(draft.id)
         if let previous = pending.last {
-            let intent = try JSONDecoder().decode(NativeTripIntent.self, from: previous.intent)
+            let intent = try tripIntent(previous)
             if let prior = intent.savedDraft, prior.trip == draft.trip {
                 guard let id = UUID(uuidString: previous.id) else { throw Failure.corrupt }
                 return id
@@ -106,7 +106,7 @@ extension NativeStore {
             return Submission(id: operationID, bytes: bytes, attempts: row.attempts)
         }
         do {
-            let intent = try JSONDecoder().decode(NativeTripIntent.self, from: row.intent)
+            let intent = try tripIntent(row)
             let command = NativeTripCommand(
                 operationID: operationID, createdAtMs: row.createdAtMs, expectedRevision: expected,
                 intent: intent)
@@ -126,24 +126,39 @@ extension NativeStore {
 
     func tripOperations(_ id: String) throws -> [NativeLocalSchema.PendingOperation] {
         let key = "trip:\(id)"
-        let query = FetchDescriptor<NativeLocalSchema.PendingOperation>(
+        var query = FetchDescriptor<NativeLocalSchema.PendingOperation>(
             predicate: #Predicate { $0.entityKey == key },
             sortBy: [SortDescriptor(\.sequence)])
+        // Status/order/retry queries need the envelope metadata, not every itinerary.
+        // SwiftData faults the body only when tripIntent consumes that particular row.
+        query.propertiesToFetch = [
+            \.id, \.entityKey, \.sequence, \.attempts, \.predecessor, \.state,
+            \.sealedBytes, \.expectedRevision, \.nextAttemptAt,
+        ]
         let rows = try modelContext.fetch(query)
         for (index, row) in rows.enumerated() {
             guard UUID(uuidString: row.id) != nil, row.sequence > 0, row.attempts >= 0,
                 row.predecessor == (index == 0 ? nil : rows[index - 1].id),
                 ["queued", "sealed", "conflict", "rejected"].contains(row.state),
                 (row.state == "queued") == (row.sealedBytes == nil),
+                row.expectedRevision.map({ (0..<9_007_199_254_740_991).contains($0) }) ?? true,
                 row.predecessor == nil || (row.state == "queued" && row.expectedRevision == nil)
-            else { throw Failure.corrupt }
-            let intent = try JSONDecoder().decode(NativeTripIntent.self, from: row.intent)
-            try intent.validate()
-            guard intent.tripID == id,
-                row.expectedRevision == nil || row.expectedRevision == intent.baseRevision
             else { throw Failure.corrupt }
         }
         return rows
     }
 
+    /// One body boundary for staging a dependent edit, sealing, applying an outcome
+    /// or conflict recovery. Listing metadata never certifies a body's validity.
+    func tripIntent(_ row: NativeLocalSchema.PendingOperation) throws -> NativeTripIntent {
+        #if DEBUG
+            tripIntentDecodeCount += 1
+        #endif
+        let intent = try JSONDecoder().decode(NativeTripIntent.self, from: row.intent)
+        try intent.validate()
+        guard row.entityKey == "trip:\(intent.tripID)",
+            row.expectedRevision == nil || row.expectedRevision == intent.baseRevision
+        else { throw Failure.corrupt }
+        return intent
+    }
 }

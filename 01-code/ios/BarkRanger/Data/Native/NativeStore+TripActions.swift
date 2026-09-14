@@ -84,7 +84,7 @@ extension NativeStore {
         guard let base = expectedDraft.nativeBase else { throw Failure.corrupt }
         try base.validate(tripID: draft.id)
         let pending = try tripOperations(draft.id)
-        let last = try pending.last.map { try JSONDecoder().decode(NativeTripIntent.self, from: $0.intent) }
+        let last = try pending.last.map { try tripIntent($0) }
         let expected: Int64?
         if let last {
             guard last.savedDraft != nil else { throw Failure.unavailable }

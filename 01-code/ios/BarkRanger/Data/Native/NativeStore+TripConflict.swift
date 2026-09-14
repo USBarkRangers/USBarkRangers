@@ -47,7 +47,7 @@ extension NativeStore {
             try metadataRow(id)?.revision ?? 0 == metadataRevision,
             try currentNativeDraft(id: id) == expectedDraft
         else { throw Failure.invalidAcknowledgment }
-        let latest = try JSONDecoder().decode(NativeTripIntent.self, from: last.intent)
+        let latest = try tripIntent(last)
         let replacement: NativeTripIntent?
         var chosen: TripDraft?
         var copied = false

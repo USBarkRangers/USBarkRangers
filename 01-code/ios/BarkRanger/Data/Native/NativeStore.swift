@@ -28,6 +28,7 @@ import SwiftData
         var commitObserver: (@Sendable ([String: Int]) -> Void)?
         var tripLibraryReadObserver: (@Sendable (Set<String>) -> Void)?
         var savedPinIndexObserver: (@Sendable (Int) -> Void)?
+        var tripIntentDecodeCount = 0
     #endif
     private var observers: [UUID: AsyncStream<ProfileView>.Continuation] = [:]
     enum Change: Hashable, Sendable {

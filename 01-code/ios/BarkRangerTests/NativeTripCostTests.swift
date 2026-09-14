@@ -47,7 +47,7 @@ struct NativeTripCostTests {
         #expect(payload["days"] == nil && payload["start"] == nil && payload["end"] == nil)
         #expect((payload["notes"] as? [Any])?.count == 1)
         // One atomic note command contains neither itinerary nor untouched notes.
-        // Canonical post-save detail confirmation remains separate measured work.
+        // Compact canonical acknowledgment is verified separately from this local edit.
         #expect(command.bytes.count < 1000)
         // Account presentation now includes the all-feature pending count.
         // The editor checkpoint itself still causes no profile notification.

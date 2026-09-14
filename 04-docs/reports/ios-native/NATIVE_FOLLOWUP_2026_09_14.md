@@ -63,7 +63,14 @@ Actual handler document operations below use the **same isolated fixture**: ten 
 - CI finding: checkpoint 2's GitHub native run failed two asynchronous feature checks before reaching the shell suite; no native result artifact had been retained. Local focused checks pass, but that does not make the historical CI green. The runner now reports failure details and CI retains native `.xcresult` evidence on failure. No test is disabled and live QA credentials are excluded from that upload location.
 - Runtime size: iOS **26,722 → 26,907 lines (+185), 305 → 307 files**; backend **2,394 → 2,423 lines (+29), 53 files unchanged**. This buys measured network savings and canonical confirmation, not code-size reduction.
 
+## 5 — Trip queue hot path
+
+- Reproduced with **24 queued trips × 200 stops**, then **50 sealed retries + 50 status fetches**. Before: **2,400 full intent decodes/validations**. After: **0** for those same operations. The isolated benchmark test duration, including fixture construction and reopen, fell **47.768 s → 2.462 s** on the same iPhone 17 Pro simulator. These are local single-run benchmark times, not cloud latency or a promised speedup on every phone.
+- Queue fetches project only order/state/envelope metadata. Eight scattered trip-intent decoding sites become **one validated body boundary**, used when a body is actually consumed for dependent staging, sealing, acknowledgment or conflict recovery. Cheap ordering, state and revision checks remain; malformed JSON, wrong-trip bodies and broken predecessor chains still refuse delivery. Already sealed bytes remain exact across retries and reopening. No new cache or second queue was added.
+- Compact full-save/delete confirmation no longer loads an unrelated cached itinerary; only note-only reconstruction needs that cached preimage. Deletion, safe never-sent Discard, account boundaries and atomic acknowledgment behavior are unchanged.
+- Verification: the before benchmark passed its measured **2,400** baseline; the after benchmark passed its **0** contract and all three corruption cases. Full ordinary iOS suite: **293 passed / 29 opt-in skipped** (`Test-BarkRanger-2026.09.14_14-02-14--0400.xcresult`). Native trip/store/reconciliation/refresh-cost SDK groups: **35 passed, zero failures/skips** (`BarkAccountChecks-9m8t006c/Acceptance.xcresult`). CI/project guards **7 passed**. Added the queue regression to native trip CI. Backend behavior is unchanged, so no new cloud deployment is needed for checkpoint 5.
+- Runtime size: iOS **26,907 → 26,925 lines (+18), 307 files unchanged**; backend **2,423 lines unchanged**. The gain is deleting repeated decoding/validation work and consolidating its boundary, not a claimed line-count reduction. Debug-only decode counting is absent from shipping builds.
+
 ## Remaining ordered work
 
-5. Remove repeated queue-wide trip validation from the hot path.
 6. Leaderboard measurement at 1K/10K/100K; measurement only, no speculative rewrite.

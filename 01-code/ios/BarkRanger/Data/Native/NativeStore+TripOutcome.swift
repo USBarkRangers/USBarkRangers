@@ -8,12 +8,15 @@ extension NativeStore {
         guard outcome.status == .accepted, outcome.confirmation != nil,
             let row = try operation(outcome.operationID), row.state == "sealed", row.sealedBytes != nil
         else { return nil }
-        let intent = try JSONDecoder().decode(NativeTripIntent.self, from: row.intent)
-        guard row.entityKey == "trip:\(intent.tripID)", row.expectedRevision == intent.baseRevision
+        let intent = try tripIntent(row)
+        guard row.expectedRevision == intent.baseRevision
         else { throw Failure.corrupt }
-        return try intent.confirmedSnapshot(
-            outcome, cached: cachedTrip(id: intent.tripID),
-            cachedMetadata: tripCacheStamp(intent.tripID)?.metadata)
+        if case .notes = intent {
+            return try intent.confirmedSnapshot(
+                outcome, cached: cachedTrip(id: intent.tripID),
+                cachedMetadata: tripCacheStamp(intent.tripID)?.metadata)
+        }
+        return try intent.confirmedSnapshot(outcome, cached: nil, cachedMetadata: nil)
     }
 
     func acceptTripOutcome(_ outcome: NativeTripOutcome, snapshot: NativeTripSnapshot) throws {
@@ -24,8 +27,7 @@ extension NativeStore {
         guard row.entityKey == "trip:\(snapshot.tripID)", row.state == "sealed", row.sealedBytes != nil,
             let expected = row.expectedRevision
         else { throw Failure.invalidAcknowledgment }
-        let intent = try JSONDecoder().decode(NativeTripIntent.self, from: row.intent)
-        try intent.validate()
+        let intent = try tripIntent(row)
         guard intent.tripID == snapshot.tripID, expected == intent.baseRevision,
             (snapshot.metadata?.contentRevision ?? 0) >= outcome.revisions.trip
         else {
@@ -55,7 +57,7 @@ extension NativeStore {
                     guard child.state == "queued", child.sealedBytes == nil else { throw Failure.corrupt }
                     child.predecessor = nil
                     child.expectedRevision = outcome.revisions.trip
-                    let next = try JSONDecoder().decode(NativeTripIntent.self, from: child.intent)
+                    let next = try tripIntent(child)
                     guard next.baseRevision == outcome.revisions.trip else {
                         throw Failure.invalidAcknowledgment
                     }

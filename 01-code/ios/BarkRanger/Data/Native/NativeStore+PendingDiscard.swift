@@ -40,6 +40,14 @@ extension NativeStore {
                 return entry.id
             }
         default:
+            if root.entityKey.hasPrefix("savedPin:") {
+                ids = try savedPinOperations(String(root.entityKey.dropFirst(9)))
+                    .filter { $0.sequence >= root.sequence }.map { row in
+                        guard let id = UUID(uuidString: row.id) else { throw Failure.corrupt }
+                        return id
+                    }
+                break
+            }
             guard root.entityKey.hasPrefix("trip:") else { throw Failure.corrupt }
             ids = try tripOperations(String(root.entityKey.dropFirst(5)))
                 .filter { $0.sequence >= root.sequence }.map { row in
@@ -61,7 +69,13 @@ extension NativeStore {
             var changes: Set<Change> = [.pending]
             for id in review.ids {
                 guard let row = try operation(id) else { throw Failure.corrupt }
-                if row.entityKey == "visits" {
+                if row.entityKey.hasPrefix("savedPin:") {
+                    guard let pin = try savedPinRow(String(row.entityKey.dropFirst(9))) else {
+                        throw Failure.corrupt
+                    }
+                    pin.changeSequence = try nextNativeSequence()
+                    changes.insert(.savedPins)
+                } else if row.entityKey == "visits" {
                     let value = try visitOperation(id)
                     changes.formUnion(value.changes.map { .visit($0.intent.target.visitID) })
                     changes.formUnion([.markers, .visitHistory])

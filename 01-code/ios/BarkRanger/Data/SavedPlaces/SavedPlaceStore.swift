@@ -2,9 +2,8 @@ import BarkDomain
 import CryptoKit
 import Foundation
 
-/// Sole device-bookmark writer. Authored JSON is untouched during indexing; the
-/// spatial index can be rebuilt after an interrupted mutation. No TTL or account cleanup.
-/// J1: device bookmarks/notes never become account uploads without an explicit future move.
+/// Guest-file writer and account-store adapter. Signed-in writes use the one native
+/// transaction/outbox; they never also write authored JSON or a second sync queue.
 actor SavedPlaceStore {
     enum Failure: Error { case invalidRecord, ambiguousIdentity }
     private struct Record: Codable {
@@ -13,17 +12,41 @@ actor SavedPlaceStore {
     }
     private let directory: URL
     private var index: SavedPlaceIndex?
-    init(directory: URL) { self.directory = directory }
-
-    /// Account-local bookmarks only. Unowned prelaunch files are not imported into
-    /// an account. Cloud pin sync/journal remain a separate feature.
-    nonisolated func scoped(project: String, uid: String?) -> SavedPlaceStore {
-        let owner = project + (uid.map { ":account:" + $0 } ?? ":guest")
-        let key = SHA256.hash(data: Data(owner.utf8)).map { String(format: "%02x", $0) }.joined()
-        return SavedPlaceStore(directory: directory.appendingPathComponent("accounts-v1").appendingPathComponent(key))
+    private let native: NativeStore?
+    private let expectedOwner: String?
+    private var importTask: Task<Void, Error>?
+    init(directory: URL) {
+        self.directory = directory
+        native = nil
+        expectedOwner = nil
+    }
+    private init(directory: URL, native: NativeStore?, expectedOwner: String?) {
+        self.directory = directory
+        self.native = native
+        self.expectedOwner = expectedOwner
     }
 
-    func prepare() throws {
+    /// Only the exact account's prelaunch files may enter its native store. Guest
+    /// and older unowned files are never implicitly uploaded into a signed-in account.
+    nonisolated func scoped(project: String, uid: String?, native: NativeStore? = nil) -> SavedPlaceStore {
+        let owner = project + (uid.map { ":account:" + $0 } ?? ":guest")
+        let key = SHA256.hash(data: Data(owner.utf8)).map { String(format: "%02x", $0) }.joined()
+        return SavedPlaceStore(
+            directory: directory.appendingPathComponent("accounts-v1").appendingPathComponent(key),
+            native: native, expectedOwner: uid.map { project + ":account:" + $0 })
+    }
+
+    func prepare() async throws {
+        if let native {
+            if importTask == nil {
+                importTask = Task { try await self.importAccountFiles(into: native) }
+            }
+            do { try await importTask?.value } catch {
+                importTask = nil
+                throw error
+            }
+            return
+        }
         if let index, try !index.needsRebuild { return }
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true,
@@ -49,10 +72,11 @@ actor SavedPlaceStore {
             throw error
         }
     }
-    func pins(in region: SavedPlaceIndex.Region, including stops: [Trip.Stop] = []) throws -> [String:
+    func pins(in region: SavedPlaceIndex.Region, including stops: [Trip.Stop] = []) async throws -> [String:
         SavedPlaceIndex.Pin]
     {
-        try prepare()
+        try await prepare()
+        if let native { return try await native.savedPins(in: region, including: stops) }
         guard let index else { throw Failure.invalidRecord }
         var result = Dictionary(uniqueKeysWithValues: try index.pins(in: region).map { ($0.id, $0) })
         for stop in stops {
@@ -60,16 +84,23 @@ actor SavedPlaceStore {
         }
         return result
     }
-    func saved(_ stop: Trip.Stop) throws -> SavedPlace? {
-        try prepare()
+    func saved(_ stop: Trip.Stop) async throws -> SavedPlace? {
+        try await prepare()
+        if let native { return try await native.savedPinValue(stop.placeIdentity.storageID).place }
         guard let index else { throw Failure.invalidRecord }
         let pins = try index.matching(identity: stop.placeIdentity.storageID)
         guard pins.count <= 1 else { throw Failure.ambiguousIdentity }
         return try pins.first.map { try read($0.id) }
     }
-    @discardableResult func save(_ place: SavedPlace) throws -> SavedPlace {
-        try prepare()
-        if let existing = try saved(place.stop) { return existing }
+    func savedState(_ stop: Trip.Stop) async throws -> (place: SavedPlace?, pending: Bool) {
+        try await prepare()
+        if let native { return try await native.savedPinValue(stop.placeIdentity.storageID) }
+        return (try await saved(stop), false)
+    }
+    @discardableResult func save(_ place: SavedPlace) async throws -> SavedPlace {
+        try await prepare()
+        if let native { return try await native.saveSavedPin(place) }
+        if let existing = try await saved(place.stop) { return existing }
         guard place.id == SavedPlace.identity(for: place.stop), let index else { throw Failure.invalidRecord }
         try Task.checkCancellation()
         try index.markDirty()
@@ -88,8 +119,14 @@ actor SavedPlaceStore {
         }
         return place
     }
-    func remove(_ id: String) throws {
-        try prepare()
+    func remove(_ id: String) async throws {
+        try await prepare()
+        if let native {
+            if let place = try await native.savedPinValue(id).place {
+                try await native.saveSavedPin(place, saved: false)
+            }
+            return
+        }
         guard let index else { throw Failure.invalidRecord }
         guard id.count == 64, id.allSatisfy({ "0123456789abcdef".contains($0) }) else {
             throw Failure.invalidRecord
@@ -132,4 +169,26 @@ actor SavedPlaceStore {
         return record.place
     }
     private func file(_ id: String) -> URL { directory.appendingPathComponent(id + ".json") }
+
+    private func importAccountFiles(into native: NativeStore) async throws {
+        guard let expectedOwner else { throw Failure.invalidRecord }
+        try await native.requireSavedPinOwner(expectedOwner)
+        guard directory.deletingLastPathComponent().lastPathComponent == "accounts-v1" else {
+            throw Failure.invalidRecord
+        }
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        let files = try FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil)
+        for url in files where url.pathExtension == "json" {
+            let place = try read(url.deletingPathExtension().lastPathComponent)
+            try await native.saveSavedPin(place, importing: true)
+            // Retire only after the canonical row AND durable operation commit.
+            // A crash before removal replays an idempotent per-pin import.
+            let legacyIndex =
+                try index ?? SavedPlaceIndex(url: directory.appendingPathComponent("markers-v1.sqlite"))
+            index = legacyIndex
+            try legacyIndex.markDirty()
+            try FileManager.default.removeItem(at: url)
+        }
+    }
 }

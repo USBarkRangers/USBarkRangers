@@ -21,11 +21,13 @@ import SwiftData
     var closed = false
     private(set) var isGuest = false
     var beforeSave: (@Sendable () throws -> Void)?
+    var savedPinIndex: SavedPlaceIndex?
     #if DEBUG
         // Opt-in logical row measurement for integration checks. Never includes values,
         // and adds no model traversal or diagnostic logging in a shipping build.
         var commitObserver: (@Sendable ([String: Int]) -> Void)?
         var tripLibraryReadObserver: (@Sendable (Set<String>) -> Void)?
+        var savedPinIndexObserver: (@Sendable (Int) -> Void)?
     #endif
     private var observers: [UUID: AsyncStream<ProfileView>.Continuation] = [:]
     enum Change: Hashable, Sendable {
@@ -33,7 +35,7 @@ import SwiftData
         case trip(String)
         case tripDeleted(String, Int64)
         case draft(String)
-        case selection, pending
+        case selection, pending, savedPins
         case progress, markers, visitHistory, visitHistoryReset
         case visit(String)
         case expedition, activityHistory, activityHistoryReset, completedTrails, completionClaimed
@@ -63,8 +65,12 @@ import SwiftData
         return store
     }
 
-    nonisolated static func scopeDirectory(directory: URL, project: String, uid: String, guest: Bool = false) throws -> URL {
-        guard ["bark-ranger-ios", "demo-bark-native"].contains(project), !uid.isEmpty else { throw Failure.wrongScope }
+    nonisolated static func scopeDirectory(directory: URL, project: String, uid: String, guest: Bool = false)
+        throws -> URL
+    {
+        guard ["bark-ranger-ios", "demo-bark-native"].contains(project), !uid.isEmpty else {
+            throw Failure.wrongScope
+        }
         let scope = "\(project):\(guest ? "guest" : "account"):\(uid)"
         let name = SHA256.hash(data: Data(scope.utf8)).map { String(format: "%02x", $0) }.joined()
         return directory.appendingPathComponent("entities-v1").appendingPathComponent(name)
@@ -104,7 +110,8 @@ import SwiftData
         }
         return ProfileView(
             confirmed: baseline, visible: visible, pendingCount: operations.count,
-            totalPendingCount: try modelContext.fetchCount(FetchDescriptor<NativeLocalSchema.PendingOperation>()),
+            totalPendingCount: try modelContext.fetchCount(
+                FetchDescriptor<NativeLocalSchema.PendingOperation>()),
             pendingIDs: operations.compactMap { UUID(uuidString: $0.id) },
             failureCode: operations.first?.failureCode,
             conflict: operations.contains { $0.state == "conflict" || $0.state == "rejected" },
@@ -252,6 +259,7 @@ import SwiftData
     }
     func close() {
         closed = true
+        savedPinIndex = nil
         for observer in observers.values { observer.finish() }
         observers.removeAll()
         for (_, continuation) in entityObservers.values { continuation.finish() }

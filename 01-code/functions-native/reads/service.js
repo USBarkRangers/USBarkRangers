@@ -17,6 +17,8 @@ const { parseLeaderboard, createLeaderboardReader } = require('./leaderboard');
 
 function createReadService(db) {
     const handlers = {
+        savedPinChanges: { read: createEntityChangesReader(db, { collection: 'places', retentionDays: null }),
+            parse: parseChanges, maximum: 60 },
         leaderboard: { read: createLeaderboardReader(db), parse: parseLeaderboard, maximum: 12 },
         trip: { read: createTripReader(db), maximum: 30 },
         library: { read: createLibraryReader(db), parse: parseLibrary, maximum: 60 },

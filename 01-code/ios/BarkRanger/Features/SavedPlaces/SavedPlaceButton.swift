@@ -13,7 +13,7 @@ struct SavedPlaceButton: View {
                 Menu {
                     Button("Remove", role: .destructive) { model.remove(saved, completed: removed) }
                 } label: {
-                    Label("Saved", systemImage: "star.fill")
+                    Label(model.selectedPending ? "Saved on iPhone" : "Saved", systemImage: "star.fill")
                 }
                 .accessibilityIdentifier("saved-place-menu")
             } else {
@@ -27,7 +27,11 @@ struct SavedPlaceButton: View {
         }
         .barkActionStyle(prominent: true).disabled(model.isWorking || !model.isSelectedPlaceReady(place.stop))
         .task(id: place.stop.placeIdentity) { model.select(place.stop) }
-        .accessibilityHint("Saved on this device, separately from your trip")
+        .accessibilityHint(
+            model.selectedPending
+                ? "Waiting for server confirmation. View Pending Changes in Account."
+                : "Saved separately from your trip"
+        )
         .alert(
             "Saved places",
             isPresented: Binding(

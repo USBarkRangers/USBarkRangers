@@ -39,6 +39,7 @@ function createExecutor({ db, handlers, clock = Date.now }) {
                 nowMs, stamp: FieldValue.serverTimestamp() });
             const outcome = { version: 1, operationID: command.operationID,
                 status: decision.status, revisions: decision.revisions };
+            if (decision.confirmation) outcome.confirmation = decision.confirmation;
             decision.commit?.(tx);
             tx.set(rateRef, rate);
             tx.create(receiptRef, { schemaVersion: 1, uid, fingerprint, outcome,

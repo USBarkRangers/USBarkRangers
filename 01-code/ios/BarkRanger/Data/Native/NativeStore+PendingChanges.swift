@@ -85,6 +85,12 @@ extension NativeStore {
                     detail = "Server validates completion and points"
                 }
             default:
+                if row.entityKey.hasPrefix("savedPin:"), let bytes = row.listSummary {
+                    let value = try JSONDecoder().decode(SavedPinSummary.self, from: bytes)
+                    title = value.saved ? "Save pin" : "Remove saved pin"
+                    detail = value.title
+                    break
+                }
                 guard row.entityKey.hasPrefix("trip:"), let bytes = row.listSummary else {
                     throw Failure.corrupt
                 }

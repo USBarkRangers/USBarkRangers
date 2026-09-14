@@ -37,6 +37,11 @@ async function main() {
         body: JSON.stringify({ email, password, returnSecureToken: true }) });
     assert.equal(signUp.status, 200, 'Live email registration');
     const account = await signUp.json(), uid = account.localId;
+    const tripID = randomUUID(), expiry = new Date(Date.now() + 3600_000);
+    const fixture = { project: 'bark-ranger-ios', uid, email, password, debugToken, registration, expiresAt: expiry.toISOString(), tripID };
+    // Preserve the exact disposable identity before assertions can fail, so cleanup
+    // never relies on guessing which Auth account or debug registration this run owns.
+    writeFileSync('06-config/native-ios/cloud-acceptance.local.json', JSON.stringify(fixture), { flag: 'wx', mode: 0o600 });
     const headers = { 'content-type': 'application/json', authorization: `Bearer ${account.idToken}`,
         'X-Firebase-AppCheck': appCheckToken };
     async function send(endpoint, data, requestHeaders = headers) {
@@ -53,13 +58,23 @@ async function main() {
         { 'content-type': 'application/json', 'X-Firebase-AppCheck': appCheckToken })).status, 401);
     const bootstrap = await send('nativeCommand', command('bootstrapAccount'));
     assert.equal(bootstrap.body.result?.status, 'accepted', JSON.stringify(bootstrap));
+    const bookmarkIdentity = { kind: 'custom', id: randomUUID() };
+    const bookmark = { pinID: storageID(bookmarkIdentity), saved: true, place: { identity: bookmarkIdentity,
+        name: 'Private acceptance pin', coordinate: { latitude: 41, longitude: -81 }, state: 'Ohio',
+        subtitle: 'Disposable saved pin', stopID: 'acceptance-stop', savedAtMs: Date.now() } };
+    const bookmarkCommand = command('setSavedPin', 0, bookmark);
+    const pinSaved = await send('nativeCommand', bookmarkCommand);
+    assert.equal(pinSaved.body.result?.confirmation?.id, bookmark.pinID, JSON.stringify(pinSaved));
+    assert.equal(pinSaved.body.result.confirmation.saved, true, 'Free account saved pin confirms without a follow-up read');
+    const pinPage = await send('nativeRead', { kind: 'savedPinChanges', query: { version: 1 } });
+    assert.equal(pinPage.body.result?.items?.length, 1, JSON.stringify(pinPage));
     assert.equal((await send('nativeCommand', command('updateProfile', 1, { displayName: 'Must stay free' }))).status, 403);
     const documents = 'https://firestore.googleapis.com/v1/projects/bark-ranger-ios/databases/(default)/documents';
     const forged = await fetch(`${documents}/users/${uid}/state/entitlement`, {
         method: 'PATCH', headers, body: JSON.stringify({ fields: { premium: { booleanValue: true } } }) });
     assert.equal(forged.status, 403, 'Client cannot grant paid access');
     const admin = new Client({ urlPrefix: 'https://firestore.googleapis.com', auth: true });
-    const now = new Date(), expiry = new Date(now.getTime() + 3600_000);
+    const now = new Date();
     await admin.post('/v1/projects/bark-ranger-ios/databases/(default)/documents:commit', { writes: [{
         update: { name: `projects/bark-ranger-ios/databases/(default)/documents/users/${uid}/state/entitlement`, fields: {
             schemaVersion: { integerValue: '1' }, revision: { integerValue: '2' }, premium: { booleanValue: true },
@@ -82,8 +97,8 @@ async function main() {
     const profileFields = (await confirmedProfile.json()).fields;
     assert.equal(profileFields.displayName.stringValue, 'Offline QA Ranger');
     assert.equal(profileFields.mapStyle.stringValue, 'satellite');
-    const tripID = randomUUID(), stopID = 'acceptance-stop', noteID = planningNoteID(tripID, stopID);
-    const place = { kind: 'custom', id: randomUUID() };
+    const stopID = 'acceptance-stop', noteID = planningNoteID(tripID, stopID);
+    const place = bookmarkIdentity;
     const trip = { tripID, name: 'Cloud acceptance evidence', start: null, end: null,
         days: [{ id: 'day-one', notes: '', color: '#475569', stops: [{ id: stopID, placeIdentity: place,
             placeID: storageID(place), name: 'Private acceptance pin', coordinate: { latitude: 41, longitude: -81 }, state: 'Ohio', noteID }] }],
@@ -95,14 +110,18 @@ async function main() {
     const note = await send('nativeCommand', noteCommand);
     assert.equal(note.body.result?.status, 'accepted', JSON.stringify(note));
     assert.deepEqual((await send('nativeCommand', noteCommand)).body, note.body, 'Receipt retry is exact');
+    const pinRemoved = await send('nativeCommand', command('setSavedPin', 0, { ...bookmark, saved: false }));
+    assert.equal(pinRemoved.body.result?.confirmation?.saved, false, JSON.stringify(pinRemoved));
+    assert.deepEqual((await send('nativeCommand', bookmarkCommand)).body, pinSaved.body);
+    const changedPins = await send('nativeRead', { kind: 'savedPinChanges', query: { version: 1, since: pinPage.body.result.upper } });
+    assert.equal(changedPins.body.result?.items?.[0]?.saved, false, 'Old replay cannot resurrect a removed bookmark');
     const detail = await send('nativeRead', { kind: 'trip', query: { version: 1, tripID } });
     assert.equal(detail.body.result?.notes[0]?.text, 'Note-only cloud acceptance', JSON.stringify(detail));
-    const fixture = { project: 'bark-ranger-ios', uid, email, password, debugToken, registration, expiresAt: expiry.toISOString(), tripID };
-    writeFileSync('06-config/native-ios/cloud-acceptance.local.json', JSON.stringify(fixture), { flag: 'wx', mode: 0o600 });
     console.log(JSON.stringify({ cloudAcceptance: 'passed', uid, tripID, expiresAt: expiry.toISOString(),
         verified: ['real sign-up', 'App Check required', 'authentication required', 'free write denied',
             'direct entitlement write denied', '44-day acceptance / 46-day rejection',
-            'profile overwrites preserve unrelated fields', 'trip and note save', 'exact replay', 'server persistence'],
+            'profile overwrites preserve unrelated fields', 'free saved-pin sync / confirmation / removal / old replay',
+            'trip and note save', 'exact replay', 'server persistence after bookmark removal'],
         privateFixture: '06-config/native-ios/cloud-acceptance.local.json' }));
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

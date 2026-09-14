@@ -3,7 +3,8 @@ import Foundation
 import MapKit
 import Observation
 
-/// Account-scoped local pin projection and one serialized disk action. No cloud or trip writes.
+/// Account-scoped local pin projection and one serialized save action. Map browsing
+/// does not sync; AccountSession owns native delivery and refresh scheduling.
 /// Future saved-place notes/journal UI should reuse this storage boundary, not add another map draft.
 @MainActor @Observable final class SavedPlacesModel {
     private var visiblePlaces: [String: SavedPlaceIndex.Pin] = [:]
@@ -11,6 +12,7 @@ import Observation
     private var visibleSelection: SavedPlace?
     var selected: SavedPlace? { currentScope ? visibleSelection : nil }
     private var readySelection = false
+    private(set) var selectedPending = false
     var selectionReady: Bool { currentScope && readySelection }
     private var ready = false
     var isReady: Bool { currentScope && ready }
@@ -21,15 +23,22 @@ import Observation
     private var store: SavedPlaceStore
     private let account: AccountSession?
     private var ownerUID: String?
+    private var nativeStore: NativeStore?
+    private var observation: Task<Void, Never>?
     private var bound = false
     private var scopeGeneration = UUID()
-    private var currentScope: Bool { account == nil || (bound && ownerUID == account?.identity?.uid) }
+    private var currentScope: Bool {
+        account == nil
+            || (bound && ownerUID == account?.identity?.uid
+                && (ownerUID == nil || account?.nativeProfileConfiguration == nil || nativeStore != nil))
+    }
     private var task: Task<Void, Never>?
     private var query: Task<Void, Never>?
     private var selection: Task<Void, Never>?
     private var region: SavedPlaceIndex.Region?
     private var retainedStops: [Trip.Stop] = []
     private var selectedIdentity: String?
+    private var selectedStop: Trip.Stop?
     private var generation = UUID()
     init(store: SavedPlaceStore, account: AccountSession? = nil) {
         rootStore = store
@@ -39,25 +48,49 @@ import Observation
     }
 
     private func bindAccount() {
-        let uid = withObservationTracking {
-            account?.identity?.uid
+        let (uid, native) = withObservationTracking {
+            (account?.identity?.uid, account?.nativeSavedPins?.store)
         } onChange: { [weak self] in
             Task { @MainActor in self?.bindAccount() }
         }
-        guard !bound || uid != ownerUID else { return }
+        guard !bound || uid != ownerUID || native !== nativeStore else { return }
         bound = true
         ownerUID = uid
+        nativeStore = native
         scopeGeneration = UUID()
         query?.cancel()
         selection?.cancel()
+        observation?.cancel()
         visiblePlaces = [:]
         visibleSelection = nil
         selectedIdentity = nil
+        selectedStop = nil
         readySelection = false
+        selectedPending = false
         ready = false
         message = nil
         store = rootStore.scoped(
-            project: account?.nativeProfileConfiguration?.project ?? "bark-ranger-ios", uid: uid)
+            project: account?.nativeProfileConfiguration?.project ?? "bark-ranger-ios", uid: uid,
+            native: native)
+        if let native {
+            let scope = scopeGeneration
+            observation = Task { [weak self] in
+                do {
+                    for await _ in try await native.changes(matching: [.savedPins]) {
+                        guard let self, !Task.isCancelled, self.scopeGeneration == scope else { return }
+                        self.refreshPins()
+                        if let selected = self.selectedStop {
+                            self.readySelection = false
+                            self.select(selected)
+                        }
+                    }
+                } catch {
+                    if !Task.isCancelled, self?.scopeGeneration == scope {
+                        self?.message = "Saved pin changes could not be read. Your records are retained."
+                    }
+                }
+            }
+        }
         load()
     }
 
@@ -77,6 +110,7 @@ import Observation
         let id = stop.placeIdentity.storageID
         guard selectedIdentity != id || !selectionReady else { return }
         selectedIdentity = id
+        selectedStop = stop
         visibleSelection = nil
         readySelection = false
         selection?.cancel()
@@ -84,11 +118,12 @@ import Observation
         let scope = scopeGeneration
         selection = Task {
             do {
-                let saved = try await store.saved(stop)
+                let saved = try await store.savedState(stop)
                 guard !Task.isCancelled, self.scopeGeneration == scope, self.selectedIdentity == id else {
                     return
                 }
-                self.visibleSelection = saved
+                self.visibleSelection = saved.place
+                self.selectedPending = saved.pending
                 self.readySelection = true
             } catch {
                 if !Task.isCancelled {
@@ -144,6 +179,7 @@ import Observation
             if self.selectedIdentity == saved.stop.placeIdentity.storageID {
                 self.selection?.cancel()
                 self.visibleSelection = saved
+                self.selectedPending = self.nativeStore != nil
                 self.readySelection = true
             }
         }
@@ -165,8 +201,10 @@ import Observation
         guard account?.identity?.uid != uid else { throw AccountFailure.accountChanged }
         bindAccount()
         await waitForPending()
-        try await rootStore.scoped(project: account?.nativeProfileConfiguration?.project ?? "bark-ranger-ios", uid: uid)
-            .eraseAccountFiles()
+        try await rootStore.scoped(
+            project: account?.nativeProfileConfiguration?.project ?? "bark-ranger-ios", uid: uid
+        )
+        .eraseAccountFiles()
     }
     func waitForPending() async {
         await task?.value

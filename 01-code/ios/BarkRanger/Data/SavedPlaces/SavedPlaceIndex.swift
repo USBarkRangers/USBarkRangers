@@ -2,17 +2,21 @@ import BarkDomain
 import Foundation
 import SQLite3
 
-/// Rebuildable device-only spatial index. JSON files remain the authored records.
+/// Rebuildable device-only spatial index. NativeStore (accounts) or JSON (guests)
+/// owns the authored records; this index is never a second source of truth.
 /// R-tree overlap queries include both sides of the date line, with no hidden pin cap.
 nonisolated final class SavedPlaceIndex {
     struct Pin: Codable, Equatable, Sendable, Identifiable {
         let id: String
         let stop: Trip.Stop
         let subtitle: String
-        init(_ place: SavedPlace) {
+        let pending: Bool?
+        var isPending: Bool { pending == true }
+        init(_ place: SavedPlace, pending: Bool = false) {
             id = place.id
             stop = place.stop
             subtitle = place.subtitle
+            self.pending = pending
         }
     }
     struct Region: Equatable, Sendable {
@@ -55,6 +59,9 @@ nonisolated final class SavedPlaceIndex {
         )
         try execute("CREATE INDEX IF NOT EXISTS pin_identity ON pins(identity)")
         try execute(
+            "CREATE TABLE IF NOT EXISTS projection (id INTEGER PRIMARY KEY CHECK(id=1), generation INTEGER NOT NULL)"
+        )
+        try execute(
             "CREATE VIRTUAL TABLE IF NOT EXISTS spatial USING rtree(id, minLat, maxLat, minLon, maxLon)")
     }
     deinit { if let db { sqlite3_close(db) } }
@@ -68,6 +75,24 @@ nonisolated final class SavedPlaceIndex {
         }
     }
     func markDirty() throws { try execute("INSERT OR REPLACE INTO state VALUES(1,1)") }
+    var generation: Int64 {
+        get throws {
+            let statement = try prepare("SELECT generation FROM projection WHERE id=1")
+            defer { sqlite3_finalize(statement) }
+            let result = sqlite3_step(statement)
+            guard result == SQLITE_ROW || result == SQLITE_DONE else { throw Failure.database }
+            return result == SQLITE_ROW ? sqlite3_column_int64(statement, 0) : 0
+        }
+    }
+    func setGeneration(_ value: Int64) throws {
+        guard value >= 0 else { throw Failure.corrupt }
+        let statement = try prepare("INSERT OR REPLACE INTO projection VALUES(1,?)")
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, value) == SQLITE_OK, sqlite3_step(statement) == SQLITE_DONE
+        else {
+            throw Failure.database
+        }
+    }
     func beginRebuild() throws {
         try markDirty()
         try execute("BEGIN IMMEDIATE")

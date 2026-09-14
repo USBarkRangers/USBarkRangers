@@ -1,10 +1,8 @@
 import BarkDomain
 import Foundation
 
-/// A device bookmark, independent of trip membership and account-backed park/stop notes.
-/// Saved places and their notes are local on this device for now, for future journal integration.
-/// No expiry or account cleanup: retain until explicitly removed or the app is deleted.
-/// A later saved-places/journal feature belongs around this record/store, not inside MapFeatureModel.
+/// Thin saved-place presentation, independent of trip membership. Account bookmarks
+/// sync through NativeStore; guests stay local. Journal text is never in map downloads.
 nonisolated struct SavedPlace: Codable, Equatable, Sendable, Identifiable {
     let id: String
     let name: String
@@ -41,9 +39,40 @@ nonisolated struct SavedPlace: Codable, Equatable, Sendable, Identifiable {
 
     /// A projection only, with a stable marker/stop identity. Local notes stay in this record.
     var stop: Trip.Stop {
-        let identity: PlaceIdentity = appleID.map { .provider(name: "apple", id: $0) }
+        let identity: PlaceIdentity =
+            appleID.map { .provider(name: "apple", id: $0) }
             ?? .custom(customPlaceID ?? "saved:" + id)
-        return Trip.Stop(id: stopID, placeIdentity: identity,
+        return Trip.Stop(
+            id: stopID, placeIdentity: identity,
             name: name, coordinate: coordinate, state: locality)
+    }
+
+    var nativeValue: NativeSavedPin.Place {
+        get throws {
+            .init(
+                identity: stop.placeIdentity, name: name, coordinate: coordinate, state: locality,
+                subtitle: subtitle, stopID: stopID, savedAtMs: try NativeClientTime.milliseconds(savedAt))
+        }
+    }
+    init(native value: NativeSavedPin.Place, notes: String = "") {
+        id = value.identity.storageID
+        name = value.name
+        coordinate = value.coordinate
+        locality = value.state
+        subtitle = value.subtitle
+        stopID = value.stopID
+        savedAt = Date(timeIntervalSince1970: Double(value.savedAtMs) / 1000)
+        self.notes = notes
+        switch value.identity {
+        case .provider(_, let id):
+            appleID = id
+            customPlaceID = nil
+        case .custom(let id):
+            customPlaceID = id
+            appleID = nil
+        case .official:
+            customPlaceID = nil
+            appleID = nil  // Rejected by the wire validator.
+        }
     }
 }

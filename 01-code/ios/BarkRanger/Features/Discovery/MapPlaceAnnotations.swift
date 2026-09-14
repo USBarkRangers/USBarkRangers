@@ -8,6 +8,7 @@ final class MapPlaceAnnotations {
     private var saved: [String: SavedPlaceIndex.Pin] = [:]
     private var showSaved = true
     private var starred = Set<String>()
+    private var pendingIdentities = Set<String>()
     private var selected: Trip.Stop?
     private var numberedDay: String?
     var selectedAnnotation: PlaceAnnotation? { selected.flatMap { annotations[$0.id] } }
@@ -21,6 +22,7 @@ final class MapPlaceAnnotations {
                 || self.saved != saved || self.showSaved != showSaved
         else { return }
         self.saved = saved
+        pendingIdentities = Set(saved.values.filter(\.isPending).map { $0.stop.placeIdentity.storageID })
         self.showSaved = showSaved
         previous = places
         self.selected = selected
@@ -32,7 +34,9 @@ final class MapPlaceAnnotations {
         starred = []
         let savedIdentities = Set(saved.values.map { $0.stop.placeIdentity.storageID })
         for stop in stops.values {
-            if let key = SavedPlace.identity(for: stop), savedIdentities.contains(key) { starred.insert(stop.id) }
+            if let key = SavedPlace.identity(for: stop), savedIdentities.contains(key) {
+                starred.insert(stop.id)
+            }
         }
         if showSaved {
             let represented = Set(stops.values.compactMap { SavedPlace.identity(for: $0) })
@@ -76,14 +80,19 @@ final class MapPlaceAnnotations {
     }
     private func configure(_ view: PlaceAnnotationView, annotation: PlaceAnnotation) {
         let place = previous[annotation.stop.id]
-        let color = place?.day.color.uiColor ?? .systemBlue
+        let pending = pendingIdentities.contains(annotation.stop.placeIdentity.storageID)
+        let color =
+            pending
+            ? UIColor(red: 1, green: 0.9, blue: 0.45, alpha: 1)
+            : place?.day.color.uiColor ?? .systemBlue
         let number = place?.day.dayID == numberedDay ? place?.number : nil
         let selected = selected?.id == annotation.stop.id
         let isSaved = starred.contains(annotation.stop.id)
         if view.image == nil || view.color != color || view.number != number || view.isSelected != selected
-            || view.isSaved != isSaved
+            || view.isSaved != isSaved || view.savePending != pending
         {
             view.isSaved = isSaved
+            view.savePending = pending
             view.color = color
             view.number = number
             view.setSelected(selected, animated: false)

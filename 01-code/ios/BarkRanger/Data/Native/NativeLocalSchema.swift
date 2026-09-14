@@ -4,7 +4,7 @@ import SwiftData
 /// Independent entity rows and durable operations, not a serialized account object.
 /// J1–J5: new journal/media entities get their own rows. Never cache-evict drafts or pending intents.
 nonisolated enum NativeLocalSchema: VersionedSchema {
-    static var versionIdentifier: Schema.Version { .init(1, 1, 0) }
+    static var versionIdentifier: Schema.Version { .init(1, 2, 0) }
     static var models: [any PersistentModel.Type] {
         [
             Metadata.self, Profile.self, Entitlement.self, PendingOperation.self,
@@ -12,7 +12,7 @@ nonisolated enum NativeLocalSchema: VersionedSchema {
             TripCursor.self, TripRebuild.self, DraftImport.self,
             Progress.self, Visit.self, PlaceProgress.self, MarkerCursor.self,
             ExpeditionState.self, Activity.self, VirtualRun.self, CompletedTrail.self, ActivityClaim.self,
-            ActivityCursor.self,
+            ActivityCursor.self, SavedPin.self, SavedPinCursor.self,
         ]
     }
 

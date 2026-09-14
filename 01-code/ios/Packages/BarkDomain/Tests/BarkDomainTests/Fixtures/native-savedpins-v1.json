@@ -1,0 +1,16 @@
+[
+  { "field": "name", "text": "Park 🐕", "valid": true },
+  { "field": "name", "text": "", "valid": false },
+  { "field": "name", "text": "x", "repeat": 200, "valid": true },
+  { "field": "name", "text": "x", "repeat": 201, "valid": false },
+  { "field": "subtitle", "text": "x", "repeat": 500, "valid": true },
+  { "field": "subtitle", "text": "x", "repeat": 501, "valid": false },
+  { "field": "state", "text": "x", "repeat": 101, "valid": false },
+  { "field": "stopID", "text": "../wrong", "valid": false },
+  { "field": "stopID", "text": "stop-1", "valid": true },
+  { "field": "latitude", "number": 91, "valid": false },
+  { "field": "latitude", "number": -90, "valid": true },
+  { "field": "savedAtMs", "number": -1, "valid": false },
+  { "field": "savedAtMs", "number": 253402300800000, "valid": false },
+  { "field": "pinID", "text": "forged", "valid": false }
+]

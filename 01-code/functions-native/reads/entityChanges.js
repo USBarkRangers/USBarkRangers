@@ -4,6 +4,7 @@ const { FieldPath, Timestamp } = require('firebase-admin/firestore');
 const v = require('../shared/validation');
 const { NativeError } = require('../shared/errors');
 const { encode, timestamp, serverTime } = require('./encoding');
+const { bookmarkView } = require('../places/bookmarks');
 
 function parseChanges(input) {
     v.object(input, ['version', 'since', 'upper', 'after'], ['version']);
@@ -24,7 +25,7 @@ function parseChanges(input) {
 // Shared wire pagination, not a generic domain repository. Collection names and retention
 // are fixed by server construction, never accepted from the client.
 function createEntityChangesReader(db, { collection, retentionDays }) {
-    if (!['trips', 'placeProgress', 'activities'].includes(collection)
+    if (!['trips', 'placeProgress', 'activities', 'places'].includes(collection)
         || (retentionDays !== null && retentionDays !== 89)) throw new Error('Invalid native change source.');
     return async (uid, input) => {
         parseChanges(input);
@@ -42,10 +43,13 @@ function createEntityChangesReader(db, { collection, retentionDays }) {
             }
             let query = user.collection(collection).where('updatedAt', '<=', upper)
                 .orderBy('updatedAt').orderBy(FieldPath.documentId()).limit(101);
+            if (collection === 'places') query = query.where('bookmark.version', '==', 1);
             if (since) query = query.where('updatedAt', '>=', since); // Inclusive completed-boundary overlap.
             if (input.after) query = query.startAfter(timestamp(input.after.updatedAt), input.after.id);
             const page = await tx.get(query), items = page.docs.slice(0, 100), last = items.at(-1);
-            return { version: 1, needsBootstrap: false, items: items.map(doc => encode(doc.data())),
+            return { version: 1, needsBootstrap: false, items: items.map(doc => collection === 'places'
+                ? { ...bookmarkView(doc.data(), doc.id), updatedAt: serverTime(doc.get('updatedAt')) }
+                : encode(doc.data())),
                 upper: serverTime(upper), retentionDays,
                 next: page.size > 100 ? { updatedAt: serverTime(last.get('updatedAt')), id: last.id } : null };
         }, { readOnly: true });

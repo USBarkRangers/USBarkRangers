@@ -23,12 +23,13 @@ const { createClaimRun } = require('./expeditions/claim');
 const { createRecordActivity } = require('./activities/create');
 const { createActivityEdits } = require('./activities/edit');
 const { createDeletionService } = require('./accounts/deletion');
+const { setSavedPin } = require('./places/bookmarks');
 
 const runtime = resolveProject(); // Must pass before Admin constructs any client.
 const app = initializeApp({ projectId: runtime.projectID });
 const deletion = createDeletionService({ db: getFirestore(app), auth: getAuth(app) });
 const execute = createExecutor({ db: getFirestore(app),
-    handlers: { bootstrapAccount, updateProfile, updateMapStyle,
+    handlers: { bootstrapAccount, updateProfile, updateMapStyle, setSavedPin,
         saveTrip: createSaveTrip({ catalog }), saveTripNotes, editNote, deleteTrip, ...createVisitHandlers({ catalog }),
         recordDailyActivity: createDailyActivity({ catalog }),
         assignVirtualRun: createAssignRun({ catalog }), claimVirtualRun: createClaimRun({ catalog }),

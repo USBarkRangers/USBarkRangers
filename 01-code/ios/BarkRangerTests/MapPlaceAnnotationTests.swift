@@ -5,6 +5,24 @@ import Testing
 @testable import BarkRanger
 
 @MainActor struct MapPlaceAnnotationTests {
+    @Test func pendingBookmarkKeepsItsMarkerAndOnlyTurnsNormalAfterAcknowledgment() throws {
+        let map = PlaceRecordingMap(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let markers = MapPlaceAnnotations()
+        let stop = Trip.Stop(
+            name: "Pending pin", coordinate: try #require(Coordinate(latitude: 41, longitude: -81)))
+        let place = try #require(SavedPlace(stop: stop, subtitle: ""))
+        markers.apply(
+            [:], selected: stop, dayID: nil, saved: [place.id: .init(place, pending: true)], to: map)
+        let annotation = try #require(markers.selectedAnnotation)
+        let pending = try #require(markers.view(for: annotation, on: map) as? PlaceAnnotationView)
+        #expect(pending.savePending && pending.isSaved)
+        #expect(pending.color == UIColor(red: 1, green: 0.9, blue: 0.45, alpha: 1))
+        #expect(pending.accessibilityValue?.contains("Waiting for server confirmation") == true)
+        markers.apply([:], selected: stop, dayID: nil, saved: [place.id: .init(place)], to: map)
+        #expect(markers.selectedAnnotation === annotation)
+        let confirmed = try #require(markers.view(for: annotation, on: map) as? PlaceAnnotationView)
+        #expect(!confirmed.savePending && confirmed.isSaved && confirmed.color == .systemBlue)
+    }
     @Test func bookmarksShareTripAndSelectedMarkersAndVisibilityNeverDeletesMembership() throws {
         let map = PlaceRecordingMap(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let markers = MapPlaceAnnotations()

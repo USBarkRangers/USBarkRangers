@@ -24,6 +24,7 @@ final class PlaceAnnotationView: MKAnnotationView {
     var color: UIColor = .systemBlue
     var number: Int?
     var isSaved = false
+    var savePending = false
     override init(annotation: (any MKAnnotation)?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
         collisionMode = .circle
@@ -42,7 +43,8 @@ final class PlaceAnnotationView: MKAnnotationView {
                 outer.lineWidth = 5
                 outer.stroke()
             }
-            UIColor.secondarySystemBackground.setFill()
+            (savePending ? UIColor(red: 1, green: 0.9, blue: 0.45, alpha: 1) : .secondarySystemBackground)
+                .setFill()
             let badge = UIBezierPath(roundedRect: rect, cornerRadius: 16)
             badge.fill()
             color.setStroke()
@@ -64,7 +66,10 @@ final class PlaceAnnotationView: MKAnnotationView {
                     ])
             }
         }
-        accessibilityValue = [isSaved ? "Saved place" : nil, selected ? "Selected" : nil]
-            .compactMap { $0 }.joined(separator: ", ")
+        accessibilityValue = [
+            isSaved ? "Saved place" : nil, savePending ? "Waiting for server confirmation" : nil,
+            selected ? "Selected" : nil,
+        ]
+        .compactMap { $0 }.joined(separator: ", ")
     }
 }

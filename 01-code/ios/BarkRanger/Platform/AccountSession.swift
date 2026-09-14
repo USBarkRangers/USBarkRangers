@@ -10,6 +10,7 @@ import Observation
     private(set) var nativeVisits: NativeVisitFeature?
     private(set) var nativeExpeditions: NativeExpeditionFeature?
     private(set) var nativeLeaderboard: NativeLeaderboardRepository?
+    private(set) var nativeSavedPins: NativeSavedPinFeature?
     private var guestNativeStore: NativeStore?
     // Installed once by the shared editor. Capture/drain its old-scope checkpoint
     // before closing that writer; identity still clears synchronously below.
@@ -60,9 +61,9 @@ import Observation
             return
         }
         authTask = Task { [weak self] in
-            do { try await self?.resumeAccountRemoval() }
-            catch {
-                self?.deletionMessage = "Device cleanup could not finish. Keep the app installed and reopen it to retry. Cloud deletion is still queued."
+            do { try await self?.resumeAccountRemoval() } catch {
+                self?.deletionMessage =
+                    "Device cleanup could not finish. Keep the app installed and reopen it to retry. Cloud deletion is still queued."
                 return
             }
             for await identity in auth.changes() {
@@ -92,6 +93,8 @@ import Observation
         nativeExpeditions = nil
         let oldLeaderboard = nativeLeaderboard
         nativeLeaderboard = nil
+        let oldSavedPins = nativeSavedPins
+        nativeSavedPins = nil
         let oldGuestStore = guestNativeStore
         nativeTrips = nil
         guestNativeStore = nil
@@ -116,6 +119,7 @@ import Observation
             await oldVisits?.close()
             await oldExpeditions?.close()
             await oldLeaderboard?.close()
+            await oldSavedPins?.close()
             await oldGuestStore?.close()
             await oldProfile?.close()
             guard let self, !Task.isCancelled, generation == self.generation, next != nil || openGuest else {
@@ -230,6 +234,15 @@ import Observation
             return false
         }
         nativeProfile = feature
+        // Saved-place availability is independent of trip/walk initialization.
+        let pins = NativeSavedPinFeature(
+            store: feature.store, cloud: try configuration.connectSavedPins?(identity.uid))
+        try await pins.start()
+        guard !Task.isCancelled, self.generation == generation else {
+            await pins.close()
+            return false
+        }
+        nativeSavedPins = pins
         profileScheduler = NativeFeatureSync(
             label: "Profile",
             work: { [weak self] refresh in
@@ -294,6 +307,7 @@ import Observation
         nativeTrips?.requestSync(refresh: refresh)
         nativeVisits?.sync?.request(refresh: refresh)
         nativeExpeditions?.requestSync(refresh: refresh)
+        nativeSavedPins?.sync?.request(refresh: refresh)
         profileScheduler?.request(refresh: refresh)
     }
     private func refreshNativeAccess() { profileScheduler?.request(refresh: true) }
@@ -304,6 +318,7 @@ import Observation
         await nativeTrips?.waitForSync()
         await nativeVisits?.sync?.wait()
         await nativeExpeditions?.sync?.wait()
+        await nativeSavedPins?.sync?.wait()
     }
     private func updateFeatureNetwork() {
         profileScheduler?.setAllowed(foreground && connected && identity != nil)
@@ -314,6 +329,9 @@ import Observation
             foreground && connected && identity?.serverConfirmed == true
                 && profileState?.confirmed?.status == .active)
         nativeExpeditions?.sync?.setAllowed(
+            foreground && connected && identity?.serverConfirmed == true
+                && profileState?.confirmed?.status == .active)
+        nativeSavedPins?.sync?.setAllowed(
             foreground && connected && identity?.serverConfirmed == true
                 && profileState?.confirmed?.status == .active)
     }
@@ -331,7 +349,8 @@ import Observation
     func deleteAccount() async throws {
         guard capabilities.accountManagement, let uid = identity?.uid,
             let configuration = nativeProfileConfiguration, let remove = configuration.deleteAccount,
-            let auth else { throw NativeStore.Failure.unavailable }
+            let auth
+        else { throw NativeStore.Failure.unavailable }
         let store = nativeProfile?.store
         if let deletionTask { return try await deletionTask.value }
         // The lifecycle owns completion; dismissing the form cannot cancel accepted cleanup.
@@ -345,9 +364,11 @@ import Observation
             do {
                 try await store?.eraseClosedAccount()
                 try await resumeAccountRemoval()
-                deletionMessage = "Account deletion requested. Device data removed; cloud cleanup continues automatically."
+                deletionMessage =
+                    "Account deletion requested. Device data removed; cloud cleanup continues automatically."
             } catch {
-                deletionMessage = "Account deletion is queued. Device cleanup will retry when you reopen the app."
+                deletionMessage =
+                    "Account deletion is queued. Device cleanup will retry when you reopen the app."
                 start()
                 throw error
             }
@@ -360,7 +381,9 @@ import Observation
 
     private func resumeAccountRemoval() async throws {
         for request in try NativeAccountRemovalFiles.pending(directory: directory) {
-            guard request.project == nativeProfileConfiguration?.project else { throw NativeStore.Failure.wrongScope }
+            guard request.project == nativeProfileConfiguration?.project else {
+                throw NativeStore.Failure.wrongScope
+            }
             try nativeProfileConfiguration?.forgetDeletedIdentity?(request.uid)
             try await eraseAdditionalAccountData?(request.uid)
             try NativeAccountRemovalFiles.eraseClosedAccount(request, directory: directory)

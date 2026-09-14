@@ -66,6 +66,7 @@ if args.native_trips:
         "BarkRangerTests/AccessStabilizationTests", "BarkRangerTests/AccountIsolationTests",
         "BarkRangerTests/CorrectnessPolicyTests", "BarkRangerTests/MapColorProjectionTests",
         "BarkRangerTests/NativeCacheRetentionTests", "BarkRangerTests/TripLibraryPagingTests",
+        "BarkRangerTests/NativeSavedPinTests", "BarkRangerTests/NativeSavedPinEmulatorTests",
         "BarkRangerTests/NativeDraftHandoffTests", "BarkRangerTests/SavedPlaceStoreTests",
         "BarkRangerTests/SavedPlaceIndexTests", "BarkRangerTests/MapPlaceAnnotationTests",
         "BarkRangerTests/PlannerTargetingTests", "BarkRangerTests/TripDraftSessionTests",

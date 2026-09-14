@@ -9,6 +9,12 @@ function meter(db, observe = () => {}) {
     const originals = new WeakMap(), wrappers = new WeakMap();
     const unwrap = value => originals.get(value) ?? value;
     const read = (source, result) => {
+        if (!('exists' in result) && !('docs' in result)) {
+            const matched = result.data().count;
+            if (!Number.isSafeInteger(matched)) throw new Error('The meter supports count aggregations only.');
+            record({ type: 'aggregation', path: 'count-query', count: matched });
+            return result;
+        }
         record({ type: 'read', path: source.path ?? 'query', count: Math.max(1, result.docs?.length ?? 1) });
         return result;
     };
@@ -31,6 +37,10 @@ function meter(db, observe = () => {}) {
                 },
             })), options);
             if (key === 'get') return async (...args) => read(target, await target.get(...args));
+            if (key === 'getAll') return async (...refs) => {
+                const rows = await target.getAll(...refs.map(unwrap));
+                return rows.map((row, i) => read(unwrap(refs[i]), row));
+            };
             const member = target[key];
             if (typeof member !== 'function') return member;
             return (...args) => {

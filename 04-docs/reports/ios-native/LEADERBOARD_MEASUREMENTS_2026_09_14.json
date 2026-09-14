@@ -1,0 +1,1506 @@
+{
+  "measuredOn": "2026-09-14",
+  "runtimeCommit": "5ea5a124d5d4200ca6d0c27f00e06339d1043db8",
+  "method": "Unchanged native read service, isolated collection adapter; local Node process to Firestore, not deployed Cloud Function timing.",
+  "cloud": [
+    {
+      "event": "started",
+      "project": "bark-ranger-ios",
+      "path": "nativeBenchmarks/leaderboard-70bcc356-3695-404a-9bfe-cf006265f7d0",
+      "maximumEntries": 100000,
+      "cloudWritesPerSecond": 500,
+      "callableInvocations": 0
+    },
+    {
+      "event": "measurement",
+      "environment": "native-cloud",
+      "size": 1000,
+      "seedMilliseconds": 1079.48225,
+      "cases": [
+        {
+          "name": "top-five",
+          "rank": 1,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 229.1182090000002,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 204.81200000000035,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": false,
+              "milliseconds": 255.87450000000035,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 203.0623340000002,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": false,
+              "milliseconds": 234.86675000000014,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 295.943209,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            }
+          ],
+          "explain": {
+            "planSummary": {
+              "indexesUsed": [
+                {
+                  "query_scope": "Collection",
+                  "properties": "(totalPoints DESC, __name__ DESC)"
+                }
+              ]
+            },
+            "executionStats": {
+              "resultsReturned": 5,
+              "executionDuration": {
+                "seconds": 0,
+                "nanoseconds": 7334000
+              },
+              "readOperations": 5,
+              "debugStats": {
+                "billing_details": {
+                  "index_entries_billable": "0",
+                  "documents_billable": "5",
+                  "min_query_cost": "0",
+                  "small_ops": "0"
+                },
+                "documents_scanned": "5",
+                "index_entries_scanned": "6"
+              }
+            }
+          }
+        },
+        {
+          "name": "rank-652",
+          "rank": 652,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 378.79212499999994,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 211.64166700000078,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            },
+            {
+              "warm": false,
+              "milliseconds": 422.67916700000023,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 260.2710420000003,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            },
+            {
+              "warm": false,
+              "milliseconds": 426.6520420000006,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 235.63254200000029,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            }
+          ],
+          "explain": {
+            "planSummary": {
+              "indexesUsed": [
+                {
+                  "properties": "(totalPoints ASC, __name__ ASC)",
+                  "query_scope": "Collection"
+                }
+              ]
+            },
+            "executionStats": {
+              "resultsReturned": 1,
+              "executionDuration": {
+                "seconds": 0,
+                "nanoseconds": 11775000
+              },
+              "readOperations": 1,
+              "debugStats": {
+                "billing_details": {
+                  "index_entries_billable": "651",
+                  "documents_billable": "0",
+                  "min_query_cost": "0",
+                  "small_ops": "0"
+                },
+                "documents_scanned": "0",
+                "index_entries_scanned": "651"
+              }
+            }
+          }
+        },
+        {
+          "name": "bottom",
+          "rank": 1000,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 302.4247089999999,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 999,
+              "responseBytes": 866
+            },
+            {
+              "warm": true,
+              "milliseconds": 222.63729199999943,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 866
+            },
+            {
+              "warm": false,
+              "milliseconds": 310.04691600000024,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 999,
+              "responseBytes": 866
+            },
+            {
+              "warm": true,
+              "milliseconds": 202.65049999999974,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 866
+            },
+            {
+              "warm": false,
+              "milliseconds": 317.50345899999957,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 999,
+              "responseBytes": 866
+            },
+            {
+              "warm": true,
+              "milliseconds": 236.90041700000074,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 866
+            }
+          ],
+          "explain": {
+            "planSummary": {
+              "indexesUsed": [
+                {
+                  "properties": "(totalPoints ASC, __name__ ASC)",
+                  "query_scope": "Collection"
+                }
+              ]
+            },
+            "executionStats": {
+              "resultsReturned": 1,
+              "executionDuration": {
+                "seconds": 0,
+                "nanoseconds": 8394000
+              },
+              "readOperations": 1,
+              "debugStats": {
+                "billing_details": {
+                  "index_entries_billable": "999",
+                  "documents_billable": "0",
+                  "min_query_cost": "0",
+                  "small_ops": "0"
+                },
+                "index_entries_scanned": "999",
+                "documents_scanned": "0"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "event": "measurement",
+      "environment": "native-cloud",
+      "size": 10000,
+      "seedMilliseconds": 17287.725292,
+      "cases": [
+        {
+          "name": "top-five",
+          "rank": 1,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 226.89591700000165,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 132.88833299999897,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": false,
+              "milliseconds": 123.49037500000122,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 136.93674999999712,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": false,
+              "milliseconds": 133.46804200000042,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 138.48441599999933,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            }
+          ],
+          "explain": {
+            "planSummary": {
+              "indexesUsed": [
+                {
+                  "properties": "(totalPoints DESC, __name__ DESC)",
+                  "query_scope": "Collection"
+                }
+              ]
+            },
+            "executionStats": {
+              "resultsReturned": 5,
+              "executionDuration": {
+                "seconds": 0,
+                "nanoseconds": 7426000
+              },
+              "readOperations": 5,
+              "debugStats": {
+                "documents_scanned": "5",
+                "billing_details": {
+                  "index_entries_billable": "0",
+                  "documents_billable": "5",
+                  "min_query_cost": "0",
+                  "small_ops": "0"
+                },
+                "index_entries_scanned": "6"
+              }
+            }
+          }
+        },
+        {
+          "name": "rank-652",
+          "rank": 652,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 353.9752499999995,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 171.2914579999997,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            },
+            {
+              "warm": false,
+              "milliseconds": 397.3859999999986,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 249.28120900000067,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            },
+            {
+              "warm": false,
+              "milliseconds": 399.6819579999974,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 178.45195800000147,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            }
+          ],
+          "explain": {
+            "planSummary": {
+              "indexesUsed": [
+                {
+                  "properties": "(totalPoints ASC, __name__ ASC)",
+                  "query_scope": "Collection"
+                }
+              ]
+            },
+            "executionStats": {
+              "resultsReturned": 1,
+              "executionDuration": {
+                "seconds": 0,
+                "nanoseconds": 8695000
+              },
+              "readOperations": 1,
+              "debugStats": {
+                "index_entries_scanned": "651",
+                "billing_details": {
+                  "index_entries_billable": "651",
+                  "documents_billable": "0",
+                  "min_query_cost": "0",
+                  "small_ops": "0"
+                },
+                "documents_scanned": "0"
+              }
+            }
+          }
+        },
+        {
+          "name": "bottom",
+          "rank": 10000,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 365.6927080000023,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 9999,
+              "responseBytes": 868
+            },
+            {
+              "warm": true,
+              "milliseconds": 180.1353339999987,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 868
+            },
+            {
+              "warm": false,
+              "milliseconds": 311.72633399999904,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 9999,
+              "responseBytes": 868
+            },
+            {
+              "warm": true,
+              "milliseconds": 213.3782080000019,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 868
+            },
+            {
+              "warm": false,
+              "milliseconds": 336.833208,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 9999,
+              "responseBytes": 868
+            },
+            {
+              "warm": true,
+              "milliseconds": 221.18350000000282,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 868
+            }
+          ],
+          "explain": {
+            "planSummary": {
+              "indexesUsed": [
+                {
+                  "properties": "(totalPoints ASC, __name__ ASC)",
+                  "query_scope": "Collection"
+                }
+              ]
+            },
+            "executionStats": {
+              "resultsReturned": 1,
+              "executionDuration": {
+                "seconds": 0,
+                "nanoseconds": 28652000
+              },
+              "readOperations": 10,
+              "debugStats": {
+                "documents_scanned": "0",
+                "index_entries_scanned": "9999",
+                "billing_details": {
+                  "index_entries_billable": "9999",
+                  "documents_billable": "0",
+                  "min_query_cost": "0",
+                  "small_ops": "0"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "event": "measurement",
+      "environment": "native-cloud",
+      "size": 100000,
+      "seedMilliseconds": 181434.832792,
+      "cases": [
+        {
+          "name": "top-five",
+          "rank": 1,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 185.78295799999614,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 125.37958400000934,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": false,
+              "milliseconds": 152.8666249999951,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 193.17854200000875,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": false,
+              "milliseconds": 133.8597909999953,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 131.8015000000014,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            }
+          ],
+          "explain": {
+            "planSummary": {
+              "indexesUsed": [
+                {
+                  "query_scope": "Collection",
+                  "properties": "(totalPoints DESC, __name__ DESC)"
+                }
+              ]
+            },
+            "executionStats": {
+              "resultsReturned": 5,
+              "executionDuration": {
+                "seconds": 0,
+                "nanoseconds": 5335000
+              },
+              "readOperations": 5,
+              "debugStats": {
+                "index_entries_scanned": "6",
+                "documents_scanned": "5",
+                "billing_details": {
+                  "index_entries_billable": "0",
+                  "documents_billable": "5",
+                  "min_query_cost": "0",
+                  "small_ops": "0"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "rank-652",
+          "rank": 652,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 310.18104199998197,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 205.45491699999548,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            },
+            {
+              "warm": false,
+              "milliseconds": 309.0204579999845,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 217.95512500000768,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            },
+            {
+              "warm": false,
+              "milliseconds": 292.972625000024,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 229.64320900000166,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            }
+          ],
+          "explain": {
+            "planSummary": {
+              "indexesUsed": [
+                {
+                  "properties": "(totalPoints ASC, __name__ ASC)",
+                  "query_scope": "Collection"
+                }
+              ]
+            },
+            "executionStats": {
+              "resultsReturned": 1,
+              "executionDuration": {
+                "seconds": 0,
+                "nanoseconds": 7222000
+              },
+              "readOperations": 1,
+              "debugStats": {
+                "billing_details": {
+                  "index_entries_billable": "651",
+                  "documents_billable": "0",
+                  "min_query_cost": "0",
+                  "small_ops": "0"
+                },
+                "documents_scanned": "0",
+                "index_entries_scanned": "651"
+              }
+            }
+          }
+        },
+        {
+          "name": "bottom",
+          "rank": 100000,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 585.8965420000022,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 99999,
+              "responseBytes": 866
+            },
+            {
+              "warm": true,
+              "milliseconds": 214.25433299998986,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 866
+            },
+            {
+              "warm": false,
+              "milliseconds": 517.889583000011,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 99999,
+              "responseBytes": 866
+            },
+            {
+              "warm": true,
+              "milliseconds": 183.68899999998393,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 866
+            },
+            {
+              "warm": false,
+              "milliseconds": 476.2910839999968,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 99999,
+              "responseBytes": 866
+            },
+            {
+              "warm": true,
+              "milliseconds": 150.4323340000119,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 866
+            }
+          ],
+          "explain": {
+            "planSummary": {
+              "indexesUsed": [
+                {
+                  "query_scope": "Collection",
+                  "properties": "(totalPoints ASC, __name__ ASC)"
+                }
+              ]
+            },
+            "executionStats": {
+              "resultsReturned": 1,
+              "executionDuration": {
+                "seconds": 0,
+                "nanoseconds": 154068000
+              },
+              "readOperations": 100,
+              "debugStats": {
+                "billing_details": {
+                  "index_entries_billable": "99999",
+                  "documents_billable": "0",
+                  "min_query_cost": "0",
+                  "small_ops": "0"
+                },
+                "index_entries_scanned": "99999",
+                "documents_scanned": "0"
+              }
+            }
+          }
+        }
+      ],
+      "concurrent": {
+        "independentAccounts": 20,
+        "milliseconds": 712.5809169999848,
+        "requestMilliseconds": [
+          662.6647090000042,
+          510.153250000003,
+          626.3419170000125,
+          529.6612920000043,
+          589.1925000000047,
+          595.0502080000006,
+          654.5525829999824,
+          595.0333749999991,
+          565.3317920000118,
+          565.3154579999973,
+          712.2946250000095,
+          690.2263749999984,
+          533.427874999994,
+          635.8627919999999,
+          632.5158330000122,
+          697.1560419999878,
+          709.1806250000081,
+          611.1151250000112,
+          630.6667910000251,
+          608.0819999999949
+        ],
+        "reads": 200,
+        "writes": 40,
+        "countQueries": 20,
+        "matchedEntries": 1800190
+      }
+    },
+    {
+      "event": "cleanup-complete",
+      "project": "bark-ranger-ios",
+      "path": "nativeBenchmarks/leaderboard-70bcc356-3695-404a-9bfe-cf006265f7d0",
+      "seeded": 100000
+    },
+    {
+      "event": "complete",
+      "project": "bark-ranger-ios",
+      "sizes": [
+        1000,
+        10000,
+        100000
+      ],
+      "cleanup": true
+    }
+  ],
+  "emulator": [
+    {
+      "event": "started",
+      "project": "demo-bark-native",
+      "path": "nativeBenchmarks/leaderboard-5d784fa6-53af-4db7-bbf1-5e1e31e827a3",
+      "maximumEntries": 100000,
+      "cloudWritesPerSecond": null,
+      "callableInvocations": 0
+    },
+    {
+      "event": "measurement",
+      "environment": "emulator",
+      "size": 1000,
+      "seedMilliseconds": 45.393416,
+      "cases": [
+        {
+          "name": "top-five",
+          "rank": 1,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 73.983792,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 64.145917,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": false,
+              "milliseconds": 60.54179099999999,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 63.311916999999994,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": false,
+              "milliseconds": 61.124250000000075,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 62.202583000000004,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            }
+          ],
+          "explain": null
+        },
+        {
+          "name": "rank-652",
+          "rank": 652,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 133.47191700000008,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 61.98758299999997,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            },
+            {
+              "warm": false,
+              "milliseconds": 131.46391600000004,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 69.98624999999993,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            },
+            {
+              "warm": false,
+              "milliseconds": 136.512833,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 74.91491599999995,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            }
+          ],
+          "explain": null
+        },
+        {
+          "name": "bottom",
+          "rank": 1000,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 159.6463329999999,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 999,
+              "responseBytes": 866
+            },
+            {
+              "warm": true,
+              "milliseconds": 65.87858400000005,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 866
+            },
+            {
+              "warm": false,
+              "milliseconds": 126.03787499999999,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 999,
+              "responseBytes": 866
+            },
+            {
+              "warm": true,
+              "milliseconds": 67.59795899999995,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 866
+            },
+            {
+              "warm": false,
+              "milliseconds": 128.03062499999987,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 999,
+              "responseBytes": 866
+            },
+            {
+              "warm": true,
+              "milliseconds": 62.2501249999998,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 866
+            }
+          ],
+          "explain": null
+        }
+      ]
+    },
+    {
+      "event": "measurement",
+      "environment": "emulator",
+      "size": 10000,
+      "seedMilliseconds": 3506.2684579999996,
+      "cases": [
+        {
+          "name": "top-five",
+          "rank": 1,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 100.01733300000069,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 98.8590409999997,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": false,
+              "milliseconds": 98.07625000000007,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 97.56029099999978,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": false,
+              "milliseconds": 104.07120799999939,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 97.75987499999974,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            }
+          ],
+          "explain": null
+        },
+        {
+          "name": "rank-652",
+          "rank": 652,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 200.8089170000003,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 97.03004199999941,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            },
+            {
+              "warm": false,
+              "milliseconds": 199.6752919999999,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 98.65537499999937,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            },
+            {
+              "warm": false,
+              "milliseconds": 218.95049999999992,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 169.61712499999976,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            }
+          ],
+          "explain": null
+        },
+        {
+          "name": "bottom",
+          "rank": 10000,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 173.82929200000035,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 9999,
+              "responseBytes": 868
+            },
+            {
+              "warm": true,
+              "milliseconds": 85.3927909999993,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 868
+            },
+            {
+              "warm": false,
+              "milliseconds": 166.83658399999968,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 9999,
+              "responseBytes": 868
+            },
+            {
+              "warm": true,
+              "milliseconds": 85.55141699999967,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 868
+            },
+            {
+              "warm": false,
+              "milliseconds": 164.8573750000005,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 9999,
+              "responseBytes": 868
+            },
+            {
+              "warm": true,
+              "milliseconds": 87.58275000000049,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 868
+            }
+          ],
+          "explain": null
+        }
+      ]
+    },
+    {
+      "event": "measurement",
+      "environment": "emulator",
+      "size": 100000,
+      "seedMilliseconds": 44005.5275,
+      "cases": [
+        {
+          "name": "top-five",
+          "rank": 1,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 416.784249999997,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 399.81700000000274,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": false,
+              "milliseconds": 393.90674999999464,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 390.39408399999957,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": false,
+              "milliseconds": 385.8000419999953,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            },
+            {
+              "warm": true,
+              "milliseconds": 388.2974580000009,
+              "reads": 7,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 862
+            }
+          ],
+          "explain": null
+        },
+        {
+          "name": "rank-652",
+          "rank": 652,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 782.4333749999932,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 393.5482499999998,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            },
+            {
+              "warm": false,
+              "milliseconds": 760.5070420000047,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 389.6369160000031,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            },
+            {
+              "warm": false,
+              "milliseconds": 885.1804999999949,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 651,
+              "responseBytes": 865
+            },
+            {
+              "warm": true,
+              "milliseconds": 400.37954100000206,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 865
+            }
+          ],
+          "explain": null
+        },
+        {
+          "name": "bottom",
+          "rank": 100000,
+          "samples": [
+            {
+              "warm": false,
+              "milliseconds": 788.1917499999981,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 99999,
+              "responseBytes": 866
+            },
+            {
+              "warm": true,
+              "milliseconds": 409.5584999999992,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 866
+            },
+            {
+              "warm": false,
+              "milliseconds": 742.7337919999991,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 99999,
+              "responseBytes": 866
+            },
+            {
+              "warm": true,
+              "milliseconds": 385.19083300000057,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 866
+            },
+            {
+              "warm": false,
+              "milliseconds": 759.5082500000062,
+              "reads": 10,
+              "writes": 2,
+              "countQueries": 1,
+              "matchedEntries": 99999,
+              "responseBytes": 866
+            },
+            {
+              "warm": true,
+              "milliseconds": 379.10220899999695,
+              "reads": 9,
+              "writes": 1,
+              "countQueries": 0,
+              "matchedEntries": 0,
+              "responseBytes": 866
+            }
+          ],
+          "explain": null
+        }
+      ],
+      "concurrent": {
+        "independentAccounts": 20,
+        "milliseconds": 2715.139500000005,
+        "requestMilliseconds": [
+          2662.903290999995,
+          2660.405875000004,
+          2679.194083999995,
+          2684.755333000001,
+          2701.4467920000025,
+          2682.032500000001,
+          2661.098791999997,
+          2388.8245000000024,
+          2668.578916000006,
+          2701.426124999998,
+          2684.1750829999946,
+          2714.9401670000007,
+          2389.202290999994,
+          2660.300916,
+          2449.441665999999,
+          2660.2960410000014,
+          2662.9832920000044,
+          2669.5057499999966,
+          2660.2801670000044,
+          2662.698709000004
+        ],
+        "reads": 200,
+        "writes": 40,
+        "countQueries": 20,
+        "matchedEntries": 1800190
+      }
+    },
+    {
+      "event": "cleanup-complete",
+      "project": "demo-bark-native",
+      "path": "nativeBenchmarks/leaderboard-5d784fa6-53af-4db7-bbf1-5e1e31e827a3",
+      "seeded": 100000
+    },
+    {
+      "event": "complete",
+      "project": "demo-bark-native",
+      "sizes": [
+        1000,
+        10000,
+        100000
+      ],
+      "cleanup": true
+    }
+  ]
+}

@@ -154,8 +154,18 @@ This is required new billing functionality, not a code-reduction checkpoint.
   Production App Attest entitlement remains present; emulator factory/provider names and
   its marker are absent from the Release binary. No deployment or phone installation.
 - Change size before report: **6 files, +125/-35 lines**, including the regression tests
-  and runtime-setup fix. Updated full local native and shell regressions have been started;
-  their results and the successor hosted run are still pending. Do not claim final CI green.
+  and runtime-setup fix. Reviewed source pushed as **`fa4b00f`**. Its isolated native backend
+  [run 34942547494](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34942547494)
+  passed **126 tests / 0 failures / 0 skips**; local deployment/CI-isolation checks passed
+  **5/5** and Swift domain checks **49/49**.
+- The same source's [Native iOS run 34942547676](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34942547676)
+  is still running. StoreKit runtime installation now succeeded; the required test is running,
+  not yet a recorded pass. Updated full local native regression is running at
+  `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-fc8jmy1c/Acceptance.xcresult`,
+  log `/tmp/BarkPhase6CIReview.7TKpNm/native-full.log`. On success, the same launched command
+  proceeds to `/tmp/BarkPhase6CIReview.7TKpNm/ShellFull.xcresult` with `shell-full.log` in that
+  directory. Collect both results before starting another run. These pending results are
+  not passes; final hosted CI green is still required.
 
 ### Purchase-boundary operation counts
 

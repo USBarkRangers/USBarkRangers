@@ -272,13 +272,26 @@ This is required new billing functionality, not a code-reduction checkpoint.
   not a locally reproduced 32s Apple-service delay. Hosted confirmation is still required.
 - Change size before this report: **5 test/CI files, +176/-119 lines** (net +57, mostly
   safe cleanup scopes and their indentation). **0 shipping app/backend files changed**.
-  Full updated local native acceptance is running; log:
-  `/tmp/BarkNativeFourFailures.vNruIz/native-full.log`. Do not call this run passed yet.
-  Result target: `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-2m8tuo99/Acceptance.xcresult`.
+  Full updated local native acceptance **passed at 11:29:49 UTC: 190 unique tests /
+  205 parameterized cases, 0 failures / 0 skips**. Log:
+  `/tmp/BarkNativeFourFailures.vNruIz/native-full.log`.
+  Result: `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-2m8tuo99/Acceptance.xcresult`.
+  This includes profile bootstrap (0.071s), saved-pin model (0.69s), pending/account switch
+  (0.13s), account UI create/edit/relaunch/sign-out (83s) and **exactly one trip download**
+  (0.83s). The two cloud failures did not reproduce; no claim that their root cause was fixed.
   Fix/report pushed as **`f00e156`**; required hosted successor
   [run 34962968565](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34962968565)
   is running. The disposable fresh simulator was removed after acceptance; result bundles
   and diagnostics were retained. No existing simulator or user data was erased.
+- The same source's required hosted **StoreKit job passed: 1 test / 0 failures**, including
+  annual offer, purchase retention, restore, renewal and refund. Job `104360685705` records
+  the actual test passing in 9.771s and `TEST SUCCEEDED` at 11:41:17 UTC. This is real local
+  StoreKit simulation on GitHub's 26.1 runtime, not genuine Apple sandbox-to-backend proof.
+  Hosted native SDK/account UI and full shell still require completion.
+- Started the updated complete local app/catalog/accessibility suite at 11:46 UTC:
+  `/tmp/BarkNativeFourFailures.vNruIz/ShellFull.xcresult`, log `shell-full.log` alongside it.
+  **Still running, not a pass.** Native emulators were cleanly stopped first; only the local
+  public catalog fixture remains. No source, deployment or phone installation in this follow-up.
 
 ### Purchase-boundary operation counts
 

@@ -1,15 +1,11 @@
-Retained web-service document. Native privacy disclosures will be reviewed before release.
-
-← Back to the app
-
 US BARK Rangers
 
 Terms of Use
 
-Last updated: July 18, 2026
+Last updated: September 15, 2026
 
 Welcome to US BARK Rangers (the "App," "we," "us," or "our"). These Terms of Use ("Terms") govern your
- access to and use of the US BARK Rangers web application, maps, tools, and related services
+ access to and use of the Bark Ranger iOS application, maps, tools, and related services
  (collectively, the "Service"). By accessing or using the Service, you agree to be bound by these Terms.
  If you do not agree, please do not use the Service.
 
@@ -56,20 +52,24 @@ Some features require an account. You agree to provide accurate information, to 
 
 6. Premium Features, Payments, and Refunds
 
-The Service may offer paid or premium features, subscriptions, or one-time purchases. If you purchase a
- paid feature:
+Bark Ranger Premium is an annual auto-renewable subscription purchased through Apple's App Store.
+The standard U.S. price is $19.99 per year. Apple displays the applicable price, taxes, payment terms,
+and eligibility for a free trial or offer before you confirm a purchase or redeem an offer code.
 
-Prices, billing terms, and what each plan includes will be shown at the time of purchase.
+An eligible new subscriber may receive a 7-day free trial. A separately issued offer code may provide
+a different free or discounted period; Apple's confirmation sheet states its duration and renewal
+price. An offer does not change the standard plan for other subscribers.
 
-Subscriptions may renew automatically until cancelled, and you may cancel at any time; cancellation
- stops future renewals but does not retroactively refund the current period unless required by law or
- stated in our refund policy.
+Subscriptions and auto-renewing free offers renew at the price Apple discloses unless canceled.
+Cancel before a free period ends to avoid the next charge. You can manage or cancel in your Apple
+Account subscription settings. Cancellation stops future renewals; it does not itself refund an
+already billed period. Apple handles payment and refund requests under its applicable terms.
+We do not collect your card details. Deleting your Bark account does not cancel an Apple subscription.
 
-Payments are processed by third-party payment providers, and you agree to their terms in addition to
- these Terms.
-
-Our current refund practices, including any trial or promotional codes, will be described at checkout
- or on request. We reserve the right to correct pricing errors.
+Use Restore Purchases while signed in to the Bark account associated with your subscription.
+An Apple subscription cannot be transferred to a different Bark account through Restore Purchases.
+Previously saved account information remains readable when Premium ends. Some offline editing and
+sync functions have a limited grace period; this does not extend an Apple billing period.
 
 7. User Content
 

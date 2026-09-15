@@ -12,7 +12,11 @@ import Observation
     private var cloud: (any PurchaseVerifying)?
     private var context: PurchaseConfirmation?
     private var generation = UUID()
-    private var confirmations: [String: Task<Void, Error>] = [:]
+    private struct Confirmation {
+        let id = UUID()
+        let task: Task<Void, Error>
+    }
+    private var confirmations: [String: Confirmation] = [:]
     private var updatesTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
     private(set) var offer: PurchaseOffer?
@@ -22,6 +26,10 @@ import Observation
     private(set) var subscription: PurchaseConfirmation.Subscription?
     var available: Bool { connect != nil }
     var signedIn: Bool { account.identity != nil }
+    var activeSubscription: Bool {
+        subscription.map { !$0.revoked && Double($0.expiresAtMs) / 1000 > Date().timeIntervalSince1970 }
+            ?? false
+    }
 
     init(
         account: AccountSession, store: any ApplePurchasing,
@@ -56,7 +64,7 @@ import Observation
             notice = nil
             busy = false
             awaitingConfirmation = false
-            confirmations.values.forEach { $0.cancel() }
+            for confirmation in confirmations.values { confirmation.task.cancel() }
             confirmations.removeAll()
             recoveryTask?.cancel()
             recoveryTask = nil
@@ -76,7 +84,9 @@ import Observation
                 do {
                     let client = try self.client()
                     try await self.apply(try await client.refresh(), generation: generation)
-                } catch { /* Keep last confirmed access; the next foreground/Restore retries. */  }
+                } catch {
+                    // Keep last confirmed access; the next foreground/Restore retries.
+                }
             }
             if self.generation == generation { self.recoveryTask = nil }
         }
@@ -87,15 +97,25 @@ import Observation
         guard available, !busy else { return }
         let generation = generation
         busy = true
+        notice = nil
         defer { if self.generation == generation { busy = false } }
+        // The App Store offer is public. An unavailable account server must not hide
+        // Apple's price; conversely a storefront outage must not hide membership.
         do {
+            let offer = try await store.offer()
+            try check(generation)
+            self.offer = offer
+        } catch {
+            guard self.generation == generation else { return }
+            offer = nil
+            notice = Self.message(error)
+        }
+        do {
+            try check(generation)
             if signedIn {
                 let client = try client()
                 try await apply(try await client.context(), generation: generation)
             }
-            let offer = try await store.offer()
-            try check(generation)
-            self.offer = offer
         } catch { if self.generation == generation { notice = Self.message(error) } }
     }
 
@@ -143,7 +163,9 @@ import Observation
         } catch { if self.generation == generation { notice = Self.message(error) } }
     }
 
-    func restore() async {
+    func restore(expectedUID: String? = nil, claimOffer: Bool = false) async {
+        if claimOffer && expectedUID == nil { return }
+        if let expectedUID, expectedUID != account.identity?.uid { return }
         guard available, !busy else { return }
         let generation = generation
         busy = true
@@ -154,7 +176,7 @@ import Observation
             if context == nil { try await apply(try await client.context(), generation: generation) }
             let proofs = try await store.restore()
             try check(generation)
-            for proof in proofs { try await confirm(proof, generation: generation) }
+            for proof in proofs { try await confirm(proof, generation: generation, claimOffer: claimOffer) }
             if proofs.isEmpty {
                 try await apply(try await client.refresh(), generation: generation)
                 notice =
@@ -163,13 +185,45 @@ import Observation
         } catch {
             if self.generation == generation {
                 if let failure = error as? NativeCallableTransport.ServerFailure,
-                    failure.reason == "purchase-account-mismatch"
+                    ["purchase-account-mismatch", "purchase-link-required"].contains(failure.reason)
                 {
                     notice = Self.message(error)
                 } else {
                     notice =
                         "Restore could not finish. Your saved data is unchanged. Reconnect and try Restore Purchases again; don’t buy another subscription to restore access."
                 }
+            }
+        }
+    }
+
+    /// Capture the chosen account before Apple's sheet. Closing it is not a purchase.
+    func prepareOfferRedemption(expectedUID: String?) async -> UUID? {
+        activate()
+        guard available, !busy, let expectedUID, expectedUID == uid else { return nil }
+        let generation = generation
+        busy = true
+        notice = nil
+        defer { if self.generation == generation { busy = false } }
+        do {
+            try await apply(try await client().context(), generation: generation)
+            return generation
+        } catch {
+            if self.generation == generation { notice = Self.message(error) }
+            return nil
+        }
+    }
+
+    func completeOfferRedemption(_ result: Result<Void, any Error>, session: UUID) async {
+        guard generation == session, signedIn else { return }
+        guard case .success = result else {
+            notice =
+                "Apple’s offer-code screen could not finish. You can try again or use Restore Purchases if you already redeemed a code."
+            return
+        }
+        // Reuse Apple's durable delivery, not a new queue or another sign-in prompt.
+        for proof in await store.unfinished() {
+            do { try await confirm(proof, generation: session, claimOffer: true) } catch {
+                if generation == session { notice = Self.confirmationMessage(error) }
             }
         }
     }
@@ -181,12 +235,21 @@ import Observation
             if self.generation == generation { notice = Self.confirmationMessage(error) }
         }
     }
-    private func confirm(_ proof: PurchaseProof, generation: UUID) async throws {
+    private func confirm(_ proof: PurchaseProof, generation: UUID, claimOffer: Bool = false) async throws {
         try check(generation)
         guard proof.productID == AppleMembership.productID else {
             throw PurchaseFailure.unverifiedTransaction
         }
-        if let task = confirmations[proof.id] { return try await task.value }
+        if let existing = confirmations[proof.id] {
+            do { return try await existing.task.value } catch {
+                // An observer may arrive before the user approves linking. Only that
+                // specific denial may be retried with explicit consent.
+                guard claimOffer, let failure = error as? NativeCallableTransport.ServerFailure,
+                    failure.reason == "purchase-link-required"
+                else { throw error }
+                try check(generation)
+            }
+        }
         let client = try client()
         let task = Task { [weak self] in
             guard let self else { throw CancellationError() }
@@ -194,20 +257,27 @@ import Observation
                 try await self.apply(try await client.context(), generation: generation)
             }
             try self.check(generation)
-            guard proof.accountToken == self.context?.appAccountToken else {
+            guard proof.accountToken == nil || proof.accountToken == self.context?.appAccountToken else {
                 throw NativeCallableTransport.ServerFailure(
                     reason: "purchase-account-mismatch", retryAfterMs: nil)
             }
             self.awaitingConfirmation = true
-            try await self.apply(try await client.verify(proof.signedTransaction), generation: generation)
+            try await self.apply(
+                try await client.verify(proof.signedTransaction, claimOffer: claimOffer),
+                generation: generation)
             try self.check(generation)
             await proof.finish()
             try self.check(generation)
             self.awaitingConfirmation = false
             self.notice = "Apple membership confirmed. Your saved account has been updated."
         }
-        confirmations[proof.id] = task
-        defer { if self.generation == generation { confirmations[proof.id] = nil } }
+        let confirmation = Confirmation(task: task)
+        confirmations[proof.id] = confirmation
+        defer {
+            if self.generation == generation, confirmations[proof.id]?.id == confirmation.id {
+                confirmations[proof.id] = nil
+            }
+        }
         try await task.value
     }
     private func apply(_ reply: PurchaseConfirmation, generation: UUID) async throws {
@@ -247,6 +317,10 @@ import Observation
             return
                 "Apple’s subscription offer is unavailable right now. No purchase was made. Please try again later."
         case let failure as NativeCallableTransport.ServerFailure
+        where failure.reason == "purchase-link-required":
+            return
+                "An Apple offer is ready to link. Choose Restore Purchases and confirm which Bark account should receive it."
+        case let failure as NativeCallableTransport.ServerFailure
         where failure.reason == "purchase-account-mismatch":
             return
                 "This Apple subscription belongs to a different Bark account. Sign in to that account and restore. It has not been transferred."
@@ -255,7 +329,7 @@ import Observation
     }
     static func confirmationMessage(_ error: any Error) -> String {
         if let failure = error as? NativeCallableTransport.ServerFailure,
-            failure.reason == "purchase-account-mismatch"
+            ["purchase-account-mismatch", "purchase-link-required"].contains(failure.reason)
         {
             return message(error)
         }

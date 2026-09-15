@@ -23,8 +23,14 @@ nonisolated final class PremiumUITests: XCTestCase {
             try app.performAccessibilityAudit(for: [
                 .contrast, .textClipped, .hitRegion, .sufficientElementDescription,
             ])
+            let opening = XCTAttachment(screenshot: app.screenshot())
+            opening.name = "Premium overview — \(size)"
+            opening.lifetime = .keepAlways
+            add(opening)
             let privacy = app.buttons["Privacy policy"]
-            for _ in 0..<8 where !privacy.isHittable { app.swipeUp() }
+            // Full benefits now precede account/legal; at accessibility text sizes
+            // they span more screens. The destination/audit assertions stay strict.
+            for _ in 0..<18 where !privacy.isHittable { app.swipeUp() }
             XCTAssertTrue(privacy.isHittable)
             privacy.tap()
             XCTAssertTrue(app.navigationBars["Privacy policy"].waitForExistence(timeout: 5))

@@ -1,44 +1,39 @@
-Retained web-service document. Native privacy disclosures will be reviewed before release.
-
-← Back to the app
-
 US BARK Rangers
 
 Privacy Policy
 
-Last updated: August 26, 2026
+Last updated: September 15, 2026
 
 This Privacy Policy explains how US BARK Rangers (the "App," "we," "us," or "our") collects, uses, and
- protects your information when you use our web application and related services (the "Service"). By using
+ protects your information when you use the Bark Ranger iOS application and related services (the "Service"). By using
  the Service, you agree to the practices described here.
 
 1. Information We Collect
 
 Account information: When you sign in, we collect your email address and basic
- profile details provided through your chosen sign-in method (for example, Google or email
+ profile details provided through your chosen sign-in method (such as Sign in with Apple or email
  authentication).
 
-Your activity in the App: Parks and sites you mark as visited, saved trips, scores,
- badges, settings, and similar progress data you create.
+Your activity in the App: Parks and sites you mark as visited, saved places, trip stops and notes,
+walk and expedition records, scores, badges, settings, and similar progress data you create.
 
-User content: Photos or images you upload to tools such as the watermark feature.
- Image processing for the watermark tool happens in your browser; we do not store your uploaded photos
- on our servers unless a feature explicitly says so.
+User content: Trip notes and saved-place information are stored with your account. Images you select
+for the watermark tool are processed on your device, not uploaded to our servers by that tool.
 
 Location: If you grant permission, we use your device location to center the map and
- show nearby parks. You can decline or revoke this in your browser or device settings.
+ show nearby parks and support walks you choose to record. If you mark a location-verified visit,
+the app sends the location fix to the backend to validate proximity. Your saved places and trip stops can
+contain location information. You can decline or revoke location access in iOS Settings.
 
 Payment information: If you make a purchase, payment details are collected and
- processed by our third-party payment provider. We do not store full card numbers.
+ processed by Apple. Our native backend verifies Apple's signed transactions and stores subscription
+identifiers, status, expiration and the link to your Bark account, including redeemed offers.
+We do not receive or store full card numbers.
 
-Technical data: Basic device, browser, and usage information, and locally stored
- data (such as your settings) kept in your browser to make the App work.
-
-Usage analytics: We use Google Analytics for Firebase and GoatCounter to measure app
- opens, screens viewed, sessions, new and returning visitors, broad device/browser information, and
- referral sources. For signed-in users, Google Analytics may receive our internal account identifier
- so repeat use can be counted across devices. We do not send your email address, name, exact GPS
- location, route coordinates, park notes, or search text to analytics.
+Technical data: Service-request and security information needed to operate the app, verify requests
+and prevent abuse. The native app uses Firebase App Check for app integrity. Settings, downloaded
+park information, account-scoped data and pending changes are stored on your device for offline use.
+The native app does not include the web app's Google Analytics or GoatCounter integration.
 
 2. How We Use Information
 
@@ -54,17 +49,17 @@ To protect against fraud, abuse, and unlawful activity, and to comply with legal
 
 3. Service Providers
 
-We rely on trusted third-party services to run the App, including Google Firebase (authentication,
- database, hosting, and analytics), GoatCounter (privacy-focused traffic measurement), map and routing
- providers, and payment processors. These providers process data on our behalf and are subject to their
- own privacy terms. We do not sell your personal information.
+We use Google Firebase and Google Cloud for authentication, account storage, backend functions,
+public park data and app integrity. Apple supplies Sign in with Apple, App Store subscriptions,
+and MapKit map imagery, place search and routing. Requests to these services are governed by their
+applicable privacy terms. We do not sell your personal information.
 
-4. Cookies and Local Storage
+4. Storage on Your Device
 
-The Service uses cookies, browser local storage, and similar technologies to remember your settings, keep
- you signed in, record acknowledgments (such as the first-open disclaimer), and distinguish repeat visits
- from new visitors. Clearing browser data, using private browsing, or changing devices may cause an
- anonymous visitor to be counted as new.
+The app stores your preferences and downloaded data on your iPhone, and uses secure system storage
+for sign-in credentials. Account caches and pending changes are separated by Bark account. Changes
+saved while offline are sent when you reconnect. Deleting the app can remove changes that have not
+yet synced; check Pending changes before doing so.
 
 5. Data Retention
 
@@ -76,10 +71,11 @@ We retain your account and activity data for as long as your account is active o
 
 You can access and update much of your profile and progress data within the App.
 
-You can control location and notification permissions in your browser or device settings.
+You can control location and photo permissions in iOS Settings.
 
-You may request a copy or deletion of your personal data, subject to applicable law, by contacting
- us.
+You can request account deletion in the app's Account screen, or contact us for access or deletion
+requests. Deleting a Bark account does not cancel an Apple subscription; manage it separately in
+your Apple Account settings. Apple retains its payment records under its own policies.
 
 Depending on where you live, you may have additional rights under laws such as the GDPR or CCPA.
 

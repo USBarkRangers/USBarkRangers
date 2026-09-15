@@ -10,10 +10,12 @@ import Foundation
     var finished: [String] = []
     var purchases = 0
     var offered = true
+    var offerCalls = 0
     var restoreFails = false
     var purchaseWork: (@MainActor () async -> Void)?
     private let channel = AsyncStream<PurchaseProof>.makeStream()
     func offer() async throws -> PurchaseOffer {
+        offerCalls += 1
         guard offered else { throw PurchaseFailure.unavailableProduct }
         return .init(id: AppleMembership.productID, name: "Premium", price: "$19.99", trialAvailable: true)
     }
@@ -49,11 +51,16 @@ actor PurchaseCloudFixture: PurchaseVerifying {
     var accepted = false
     var revoked = false
     var failing = false
+    var contextFailing = false
+    var needsOfferLink = false
+    var claimFlags: [Bool] = []
     var calls: [String] = []
     var verifyWaiter: CheckedContinuation<Void, Never>?
     var shouldHold = false
     init(token: UUID) { self.token = token }
     func setFailing(_ value: Bool) { failing = value }
+    func setContextFailing(_ value: Bool) { contextFailing = value }
+    func requireOfferLink() { needsOfferLink = true }
     func setRevoked() { revoked = true }
     func hold() { shouldHold = true }
     func release() {
@@ -61,14 +68,20 @@ actor PurchaseCloudFixture: PurchaseVerifying {
         verifyWaiter?.resume()
         verifyWaiter = nil
     }
-    func context() -> PurchaseConfirmation {
+    func context() throws -> PurchaseConfirmation {
         calls.append("context")
+        if contextFailing { throw PurchaseFailure.accountRequired }
         return reply()
     }
-    func verify(_ proof: String) async throws -> PurchaseConfirmation {
+    func verify(_ proof: String, claimOffer: Bool) async throws -> PurchaseConfirmation {
         calls.append("verify")
+        claimFlags.append(claimOffer)
         if shouldHold { await withCheckedContinuation { verifyWaiter = $0 } }
         if failing { throw PurchaseFailure.unavailableProduct }
+        if needsOfferLink && !claimOffer {
+            throw NativeCallableTransport.ServerFailure(reason: "purchase-link-required", retryAfterMs: nil)
+        }
+        needsOfferLink = false
         accepted = true
         return reply()
     }

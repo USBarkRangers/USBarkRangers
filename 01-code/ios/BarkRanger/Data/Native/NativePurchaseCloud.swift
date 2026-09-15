@@ -7,10 +7,11 @@ nonisolated struct NativePurchaseCloud: PurchaseVerifying {
         let version = 1
         let kind: String
         var signedTransaction: String? = nil
+        var claimOffer: Bool? = nil
     }
     func context() async throws -> PurchaseConfirmation { try await call(.init(kind: "context")) }
-    func verify(_ proof: String) async throws -> PurchaseConfirmation {
-        try await call(.init(kind: "verify", signedTransaction: proof))
+    func verify(_ proof: String, claimOffer: Bool) async throws -> PurchaseConfirmation {
+        try await call(.init(kind: "verify", signedTransaction: proof, claimOffer: claimOffer ? true : nil))
     }
     func refresh() async throws -> PurchaseConfirmation { try await call(.init(kind: "refresh")) }
     private func call(_ request: Request) async throws -> PurchaseConfirmation {

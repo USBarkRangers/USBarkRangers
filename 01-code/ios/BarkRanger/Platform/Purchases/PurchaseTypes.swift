@@ -61,7 +61,7 @@ nonisolated struct PurchaseConfirmation: Decodable, Sendable {
 
 nonisolated protocol PurchaseVerifying: Sendable {
     func context() async throws -> PurchaseConfirmation
-    func verify(_ proof: String) async throws -> PurchaseConfirmation
+    func verify(_ proof: String, claimOffer: Bool) async throws -> PurchaseConfirmation
     func refresh() async throws -> PurchaseConfirmation
 }
 

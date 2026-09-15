@@ -1,8 +1,8 @@
 import BarkDomain
 import SwiftUI
 
-/// Current account UI reads a small native profile/access projection. Unconnected
-/// feature summaries remain explicitly unavailable, never copied from a legacy blob.
+/// Membership and sync use existing account projections. Feature totals belong in
+/// Passport/Trips, not placeholder rows or extra downloads on the account screen.
 struct NativeAccountDetails: View {
     let model: AccountModel
     var body: some View {
@@ -12,36 +12,34 @@ struct NativeAccountDetails: View {
                     "Access",
                     value: model.session.entitlement.access.map { $0.premium ? "Premium" : "Free" }
                         ?? "Unconfirmed")
-                accountValue("Status", value: model.session.entitlement.access?.status ?? "Unconfirmed")
-                if model.session.entitlement.access?.source == "development" {
-                    Text("Temporary development access. No App Store purchase or subscription is active.")
+                if model.session.entitlement.access?.source == "development",
+                    model.session.entitlement.access?.premium == true
+                {
+                    Text("Complimentary access. You do not have an Apple subscription.")
                         .font(.footnote)
                 }
                 if model.session.entitlement.access?.premium == true,
                     let until = model.session.entitlement.access?.validUntil
                 {
                     accountValue(
-                        "Premium available offline until",
+                        "Offline editing available until",
                         value: until.formatted(date: .abbreviated, time: .shortened))
                     Text(
-                        "Connecting refreshes your membership check. Saved park information remains available offline."
+                        "Your saved information stays readable after Premium ends. Connect periodically to keep your membership up to date."
                     )
                     .font(.footnote).foregroundStyle(.secondary)
+                }
+                if model.session.entitlement.access?.premium == false {
+                    Text(
+                        "Explore the park map for free. Upgrade to save places, record visits and walks, and plan trips. Your existing saved information remains readable."
+                    )
+                    .font(.subheadline)
                 }
                 UpgradeToPremiumButton(
                     title: model.session.entitlement.access?.premium == true
                         ? "Premium membership" : "Upgrade to Premium")
             } header: {
                 Text("Membership").foregroundStyle(Color.primary)
-            }
-            Section {
-                accountValue("Visits", value: "—")
-                accountValue("Trips loaded", value: "—")
-                accountValue("Completed expeditions", value: "—")
-                accountValue("Achievement records", value: "—")
-                Text("Feature summaries are not connected in this development build yet.").font(.footnote)
-            } header: {
-                Text("Saved account data").foregroundStyle(Color.primary)
             }
             Section {
                 if model.session.isSyncing { ProgressView("Checking saved account…") }

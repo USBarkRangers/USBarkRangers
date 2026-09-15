@@ -201,8 +201,16 @@ This is required new billing functionality, not a code-reduction checkpoint.
   readiness checks completed about 2.2 seconds after starting the action wait. The retained
   screenshot visibly shows “Save to Files” and “JPEG Image · 1.4 MB”. This is a reproduced
   cold-start test race with before/after evidence, not an assumption based only on a warm pass.
-  Three unconditional complete repetitions are also running on the existing main simulator;
-  every iteration must pass. Final hosted workflow success remains required.
+  Three unconditional complete repetitions on the existing main simulator also **passed
+  3/3, 0 failures / 0 skips**: `/tmp/BarkWatermarkCI.6mQjxD/WarmAfter.xcresult`. These were
+  fixed-count repetitions, not retry-until-success. Both temporary fresh simulators were
+  removed after testing; their result bundles/attachments remain available. No user data
+  or existing simulator was removed.
+- Fix pushed as **`a75e957`**. The full required
+  [Native iOS run 34952712455](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34952712455)
+  is running; do not claim it green from the local results. Shipping app/backend source is
+  unchanged from `fa4b00f`, whose backend workflow passed. This follow-up changes only
+  Passport test readiness and this report; no deployment or phone install.
 
 ### Purchase-boundary operation counts
 
@@ -224,9 +232,9 @@ exists. Account deletion paginates those rows. No permanent row per notification
 ## Still required before claiming Phase 6 complete
 
 1. Full local native/app UI, paywall accessibility, StoreKit and signed Release verification
-   passed on reviewed source `fa4b00f`; subsequent commits are evidence-only. Hosted backend,
-   StoreKit and native SDK/account UI passed. Require the remaining full app/UI step and
-   overall Native iOS workflow green. Local tests do not establish hosted CI success.
+   passed on shipping source `fa4b00f`. The subsequent `a75e957` test-only readiness fix is
+   verified on fresh/warm simulators above. Hosted backend passed; require the new full
+   Native iOS workflow `34952712455` green. Local tests do not establish hosted CI success.
 2. Native deployment, sandbox notification delivery and live Auth/App Check/rejection checks
    are complete. Verify production notification/API access once Apple's release gate opens.
 3. Verify genuine Apple sandbox → native backend → app, then retire the temporary owner

@@ -41,7 +41,12 @@ function transaction(value, now) {
         || value.expiresDate > 253_402_300_799_999 // Firestore's maximum timestamp.
         || value.isUpgraded === true) throw invalidProof();
     return { environment: value.environment, originalID: transactionID(value.originalTransactionId),
-        transactionID: transactionID(value.transactionId), appAccountToken: token(value.appAccountToken),
+        transactionID: transactionID(value.transactionId),
+        // Apple's code-redemption sheet can omit the app token. This is NOT an
+        // ownership grant: service/store require explicit first-link consent and an
+        // atomic original-subscription owner, including for later tokenless renewals.
+        appAccountToken: value.appAccountToken == null ? null : token(value.appAccountToken),
+        isOfferCode: value.offerType === 3,
         purchasedAtMs: timestamp(value.purchaseDate, now), expiresAtMs: value.expiresDate,
         signedAtMs: timestamp(value.signedDate, now),
         revokedAtMs: value.revocationDate == null ? null : timestamp(value.revocationDate, now) };

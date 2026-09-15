@@ -162,3 +162,59 @@ test('deletion while Apple responds cannot recreate private state or grant Premi
     await assert.rejects(work,e => e.code === 'account-unavailable');
     assert.deepEqual(await f.user.listCollections(),[]);
 });
+test('tokenless offer requires explicit consent; ordinary tokenless purchases cannot create an owner', async () => {
+    const f = await fixture(); f.patch({appAccountToken:null,isOfferCode:true});
+    await assert.rejects(f.service.execute(f.uid,f.input),e => e.code === 'purchase-link-required');
+    assert.equal(f.calls(),0);
+    f.patch({isOfferCode:false});
+    await assert.rejects(f.service.execute(f.uid,{...f.input,claimOffer:true}),e => e.code === 'purchase-link-required');
+    await assert.rejects(f.service.execute(f.uid,{...f.input,claimOffer:'yes'}));
+    await assert.rejects(f.service.execute(f.uid,{version:1,kind:'context',claimOffer:true}));
+    assert.equal(f.calls(),0);
+    assert.equal((await f.store.load(f.uid)).reply.entitlement.premium,false);
+});
+test('explicit offer linking is durable, measured and duplicate-safe; tokenless renewals use the existing owner', async () => {
+    const f = await fixture(); f.patch({appAccountToken:null,isOfferCode:true});
+    const accepted = await f.service.execute(f.uid,{...f.input,claimOffer:true});
+    assert.equal(accepted.entitlement.premium,true);
+    assert.deepEqual(f.measured.totals(),{reads:10,writes:4});
+    f.measured.reset();
+    const replay = await f.service.execute(f.uid,f.input);
+    assert.equal(replay.entitlement.revision,accepted.entitlement.revision);
+    assert.deepEqual(f.measured.totals(),{reads:10,writes:2});
+    assert.equal((await db.collection('nativeAppleOwners').where('uid','==',f.uid).get()).size,2);
+    f.patch({isOfferCode:false,signedAtMs:f.current().signedAtMs+1,purchasedAtMs:f.current().purchasedAtMs+1,
+        transactionID:String(BigInt(f.current().transactionID)+1n),expiresAtMs:f.current().expiresAtMs+3600_000});
+    await f.service.notification(signed);
+    assert.equal((await f.store.load(f.uid)).reply.subscription.expiresAtMs,f.current().expiresAtMs);
+    f.patch({premium:false,status:5,revokedAtMs:f.current().signedAtMs+1,signedAtMs:f.current().signedAtMs+1});
+    await f.service.notification(signed);
+    assert.equal((await f.store.load(f.uid)).reply.entitlement.premium,false);
+});
+test('two accounts racing to claim the same verified offer get exactly one owner', async () => {
+    const f = await fixture(), other = await fixture();
+    f.patch({appAccountToken:null,isOfferCode:true});
+    const results = await Promise.allSettled([f.uid,other.uid].map(uid =>
+        f.service.execute(uid,{...f.input,claimOffer:true})));
+    assert.equal(results.filter(result => result.status === 'fulfilled').length,1);
+    const rejected = results.find(result => result.status === 'rejected');
+    assert.equal(rejected.reason.code,'purchase-account-mismatch');
+    const grants = await Promise.all([f.uid,other.uid].map(uid => f.store.load(uid)));
+    assert.equal(grants.filter(saved => saved.reply.entitlement.premium).length,1);
+    const loser = results[0].status === 'rejected' ? f.uid : other.uid;
+    await assert.rejects(f.service.execute(loser,{...f.input,claimOffer:true}),e => e.code === 'purchase-account-mismatch');
+});
+test('Apple failure cannot reserve an offer or grant Premium; deletion still fences offer acceptance', async () => {
+    const f = await fixture(); f.patch({appAccountToken:null,isOfferCode:true}); f.fail(true);
+    await assert.rejects(f.service.execute(f.uid,{...f.input,claimOffer:true}),/network failure/);
+    assert.equal(await f.store.ownerFor(f.current()),null);
+    assert.equal((await f.store.load(f.uid)).reply.entitlement.premium,false);
+    f.fail(false);
+    let release; f.hold(new Promise(resolve => {release = resolve;}));
+    const work = f.service.execute(f.uid,{...f.input,claimOffer:true});
+    while (f.calls() < 2) await new Promise(resolve => setTimeout(resolve,5));
+    await f.user.update({status:'deleting'});
+    release();
+    await assert.rejects(work,e => e.code === 'account-deleting');
+    assert.equal(await f.store.ownerFor(f.current()),null);
+});

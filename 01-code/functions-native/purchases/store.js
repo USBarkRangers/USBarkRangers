@@ -63,10 +63,14 @@ function createPurchaseStore({ db, clock = Date.now }) {
         });
     }
     async function ownerFor(reference) {
-        const row = await owners.doc(policy.ownerKey('token', policy.token(reference.appAccountToken))).get();
-        return row.get('kind') === 'token' && typeof row.get('uid') === 'string' ? row.get('uid') : null;
+        policy.environmentKey(reference.environment);
+        const kind = reference.appAccountToken === null ? 'subscription' : 'token';
+        const key = kind === 'token' ? policy.token(reference.appAccountToken)
+            : `${reference.environment}:${policy.transactionID(reference.originalID)}`;
+        const row = await owners.doc(policy.ownerKey(kind, key)).get();
+        return row.get('kind') === kind && typeof row.get('uid') === 'string' ? row.get('uid') : null;
     }
-    async function apply(uid, candidate) {
+    async function apply(uid, candidate, { allowOfferClaim = false } = {}) {
         const ref = refs(uid), key = policy.environmentKey(candidate.environment);
         const owner = owners.doc(policy.ownerKey('subscription', `${candidate.environment}:${candidate.originalID}`));
         return db.runTransaction(async tx => {
@@ -75,7 +79,12 @@ function createPurchaseStore({ db, clock = Date.now }) {
             // racing an Apple response can never recreate a user's removed purchase state.
             requireWritableProfile(profile.data(), false);
             const state = saved.data();
-            if (!state || state.appAccountToken !== candidate.appAccountToken
+            // A missing Apple token never means "any account". The one existing
+            // owner wins; only service-verified offer evidence can create this claim.
+            const matchesAccount = candidate.appAccountToken === null
+                ? claim.get('uid') === uid || (!claim.exists && allowOfferClaim)
+                : state?.appAccountToken === candidate.appAccountToken;
+            if (!state || !matchesAccount
                 || (claim.exists && claim.get('uid') !== uid)) {
                 throw new NativeError('purchase-account-mismatch', 'This Apple subscription belongs to a different Bark account. Sign in to that account and restore.');
             }

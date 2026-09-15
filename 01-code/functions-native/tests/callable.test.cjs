@@ -41,3 +41,13 @@ test('callable forwards only verified identity and gives a versioned, privacy-sa
     await assert.rejects(failed(value), error => error.code === 'unavailable' && !error.message.includes('private'));
     assert.deepEqual(logged, [{ event: 'native-command-failed', reason: 'internal' }]);
 });
+
+test('offer linking consent survives the callable boundary instead of becoming a generic outage', async () => {
+    const logged = [];
+    const handler = createCommandCallable({ runtime, execute: async () => {
+        throw new NativeError('purchase-link-required', 'Confirm the Bark account for this offer.');
+    }, reportFailure: event => logged.push(event) });
+    await assert.rejects(handler(request()), error => error.code === 'failed-precondition'
+        && error.details.contractVersion === 1 && error.details.reason === 'purchase-link-required');
+    assert.deepEqual(logged, []);
+});

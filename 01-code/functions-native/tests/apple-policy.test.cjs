@@ -17,11 +17,21 @@ test('Apple-signed payload policy rejects wrong app/product/type/owner/token/env
     assert.equal(policy.transaction(value, now).environment, 'Sandbox');
     for (const patch of [{ bundleId: 'wrong' }, { productId: 'wrong' }, { environment: 'Xcode' },
         { environment: 'LocalTesting' }, { inAppOwnershipType: 'FAMILY_SHARED' }, { type: 'Consumable' },
-        { appAccountToken: null }, { appAccountToken: 'not-a-uuid' }, { originalTransactionId: '../100' },
+        { appAccountToken: 'not-a-uuid' }, { originalTransactionId: '../100' },
         { transactionId: 101 }, { expiresDate: NaN }, { expiresDate: now - 2000 },
         { purchaseDate: now + 100_000 }, { signedDate: now + 100_000 }, { revocationDate: NaN }]) {
         assert.throws(() => policy.transaction({ ...value, ...patch }, now), e => e.code === 'invalid-purchase');
     }
+});
+test('tokenless offer evidence is parsed without inventing an account token; ownership is decided atomically by the store', () => {
+    const code = policy.transaction({ ...value, appAccountToken: undefined, offerType: 3 }, now);
+    assert.equal(code.appAccountToken, null);
+    assert.equal(code.isOfferCode, true);
+    // A later renewal can omit both fields. It is usable only by an existing owner.
+    const renewed = policy.transaction({ ...value, appAccountToken: null }, now);
+    assert.equal(renewed.appAccountToken, null);
+    assert.equal(renewed.isOfferCode, false);
+    assert.throws(() => policy.transaction({ ...value, offerType: 3, appAccountToken: '' }, now));
 });
 test('refund denies access; ordinary expiry preserves original expiry, never Apple billing grace', () => {
     const expired = policy.currentState({ ...value, purchaseDate: now - 3000, expiresDate: now - 1000 }, renewal, 2, now);

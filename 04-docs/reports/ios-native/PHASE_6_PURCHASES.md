@@ -106,8 +106,11 @@ This is required new billing functionality, not a code-reduction checkpoint.
   together on iOS 26.1: `/tmp/BarkPhase6PremiumAccessible.xcresult` (2 tests, 0 failures).
   The same two checks also pass on the main iOS 26.5 runtime:
   `/tmp/BarkPhase6PremiumAccessible265.xcresult` (2 tests, 0 failures).
-  Complete shell regression is still running; its earlier binary reproduced the layout
-  failure above, so the final commit must rerun the full suite in GitHub.
+  That old-binary full shell run has now finished: **349 passed / 2 failed / 36 skipped**
+  unique tests (**417 passed / 2 failed / 36 skipped** parameterized cases), at
+  `/tmp/BarkPhase6FullShell.xcresult`. Its failures were the Trips hit target and Premium
+  contrast issues fixed above; it is not evidence that the updated full suite passes.
+  The final source must still pass the full suite in GitHub.
 - Development-signed Release build and strict code signature verification passed with the
   correct team, Apple sign-in and production App Attest entitlement. This is not an App Store
   distribution archive. Final UI changes also rebuilt and passed strict signature verification:
@@ -116,6 +119,43 @@ This is required new billing functionality, not a code-reduction checkpoint.
 - Existing visit-cost test used wall-clock time; running before 04:00 UTC legitimately
   awarded a night badge (+1 write). Its baseline now uses yesterday at noon UTC, injected
   into both command and executor. **All existing exact cost assertions are unchanged.**
+
+### September 15 CI follow-up — emulator isolation
+
+- Native backend run `34934458357` passed on `a77cde6`. Native iOS run `34934458333`
+  failed: **188 native tests passed / 1 failed / 0 skipped** (203 passed parameterized
+  cases). The failing test was the first account feature's initial bootstrap wait, not
+  a duplicate trip download. The separate StoreKit job failed during runtime installation
+  with “Unable to connect to simulator” (70), before its test ran. Full shell did not run.
+- Exported CI diagnostics show the fake `demo-bark-native` registration calling Google's
+  live `exchangeDebugToken` endpoint at 06:10:38.201 UTC; no native function invocation
+  occurred during that test's startup window. This proves an unwanted external dependency,
+  not that every millisecond of the failure was spent in App Check. The failed assertion
+  also removed its fixture directory before its active SQLite writer stopped.
+- Debug now selects a local, deliberately invalid App Check marker only for the exact
+  three-part demo registration. Live Debug still uses registered debug tokens; Release
+  still requires App Attest. Factory installation precedes emulator Firebase creation.
+  Regression coverage checks a forced SDK token refresh and independently mismatched
+  project/app/key values. Failed fixture cleanup now drains and erases its isolated store
+  before directory removal. Wait diagnostics report the actual caller. **No timeout,
+  data assertion or exact-one-download expectation was weakened in this follow-up.**
+- Workflow retry is limited to simulator runtime installation (three attempts); the
+  required real StoreKit test itself still runs once and must pass.
+- Updated local focused native SDK/account UI checks: **15 passed / 0 failed / 0 skipped**,
+  including the exact-one-download check (0.91s), initial account bootstrap (0.93s), new
+  SDK isolation check (0.014s), and account UI create/edit/relaunch/sign-out (86.10s).
+  Result: `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-rx_awvsg/Acceptance.xcresult`.
+  The simulator log query for the demo Google's App Check URL returned no matches during
+  this run; this is a scoped log check, not a whole-device network capture.
+- Updated actual StoreKit 26.1 check: **1 passed / 0 failed / 0 skipped**, at
+  `/tmp/BarkPhase6CIReview.7TKpNm/StoreKit261.xcresult`. This remains local Apple StoreKit
+  simulation, not genuine Apple sandbox-to-backend proof.
+- Updated development-signed Release build and strict signature verification passed.
+  Production App Attest entitlement remains present; emulator factory/provider names and
+  its marker are absent from the Release binary. No deployment or phone installation.
+- Change size before report: **6 files, +125/-35 lines**, including the regression tests
+  and runtime-setup fix. Updated full local native and shell regressions have been started;
+  their results and the successor hosted run are still pending. Do not claim final CI green.
 
 ### Purchase-boundary operation counts
 

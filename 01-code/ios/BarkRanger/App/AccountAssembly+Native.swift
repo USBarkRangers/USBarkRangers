@@ -21,6 +21,7 @@ extension AccountAssembly {
             options.apiKey = "demo-bark-native-api-key"
             options.projectID = "demo-bark-native"
             options.bundleID = Bundle.main.bundleIdentifier ?? "swarm.USBARKRANGERS"
+            NativeAppCheck.configure()
             FirebaseApp.configure(name: name, options: options)
             guard let app = FirebaseApp.app(name: name) else { throw NativeProfileCloud.Failure.wrongScope }
             let auth = Auth.auth(app: app)

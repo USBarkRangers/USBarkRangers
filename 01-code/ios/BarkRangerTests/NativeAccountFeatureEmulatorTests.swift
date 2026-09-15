@@ -20,34 +20,46 @@ import Testing
         let assembly = AccountAssembly.nativeEmulator(directory: directory, scope: scope)
         let session = assembly.session
         let model = AccountModel(session: session)
-        session.setForeground(true)
-        session.connectivityChanged(true)
-        model.email("\(UUID().uuidString)@native.invalid", password: "NativeOnly123!", create: true)
-        await model.action?.value
-        // GitHub run 34924658674: the cold SDK/bootstrap request reached the
-        // emulator after this check's former 5s deadline, then completed normally.
-        // Match the existing trip fixture's bounded cloud-startup allowance;
-        // local publication/edits below keep their original 5s deadline.
-        try await eventually(timeout: .seconds(15)) {
-            session.profileState?.confirmed != nil && session.nativeTrips != nil
-                && session.nativeExpeditions != nil
-        }
-        #expect(session.tripLibraryMessage == nil && session.nativeVisits != nil)
-        #expect(
-            try Data(contentsOf: directory.appendingPathComponent("native-feature-transition"))
-                == Data("retained fixture".utf8))
-        #expect(session.profileState?.visible?.displayName == "Ranger")
         let app = try #require(FirebaseApp.app(name: "BarkNativeUI-\(scope.uuidString)"))
-        let uid = try #require(session.identity?.uid)
-        try await NativeEmulatorFixture.seedAccess(uid: uid, app: app)
-        session.requestSync(refresh: true)
-        try await eventually { model.canEditData }
-        model.saveName("Independent profile")
-        await model.action?.value
-        try await eventually { session.profileState?.confirmed?.displayName == "Independent profile" }
-        await session.stopAndWait()
-        try await Firestore.firestore(app: app).terminate()
-        await withCheckedContinuation { continuation in app.delete { _ in continuation.resume() } }
+        func finish() async throws {
+            let store = session.nativeProfile?.store
+            await session.stopAndWait()
+            // A failed assertion must drain the writer too, before the defer
+            // removes its fixture. CI previously removed a still-active store.
+            try await store?.eraseClosedAccount()
+            try await Firestore.firestore(app: app).terminate()
+            await withCheckedContinuation { continuation in app.delete { _ in continuation.resume() } }
+        }
+        do {
+            session.setForeground(true)
+            session.connectivityChanged(true)
+            model.email("\(UUID().uuidString)@native.invalid", password: "NativeOnly123!", create: true)
+            await model.action?.value
+            // GitHub run 34924658674: the cold SDK/bootstrap request reached the
+            // emulator after this check's former 5s deadline, then completed normally.
+            // Match the existing trip fixture's bounded cloud-startup allowance;
+            // local publication/edits below keep their original 5s deadline.
+            try await eventually(timeout: .seconds(15)) {
+                session.profileState?.confirmed != nil && session.nativeTrips != nil
+                    && session.nativeExpeditions != nil
+            }
+            #expect(session.tripLibraryMessage == nil && session.nativeVisits != nil)
+            #expect(
+                try Data(contentsOf: directory.appendingPathComponent("native-feature-transition"))
+                    == Data("retained fixture".utf8))
+            #expect(session.profileState?.visible?.displayName == "Ranger")
+            let uid = try #require(session.identity?.uid)
+            try await NativeEmulatorFixture.seedAccess(uid: uid, app: app)
+            session.requestSync(refresh: true)
+            try await eventually { model.canEditData }
+            model.saveName("Independent profile")
+            await model.action?.value
+            try await eventually { session.profileState?.confirmed?.displayName == "Independent profile" }
+        } catch {
+            do { try await finish() } catch { Issue.record(error) }
+            throw error
+        }
+        try await finish()
     }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1"))

@@ -100,7 +100,18 @@ jobs:
         with:
           persist-credentials: false
       - name: Install isolated StoreKit simulator runtime
-        run: xcodebuild -downloadPlatform iOS -buildVersion 26.1 -architectureVariant arm64
+        run: |
+          # Run 34934458333 failed before downloading: "Unable to connect to
+          # simulator" (70). Start CoreSimulator and retry only runtime setup;
+          # the required real StoreKit test below still runs once and must pass.
+          for attempt in 1 2 3; do
+            if xcrun simctl list runtimes && \
+              xcodebuild -downloadPlatform iOS -buildVersion 26.1 -architectureVariant arm64; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep 5
+          done
       - name: Real StoreKit purchase, redelivery, restore, renewal and refund
         run: |
           BARK_STOREKIT_DEVICE=$(xcrun simctl create 'Bark StoreKit' \

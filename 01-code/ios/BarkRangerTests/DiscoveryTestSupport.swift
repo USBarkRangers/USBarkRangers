@@ -48,15 +48,17 @@ final class DiscoveryTestContext {
 @MainActor
 func eventually(
     timeout: Duration = .seconds(5),
-    sourceLocation: SourceLocation = .init(
-        fileID: #fileID, filePath: #filePath, line: #line, column: #column),
+    fileID: String = #fileID, filePath: String = #filePath,
+    line: Int = #line, column: Int = #column,
     _ condition: @MainActor () async -> Bool
 ) async throws {
     let deadline = ContinuousClock.now.advanced(by: timeout)
     while !(await condition()) && ContinuousClock.now < deadline {
         try await Task.sleep(for: .milliseconds(10))
     }
-    try #require(await condition(), sourceLocation: sourceLocation)
+    try #require(
+        await condition(),
+        sourceLocation: .init(fileID: fileID, filePath: filePath, line: line, column: column))
 }
 
 /// A suspended, deliberately non-cooperative completion verifies the model's stale-result guard.

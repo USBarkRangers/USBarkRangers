@@ -24,7 +24,11 @@ import Testing
         session.connectivityChanged(true)
         model.email("\(UUID().uuidString)@native.invalid", password: "NativeOnly123!", create: true)
         await model.action?.value
-        try await eventually {
+        // GitHub run 34924658674: the cold SDK/bootstrap request reached the
+        // emulator after this check's former 5s deadline, then completed normally.
+        // Match the existing trip fixture's bounded cloud-startup allowance;
+        // local publication/edits below keep their original 5s deadline.
+        try await eventually(timeout: .seconds(15)) {
             session.profileState?.confirmed != nil && session.nativeTrips != nil
                 && session.nativeExpeditions != nil
         }
@@ -61,7 +65,9 @@ import Testing
         session.connectivityChanged(true)
         model.email("\(UUID().uuidString)@native.invalid", password: "NativeOnly123!", create: true)
         await model.action?.value
-        try await eventually { session.profileState?.confirmed?.displayName == "Ranger" }
+        try await eventually(timeout: .seconds(15)) {
+            session.profileState?.confirmed?.displayName == "Ranger"
+        }
         try await eventually { session.nativeTrips != nil && session.nativeExpeditions != nil }
         #expect(!model.canEditData && session.capabilities.accountManagement)
         model.verifyEmail()

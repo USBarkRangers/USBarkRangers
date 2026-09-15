@@ -46,10 +46,17 @@ final class DiscoveryTestContext {
 }
 
 @MainActor
-func eventually(timeout: Duration = .seconds(5), _ condition: @MainActor () async -> Bool) async throws {
+func eventually(
+    timeout: Duration = .seconds(5),
+    sourceLocation: SourceLocation = .init(
+        fileID: #fileID, filePath: #filePath, line: #line, column: #column),
+    _ condition: @MainActor () async -> Bool
+) async throws {
     let deadline = ContinuousClock.now.advanced(by: timeout)
-    while !(await condition()) && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
-    try #require(await condition())
+    while !(await condition()) && ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    try #require(await condition(), sourceLocation: sourceLocation)
 }
 
 /// A suspended, deliberately non-cooperative completion verifies the model's stale-result guard.
@@ -63,11 +70,15 @@ actor ControlledParkResults {
         waiting.removeValue(forKey: query)?.resume()
     }
     func isWaiting(_ query: String) -> Bool { waiting[query] != nil }
-    func compute(_ snapshot: CatalogSnapshot, _ index: ParkSearchIndex?, _ query: ParkFilter.Query, _ personal: PersonalParkProjection.Value)
+    func compute(
+        _ snapshot: CatalogSnapshot, _ index: ParkSearchIndex?, _ query: ParkFilter.Query,
+        _ personal: PersonalParkProjection.Value
+    )
         async throws -> ParkResults
     {
         inputs.append(.init(revision: snapshot.revision, query: query, personal: personal))
-        let result = try await ParkResults.compute(snapshot: snapshot, index: index, query: query, personal: personal)
+        let result = try await ParkResults.compute(
+            snapshot: snapshot, index: index, query: query, personal: personal)
         if holds.contains(query.search) {
             await withCheckedContinuation { waiting[query.search] = $0 }
         }

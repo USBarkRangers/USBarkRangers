@@ -52,6 +52,7 @@ struct NativeSavedPinTests {
         let upgraded = try await NativeStore.open(
             directory: directory, project: "demo-bark-native", uid: "upgrade")
         #expect(try await upgraded.profileView().pendingIDs == [UUID(uuidString: id)!])
+        try await upgraded.seedPremium()
         try await upgraded.saveSavedPin(place())
         #expect(try await upgraded.pendingChanges().count == 2)
         await upgraded.close()
@@ -65,6 +66,7 @@ struct NativeSavedPinTests {
             beforeSave: { if failing.withLock({ $0 }) { throw CocoaError(.fileWriteOutOfSpace) } })
         let a = try place()
         let b = try place("b")
+        try await store.seedPremium()
         failing.withLock { $0 = true }
         await #expect(throws: (any Error).self) { try await store.saveSavedPin(a) }
         #expect(try await store.savedPinValue(a.id).place == nil)
@@ -90,6 +92,7 @@ struct NativeSavedPinTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let a = try place()
         let store = try await NativeStore.open(directory: directory, project: "demo-bark-native", uid: "a")
+        try await store.seedPremium()
         try await store.saveSavedPin(a)
         let sealed = try #require(try await store.nextSavedPinSubmission())
         await #expect(throws: (any Error).self) { try await store.reviewPendingDiscard(sealed.id) }
@@ -109,7 +112,7 @@ struct NativeSavedPinTests {
         #expect(try await reopened.savedPins(in: region, including: []).isEmpty)
         await reopened.close()
     }
-    @Test func accountFileAdoptionIsDurableIdempotentAndNeverImportsGuestOrOtherOwners() async throws {
+    @Test func freeAccountFileAdoptionPreservesReadAccessWithoutImportingGuestOrOtherOwners() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let root = SavedPlaceStore(directory: directory.appendingPathComponent("pins"))
@@ -139,6 +142,49 @@ struct NativeSavedPinTests {
         let bytes = try #require(try await store.nextSavedPinSubmission()?.bytes)
         #expect(!String(decoding: bytes, as: UTF8.self).contains(a.notes))
         await other.close()
+        await store.close()
+    }
+    @Test func freeAndExpiredAccountsReadPinsButCannotStageChangesAndRenewalRetainsPendingBytes() async throws
+    {
+        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try await NativeStore.open(directory: directory, project: "demo-bark-native", uid: "free")
+        let a = try place()
+        let b = try place("b")
+        try await store.acceptProfile(.init(revision: 1, displayName: "Ranger"))
+        try await store.seedSavedPinsForTest([
+            .init(id: a.id, revision: 1, saved: true, place: try a.nativeValue)
+        ])
+        await #expect(throws: NativeStore.Failure.unavailable) { try await store.saveSavedPin(b) }
+        await #expect(throws: NativeStore.Failure.unavailable) {
+            try await store.saveSavedPin(a, saved: false)
+        }
+        #expect(try await store.savedPinValue(a.id).place != nil)
+        #expect(try await store.pendingChanges().isEmpty)
+        let now = Date()
+        try await store.acceptEntitlement(
+            .init(
+                revision: 1, premium: true, source: .production,
+                validUntilMs: Int64(now.addingTimeInterval(-39 * 86_400).timeIntervalSince1970 * 1000)))
+        try await store.saveSavedPin(b, now: now)  // Same 40-day local grace as other paid features.
+        let submitted = try #require(try await store.nextSavedPinSubmission())
+        try await store.rejectSavedPin(submitted.id, code: "premium-required")
+        try await store.acceptEntitlement(
+            .init(
+                revision: 2, premium: true, source: .production,
+                validUntilMs: Int64(now.addingTimeInterval(-41 * 86_400).timeIntervalSince1970 * 1000)))
+        await #expect(throws: NativeStore.Failure.unavailable) {
+            try await store.saveSavedPin(a, saved: false, now: now)
+        }
+        #expect(try await store.savedPinValue(a.id).place != nil)
+        #expect(try await store.savedPinValue(b.id).pending)
+        #expect(try await store.pendingChanges().count == 1)
+        try await store.acceptEntitlement(
+            .init(
+                revision: 3, premium: true, source: .production,
+                validUntilMs: Int64(now.addingTimeInterval(3600).timeIntervalSince1970 * 1000)))
+        let resumed = try #require(try await store.nextSavedPinSubmission())
+        #expect(resumed.id == submitted.id && resumed.bytes == submitted.bytes)
         await store.close()
     }
     @Test func repeatedMapQueriesDoNotRebuildTheIndexAndOnePinUpdatesOnlyOneRow() async throws {

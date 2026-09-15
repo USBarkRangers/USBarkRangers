@@ -18,6 +18,10 @@ import Observation
     var isReady: Bool { currentScope && ready }
     private var workingScope: UUID?
     var isWorking: Bool { workingScope == scopeGeneration }
+    var canEdit: Bool {
+        currentScope && account?.dataAccess.canEditAccount == true
+            && account?.profileState?.confirmed?.status == .active
+    }
     private(set) var message: String?
     private let rootStore: SavedPlaceStore
     private var store: SavedPlaceStore
@@ -173,6 +177,10 @@ import Observation
         }
     }
     func save(_ place: SavedPlace) {
+        guard canEdit else {
+            message = AccountDataAccess.readOnlyMessage
+            return
+        }
         perform(failure: "This place could not be saved. Check available storage and try again.") { store in
             let saved = try await store.save(place)
             guard self.store === store, self.currentScope else { return }
@@ -185,6 +193,10 @@ import Observation
         }
     }
     func remove(_ place: SavedPlace, completed: @escaping () -> Void) {
+        guard canEdit else {
+            message = AccountDataAccess.readOnlyMessage
+            return
+        }
         perform(failure: "This place could not be removed. Try again.", completed: completed) { store in
             try await store.remove(place.id)
             guard self.store === store, self.currentScope else { return }

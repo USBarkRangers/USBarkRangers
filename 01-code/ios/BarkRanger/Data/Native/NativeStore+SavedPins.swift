@@ -44,6 +44,13 @@ extension NativeStore {
     ) throws -> SavedPlace {
         try requireOpen()
         guard !isGuest, place.id == place.stop.placeIdentity.storageID else { throw Failure.wrongScope }
+        // Reuse the paid features' offline grace policy. Adoption preserves existing
+        // account-owned files even when read-only; the server still gates their upload.
+        if !importing {
+            guard try readEntitlement()?.permitsEditing(at: now) == true,
+                try profileView().confirmed?.status == .active
+            else { throw Failure.unavailable }
+        }
         let existing = try savedPinRow(place.id)
         // Exactly-account-owned prelaunch files only. Never resurrect a cloud removal
         // or duplicate an already accepted import after an interrupted file retirement.

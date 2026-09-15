@@ -1,4 +1,5 @@
 import BarkDomain
+import CryptoKit
 import Foundation
 import Testing
 
@@ -26,7 +27,9 @@ import Testing
             try directory.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
         // File age is not a cleanup policy; a future process must still restore this record.
         let file = try #require(
-            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first { $0.pathExtension == "json" })
+            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first {
+                $0.pathExtension == "json"
+            })
         try FileManager.default.setAttributes(
             [.modificationDate: Date(timeIntervalSince1970: 0)], ofItemAtPath: file.path)
         let relaunched = SavedPlaceStore(directory: directory)
@@ -40,7 +43,8 @@ import Testing
         let b = try place(name: "Hinckley Township")
         #expect(a.id == b.id, "Apple identity survives different result titles and fresh stop UUIDs")
         #expect(try a.id != place(appleID: "different").id)
-        #expect(try place(appleID: nil).id != place(name: " HINCKLEY ", appleID: nil).id,
+        #expect(
+            try place(appleID: nil).id != place(name: " HINCKLEY ", appleID: nil).id,
             "Independent arbitrary pins must not be merged by name/coordinates")
         var park = a.stop
         park.placeIdentity = .official(.init(rawValue: "catalog-park"))
@@ -68,15 +72,27 @@ import Testing
         let store = SavedPlaceStore(directory: directory)
         await #expect(throws: (any Error).self) { try await store.save(place()) }
         #expect(try Data(contentsOf: file) == original)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasSuffix(".json") } == ["unknown.json"])
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: directory.path).filter {
+                $0.hasSuffix(".json")
+            } == ["unknown.json"])
     }
 
     @Test func failedWriteDoesNotPublishSuccessOrDismissTheSelectedPlace() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        // A regular file blocks creation of the store directory without needing permission overrides.
-        try Data("keep".utf8).write(to: directory)
-        let model = SavedPlacesModel(store: SavedPlaceStore(directory: directory))
+        // A regular file at the exact account folder makes adoption fail before any
+        // native write. The account is Premium, so this is not a permission rejection.
+        let accounts = directory.appendingPathComponent("accounts-v1")
+        try FileManager.default.createDirectory(at: accounts, withIntermediateDirectories: true)
+        let key = SHA256.hash(data: Data("demo-bark-native:account:a".utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        let blocked = accounts.appendingPathComponent(key)
+        try Data("keep".utf8).write(to: blocked)
+        let fixture = try await NativeOfflineAccountFixture.make()
+        let model = SavedPlacesModel(store: SavedPlaceStore(directory: directory), account: fixture.session)
+        await model.waitForPending()
+        #expect(model.canEdit)  // Exercise a storage failure, not the Premium permission guard.
         model.save(try place())
         await model.waitForPending()
         #expect(model.places.isEmpty && model.message != nil && !model.isWorking)
@@ -84,6 +100,7 @@ import Testing
         model.remove(try place()) { dismissed = true }
         await model.waitForPending()
         #expect(!dismissed && model.message != nil)
-        #expect(try Data(contentsOf: directory) == Data("keep".utf8))
+        #expect(try Data(contentsOf: blocked) == Data("keep".utf8))
+        try await fixture.close()
     }
 }

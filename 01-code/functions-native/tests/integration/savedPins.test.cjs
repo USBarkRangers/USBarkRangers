@@ -20,7 +20,7 @@ function pin(id = randomUUID()) {
     return { pinID: storageID(identity), saved: true, place: { identity, name: 'Private saved place', state: 'Ohio',
         coordinate: { latitude: 41, longitude: -81 }, subtitle: 'Near the park', stopID: 'stop-a', savedAtMs: Date.now() } };
 }
-async function fixture() {
+async function fixture({ premium = true } = {}) {
     const uid = `pins-${randomUUID()}`, reads = [], writes = [];
     const tracked = { collection: p => db.collection(p), runTransaction: (work, options) => db.runTransaction(tx => work({
         get(ref) { reads.push(ref.path); return tx.get(ref); }, getAll(...refs) { reads.push(...refs.map(r => r.path)); return tx.getAll(...refs); },
@@ -30,15 +30,19 @@ async function fixture() {
     }), options) };
     const execute = createExecutor({ db: tracked, handlers: { bootstrapAccount, setSavedPin } });
     await execute(uid, command('bootstrapAccount', {}));
+    if (premium) await db.collection('users').doc(uid).collection('state').doc('entitlement').set({
+        schemaVersion: 1, revision: 2, premium: true, source: 'app-store-production',
+        validUntil: Timestamp.fromMillis(Date.now() + 3600_000),
+    });
     reads.length = writes.length = 0;
     return { uid, user: db.collection('users').doc(uid), reads, writes, send: input => execute(uid, input),
         read: query => createReadService(db)(uid, { kind: 'savedPinChanges', query }) };
 }
-test('free bookmark save confirms in one command; replay cannot resurrect a later removal or erase journal content', async () => {
+test('Premium bookmark save confirms in one command; replay cannot resurrect a later removal or erase journal content', async () => {
     const f = await fixture(), value = pin(), input = command('setSavedPin', value);
     const first = await f.send(input);
     assert.equal(first.confirmation.saved, true); assert.equal(first.confirmation.id, value.pinID);
-    assert.equal(f.reads.length, 3); assert.equal(f.writes.length, 2);
+    assert.equal(f.reads.length, 4); assert.equal(f.writes.length, 2);
     assert.ok(!JSON.stringify(first).includes('notes'));
     console.log(`SAVED_PIN_NEW reads=${f.reads.length} writes=${f.writes.length} functionCalls=1 confirmationBytes=${Buffer.byteLength(JSON.stringify(first))}`);
     f.reads.length = f.writes.length = 0;
@@ -56,6 +60,36 @@ test('free bookmark save confirms in one command; replay cannot resurrect a late
     assert.equal((await journal.get()).get('text'), 'Keep my writing');
     assert.equal((await f.user.collection('places').get()).size, 1);
     assert.equal((await f.user.collection('trips').get()).size, 0);
+});
+test('free accounts cannot create or remove pins but retain read access; denied edits write nothing', async () => {
+    const f = await fixture({ premium: false }), value = pin();
+    const denied = command('setSavedPin', value);
+    await assert.rejects(f.send(denied), e => e.code === 'premium-required');
+    assert.equal(f.writes.length, 0);
+    assert.equal((await f.user.collection('places').get()).size, 0);
+    const entitlement = f.user.collection('state').doc('entitlement');
+    await entitlement.update({ premium: true, source: 'app-store-production', validUntil: Timestamp.fromMillis(Date.now() + 3600_000) });
+    const accepted = await f.send(denied); // The denial did not consume the operation ID.
+    await entitlement.update({ premium: false });
+    f.reads.length = f.writes.length = 0;
+    await assert.rejects(f.send(command('setSavedPin', { ...value, saved: false })), e => e.code === 'premium-required');
+    assert.equal(f.writes.length, 0);
+    assert.deepEqual(await f.send(denied), accepted); // Lost acknowledgment remains replayable after expiry.
+    assert.equal(f.writes.length, 0);
+    const visible = await f.read({ version: 1 });
+    assert.equal(visible.items.length, 1);
+    assert.equal(visible.items[0].saved, true);
+});
+test('saved pins reuse the shared Apple upload grace and preserve rejected work for renewal', async () => {
+    const f = await fixture(), value = pin(), entitlement = f.user.collection('state').doc('entitlement');
+    await entitlement.update({ validUntil: Timestamp.fromMillis(Date.now() - 40 * 86_400_000) });
+    await f.send(command('setSavedPin', value));
+    await entitlement.update({ validUntil: Timestamp.fromMillis(Date.now() - 46 * 86_400_000) });
+    const remove = command('setSavedPin', { ...value, saved: false });
+    await assert.rejects(f.send(remove), e => e.code === 'premium-required');
+    assert.equal((await f.read({ version: 1 })).items[0].saved, true);
+    await entitlement.update({ validUntil: Timestamp.fromMillis(Date.now() + 3600_000) });
+    assert.equal((await f.send(remove)).confirmation.saved, false);
 });
 test('changes page only bookmarked place metadata with exact resumable cursor, including remote un-save', async () => {
     const f = await fixture(), batch = db.batch(), at = Timestamp.fromMillis(Date.now() - 1000);

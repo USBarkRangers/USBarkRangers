@@ -10,13 +10,19 @@ struct SavedPlaceButton: View {
     var body: some View {
         Group {
             if let saved = model.selected, saved.stop.placeIdentity == place.stop.placeIdentity {
-                Menu {
-                    Button("Remove", role: .destructive) { model.remove(saved, completed: removed) }
-                } label: {
+                if model.canEdit {
+                    Menu {
+                        Button("Remove", role: .destructive) { model.remove(saved, completed: removed) }
+                    } label: {
+                        Label(model.selectedPending ? "Saved on iPhone" : "Saved", systemImage: "star.fill")
+                    }
+                    .accessibilityIdentifier("saved-place-menu")
+                } else {
                     Label(model.selectedPending ? "Saved on iPhone" : "Saved", systemImage: "star.fill")
+                        .accessibilityIdentifier("saved-place-read-only")
+                        .accessibilityHint("Read only. Premium is required to change saved places.")
                 }
-                .accessibilityIdentifier("saved-place-menu")
-            } else {
+            } else if model.canEdit {
                 Button {
                     model.save(place)
                 } label: {
@@ -24,6 +30,7 @@ struct SavedPlaceButton: View {
                 }
                 .accessibilityIdentifier("save-place")
             }
+            if !model.canEdit { UpgradeToPremiumButton(title: "Save places with Premium") }
         }
         .barkActionStyle(prominent: true).disabled(model.isWorking || !model.isSelectedPlaceReady(place.stop))
         .task(id: place.stop.placeIdentity) { model.select(place.stop) }

@@ -1,12 +1,28 @@
 import XCTest
 
 nonisolated final class SavedPlacesUITests: XCTestCase {
-    @MainActor func testSaveStarRelaunchFilterAndRemoveWithoutCreatingATrip() {
+    @MainActor func testSaveStarRelaunchFilterAndRemoveWithoutCreatingATrip() throws {
         continueAfterFailure = false
+        guard ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1" else {
+            throw XCTSkip("Premium pin writes require the isolated native account fixture.")
+        }
         let app = XCUIApplication()
         app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
         app.launchEnvironment["BARK_CATALOG_URL"] = ""
+        app.launchEnvironment["BARK_NATIVE_ACCOUNT_EMULATORS"] = "1"
+        app.launchEnvironment["BARK_EMULATOR_HOST"] = "127.0.0.1"
         app.launch()
+        app.tabBars.buttons["Account"].tap()
+        let email = app.textFields["Email"]
+        XCTAssertTrue(email.waitForExistence(timeout: 10))
+        email.tap()
+        email.typeText("profile-ui@native.invalid")
+        app.secureTextFields["Password"].tap()
+        app.secureTextFields["Password"].typeText("NativeOnly123!")
+        app.keyboards.buttons["Done"].tap()
+        app.buttons["Sign in"].tap()
+        XCTAssertTrue(app.textFields["New display name"].waitForExistence(timeout: 20))
+        if app.buttons["Not Now"].waitForExistence(timeout: 2) { app.buttons["Not Now"].tap() }
         openMap(app)
         let search = app.textFields["park-search"]
         search.tap()
@@ -65,6 +81,28 @@ nonisolated final class SavedPlacesUITests: XCTestCase {
         park.tap()
         XCTAssertFalse(app.buttons["save-place"].exists)
         XCTAssertFalse(app.buttons["saved-place-menu"].exists)
+    }
+
+    @MainActor func testGuestSearchedPlaceOffersPremiumInsteadOfSave() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
+        app.launchEnvironment["BARK_CATALOG_URL"] = ""
+        app.launch()
+        openMap(app)
+        let search = app.textFields["park-search"]
+        search.tap()
+        search.typeText("41.24, -81.75")
+        let result = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'place-result-'"))
+            .firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 5))
+        result.tap()
+        XCTAssertTrue(app.buttons["premium.open"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["save-place"].exists)
+        XCTAssertFalse(app.buttons["saved-place-menu"].exists)
+        app.buttons["premium.open"].tap()
+        XCTAssertTrue(app.navigationBars["Premium"].waitForExistence(timeout: 5))
+        app.terminate()
     }
 
     @MainActor private func openMap(_ app: XCUIApplication) {

@@ -27,7 +27,7 @@ struct PremiumView: View {
                 Section {
                     Label("Save your adventures", systemImage: "pawprint.fill").font(.title2.bold())
                     Text(
-                        "Save trips and notes to your account, record park visits, and track walks and virtual expeditions."
+                        "Save places, trips and notes to your account, record park visits, and track walks and virtual expeditions."
                     )
                     Text("Your saved information stays on your iPhone for use offline.").font(.footnote)
                 }

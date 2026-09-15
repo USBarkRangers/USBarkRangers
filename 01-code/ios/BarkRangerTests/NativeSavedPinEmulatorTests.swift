@@ -33,6 +33,11 @@ import Testing
             session.nativeSavedPins != nil && session.profileState?.confirmed != nil && pins.isReady
         }
         let originalUID = try #require(session.identity?.uid)
+        let app = try #require(FirebaseApp.app(name: "BarkNativeUI-\(scope.uuidString)"))
+        #expect(!pins.canEdit)
+        try await NativeEmulatorFixture.seedAccess(uid: originalUID, app: app)
+        session.requestSync(refresh: true)
+        try await eventually { pins.canEdit }
         session.connectivityChanged(false)
         await session.nativeSavedPins?.sync?.wait()
         let place = try #require(
@@ -69,14 +74,25 @@ import Testing
         session.connectivityChanged(true)
         session.requestSync()
         try await eventually(timeout: .seconds(15)) { pins.places[place.id]?.isPending == false }
+        try await NativeEmulatorFixture.seedAccess(uid: originalUID, app: app, premium: false, revision: 3)
+        session.requestSync(refresh: true)
+        try await eventually { !pins.canEdit }
+        pins.select(place.stop)
+        await pins.waitForPending()
+        #expect(pins.selected?.id == place.id)
+        pins.remove(place) { Issue.record("Read-only removal must not complete") }
+        pins.save(place)
+        await pins.waitForPending()
+        #expect(pins.selected?.id == place.id)
+        #expect(pins.message == AccountDataAccess.readOnlyMessage)
+        #expect(try await session.nativeSavedPins?.store.pendingChanges().isEmpty == true)
         await session.stopAndWait()
         await pins.waitForPending()
-        let app = try #require(FirebaseApp.app(name: "BarkNativeUI-\(scope.uuidString)"))
         try await Firestore.firestore(app: app).terminate()
         await withCheckedContinuation { continuation in app.delete { _ in continuation.resume() } }
     }
     @Test(.enabled(if: ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1"))
-    func freeAccountUsesTheMailroomAndAnotherDeviceGetsOnlyMetadataWithoutMapReads() async throws {
+    func premiumAccountUsesTheMailroomAndAnotherDeviceGetsOnlyMetadataWithoutMapReads() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let (app, auth, db) = try AccountAssembly.nativeProfileEmulator(scope: UUID())
@@ -87,6 +103,8 @@ import Testing
         let store = try await NativeStore.open(
             directory: directory, project: "demo-bark-native", uid: user.uid)
         let bootstrap = NativeProfileSync(store: store, cloud: profile)
+        #expect(try await bootstrap.synchronize() == .current)
+        try await NativeEmulatorFixture.seedAccess(uid: user.uid, app: app)
         #expect(try await bootstrap.synchronize() == .current)
         let transport = try NativeCallableTransport(uid: user.uid, auth: auth)
         let cloud = NativeSavedPinCloud(transport: transport)

@@ -31,7 +31,7 @@ function bookmarkView(value, id) {
             subtitle: value.bookmark.subtitle, stopID: value.bookmark.stopID, savedAtMs: value.bookmark.savedAtMs } };
 }
 
-const setSavedPin = { parse: parseBookmark, requiresPremium: false, rateGroup: 'savedPins', rateMaximum: 120,
+const setSavedPin = { parse: parseBookmark, requiresPremium: true, rateGroup: 'savedPins', rateMaximum: 120,
     async prepare({ tx, user, payload, stamp }) {
         const ref = user.collection('places').doc(payload.pinID), prior = (await tx.get(ref)).data();
         if (prior && (prior.deleted === true || storageID(prior.identity) !== payload.pinID)) invalid('Unavailable place.');

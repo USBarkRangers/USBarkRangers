@@ -34,7 +34,9 @@ nonisolated final class AppShellUITests: XCTestCase {
         }
         app.tabBars.buttons["Home"].tap()
         XCTAssertTrue(app.navigationBars["Bark Ranger"].exists)
-        XCTAssertTrue(app.staticTexts["What is a B.A.R.K. Ranger?"].exists)
+        XCTAssertTrue(app.staticTexts["Explore & Plan"].exists)
+        XCTAssertFalse(app.buttons["Share & export"].exists)
+        XCTAssertFalse(app.buttons["Help & feedback"].exists)
         app.tabBars.buttons["Map"].tap()
         XCTAssertTrue(app.textFields["park-search"].exists)
 
@@ -56,8 +58,9 @@ nonisolated final class AppShellUITests: XCTestCase {
         app.tabBars.buttons["Home"].tap()
 
         XCTAssertTrue(app.navigationBars["Bark Ranger"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["What is a B.A.R.K. Ranger?"].exists)
-        XCTAssertTrue(app.staticTexts["The B.A.R.K. Principles"].exists)
+        XCTAssertTrue(app.staticTexts["Progress"].exists)
+        XCTAssertTrue(app.staticTexts["Explore & Plan"].exists)
+        XCTAssertTrue(app.staticTexts["B.A.R.K. Principles"].exists)
 
         let qrCode = app.buttons["Open US BARK Rangers QR code"]
         for _ in 0..<14 where !qrCode.isHittable { app.swipeUp() }
@@ -93,6 +96,13 @@ nonisolated final class AppShellUITests: XCTestCase {
     func testAccessibilityInBothAppearances() throws {
         let app = XCUIApplication()
         app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
+        let barkPrincipleLabels: Set<String> = [
+            "B", "A", "R", "K",
+            "Bag and dispose of pet waste",
+            "Always keep pets leashed",
+            "Respect wildlife and visitors",
+            "Know where pets can go",
+        ]
         let originalAppearance = XCUIDevice.shared.appearance
         defer { XCUIDevice.shared.appearance = originalAppearance }
         for appearance in [XCUIDevice.Appearance.light, .dark] {
@@ -112,10 +122,13 @@ nonisolated final class AppShellUITests: XCTestCase {
             // reports even black-on-system-background paragraphs. Keep other audit types;
             // Home contrast is reviewed separately in the phase report and screenshots.
             try app.performAccessibilityAudit(for: [.all.subtracting(.contrast)]) { issue in
-                // iOS 26 sees this dynamic title font as an opaque SwiftUI accessibility
-                // node. The largest-text test renders the card and reaches its final action.
-                issue.auditType == .dynamicType
-                    && issue.element?.label == "The B.A.R.K. Principles"
+                // iOS 26 sees the dynamic B.A.R.K. title and combined principle rows as
+                // opaque SwiftUI nodes. The largest-text test renders the full card and
+                // reaches its final action at every accessibility text size.
+                guard issue.auditType == .dynamicType, let label = issue.element?.label else {
+                    return false
+                }
+                return label == "B.A.R.K. Principles" || barkPrincipleLabels.contains(label)
             }
             app.buttons["About Bark Ranger"].tap()
             try app.performAccessibilityAudit()

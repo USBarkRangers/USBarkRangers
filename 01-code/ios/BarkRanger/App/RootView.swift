@@ -142,7 +142,7 @@ struct RootView: View {
     private func destination(for tab: AppRouter.Tab) -> some View {
         switch tab {
         case .home:
-            HomeView(open: router.open)
+            HomeView(open: router.open, passport: passport, trips: trips)
         case .map:
             MapScreen(model: discovery)
         case .trips:

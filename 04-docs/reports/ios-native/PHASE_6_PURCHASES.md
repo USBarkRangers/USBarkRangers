@@ -159,13 +159,18 @@ This is required new billing functionality, not a code-reduction checkpoint.
   passed **126 tests / 0 failures / 0 skips**; local deployment/CI-isolation checks passed
   **5/5** and Swift domain checks **49/49**.
 - The same source's [Native iOS run 34942547676](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34942547676)
-  is still running. StoreKit runtime installation now succeeded; the required test is running,
-  not yet a recorded pass. Updated full local native regression is running at
+  is still running overall. Its required **StoreKit job passed: 1 test / 0 failures**,
+  including annual offer, purchase retention, restore, renewal and refund. Runtime setup
+  succeeded without weakening or skipping the actual test; job `104294337415` recorded
+  `TEST SUCCEEDED` at 07:54:28 UTC.
+- Updated full local native regression **passed: 190 unique tests / 205 parameterized cases,
+  0 failures / 0 skips**, completed 07:44:10 UTC. Evidence:
   `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-fc8jmy1c/Acceptance.xcresult`,
-  log `/tmp/BarkPhase6CIReview.7TKpNm/native-full.log`. On success, the same launched command
-  proceeds to `/tmp/BarkPhase6CIReview.7TKpNm/ShellFull.xcresult` with `shell-full.log` in that
-  directory. Collect both results before starting another run. These pending results are
-  not passes; final hosted CI green is still required.
+  log `/tmp/BarkPhase6CIReview.7TKpNm/native-full.log`. The same launched command proceeded
+  to the full app/UI suite at `/tmp/BarkPhase6CIReview.7TKpNm/ShellFull.xcresult`, with
+  `shell-full.log` in that directory; that suite remains running. Collect its result before
+  starting another run. The now-finished native emulators were stopped; the catalog fixture
+  remains available for app/UI tests. Final hosted native/app UI success is still required.
 
 ### Purchase-boundary operation counts
 

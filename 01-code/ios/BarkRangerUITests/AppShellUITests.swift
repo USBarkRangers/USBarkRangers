@@ -6,6 +6,10 @@ nonisolated final class AppShellUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["BARK_TEST_SCOPE"] = UUID().uuidString
         app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Map"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.tabBars.buttons["Map"].isSelected)
+        XCTAssertTrue(app.textFields["park-search"].exists)
+        app.tabBars.buttons["Home"].tap()
         XCTAssertTrue(app.navigationBars["Bark Ranger"].waitForExistence(timeout: 5))
         app.buttons["About Bark Ranger"].tap()
         XCTAssertTrue(app.navigationBars["About Bark Ranger"].exists)
@@ -38,7 +42,8 @@ nonisolated final class AppShellUITests: XCTestCase {
         XCTAssertTrue(app.textFields["park-search"].waitForExistence(timeout: 5))
         app.terminate()
         app.launch()
-        XCTAssertTrue(app.navigationBars["Bark Ranger"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["park-search"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.tabBars.buttons["Map"].isSelected)
     }
 
     @MainActor
@@ -52,6 +57,9 @@ nonisolated final class AppShellUITests: XCTestCase {
             XCUIDevice.shared.appearance = appearance
             XCTAssertEqual(XCUIDevice.shared.appearance, appearance)
             app.launch()
+            XCTAssertTrue(app.tabBars.buttons["Map"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.tabBars.buttons["Map"].isSelected)
+            app.tabBars.buttons["Home"].tap()
             XCTAssertTrue(app.navigationBars["Bark Ranger"].waitForExistence(timeout: 5))
             let screenshot = XCTAttachment(screenshot: app.screenshot())
             screenshot.name = "Home appearance \(appearance.rawValue)"

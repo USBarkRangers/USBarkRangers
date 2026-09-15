@@ -9,6 +9,12 @@ import Testing
 struct AppShellTests {
     private let diagnostics = Diagnostics(enabled: false)
 
+    @Test func mapIsTheDefaultCenterTab() {
+        let router = AppRouter(diagnostics: diagnostics)
+        #expect(router.selectedTab == .map)
+        #expect(AppRouter.Tab.allCases == [.home, .trips, .map, .passport, .account])
+    }
+
     @Test(arguments: ["localhost", "127.0.0.1", "10.0.0.2", "192.168.1.2", "172.16.0.2", "172.31.255.254"])
     func accountEmulatorsAcceptOnlyLocalEndpoints(_ host: String) {
         #expect(AccountAssembly.allowsEmulatorHost(host))
@@ -92,7 +98,7 @@ struct AppShellTests {
         let first = AppSandbox().makeComposition(preview: true)
         let second = AppSandbox().makeComposition(preview: true)
         first.router.open(.tab(.account))
-        #expect(second.router.selectedTab == .home)
+        #expect(second.router.selectedTab == .map)
         #expect(second.startup.state == .ready)
     }
 

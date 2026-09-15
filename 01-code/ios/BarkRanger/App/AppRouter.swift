@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor @Observable
 final class AppRouter {
     enum Tab: String, CaseIterable, Identifiable {
-        case home, map, trips, passport, account
+        case home, trips, map, passport, account
 
         var id: Self { self }
 
@@ -41,7 +41,7 @@ final class AppRouter {
         case sheet(Sheet)
     }
 
-    var selectedTab: Tab = .home
+    var selectedTab: Tab = .map
     var sheet: Sheet?
     private let diagnostics: Diagnostics
 

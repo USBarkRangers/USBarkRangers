@@ -208,9 +208,27 @@ This is required new billing functionality, not a code-reduction checkpoint.
   or existing simulator was removed.
 - Fix pushed as **`a75e957`**. The full required
   [Native iOS run 34952712455](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34952712455)
-  is running; do not claim it green from the local results. Shipping app/backend source is
+  is not yet green; see the separate runner-launch failure below. Shipping app/backend source is
   unchanged from `fa4b00f`, whose backend workflow passed. This follow-up changes only
   Passport test readiness and this report; no deployment or phone install.
+
+### September 15 CI follow-up — simulator test-runner launch
+
+- Run `34952712455`, attempt 1: StoreKit passed again. Native SDK **179 tests / 194 cases
+  passed, 0 assertion failures / 0 skips**, then the UI runner could not launch. Xcode records
+  one runner infrastructure error; **no UI test executed**, and the final full app/UI step
+  never ran. This run neither verifies nor disproves the share-sheet fix in hosted CI.
+- The exported Xcode session log records successful installation of
+  `BarkRangerUITests-Runner.app` at **09:48:34.925 UTC**, followed by launch at 09:48:34.926;
+  at 09:48:47.863 CoreSimulator/FrontBoard reported the same runner identifier “unknown”.
+  Evidence: `/tmp/BarkNativeCIRepeat.6xAMWa/BarkAccountChecks-oq96egdv/Acceptance.xcresult`
+  and its exported `diagnostics` directory. This is an installation/launch registration
+  failure before UI execution, not an observed app assertion failure.
+- Requested **one unchanged rerun of the failed job (attempt 2)**, retaining the successful
+  required StoreKit job. It rebuilds and runs the entire native and full app/UI checks.
+  No app, test, timeout, assertion or workflow change was made for this infrastructure error.
+  If the same launch failure recurs, investigate further rather than repeatedly retrying
+  it into a green result. Overall workflow green remains required.
 
 ### Purchase-boundary operation counts
 

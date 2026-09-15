@@ -290,8 +290,10 @@ This is required new billing functionality, not a code-reduction checkpoint.
   Hosted native SDK/account UI and full shell still require completion.
 - Started the updated complete local app/catalog/accessibility suite at 11:46 UTC:
   `/tmp/BarkNativeFourFailures.vNruIz/ShellFull.xcresult`, log `shell-full.log` alongside it.
-  **Still running, not a pass.** Native emulators were cleanly stopped first; only the local
-  public catalog fixture remains. No source, deployment or phone installation in this follow-up.
+  **Passed at 12:19:10 UTC: 353 unique tests / 421 parameterized cases, 0 failures,
+  37 skips.** The opt-in checks are covered separately as described above; counts overlap
+  and must not be summed. Native emulators were stopped before this suite began.
+  No shipping source, deployment or phone installation in this follow-up.
 
 ### September 15 CI follow-up — embedded password sheet is not an interruption
 
@@ -312,8 +314,16 @@ This is required new billing functionality, not a code-reduction checkpoint.
   helper serves pending, sign-out and deletion; the original 10/12-swipe limits and final
   assertions remain. The account test now exercises this navigation-time dismissal without
   a preceding immediate password dismissal after its first account creation.
-  **Not yet accepted or pushed:** the changed UI checks must pass before checkpointing code.
   Separate Debug test build succeeded at `/tmp/BarkNativePasswordCI.5f6x3T/build`.
+  The serial focused native account suite subsequently **passed 5/5, 0 failures / 0 skips**
+  at **12:56:06 UTC**. This covers create/edit/relaunch/sign-out, confirmed deletion,
+  trip save/map/relaunch, pending changes and keyboard dismissal/refocus. Evidence:
+  `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-v1uoz85e/Acceptance.xcresult`.
+  The activity tree confirms navigation-time dismissal actually tapped **Not Now** through
+  `com.apple.SafariViewService`, awaited disappearance, then reached Sign out. This is
+  exercised helper behavior, not another pass with no password sheet. The hosted cold
+  service delay still requires CI confirmation. **1 test file, +24/-27 lines; no shipping
+  app/backend changes.** No data assertion, timeout or exact-one-download requirement changed.
 - A diagnostic experiment suspended only SafariViewService in disposable simulator
   `90242EF5-4506-4A26-9B21-D09B1D6FE50A` for 15 seconds, then resumed it successfully.
   The old binary passed the first sign-out and later failed while typing/saving the name;
@@ -321,12 +331,12 @@ This is required new billing functionality, not a code-reduction checkpoint.
   Result: `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-m7esiosg/Acceptance.xcresult`.
   Another simulator's UI suite was running concurrently, so rerun the focused account
   checks serially after that suite finishes, before attributing this typing failure to app code.
-- The full local shell run at `/tmp/BarkNativeFourFailures.vNruIz/ShellFull.xcresult` is
-  still running on the prior test binary; it includes the unchanged shipping app and shell
-  checks, not the new opt-in native password-helper edit. Do not rebuild its products or run
-  another UI session concurrently. Once finished, run the changed native account UI from
-  `/tmp/BarkNativePasswordCI.5f6x3T/build/Build/Products` on the disposable simulator above.
-  Native demo emulators and the local catalog fixture are running for that verification.
+- The full local shell run finished successfully as recorded above. It used the prior test
+  binary and unchanged shipping app, not the new opt-in native password-helper edit.
+  The changed native account UI passed serially from
+  `/tmp/BarkNativePasswordCI.5f6x3T/build/Build/Products` on the disposable simulator above,
+  with the isolated native demo emulators and local catalog fixture. Log:
+  `/tmp/BarkNativePasswordCI.5f6x3T/account-after.log`. Full hosted confirmation remains required.
   No production deployment, phone installation, owner credentials or web changes.
 
 ### Purchase-boundary operation counts
@@ -351,8 +361,9 @@ exists. Account deletion paginates those rows. No permanent row per notification
 1. Full local native/app UI, paywall accessibility, StoreKit and signed Release verification
    passed on shipping source `fa4b00f`. The subsequent `a75e957` test-only readiness fix is
    verified on fresh/warm simulators above. Hosted backend passed; require the new full
-   Native iOS workflow green after the four-failure follow-up above. `34952712455` failed;
-   local tests do not establish hosted CI success, and two cloud failures remain under review.
+   Native iOS workflow green after the embedded-password-sheet follow-up above.
+   Latest hosted `34962968565` failed two UI checks; local passes do not establish hosted
+   CI success. Earlier cloud stalls did not recur, but their root cause remains unproven.
 2. Native deployment, sandbox notification delivery and live Auth/App Check/rejection checks
    are complete. Verify production notification/API access once Apple's release gate opens.
 3. Verify genuine Apple sandbox → native backend → app, then retire the temporary owner

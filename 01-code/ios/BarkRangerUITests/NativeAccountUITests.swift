@@ -21,11 +21,10 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         app.keyboards.buttons["Done"].tap()
         app.buttons["Sign in"].tap()
         XCTAssertTrue(app.textFields["New display name"].waitForExistence(timeout: 15))
-        dismissPasswordPrompt(app)
+        dismissPasswordPrompt()
         let pending = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Pending changes'"))
             .firstMatch
-        for _ in 0..<10 where !pending.isHittable { app.swipeUp() }
-        XCTAssertTrue(pending.isHittable)
+        reveal(pending, in: app, maximumSwipes: 10)
         pending.tap()
         XCTAssertTrue(app.navigationBars["Pending changes"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["No pending changes"].waitForExistence(timeout: 10))
@@ -79,7 +78,7 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         app.keyboards.buttons["Done"].tap()
         app.buttons["Sign in"].tap()
         XCTAssertTrue(app.textFields["New display name"].waitForExistence(timeout: 15))
-        dismissPasswordPrompt(app)
+        dismissPasswordPrompt()
         app.tabBars.buttons["Trips"].tap()
         XCTAssertTrue(app.buttons["New trip"].waitForExistence(timeout: 10))
         app.buttons["New trip"].tap()
@@ -137,7 +136,8 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         XCTAssertEqual(create.value as? String, "1")
         app.buttons["Create account"].tap()
         XCTAssertTrue(app.staticTexts["Ranger"].waitForExistence(timeout: 15))
-        dismissPasswordPrompt(app)
+        // Exercise late sheet handling in reveal(), not just immediate dismissal
+        // here. Apple's remote password UI can finish loading after this profile.
         XCTAssertFalse(app.textFields["New display name"].exists)
         XCTAssertFalse(app.buttons["Manage existing subscription"].exists)
         XCTAssertFalse(app.buttons["Recover existing membership"].exists)
@@ -153,7 +153,7 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         let name = "Ranger \(UUID().uuidString.prefix(8))"
         let field = app.textFields["New display name"]
         XCTAssertTrue(field.waitForExistence(timeout: 15))
-        dismissPasswordPrompt(app)
+        dismissPasswordPrompt()
         field.tap()
         field.typeText(name)
         app.buttons["Save display name"].tap()
@@ -212,10 +212,9 @@ nonisolated final class NativeAccountUITests: XCTestCase {
             .tap()
         app.buttons["Create account"].tap()
         XCTAssertTrue(app.staticTexts["Ranger"].waitForExistence(timeout: 15))
-        dismissPasswordPrompt(app)
+        dismissPasswordPrompt()
         let remove = app.buttons["account.delete"]
-        for _ in 0..<12 where !remove.isHittable { app.swipeUp() }
-        XCTAssertTrue(remove.isHittable)
+        reveal(remove, in: app)
         remove.tap()
         app.buttons["Cancel"].tap()
         XCTAssertTrue(remove.exists)
@@ -247,37 +246,35 @@ nonisolated final class NativeAccountUITests: XCTestCase {
     }
     @MainActor private func signOut(_ app: XCUIApplication) {
         let button = app.buttons["Sign out"]
-        // Target the account form, not the whole app (which includes a remote
-        // password sheet). XCTest can then detect the sheet as an interruption.
-        for _ in 0..<12 where !button.isHittable { app.collectionViews.firstMatch.swipeUp() }
-        XCTAssertTrue(button.isHittable)
+        reveal(button, in: app)
         button.tap()
     }
-    @MainActor private func dismissPasswordPrompt(_ app: XCUIApplication) {
-        // The remote service can appear after the signed-in UI. CI's cold service
-        // was still loading at the former 5s check. Handle a late interruption too;
-        // never save synthetic passwords or dismiss unrelated app/account alerts.
-        addUIInterruptionMonitor(withDescription: "Decline system password saving") { alert in
-            guard alert.buttons["Not Now"].exists && alert.buttons["Save"].exists else { return false }
-            return self.declinePasswordSaving()
+    @MainActor private func reveal(
+        _ element: XCUIElement, in app: XCUIApplication, maximumSwipes: Int = 12
+    ) {
+        // CI's embedded password sheet did not trigger XCTest interruption
+        // monitors. Check it during navigation, not only once after sign-in.
+        for _ in 0..<maximumSwipes {
+            dismissPasswordPrompt()
+            if element.isHittable { break }
+            app.collectionViews.firstMatch.swipeUp()
         }
-        if app.buttons["Not Now"].exists {
-            XCTAssertTrue(declinePasswordSaving(), "Cannot address the system password prompt")
-        }
+        XCTAssertTrue(element.isHittable)
     }
-    @MainActor private func declinePasswordSaving() -> Bool {
+    @MainActor private func dismissPasswordPrompt() {
         // iOS 26 embeds a remote credential service. Tapping its mirrored button
         // through the host app sends an event to the wrong process and does nothing.
         for bundle in [
             "com.apple.AuthenticationServicesUI", "com.apple.SafariViewService", "com.apple.springboard",
         ] {
             let service = XCUIApplication(bundleIdentifier: bundle)
+            guard service.state != .notRunning else { continue }
             let button = service.buttons["Not Now"]
-            if button.exists {
+            if button.exists && service.buttons["Save"].exists {
                 button.tap()
-                return button.waitForNonExistence(timeout: 5)
+                XCTAssertTrue(button.waitForNonExistence(timeout: 5))
+                return
             }
         }
-        return false
     }
 }

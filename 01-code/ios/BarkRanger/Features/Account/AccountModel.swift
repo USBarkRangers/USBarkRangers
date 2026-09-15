@@ -253,7 +253,11 @@ enum AppleAccountAction {
         }
     }
     static func message(_ error: any Error) -> String {
-        switch error {
+        if (error as NSError).domain == ASAuthorizationError.errorDomain {
+            return
+                "Apple sign-in couldn’t finish. Check that you’re signed in to your Apple Account in Settings and connected to the internet, then try again."
+        }
+        return switch error {
         case let failure as NativeCallableTransport.ServerFailure
         where failure.reason == "recent-auth-required":
             "Confirm your password or sign-in provider, then try deleting the account again."

@@ -6,6 +6,12 @@ import Testing
 @testable import BarkRanger
 
 @MainActor struct AppleAccountTests {
+    @Test func unavailableAppleSignInHasActionableNontechnicalMessage() {
+        let message = AccountModel.message(ASAuthorizationError(.unknown))
+        #expect(message.contains("Settings") && message.contains("try again"))
+        #expect(!message.contains("AuthorizationError") && !message.contains("1000"))
+    }
+
     @Test func adapterUsesFreshNonceStateAndConsumesEachReplyOnce() throws {
         let adapter = AppleSignInAdapter()
         let first = ASAuthorizationAppleIDProvider().createRequest()

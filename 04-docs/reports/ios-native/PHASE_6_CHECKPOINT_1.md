@@ -2,8 +2,10 @@
 
 September 14, 2026. **Real linking verified; checkpoint not fully accepted yet.**
 The unnecessary second Apple button is fixed in **0.5.21 (80)** and verified locally.
-The signed build is ready, but `cjs15pm` currently reports unavailable; installation,
-remaining device acceptance and the new commit's full GitHub CI remain gates.
+The signed build is ready. The owner's latest instruction moves installation and remaining
+live/device acceptance to one final session after all Phase 6 Mac-side work. The new commit's
+full GitHub CI remains required for handoff; the original green start gate was already
+satisfied. Device absence no longer blocks implementation.
 Purchasing has not started. Existing web services, users, legacy Firebase configuration
 and billing are untouched.
 
@@ -151,7 +153,7 @@ neither an earlier run nor local checks substitute for that gate.
   its current template uses the first address. Actual relay delivery is not yet verified.
   No legacy sender or DNS record was changed in this activation.
 
-## Remaining gate — do not start checkpoint 2 yet
+## Remaining live acceptance — deferred to the final iPhone session
 
 1. Reconnect/unlock `cjs15pm`, install 0.5.21 (80), and confirm no extra Apple button appears
    on the linked account. Then deliberately sign out, cancel one Apple sign-in attempt,
@@ -159,8 +161,10 @@ neither an earlier run nor local checks substitute for that gate.
 2. Verify actual cancellation, Hide My Email/relay delivery, reauthentication and explicitly
    authorized disposable-account deletion/revocation. Do not delete the owner's account
    or move its Apple sign-in to another account for acceptance testing.
-3. Require the button-fix commit's full green CI and real-device acceptance before
-   checkpoint 2 or release. An installed build and synthetic credentials are not acceptance.
+3. Track the button-fix commit's CI; require the final implementation's own green checks
+   before handoff. The green start gate was satisfied on `16020fe`. Per the owner's later
+   Mac-first instruction, remaining device acceptance is deferred, not waived. Synthetic
+   credentials are not live acceptance.
 4. The App Store Connect agreement gate has cleared. Its Apps page was rechecked and
    shows **No Apps**; no app record or subscription products exist there yet. No agreement
    was accepted by the assistant. App-record/product setup remains the purchase checkpoint;
@@ -174,8 +178,36 @@ Use**, then timed out due to phone use. No app was installed, account signed out
 during this access check. The existing native CI/install heartbeat was updated and activated
 for run `34922283360` and build 0.5.21 (80). It stays quiet while CI is unchanged, addresses
 actual scoped failures, and attempts installation after green CI if the phone is reachable.
-It pauses when only user-dependent acceptance remains. No StoreKit work is authorized by
-that follow-up, and completion of CI/install alone must not be reported as full acceptance.
+That earlier follow-up was superseded by the owner's Mac-first instruction: it now covers
+all approved Phase 6 work, with no intermediate phone install/request. It pauses when the
+Mac-tested build is ready for final device acceptance, or a genuine external prerequisite
+blocks all remaining safe work. CI/simulator success must not be called full live acceptance.
+
+## Mac-first verification, September 14–15
+
+- Fresh focused rerun: **19 tests / 33 cases passed, zero failures or skips** in
+  `/tmp/BarkApple0521SimulatorRecheck.xcresult`, iPhone 17 Pro simulator, iOS 26.5.
+- A new isolated simulator named **Bark Apple Checkpoint 1** was created without resetting
+  any existing simulator or owner account. The current 0.5.21 (80) app installed and launched.
+- Full account/trip-feature/account-UI emulator acceptance: **13 passed, zero failures or
+  skips**, including the unchanged exact-one-download regression and five actual UI cases.
+  Evidence: `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-456x3bvi/Acceptance.xcresult`.
+- Manual simulator use opens Apple's real system sheet, which requests an Apple account
+  in Settings. Dismissing it returns safely to the signed-out form but exposed raw error
+  `ASAuthorizationError` 1000. This is a presentation issue, not successful Apple sign-in.
+- Apple Business shows Paid Apps Agreement **New** and requires the owner to update legal
+  entity information. Owner asked to handle that and banking/tax requirements; local work
+  continues without accepting financial/legal terms on their behalf.
+- Follow-up: owner completed the agreement step. Apple now shows **Pending User Info**,
+  with bank details and U.S. W-9 missing. The iOS-only **Bark Ranger** app record was created,
+  App Store ID **6812160476**, bundle `swarm.USBARKRANGERS`, SKU `bark-ranger-ios`.
+- The reproduced raw Apple error now has a short, actionable Settings/network message.
+  **AccountModel: +4 net lines; AppleAccountTests: +6 lines.** Focused verification:
+  **10 tests / 22 cases passed, zero failures/skips**, `/tmp/BarkAppleFriendlyMessage.xcresult`.
+  The rebuilt app was installed into the isolated simulator; the same Apple-sheet/Close
+  action visibly produced the new message and left sign-in available. No credentials or
+  owner account data were changed. This completes local checkpoint-1 verification; remaining
+  live acceptance and final CI remain explicit gates, not claims of completed Phase 6.
 
 ## Owner's confirmed purchase choices — implementation remains checkpoint 2
 

@@ -4,8 +4,12 @@ Updated September 14, 2026. This replaces the previous legacy/multi-provider Pha
 The owner reports paid Apple enrollment approved. This is an implementation plan,
 not a claim that purchasing, Apple sign-in or storefront setup is already complete.
 Start gate satisfied: Native iOS checks passed for `16020fe` (run `34903360552`).
-Complete and verify each checkpoint before starting the next; checkpoint 1 requires
-the owner's connected, unlocked iPhone and Apple authorization.
+Owner's latest timing instruction: complete implementation and Mac/simulator verification
+first, then request one final iPhone installation/acceptance session. Review and verify each
+checkpoint locally before continuing; the green start gate above remains satisfied and
+the completed build must pass its own GitHub checks before final handoff. Live Apple
+consent, relay, sandbox and revocation acceptance remain separately recorded release gates,
+not reasons to require a phone throughout implementation.
 
 ## Product and scope
 
@@ -13,8 +17,8 @@ the owner's connected, unlocked iPhone and Apple authorization.
   seven-day free trial, no Family Sharing**. **Apple Billing Grace Period is off**, including
   sandbox testing. TestFlight uses free sandbox purchases; the current Premium grant is
   temporary development access, not an Apple subscription. These choices are approved,
-  but create products/settings only after checkpoint 1 is accepted. No StoreKit purchasing
-  implementation starts before that gate.
+  and app/product setup is authorized in checkpoint 2 after checkpoint 1's local checks.
+  Remaining live/device acceptance is deferred to the final session, not waived.
 - Account and existing paid-feature gates open the **same Upgrade to Premium screen**:
   current benefits, Apple's localized price/period, Subscribe, Restore Purchases,
   terms/privacy links. An active subscriber sees status and Manage Subscription.
@@ -36,10 +40,11 @@ the owner's connected, unlocked iPhone and Apple authorization.
    Never merge accounts solely because email strings match. Configure only the native
    Firebase provider and paid-team entitlements. Enable the button in the development
    build for device acceptance after configuration; do not release it before verification.
-3. Verify real-device sign-in, cancellation, first-use/returning account, Hide My Email,
-   linking without duplicate accounts, sign-out/relaunch, recent reauthentication and
-   deletion/revocation. Never delete the owner's account as a test. Checkpoint, push,
-   verify CI, install and obtain device acceptance before starting purchasing.
+3. Verify orchestration, cancellation, linking/account isolation, presentation and deletion
+   ordering on the Mac; checkpoint, push and track CI while implementation continues. At final device
+   acceptance verify actual first-use/returning sign-in, Hide My Email/relay, linking without
+   duplicates, sign-out/relaunch, recent reauthentication and deletion/revocation. Never
+   delete the owner's account as a test or claim synthetic credentials prove Apple services.
 
 ## Checkpoint 2 — Purchase vertical slice
 

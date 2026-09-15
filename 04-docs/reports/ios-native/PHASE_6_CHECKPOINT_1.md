@@ -1,8 +1,8 @@
 # Phase 6 checkpoint 1 — Apple sign-in device acceptance
 
-September 14, 2026. **Configured and installed; not accepted yet.** Apple sign-in is
-enabled in development build **0.5.20 (79)** on `cjs15pm`. Local checks pass; actual
-Apple authorization/device acceptance and the new commit's full GitHub CI remain gates.
+September 14, 2026. **Real linking and returning sign-in verified; not fully accepted yet.**
+Apple sign-in is enabled in development build **0.5.20 (79)** on `cjs15pm`. Local checks
+pass; remaining device edge cases and the activation commit's full GitHub CI remain gates.
 Purchasing has not started. Existing web services, users, legacy Firebase configuration
 and billing are untouched.
 
@@ -67,13 +67,23 @@ entitlement, matching expectation and app/extension version bump; no second serv
   targets only `bark-ranger-ios`. Swift formatting checks passed.
 - Installed and launched **0.5.20 (79)** on the connected `cjs15pm` using Apple's device
   tools. This confirms installation/launch, not completion of Apple's consent flow.
+- The owner subsequently reported completing Apple linking and signing in a second time.
+  A read-only native Authentication lookup verified both `apple.com` and `password` on
+  the original test account, created **2026-09-14 05:12:56 UTC**, with a new sign-in at
+  **2026-09-15 02:25:34 UTC**. Its existing development entitlement still matches that
+  same UID and remains valid. This verifies successful linking and a subsequent login on
+  the original account; it does not independently verify all saved content on the screen.
+  Verification used **1 Auth lookup + 1 Firestore document read, 0 writes**. No tokens,
+  Apple subject identifiers, email addresses or private document contents were logged.
 
 Synthetic Apple credentials exercise local orchestration, not Apple's real token validation,
 consent sheet, relay delivery or server revocation. Those still require device acceptance.
 The new commit must also complete GitHub's full Native iOS workflow; the earlier green
 start-gate run is not presented as validation of these new changes. At activation,
 the foundation commit `ea49cb8`'s [full CI run](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34918092703)
-was still running. The activation commit requires its own full green run.
+was still running. The activation commit `d252f54`'s
+[full CI run](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34920812352)
+is in progress, not yet green. This evidence-only report update changes no app/backend code.
 
 ## Native-only configuration completed with owner approval
 
@@ -101,12 +111,11 @@ was still running. The activation commit requires its own full green run.
 
 ## Remaining gate — do not start checkpoint 2 yet
 
-1. Owner completes Apple's consent prompt on the installed build. Start by linking Apple
-   while signed into the existing native test account so its saved data and temporary
-   Premium access stay under the same UID. Confirm no duplicate account is created.
-2. Verify actual cancellation, returning sign-in, Hide My Email/relay delivery,
-   sign-out/relaunch, reauthentication and explicitly authorized disposable-account
-   deletion/revocation. Do not delete the owner's account for acceptance testing.
+1. Linking to the original native account and subsequent sign-in are verified. Confirm
+   saved content remains visible after returning sign-in and relaunch on the phone.
+2. Verify actual cancellation, Hide My Email/relay delivery, reauthentication and explicitly
+   authorized disposable-account deletion/revocation. Do not delete the owner's account
+   or move its Apple sign-in to another account for acceptance testing.
 3. Require the activation commit's full green CI and real-device acceptance before
    checkpoint 2 or release. An installed build and synthetic credentials are not acceptance.
 4. Owner selected **20/year, seven-day trial, Family Sharing off**. Currency/exact price and

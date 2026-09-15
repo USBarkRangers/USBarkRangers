@@ -32,7 +32,8 @@ the owner's connected, unlocked iPhone and Apple authorization.
    cancellation, first-use name, explicit linking to the signed-in Firebase account,
    Hide My Email, recent reauthentication and Apple token revocation on account deletion.
    Never merge accounts solely because email strings match. Configure only the native
-   Firebase provider and paid-team entitlements; enable the button after device verification.
+   Firebase provider and paid-team entitlements. Enable the button in the development
+   build for device acceptance after configuration; do not release it before verification.
 3. Verify real-device sign-in, cancellation, first-use/returning account, Hide My Email,
    linking without duplicate accounts, sign-out/relaunch, recent reauthentication and
    deletion/revocation. Never delete the owner's account as a test. Checkpoint, push,

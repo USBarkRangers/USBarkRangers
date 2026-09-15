@@ -3,6 +3,17 @@ import BarkDomain
 import Foundation
 import Observation
 
+enum AppleAccountAction {
+    case signIn, link, reauthenticate, deleteAccount
+    var credentialUse: CredentialUse {
+        switch self {
+        case .signIn: .signIn
+        case .link: .link
+        case .reauthenticate, .deleteAccount: .reauthenticate
+        }
+    }
+}
+
 /// Account form intents. Session owns identity/data; repositories own durable changes; adapters own providers.
 @MainActor @Observable final class AccountModel {
     let session: AccountSession
@@ -12,15 +23,19 @@ import Observation
         capabilities.profileWrites && session.dataAccess.canEditAccount
             && session.nativeProfile != nil && session.profileState?.visible?.status == .active
     }
-    let apple = AppleSignInAdapter()
+    private let apple: any AppleCredentialProviding
     private(set) var busy = false
     private(set) var notice: String?
     @ObservationIgnored private(set) var action: Task<Void, Never>?
     private var actionID = UUID()
-    private var appleRequestUID: String?
-    init(session: AccountSession, google: (any GoogleCredentialProviding)? = nil) {
+    private var appleRequest: (id: UUID, uid: String?, intent: AppleAccountAction)?
+    init(
+        session: AccountSession, google: (any GoogleCredentialProviding)? = nil,
+        apple: any AppleCredentialProviding = AppleSignInAdapter()
+    ) {
         self.session = session
         self.google = google
+        self.apple = apple
     }
     var providerButtonsAvailable: Bool { session.auth != nil && session.auth?.isTest == false }
     func email(_ email: String, password: String, create: Bool) {
@@ -91,26 +106,67 @@ import Observation
                 expectedPendingIDs: reviewed.pendingIDs)
         }
     }
-    func prepareApple(_ request: ASAuthorizationAppleIDRequest) {
-        guard capabilities.appleSignIn else { return }
-        appleRequestUID = session.identity?.uid
-        do { try apple.prepare(request) } catch { notice = Self.message(error) }
+    func prepareApple(_ request: ASAuthorizationAppleIDRequest, intent: AppleAccountAction) -> UUID? {
+        guard !busy, capabilities.appleSignIn, capabilities.allows(intent.credentialUse),
+            intent != .deleteAccount || capabilities.accountManagement,
+            (intent == .signIn) == (session.identity == nil)
+        else { return nil }
+        let id = UUID()
+        do {
+            try apple.prepare(request, id: id)
+            appleRequest = (id, session.identity?.uid, intent)
+            busy = true
+            notice = nil
+            return id
+        } catch {
+            notice = Self.message(error)
+            return nil
+        }
     }
-    func finishApple(_ result: Result<ASAuthorization, any Error>, use: CredentialUse) {
-        guard capabilities.appleSignIn, capabilities.allows(use) else { return }
-        guard appleRequestUID == session.identity?.uid else {
+    func finishApple(_ result: Result<ASAuthorization, any Error>, id: UUID?) {
+        guard let request = appleRequest, request.id == id else { return }
+        appleRequest = nil
+        busy = false
+        guard request.uid == session.identity?.uid, let auth = session.auth else {
             apple.cancel()
             return
         }
-        guard let auth = session.auth else { return }
         do {
-            let uid = appleRequestUID
-            let credential = try apple.credential(result)
-            perform {
-                if use == .signIn { try await self.session.prepareTripIdentityChange?() }
-                try await auth.credential(credential, use: use, uid: uid)
+            let result = try apple.credential(result, id: request.id)
+            if request.intent == .deleteAccount, result.authorizationCode?.isEmpty != false {
+                throw AccountFailure.appleConfirmationRequired
             }
-        } catch { notice = Self.message(error) }
+            perform(
+                success: request.intent == .link
+                    ? "Apple sign-in linked to this account."
+                    : request.intent == .reauthenticate ? "Identity confirmed." : nil,
+                id: request.id
+            ) {
+                if request.intent == .signIn { try await self.session.prepareTripIdentityChange?() }
+                try Task.checkCancellation()
+                guard self.session.identity?.uid == request.uid else { throw AccountFailure.accountChanged }
+                try await auth.credential(
+                    result.credential, use: request.intent.credentialUse, uid: request.uid)
+                if request.intent == .deleteAccount, let uid = request.uid,
+                    let code = result.authorizationCode
+                {
+                    // A fresh reauthentication/code belongs to this confirmed deletion only.
+                    try Task.checkCancellation()
+                    guard self.session.identity?.uid == uid else { throw AccountFailure.accountChanged }
+                    try await auth.revokeApple(authorizationCode: code, uid: uid)
+                    try Task.checkCancellation()
+                    guard self.session.identity?.uid == uid else { throw AccountFailure.accountChanged }
+                    try await self.session.deleteAccount()
+                }
+            }
+        } catch {
+            apple.cancel()
+            if (error as NSError).domain != ASAuthorizationError.errorDomain
+                || (error as NSError).code != ASAuthorizationError.canceled.rawValue
+            {
+                notice = Self.message(error)
+            }
+        }
     }
     func useGoogle(_ use: CredentialUse) {
         guard capabilities.allows(use) else { return }
@@ -155,6 +211,10 @@ import Observation
         perform(success: "Sign-in method removed.") { try await auth.unlink(provider, uid: uid) }
     }
     func deleteAccount() {
+        guard session.identity?.providers.contains("apple.com") != true else {
+            notice = Self.message(AccountFailure.appleConfirmationRequired)
+            return
+        }
         perform { try await self.session.deleteAccount() }
     }
     func cancel() {
@@ -163,12 +223,13 @@ import Observation
         action = nil
         busy = false
         notice = nil
+        appleRequest = nil
         apple.cancel()
     }
     private func perform(
         success: String? = nil, id: UUID = UUID(), _ work: @escaping @MainActor () async throws -> Void
     ) {
-        guard action == nil else { return }
+        guard action == nil, !busy else { return }
         actionID = id
         busy = true
         notice = nil
@@ -193,7 +254,8 @@ import Observation
     }
     static func message(_ error: any Error) -> String {
         switch error {
-        case let failure as NativeCallableTransport.ServerFailure where failure.reason == "recent-auth-required":
+        case let failure as NativeCallableTransport.ServerFailure
+        where failure.reason == "recent-auth-required":
             "Confirm your password or sign-in provider, then try deleting the account again."
         case NativeProfileEdit.Failure.invalid:
             "Use a display name of 2–30 characters, without control characters or angle brackets."
@@ -206,6 +268,8 @@ import Observation
             "The account changed. Please try again."
         case AccountFailure.lastProvider: "Keep at least one sign-in method linked to your account."
         case AccountFailure.configuration: "This sign-in provider is not configured for this build."
+        case AccountFailure.appleConfirmationRequired:
+            "Confirm with Apple to revoke its authorization and delete this account. No data has been deleted."
         case NativeStore.Failure.invalidAcknowledgment:
             "The saved values changed while you were reviewing them. Review the current values and try again."
         default: (error as NSError).localizedDescription

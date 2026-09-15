@@ -37,7 +37,7 @@ nonisolated struct AccountIdentity: Equatable, Sendable {
     func verifyEmail(uid: String) async throws
     func reload() async throws
     func unlink(_ provider: String, uid: String) async throws
-    func revokeApple(authorizationCode: String) async throws
+    func revokeApple(authorizationCode: String, uid: String) async throws
 }
 enum CredentialUse { case signIn, link, reauthenticate }
 
@@ -113,8 +113,8 @@ enum CredentialUse { case signIn, link, reauthenticate }
     }
     func credential(_ credential: AuthCredential, use: CredentialUse, uid: String?) async throws {
         try Task.checkCancellation()
-        if use != .signIn {
-            guard let uid, auth.currentUser?.uid == uid else { throw AccountFailure.accountChanged }
+        guard auth.currentUser?.uid == uid, use == .signIn || uid != nil else {
+            throw AccountFailure.accountChanged
         }
         switch use {
         case .signIn: _ = try await auth.signIn(with: credential)
@@ -155,8 +155,12 @@ enum CredentialUse { case signIn, link, reauthenticate }
         guard auth.currentUser?.uid == uid else { throw AccountFailure.accountChanged }
         try await reload()
     }
-    func revokeApple(authorizationCode: String) async throws {
+    func revokeApple(authorizationCode: String, uid: String) async throws {
+        try Task.checkCancellation()
+        guard auth.currentUser?.uid == uid else { throw AccountFailure.accountChanged }
+        guard !authorizationCode.isEmpty else { throw AccountFailure.appleConfirmationRequired }
         try await auth.revokeToken(withAuthorizationCode: authorizationCode)
+        guard auth.currentUser?.uid == uid else { throw AccountFailure.accountChanged }
     }
     private func stop() {
         generation = UUID()
@@ -169,4 +173,6 @@ enum CredentialUse { case signIn, link, reauthenticate }
     }
 }
 
-enum AccountFailure: Error { case signInRequired, accountChanged, lastProvider, configuration, cancelled }
+enum AccountFailure: Error {
+    case signInRequired, accountChanged, lastProvider, configuration, cancelled, appleConfirmationRequired
+}

@@ -22,16 +22,17 @@ nonisolated enum NativeAccountRemovalFiles {
         try JSONEncoder().encode(request).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
     static func pending(directory: URL) throws -> [Request] {
-        // FileManager enumerates canonical URLs. iOS's /var container can arrive
-        // here as /private/var; compare in one namespace, keeping exact owner checks.
-        let directory = directory.resolvingSymlinksInPath()
         let folder = directory.appendingPathComponent("removals-v1")
         guard FileManager.default.fileExists(atPath: folder.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "json" }.map { url in
                 let request = try JSONDecoder().decode(Request.self, from: Data(contentsOf: url))
                 try validate(request)
-                guard file(request, directory: directory) == url else { throw NativeStore.Failure.wrongScope }
+                // Enumeration already restricts these to this folder's direct children.
+                // Check the exact hashed owner filename, not platform-dependent URL identity.
+                guard file(request, directory: directory).lastPathComponent == url.lastPathComponent else {
+                    throw NativeStore.Failure.wrongScope
+                }
                 return request
             }
     }

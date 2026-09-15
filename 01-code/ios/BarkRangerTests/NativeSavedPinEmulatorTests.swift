@@ -19,77 +19,88 @@ import Testing
         let account = AccountModel(session: session)
         let pins = SavedPlacesModel(
             store: SavedPlaceStore(directory: directory.appendingPathComponent("pins")), account: session)
-        let email = "\(UUID().uuidString)@native.invalid"
-        let password = "NativeOnly123!"
-        pins.viewport(
-            MKCoordinateRegion(
-                center: .init(latitude: 41, longitude: -81),
-                span: .init(latitudeDelta: 10, longitudeDelta: 10)), including: [])
-        session.setForeground(true)
-        session.connectivityChanged(true)
-        account.email(email, password: password, create: true)
-        await account.action?.value
-        try await eventually {
-            session.nativeSavedPins != nil && session.profileState?.confirmed != nil && pins.isReady
-        }
-        let originalUID = try #require(session.identity?.uid)
         let app = try #require(FirebaseApp.app(name: "BarkNativeUI-\(scope.uuidString)"))
-        #expect(!pins.canEdit)
-        try await NativeEmulatorFixture.seedAccess(uid: originalUID, app: app)
-        session.requestSync(refresh: true)
-        try await eventually { pins.canEdit }
-        session.connectivityChanged(false)
-        await session.nativeSavedPins?.sync?.wait()
-        let place = try #require(
-            SavedPlace(
-                stop: .init(
-                    id: "offline-stop", placeIdentity: .custom("offline-pin"),
-                    name: "Offline pin", coordinate: Coordinate(latitude: 41, longitude: -81)),
-                subtitle: "Ohio"))
-        pins.select(place.stop)
-        await pins.waitForPending()
-        pins.save(place)
-        await pins.waitForPending()
-        try await eventually { pins.places[place.id]?.isPending == true && pins.selected?.id == place.id }
-        #expect(pins.selectedPending)
-        account.signOut()
-        await account.action?.value
-        try await eventually { session.identity == nil && pins.places.isEmpty && pins.selected == nil }
-        session.connectivityChanged(true)
-        account.email("\(UUID().uuidString)@native.invalid", password: password, create: true)
-        await account.action?.value
-        try await eventually {
-            session.identity?.uid != nil && session.identity?.uid != originalUID
-                && session.nativeSavedPins != nil && pins.isReady
+        func finish() async throws {
+            // A failed startup must stop the writer before the directory defer.
+            // CI previously unlinked these SQLite files while they were in use.
+            await session.stopAndWait()
+            await pins.waitForPending()
+            try await Firestore.firestore(app: app).terminate()
+            await withCheckedContinuation { continuation in app.delete { _ in continuation.resume() } }
         }
-        #expect(pins.places.isEmpty)
-        account.signOut()
-        await account.action?.value
-        session.connectivityChanged(false)
-        account.email(email, password: password, create: false)
-        await account.action?.value
-        try await eventually {
-            session.identity?.uid == originalUID && pins.places[place.id]?.isPending == true
+        do {
+            let email = "\(UUID().uuidString)@native.invalid"
+            let password = "NativeOnly123!"
+            pins.viewport(
+                MKCoordinateRegion(
+                    center: .init(latitude: 41, longitude: -81),
+                    span: .init(latitudeDelta: 10, longitudeDelta: 10)), including: [])
+            session.setForeground(true)
+            session.connectivityChanged(true)
+            account.email(email, password: password, create: true)
+            await account.action?.value
+            try await eventually {
+                session.nativeSavedPins != nil && session.profileState?.confirmed != nil && pins.isReady
+            }
+            let originalUID = try #require(session.identity?.uid)
+            #expect(!pins.canEdit)
+            try await NativeEmulatorFixture.seedAccess(uid: originalUID, app: app)
+            session.requestSync(refresh: true)
+            try await eventually { pins.canEdit }
+            session.connectivityChanged(false)
+            await session.nativeSavedPins?.sync?.wait()
+            let place = try #require(
+                SavedPlace(
+                    stop: .init(
+                        id: "offline-stop", placeIdentity: .custom("offline-pin"),
+                        name: "Offline pin", coordinate: Coordinate(latitude: 41, longitude: -81)),
+                    subtitle: "Ohio"))
+            pins.select(place.stop)
+            await pins.waitForPending()
+            pins.save(place)
+            await pins.waitForPending()
+            try await eventually { pins.places[place.id]?.isPending == true && pins.selected?.id == place.id }
+            #expect(pins.selectedPending)
+            account.signOut()
+            await account.action?.value
+            try await eventually { session.identity == nil && pins.places.isEmpty && pins.selected == nil }
+            session.connectivityChanged(true)
+            account.email("\(UUID().uuidString)@native.invalid", password: password, create: true)
+            await account.action?.value
+            try await eventually {
+                session.identity?.uid != nil && session.identity?.uid != originalUID
+                    && session.nativeSavedPins != nil && pins.isReady
+            }
+            #expect(pins.places.isEmpty)
+            account.signOut()
+            await account.action?.value
+            session.connectivityChanged(false)
+            account.email(email, password: password, create: false)
+            await account.action?.value
+            try await eventually {
+                session.identity?.uid == originalUID && pins.places[place.id]?.isPending == true
+            }
+            session.connectivityChanged(true)
+            session.requestSync()
+            try await eventually(timeout: .seconds(15)) { pins.places[place.id]?.isPending == false }
+            try await NativeEmulatorFixture.seedAccess(
+                uid: originalUID, app: app, premium: false, revision: 3)
+            session.requestSync(refresh: true)
+            try await eventually { !pins.canEdit }
+            pins.select(place.stop)
+            await pins.waitForPending()
+            #expect(pins.selected?.id == place.id)
+            pins.remove(place) { Issue.record("Read-only removal must not complete") }
+            pins.save(place)
+            await pins.waitForPending()
+            #expect(pins.selected?.id == place.id)
+            #expect(pins.message == AccountDataAccess.readOnlyMessage)
+            #expect(try await session.nativeSavedPins?.store.pendingChanges().isEmpty == true)
+        } catch {
+            do { try await finish() } catch { Issue.record(error) }
+            throw error
         }
-        session.connectivityChanged(true)
-        session.requestSync()
-        try await eventually(timeout: .seconds(15)) { pins.places[place.id]?.isPending == false }
-        try await NativeEmulatorFixture.seedAccess(uid: originalUID, app: app, premium: false, revision: 3)
-        session.requestSync(refresh: true)
-        try await eventually { !pins.canEdit }
-        pins.select(place.stop)
-        await pins.waitForPending()
-        #expect(pins.selected?.id == place.id)
-        pins.remove(place) { Issue.record("Read-only removal must not complete") }
-        pins.save(place)
-        await pins.waitForPending()
-        #expect(pins.selected?.id == place.id)
-        #expect(pins.message == AccountDataAccess.readOnlyMessage)
-        #expect(try await session.nativeSavedPins?.store.pendingChanges().isEmpty == true)
-        await session.stopAndWait()
-        await pins.waitForPending()
-        try await Firestore.firestore(app: app).terminate()
-        await withCheckedContinuation { continuation in app.delete { _ in continuation.resume() } }
+        try await finish()
     }
     @Test(.enabled(if: ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1"))
     func premiumAccountUsesTheMailroomAndAnotherDeviceGetsOnlyMetadataWithoutMapReads() async throws {

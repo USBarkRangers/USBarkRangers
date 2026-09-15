@@ -83,6 +83,7 @@ jobs:
             ${{ runner.temp }}/BarkShell.xcresult
             ${{ runner.temp }}/BarkAccountChecks-*/Acceptance.xcresult
             ${{ runner.temp }}/account-catalog.log
+            firestore-debug.log
           if-no-files-found: ignore
           retention-days: 7
 

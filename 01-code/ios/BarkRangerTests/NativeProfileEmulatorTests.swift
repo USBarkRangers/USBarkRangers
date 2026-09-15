@@ -48,36 +48,51 @@ import Testing
         let cloud = try AccountAssembly.nativeProfileEmulatorClient(app: app, uid: user.uid)
         let store = try await NativeStore.open(
             directory: directory, project: "demo-bark-native", uid: user.uid)
-        #expect(try await cloud.current().profile == nil)
-        let operationID = try await store.stageProfileEdit(.bootstrap)
-        let command = try #require(try await store.nextProfileSubmission())
-        let accepted = try await cloud.submit(command)
-        #expect(accepted.operationID == operationID)
-        // Lost response: resend the same durable bytes before applying the first response.
-        #expect(try await cloud.submit(command) == accepted)
-        let canonical = try await cloud.current()
-        let profile = try #require(canonical.profile)
-        let entitlement = try #require(canonical.entitlement)
-        try await store.acceptProfileOutcome(accepted, canonical: profile)
-        try await store.acceptEntitlement(entitlement)
-        #expect(try await store.profileView().pendingCount == 0)
-        #expect(try await store.profileView().confirmed?.displayName == "Ranger")
-        #expect(!entitlement.permitsEditing(at: Date()))
-        await #expect(throws: (any Error).self) {
-            try await store.stageProfileEdit(.displayName("No paid access"))
-        }
         let sync = NativeProfileSync(store: store, cloud: cloud)
-        async let firstRefresh = sync.synchronize()
-        async let secondRefresh = sync.synchronize()
-        #expect(try await firstRefresh == .current)
-        #expect(try await secondRefresh == .current)
-        // The account lifetime, not an SDK cache, decides whether callbacks may publish.
-        try auth.signOut()
-        await #expect(throws: NativeProfileCloud.Failure.accountChanged) { try await cloud.current() }
-        await sync.stop()
-        await #expect(throws: NativeProfileCloud.Failure.accountChanged) { try await sync.synchronize() }
-        await store.close()
-        try await db.terminate()
-        await withCheckedContinuation { continuation in app.delete { _ in continuation.resume() } }
+        func finish() async throws {
+            await sync.stop()
+            await store.close()
+            try await db.terminate()
+            await withCheckedContinuation { continuation in app.delete { _ in continuation.resume() } }
+        }
+        do {
+            // Stage markers distinguish the initial SDK read from confirmation and
+            // coalesced refresh failures without logging documents or credentials.
+            print("NATIVE_PROFILE_STAGE initial-server-read")
+            #expect(try await cloud.current().profile == nil)
+            print("NATIVE_PROFILE_STAGE bootstrap-and-replay")
+            let operationID = try await store.stageProfileEdit(.bootstrap)
+            let command = try #require(try await store.nextProfileSubmission())
+            let accepted = try await cloud.submit(command)
+            #expect(accepted.operationID == operationID)
+            // Lost response: resend the same durable bytes before applying the first response.
+            #expect(try await cloud.submit(command) == accepted)
+            print("NATIVE_PROFILE_STAGE confirmed-server-read")
+            let canonical = try await cloud.current()
+            let profile = try #require(canonical.profile)
+            let entitlement = try #require(canonical.entitlement)
+            try await store.acceptProfileOutcome(accepted, canonical: profile)
+            try await store.acceptEntitlement(entitlement)
+            #expect(try await store.profileView().pendingCount == 0)
+            #expect(try await store.profileView().confirmed?.displayName == "Ranger")
+            #expect(!entitlement.permitsEditing(at: Date()))
+            await #expect(throws: (any Error).self) {
+                try await store.stageProfileEdit(.displayName("No paid access"))
+            }
+            print("NATIVE_PROFILE_STAGE coalesced-refresh")
+            async let firstRefresh = sync.synchronize()
+            async let secondRefresh = sync.synchronize()
+            #expect(try await firstRefresh == .current)
+            #expect(try await secondRefresh == .current)
+            // The account lifetime, not an SDK cache, decides whether callbacks may publish.
+            try auth.signOut()
+            await #expect(throws: NativeProfileCloud.Failure.accountChanged) { try await cloud.current() }
+            await sync.stop()
+            await #expect(throws: NativeProfileCloud.Failure.accountChanged) { try await sync.synchronize() }
+        } catch {
+            do { try await finish() } catch { Issue.record(error) }
+            throw error
+        }
+        try await finish()
     }
 }

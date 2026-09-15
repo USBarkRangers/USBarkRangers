@@ -230,6 +230,51 @@ This is required new billing functionality, not a code-reduction checkpoint.
   If the same launch failure recurs, investigate further rather than repeatedly retrying
   it into a green result. Overall workflow green remains required.
 
+### September 15 CI follow-up — fixture readiness and late password UI
+
+- Run `34952712455`, attempt 2 launched its UI runner successfully, but native acceptance
+  **failed: 186 unique tests / 201 parameterized cases passed, 4 failures, 0 skips**.
+  The four are profile SDK bootstrap, saved-pin app bootstrap, pending-visit account
+  readiness, and account UI sign-out. StoreKit remains passed; full shell did not run.
+  Evidence: `/tmp/BarkNativeAttempt2.tiE0uJ/BarkAccountChecks-ushieamx/Acceptance.xcresult`,
+  exact attempt-2 artifact `10391818355`, with exported diagnostics alongside it.
+- Pending-visit failure: `NativeOfflineAccountFixture.make()` returned after trips/profile
+  published, before `AccountSession` finished its separate awaited visit/walk construction.
+  The test immediately required `nativeVisits` and got nil. The fixture now waits for all
+  signed-in native features, within its **unchanged 5s deadline**, and closes on setup
+  failure. Shipping account construction remains independent; no production coupling added.
+- Account UI failure: the screenshot shows Apple's **Save Password?** sheet blocking the
+  form, not a missing Sign out control. At the former 5s check, the exported accessibility
+  hierarchy still showed an empty remote SafariViewService. Its logs show a configuration
+  request beginning 10:22:24.924 UTC and ending 10:22:56.309. The test now installs a narrowly
+  scoped password-saving interruption handler and scrolls the account form rather than the
+  entire app (which also includes that sheet). It declines synthetic password saving through
+  the owning service. No data, sign-out or one-download assertion was removed.
+  This follows [Apple's interruption-monitor guidance](https://developer.apple.com/documentation/xctest/handling-ui-interruptions).
+- **The two cloud failures are not claimed fixed.** In the failed run, the profile SDK
+  connection to loopback Firestore was established at 10:20:23.249, but its server read
+  returned “client is offline”; the saved-pin bootstrap then exceeded 5s. The available
+  artifact does not establish why the SDK/server stalled. An unchanged local focused run
+  passed **11 unique tests / 12 cases, 0 failures / 0 skips**, including both cloud cases
+  (profile 0.24s; saved-pin model about 1s). Evidence:
+  `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-w9u9xe8i/Acceptance.xcresult`.
+  Neither cloud deadline nor network/data assertion is relaxed, and no retry-to-green added.
+- Failed cloud fixtures previously deleted open SQLite databases (confirmed by CI's
+  “vnode unlinked while in use” diagnostics). Both now await shutdown on failure before
+  removing their own files. Profile stage markers and the emulator's Firestore log are
+  retained for further diagnosis; markers contain no credentials or document contents.
+- Updated Debug test build passed. The pending/account-switch test passed **20/20 fixed
+  repetitions**, 0 failures, in `/tmp/BarkNativeFourFailures.vNruIz/Pending20Exact.xcresult`.
+  An earlier selector-only invocation matched zero tests and is **not verification**.
+  A newly created iOS 26.5 simulator passed the full account UI flow **1/1**, 0 skips:
+  `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-_357lk8p/Acceptance.xcresult`.
+  Its password sheet was already ready when addressed; this verifies fresh-device behavior,
+  not a locally reproduced 32s Apple-service delay. Hosted confirmation is still required.
+- Change size before this report: **5 test/CI files, +176/-119 lines** (net +57, mostly
+  safe cleanup scopes and their indentation). **0 shipping app/backend files changed**.
+  Full updated local native acceptance is running; log:
+  `/tmp/BarkNativeFourFailures.vNruIz/native-full.log`. Do not call this run passed yet.
+
 ### Purchase-boundary operation counts
 
 Firestore emulator instrumentation; excludes transaction retries and Apple's external API cost.
@@ -252,7 +297,8 @@ exists. Account deletion paginates those rows. No permanent row per notification
 1. Full local native/app UI, paywall accessibility, StoreKit and signed Release verification
    passed on shipping source `fa4b00f`. The subsequent `a75e957` test-only readiness fix is
    verified on fresh/warm simulators above. Hosted backend passed; require the new full
-   Native iOS workflow `34952712455` green. Local tests do not establish hosted CI success.
+   Native iOS workflow green after the four-failure follow-up above. `34952712455` failed;
+   local tests do not establish hosted CI success, and two cloud failures remain under review.
 2. Native deployment, sandbox notification delivery and live Auth/App Check/rejection checks
    are complete. Verify production notification/API access once Apple's release gate opens.
 3. Verify genuine Apple sandbox → native backend → app, then retire the temporary owner

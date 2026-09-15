@@ -37,11 +37,23 @@ import Testing
             nativeProfileConfiguration: configuration)
         let fixture = Self(directory: directory, app: app, db: db, auth: auth, session: session)
         session.setForeground(true)
-        if signIn {
-            auth.select(uid)
-            try await eventually { session.nativeTrips != nil && session.profileState?.confirmed != nil }
-        } else {
-            try await eventually { session.identity == nil && session.nativeTrips != nil }
+        do {
+            if signIn {
+                auth.select(uid)
+                // Trips publish before visits/walks, with suspension points between.
+                // A fixture promising an offline account must await all its features;
+                // profile/trip readiness alone raced PendingVisitMarkerTests in CI.
+                try await eventually {
+                    session.profileState?.confirmed != nil && session.nativeSavedPins != nil
+                        && session.nativeTrips != nil && session.nativeVisits != nil
+                        && session.nativeExpeditions != nil
+                }
+            } else {
+                try await eventually { session.identity == nil && session.nativeTrips != nil }
+            }
+        } catch {
+            do { try await fixture.close() } catch { Issue.record(error) }
+            throw error
         }
         return fixture
     }

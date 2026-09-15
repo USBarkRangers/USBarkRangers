@@ -22,7 +22,8 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         app.buttons["Sign in"].tap()
         XCTAssertTrue(app.textFields["New display name"].waitForExistence(timeout: 15))
         dismissPasswordPrompt(app)
-        let pending = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Pending changes'")).firstMatch
+        let pending = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Pending changes'"))
+            .firstMatch
         for _ in 0..<10 where !pending.isHittable { app.swipeUp() }
         XCTAssertTrue(pending.isHittable)
         pending.tap()
@@ -71,7 +72,8 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         openAccount(app)
         let email = app.textFields["Email"]
         XCTAssertTrue(email.waitForExistence(timeout: 10))
-        email.tap(); email.typeText("profile-ui@native.invalid")
+        email.tap()
+        email.typeText("profile-ui@native.invalid")
         app.secureTextFields["Password"].tap()
         app.secureTextFields["Password"].typeText("NativeOnly123!")
         app.keyboards.buttons["Done"].tap()
@@ -85,21 +87,26 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         let title = "Native screen trip"
         field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (field.value as? String ?? "").count) + title + "\n")
+        field.typeText(
+            String(repeating: XCUIKeyboardKey.delete.rawValue, count: (field.value as? String ?? "").count)
+                + title + "\n")
         app.buttons["Add day"].tap()
         app.alerts.buttons["Add Day"].tap()
         XCTAssertTrue(app.buttons["route-day-title"].label.contains("Day 2"))
         app.buttons["Save to account"].tap()
-        let saved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS 'Saved on this iPhone'"),
+        let saved = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS 'Saved on this iPhone'"),
             object: app.staticTexts["trip-save-status"])
         XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 10), .completed)
         attach(app, name: "Native trip saved through Planner")
         app.tabBars.buttons["Map"].tap()
         XCTAssertTrue(app.buttons["map-displayed-trip"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.buttons["map-displayed-trip"].label, title)
-        app.terminate(); app.launch()
+        app.terminate()
+        app.launch()
         app.tabBars.buttons["Trips"].tap()
-        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", title), object: field)
+        let restored = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", title), object: field)
         XCTAssertEqual(XCTWaiter.wait(for: [restored], timeout: 15), .completed)
         XCTAssertTrue(app.buttons["route-day-title"].label.contains("Day 2"))
         attach(app, name: "Native trip and device day restored")
@@ -158,7 +165,8 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         openSettings(app)
         // The emulator account survives reruns. Exercise a real change from its
         // current setting instead of assuming the preceding run left Standard.
-        let appearance = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Map appearance, '")).firstMatch
+        let appearance = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Map appearance, '"))
+            .firstMatch
         XCTAssertTrue(appearance.waitForExistence(timeout: 10))
         let nextAppearance = appearance.label == "Map appearance, Standard" ? "Satellite" : "Standard"
         XCTAssertTrue(["Map appearance, Standard", "Map appearance, Satellite"].contains(appearance.label))
@@ -200,7 +208,8 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         app.secureTextFields["Password"].tap()
         app.secureTextFields["Password"].typeText("NativeOnly123!")
         app.keyboards.buttons["Done"].tap()
-        app.switches["Create a new account"].coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        app.switches["Create a new account"].coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5))
+            .tap()
         app.buttons["Create account"].tap()
         XCTAssertTrue(app.staticTexts["Ranger"].waitForExistence(timeout: 15))
         dismissPasswordPrompt(app)
@@ -238,15 +247,25 @@ nonisolated final class NativeAccountUITests: XCTestCase {
     }
     @MainActor private func signOut(_ app: XCUIApplication) {
         let button = app.buttons["Sign out"]
-        for _ in 0..<12 where !button.isHittable { app.swipeUp() }
+        // Target the account form, not the whole app (which includes a remote
+        // password sheet). XCTest can then detect the sheet as an interruption.
+        for _ in 0..<12 where !button.isHittable { app.collectionViews.firstMatch.swipeUp() }
         XCTAssertTrue(button.isHittable)
         button.tap()
     }
     @MainActor private func dismissPasswordPrompt(_ app: XCUIApplication) {
-        // Call after the signed-in UI exists: a cold Auth/bootstrap request can take
-        // longer than this optional prompt wait. Checking immediately after Submit
-        // misses the later system sheet and leaves it intercepting every swipe.
-        guard app.buttons["Not Now"].waitForExistence(timeout: 5) else { return }
+        // The remote service can appear after the signed-in UI. CI's cold service
+        // was still loading at the former 5s check. Handle a late interruption too;
+        // never save synthetic passwords or dismiss unrelated app/account alerts.
+        addUIInterruptionMonitor(withDescription: "Decline system password saving") { alert in
+            guard alert.buttons["Not Now"].exists && alert.buttons["Save"].exists else { return false }
+            return self.declinePasswordSaving()
+        }
+        if app.buttons["Not Now"].exists {
+            XCTAssertTrue(declinePasswordSaving(), "Cannot address the system password prompt")
+        }
+    }
+    @MainActor private func declinePasswordSaving() -> Bool {
         // iOS 26 embeds a remote credential service. Tapping its mirrored button
         // through the host app sends an event to the wrong process and does nothing.
         for bundle in [
@@ -256,10 +275,9 @@ nonisolated final class NativeAccountUITests: XCTestCase {
             let button = service.buttons["Not Now"]
             if button.exists {
                 button.tap()
-                XCTAssertTrue(app.buttons["Not Now"].waitForNonExistence(timeout: 5))
-                return
+                return button.waitForNonExistence(timeout: 5)
             }
         }
-        XCTFail("Cannot address the system password prompt; no synthetic password was saved.")
+        return false
     }
 }

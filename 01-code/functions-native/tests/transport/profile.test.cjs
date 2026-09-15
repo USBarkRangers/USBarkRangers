@@ -57,7 +57,7 @@ test('actual callable auth and Firestore rules isolate native profiles end to en
     assert.equal((await fetch(`${documents}/users`, { headers: a.headers })).status, 403);
     assert.equal((await fetch(`${documents}/users/${a.uid}/commandLimits/bootstrap`, { headers: a.headers })).status, 403);
     assert.equal((await fetch(`${documents}/nativeOperationReceipts`, { headers: a.headers })).status, 403);
-    for (const resource of ['visits', 'activities', 'activityClaims', 'virtualRuns', 'leaderboardCache', 'trips', 'notes', 'places']) {
+    for (const resource of ['visits', 'activities', 'activityClaims', 'virtualRuns', 'leaderboardCache', 'trips', 'notes', 'places', 'purchases']) {
         // Native history/rank access goes through owner-validated bounded reads;
         // client SDKs cannot bypass paging/admission or forge private authority.
         assert.equal((await fetch(`${documents}/users/${a.uid}/${resource}`, { headers: a.headers })).status, 403);
@@ -68,6 +68,14 @@ test('actual callable auth and Firestore rules isolate native profiles end to en
     const forge = await fetch(`${documents}/users/${a.uid}/state/entitlement`, { method: 'PATCH', headers: a.headers,
         body: JSON.stringify({ fields: { premium: { booleanValue: true } } }) });
     assert.equal(forge.status, 403);
+    for (const actor of [a,b]) {
+        assert.equal((await fetch(`${documents}/nativeAppleOwners`,{headers:actor.headers})).status,403);
+        assert.equal((await fetch(`${documents}/nativeAppleOwners/forged`,{method:'PATCH',headers:actor.headers,
+            body:JSON.stringify({fields:{uid:{stringValue:actor.uid}}})})).status,403);
+        assert.equal((await fetch(`${documents}/users/${a.uid}/purchases/apple`,{headers:actor.headers})).status,403);
+    }
+    assert.equal((await fetch(commandURL.replace('nativeCommand','nativePurchase'),{method:'POST',
+        headers:{'content-type':'application/json'},body:JSON.stringify({data:{version:1,kind:'context'}})})).status,401);
     const freeEdit = await send(a, command('updateProfile', 1, { displayName: 'Not paid' }));
     assert.equal(freeEdit.status, 403);
     assert.equal(freeEdit.body.error.details.reason, 'premium-required');

@@ -3,7 +3,8 @@
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
-const { onCall } = require('firebase-functions/v2/https');
+const { onCall, onRequest } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const logger = require('firebase-functions/logger');
 const { resolveProject } = require('./runtime/project');
@@ -24,6 +25,7 @@ const { createRecordActivity } = require('./activities/create');
 const { createActivityEdits } = require('./activities/edit');
 const { createDeletionService } = require('./accounts/deletion');
 const { setSavedPin } = require('./places/bookmarks');
+const { purchaseRuntime, notificationHandler } = require('./purchases/runtime');
 
 const runtime = resolveProject(); // Must pass before Admin constructs any client.
 const app = initializeApp({ projectId: runtime.projectID });
@@ -69,9 +71,15 @@ exports.nativeAccountCleanup = onSchedule({ region: runtime.region, schedule: 'e
     catch { logger.error({ event: 'native-account-cleanup-failed' }); throw new Error('Native cleanup will retry.'); }
 });
 
-// APPLE-ACTIVATION: enrollment approved per owner (2026-09-14); setup/implementation pending.
-// Intended additional exports, after real verification/ownership/notification handlers exist:
-// exports.verifyApplePurchase = onCall(verifiedPurchaseOptions, verifyApplePurchase);
-// exports.appleServerNotification = onRequest(notificationOptions, receiveVerifiedNotification);
-// Notification delivery has no Firebase user token: validate Apple's signed payload instead.
-// Never substitute the nativeCommand payload for verified Apple transaction evidence.
+const appleCredential = defineSecret('NATIVE_APPLE_IAP_CREDENTIAL');
+const purchases = purchaseRuntime(getFirestore(app), () => appleCredential.value());
+const purchaseOptions = { region: runtime.region,
+    serviceAccount: runtime.emulator ? undefined : 'native-ios-runtime@bark-ranger-ios.iam.gserviceaccount.com',
+    secrets: [appleCredential], minInstances: 0, maxInstances: 2, concurrency: 10,
+    cpu: 1, memory: '256MiB', timeoutSeconds: 60 };
+exports.nativePurchase = onCall({ ...purchaseOptions, enforceAppCheck: !runtime.emulator },
+    createCommandCallable({ runtime, execute: (...args) => purchases().execute(...args),
+        reportFailure: () => logger.error({ event: 'native-apple-purchase-failed' }) }));
+// Apple has no Firebase token. Its cryptographically verified JWS is mandatory instead.
+exports.nativeAppleNotification = onRequest(purchaseOptions,
+    notificationHandler(purchases, detail => logger.error(detail)));

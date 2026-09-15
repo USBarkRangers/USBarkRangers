@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "cases": [
+    { "id": "production-active", "source": "app-store-production", "premium": true, "daysAfterExpiry": -1, "edit": true, "upload": true },
+    { "id": "sandbox-active", "source": "app-store-sandbox", "premium": true, "daysAfterExpiry": -1, "edit": true, "upload": true },
+    { "id": "production-offline-grace", "source": "app-store-production", "premium": true, "daysAfterExpiry": 39.999, "edit": true, "upload": true },
+    { "id": "sandbox-offline-grace", "source": "app-store-sandbox", "premium": true, "daysAfterExpiry": 39.999, "edit": true, "upload": true },
+    { "id": "production-edit-cutoff", "source": "app-store-production", "premium": true, "daysAfterExpiry": 40, "edit": false, "upload": true },
+    { "id": "sandbox-edit-cutoff", "source": "app-store-sandbox", "premium": true, "daysAfterExpiry": 40, "edit": false, "upload": true },
+    { "id": "production-retry-margin", "source": "app-store-production", "premium": true, "daysAfterExpiry": 44.999, "edit": false, "upload": true },
+    { "id": "sandbox-retry-margin", "source": "app-store-sandbox", "premium": true, "daysAfterExpiry": 44.999, "edit": false, "upload": true },
+    { "id": "production-upload-cutoff", "source": "app-store-production", "premium": true, "daysAfterExpiry": 45, "edit": false, "upload": false },
+    { "id": "sandbox-upload-cutoff", "source": "app-store-sandbox", "premium": true, "daysAfterExpiry": 45, "edit": false, "upload": false },
+    { "id": "production-refunded", "source": "app-store-production", "premium": false, "daysAfterExpiry": -1, "edit": false, "upload": false },
+    { "id": "sandbox-refunded", "source": "app-store-sandbox", "premium": false, "daysAfterExpiry": -1, "edit": false, "upload": false },
+    { "id": "no-subscription", "source": "none", "premium": false, "daysAfterExpiry": -1, "edit": false, "upload": false }
+  ]
+}

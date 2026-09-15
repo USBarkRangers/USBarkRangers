@@ -15,6 +15,7 @@ const HTTP_CODES = Object.freeze({
     'activity-reused': 'already-exists', 'overlapping-activity': 'failed-precondition',
     'incomplete-expedition': 'failed-precondition',
     'recent-auth-required': 'failed-precondition',
+    'invalid-purchase': 'invalid-argument', 'purchase-account-mismatch': 'failed-precondition',
 });
 
 // The SDK verifies bearer tokens and App Check before this adapter; never accept uid in data.

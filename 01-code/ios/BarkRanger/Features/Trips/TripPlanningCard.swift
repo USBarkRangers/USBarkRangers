@@ -10,6 +10,7 @@ struct TripPlanningCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Plan trip").font(.headline)
+            if !model.canUsePremium { UpgradeToPremiumButton() }
             Stepper(
                 hours == 1 ? "Driving goal: 1 hour per day" : "Driving goal: \(Int(hours)) hours per day",
                 value: $hours, in: 1...16)

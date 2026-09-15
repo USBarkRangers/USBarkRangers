@@ -31,8 +31,9 @@ public struct NativeEntitlement: Codable, Equatable, Sendable {
     }
     public func permitsEditing(at now: Date) -> Bool {
         // Only a server-confirmed administrative grant enables development builds.
-        // Release never treats development or Apple sandbox data as paid access.
-        var acceptedSource = source == .production
+        // Genuine server-verified sandbox enables TestFlight/App Review. It remains
+        // distinctly labeled; StoreKit-local evidence can never write this projection.
+        var acceptedSource = source == .production || source == .sandbox
         #if DEBUG
             acceptedSource = acceptedSource || source == .development
         #endif
@@ -42,7 +43,8 @@ public struct NativeEntitlement: Codable, Equatable, Sendable {
     public var editingDeadline: Date? {
         validUntilMs.map {
             Date(timeIntervalSince1970: Double($0) / 1000)
-                .addingTimeInterval(source == .production ? NativeSyncPolicy.offlineGrace : 0)
+                .addingTimeInterval(
+                    source == .production || source == .sandbox ? NativeSyncPolicy.offlineGrace : 0)
         }
     }
 }

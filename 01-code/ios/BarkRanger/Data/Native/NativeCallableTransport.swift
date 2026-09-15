@@ -51,11 +51,13 @@ actor NativeCallableTransport {
         async throws -> Output
     {
         try check()
-        guard ["nativeCommand", "nativeRead", "nativeDeleteAccount"].contains(endpoint), bytes.count <= 400_000 else {
+        guard ["nativeCommand", "nativeRead", "nativeDeleteAccount", "nativePurchase"].contains(endpoint),
+            bytes.count <= 400_000
+        else {
             throw Failure.invalidReply
         }
         let callable = functions.httpsCallable(endpoint)
-        callable.timeoutInterval = 30
+        callable.timeoutInterval = endpoint == "nativePurchase" ? 60 : 30
         do {
             #if DEBUG
                 if recordsCalls, let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],

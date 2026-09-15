@@ -1,0 +1,41 @@
+{
+  "identifier": "B2D3913C-3519-4D90-B2A8-B5A8FC74C39D",
+  "nonRenewingSubscriptions": [],
+  "products": [],
+  "settings": {
+    "_applicationInternalID": "6812160476",
+    "_developerTeamID": "V7Y6NA8G23",
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA",
+    "_storeKitErrors": [],
+    "_timeRate": 0
+  },
+  "subscriptionGroups": [{
+    "id": "22385849",
+    "localizations": [{"description": "Premium for Bark Ranger", "displayName": "Bark Ranger Premium", "locale": "en_US"}],
+    "name": "Bark Ranger Premium",
+    "subscriptions": [{
+      "adHocOffers": [],
+      "codeOffers": [],
+      "displayPrice": "19.99",
+      "familyShareable": false,
+      "groupNumber": 1,
+      "internalID": "C7310C4A-8075-4A9C-9195-3A13B8948586",
+      "introductoryOffer": {
+        "internalID": "D23624A3-759B-470E-A72F-51FE8E71D153",
+        "numberOfPeriods": 1,
+        "paymentMode": "free",
+        "subscriptionPeriod": "P1W"
+      },
+      "localizations": [{"description": "Save trips, record visits and track walks.", "displayName": "Bark Ranger Premium Annual", "locale": "en_US"}],
+      "productID": "swarm.USBARKRANGERS.premium.annual",
+      "recurringSubscriptionPeriod": "P1Y",
+      "referenceName": "Bark Ranger Premium Annual",
+      "subscriptionGroupID": "22385849",
+      "type": "RecurringSubscription",
+      "winBackOffers": []
+    }]
+  }],
+  "version": {"major": 3, "minor": 0}
+}

@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 
 /// A destructive account action, deliberately outside the offline edit mailroom.
@@ -7,6 +8,7 @@ struct AccountDeletionSection: View {
     @State private var password = ""
     @State private var confirm = false
     @State private var confirmApple = false
+    @State private var managingSubscription = false
     var body: some View {
         if model.capabilities.accountManagement {
             Section("Delete account") {
@@ -14,6 +16,10 @@ struct AccountDeletionSection: View {
                     "Permanently delete this account, its cloud data, saved pins and unsynced changes. Other accounts and guest drafts are not deleted. An internet connection and recent sign-in confirmation are required."
                 )
                 .font(.footnote)
+                Text(
+                    "Deleting your Bark account does not cancel Apple billing. Cancel your subscription in Apple’s subscription settings if you no longer want it."
+                ).font(.footnote)
+                Button("Manage Apple Subscription") { managingSubscription = true }
                 if model.session.identity?.providers.contains("password") == true {
                     SecureField("Password to confirm identity", text: $password).textContentType(.password)
                     Button("Confirm identity") {
@@ -45,6 +51,7 @@ struct AccountDeletionSection: View {
             } message: {
                 Text("This cannot be undone. Cloud cleanup continues automatically after you sign out.")
             }
+            .manageSubscriptionsSheet(isPresented: $managingSubscription)
         }
     }
 }

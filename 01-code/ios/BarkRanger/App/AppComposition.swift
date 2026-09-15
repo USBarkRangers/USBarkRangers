@@ -17,6 +17,7 @@ struct AppComposition {
     let expeditions: ExpeditionModel
     let mapExpedition: MapExpeditionOverlay
     let support: SupportDependencies
+    let purchases: PurchaseService
 
     static func makeApp() -> AppComposition {
         #if DEBUG
@@ -94,15 +95,9 @@ struct AppComposition {
             accounts
             ?? AccountAssembly.unavailable(
                 directory: URL.cachesDirectory.appendingPathComponent("UnusedAccounts"))
-        // APPLE-ACTIVATION: inject the native membership service here when the native
-        // account graph replaces this bridge. Inactive wiring sketch, not implemented APIs:
-        // let membership = StoreKitMembershipService(products: approvedProductIDs,
-        //     verification: accounts.purchaseVerification)
-        // let account = AccountModel(..., membership: membership)
-        // Product IDs must come from the owner's approved App Store Connect setup.
-        // The scoped lifecycle must own/cancel transaction observation on account changes;
-        // never make a StoreKit success boolean grant local or server Premium.
         let account = AccountModel(session: accounts.session, google: accounts.google)
+        let purchases = PurchaseService(
+            account: accounts.session, store: StoreKitClient(), connect: accounts.purchaseCloud)
         let routeCache = RouteGeometryStore(
             directory: accounts.session.directory.appendingPathComponent("RouteCache", isDirectory: true))
         let activeTrip = ActiveTripSession(
@@ -127,9 +122,10 @@ struct AppComposition {
             store: RecordingStore(directory: accounts.session.directory),
             location: location, motion: PedometerClient(), activity: LiveActivityService())
         let accountProject = accounts.session.nativeProfileConfiguration?.project ?? "bark-ranger-ios"
-        accounts.session.eraseAdditionalAccountData = { [weak recorder, weak discovery, weak activeTrip] uid in
+        accounts.session.eraseAdditionalAccountData = {
+            [weak recorder, weak discovery, weak activeTrip] uid in
             guard let recorder, let discovery, let activeTrip else { throw NativeStore.Failure.unavailable }
-            await recorder.activateAccount() // Drains recording writes after identity has been cleared.
+            await recorder.activateAccount()  // Drains recording writes after identity has been cleared.
             try activeTrip.forgetDeletedAccount(scope: accountProject + ":" + uid)
             try await discovery.savedPlaces?.eraseClosedAccount(uid)
             try await routeCache.clearForAccountDeletion()
@@ -149,6 +145,6 @@ struct AppComposition {
             expeditions: expeditions, mapExpedition: MapExpeditionOverlay(),
             support: SupportDependencies(
                 account: accounts.session, service: accounts.feedback,
-                store: FeedbackDraftStore(directory: accounts.session.directory)))
+                store: FeedbackDraftStore(directory: accounts.session.directory)), purchases: purchases)
     }
 }

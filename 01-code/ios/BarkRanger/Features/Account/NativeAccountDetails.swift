@@ -9,7 +9,9 @@ struct NativeAccountDetails: View {
         if let profile = model.session.profileState {
             Section {
                 accountValue(
-                    "Access", value: model.session.entitlement.access?.premium == true ? "Premium" : "Free")
+                    "Access",
+                    value: model.session.entitlement.access.map { $0.premium ? "Premium" : "Free" }
+                        ?? "Unconfirmed")
                 accountValue("Status", value: model.session.entitlement.access?.status ?? "Unconfirmed")
                 if model.session.entitlement.access?.source == "development" {
                     Text("Temporary development access. No App Store purchase or subscription is active.")
@@ -26,8 +28,9 @@ struct NativeAccountDetails: View {
                     )
                     .font(.footnote).foregroundStyle(.secondary)
                 }
-                // APPLE-ACTIVATION: real purchase/restore service is the later services
-                // slice. No old provider recovery URL or local Premium grant belongs here.
+                UpgradeToPremiumButton(
+                    title: model.session.entitlement.access?.premium == true
+                        ? "Premium membership" : "Upgrade to Premium")
             } header: {
                 Text("Membership").foregroundStyle(Color.primary)
             }
@@ -48,8 +51,10 @@ struct NativeAccountDetails: View {
                     accountValue("Pending changes", value: String(profile.totalPendingCount))
                 }
                 if profile.totalPendingCount >= NativeSyncPolicy.queueWarning {
-                    Text("Many changes are waiting. Open Pending changes to review them or sync when connected.")
-                        .font(.footnote).foregroundStyle(.orange)
+                    Text(
+                        "Many changes are waiting. Open Pending changes to review them or sync when connected."
+                    )
+                    .font(.footnote).foregroundStyle(.orange)
                 }
                 if let message = model.session.message { Text(message).font(.footnote) }
                 Button("Sync now") { model.session.requestSync(refresh: true) }

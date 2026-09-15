@@ -20,7 +20,7 @@ struct BarkRangerApp: App {
                 settings: composition.settings, account: composition.account, trips: composition.trips,
                 passport: composition.passport, expeditions: composition.expeditions,
                 support: composition.support, mapExpedition: composition.mapExpedition,
-                catalog: composition.catalog
+                catalog: composition.catalog, purchases: composition.purchases
             )
             .onChange(of: scenePhase, initial: true) { _, phase in
                 composition.lifecycle.sceneChanged(phase)

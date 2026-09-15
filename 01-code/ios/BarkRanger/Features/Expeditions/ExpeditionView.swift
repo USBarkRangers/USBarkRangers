@@ -83,6 +83,7 @@ struct ExpeditionView: View {
                         !model.canRecord || !model.health.available)
                 }.barkSectionCard()
                 if !model.account.dataAccess.canEditAccount {
+                    UpgradeToPremiumButton()
                     Text(
                         "Your existing history remains available. Premium is required to record or change walks."
                     )

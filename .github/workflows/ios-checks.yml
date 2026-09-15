@@ -72,6 +72,7 @@ jobs:
             -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
             -derivedDataPath "$RUNNER_TEMP/BarkDerivedData" \
             -resultBundlePath "$RUNNER_TEMP/BarkShell.xcresult" \
+            -skip-testing:BarkRangerTests/StoreKitClientTests \
             -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES test-without-building
       - name: Keep test evidence
         if: always()
@@ -82,5 +83,40 @@ jobs:
             ${{ runner.temp }}/BarkShell.xcresult
             ${{ runner.temp }}/BarkAccountChecks-*/Acceptance.xcresult
             ${{ runner.temp }}/account-catalog.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  storekit:
+    # Same app/test code fails before product loading on 26.5 (SKInternalErrorDomain
+    # Code=3, "not installed for development") and passes on 26.1. Keep the full
+    # app suite on 26.5; run real StoreKit in this REQUIRED second job, not a skip
+    # or mocked replacement. Rejoin the main suite after a verified Apple fix.
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install isolated StoreKit simulator runtime
+        run: xcodebuild -downloadPlatform iOS -buildVersion 26.1 -architectureVariant arm64
+      - name: Real StoreKit purchase, redelivery, restore, renewal and refund
+        run: |
+          BARK_STOREKIT_DEVICE=$(xcrun simctl create 'Bark StoreKit' \
+            com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro \
+            com.apple.CoreSimulator.SimRuntime.iOS-26-1)
+          xcodebuild -project 01-code/ios/BarkRanger.xcodeproj -scheme BarkRanger \
+            -configuration Debug -destination "platform=iOS Simulator,id=$BARK_STOREKIT_DEVICE" \
+            -derivedDataPath "$RUNNER_TEMP/BarkStoreKit" \
+            -resultBundlePath "$RUNNER_TEMP/BarkStoreKit.xcresult" \
+            -only-testing:BarkRangerTests/StoreKitClientTests \
+            -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES test
+      - name: Keep StoreKit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bark-storekit-test-results
+          path: ${{ runner.temp }}/BarkStoreKit.xcresult
           if-no-files-found: ignore
           retention-days: 7

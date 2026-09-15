@@ -122,6 +122,7 @@ struct RouteDaySheet: View {
     }
     @ViewBuilder private var routeStatus: some View {
         if !model.premium {
+            UpgradeToPremiumButton()
             Text("Your day is saved locally. Premium enables road routes and account saving.").font(.footnote)
                 .foregroundStyle(.secondary)
         } else if !model.routes.isLoading, let plan,

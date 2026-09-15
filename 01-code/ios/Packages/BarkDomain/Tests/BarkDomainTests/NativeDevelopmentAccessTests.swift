@@ -18,7 +18,7 @@ struct NativeDevelopmentAccessTests {
         #endif
         #expect(!access.permitsEditing(at: now.addingTimeInterval(1)))
         #expect(
-            !NativeEntitlement(
+            NativeEntitlement(
                 revision: 2, premium: true, source: .sandbox,
                 validUntilMs: 1_800_000_001_000
             ).permitsEditing(at: now))

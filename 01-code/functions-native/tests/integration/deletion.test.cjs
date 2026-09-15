@@ -51,11 +51,15 @@ test('resumable deletion removes nested records, paged receipts and leaderboard 
     for (let i = 0; i < 405; i++) batch.set(db.collection('nativeOperationReceipts').doc(`delete-${f.uid}-${i}`), { uid: f.uid });
     batch.set(f.user.collection('trips').doc('a').collection('content').doc('itinerary'), { private: true });
     for (const name of ['notes', 'places', 'visits', 'activities', 'activityClaims', 'activityIntervals',
-        'completedTrails', 'readLimits', 'commandLimits', 'leaderboardCache', 'futureJournal']) {
+        'completedTrails', 'readLimits', 'commandLimits', 'leaderboardCache', 'purchases', 'futureJournal']) {
         batch.set(f.user.collection(name).doc('private'), { private: true });
     }
     batch.set(db.collection('leaderboard').doc(publicEntryID(f.uid)), { totalPoints: 5 });
     await batch.commit();
+    const appleOwners = db.batch();
+    for (let i = 0; i < 405; i++) appleOwners.set(db.collection('nativeAppleOwners').doc(`${f.uid}-${i}`), {uid:f.uid});
+    appleOwners.set(db.collection('nativeAppleOwners').doc(other.uid), {uid:other.uid});
+    await appleOwners.commit();
     let now = Date.now(), fail = true;
     const tracked = { collection: p => db.collection(p), runTransaction: work => db.runTransaction(work), batch: () => db.batch(),
         async recursiveDelete(ref) { if (fail) { fail = false; throw new Error('Injected interruption after Auth deletion'); } return db.recursiveDelete(ref); } };
@@ -74,6 +78,8 @@ test('resumable deletion removes nested records, paged receipts and leaderboard 
     assert.equal((await f.user.get()).exists, false);
     assert.deepEqual(await f.user.listCollections(), []);
     assert.equal((await db.collection('nativeOperationReceipts').where('uid', '==', f.uid).get()).empty, true);
+    assert.equal((await db.collection('nativeAppleOwners').where('uid', '==', f.uid).get()).empty, true);
+    assert.equal((await db.collection('nativeAppleOwners').doc(other.uid).get()).get('uid'),other.uid);
     assert.equal((await db.collection('leaderboard').doc(publicEntryID(f.uid)).get()).exists, false);
     assert.equal((await other.user.get()).get('status'), 'active');
     assert.equal((await auth.getUser(other.uid)).uid, other.uid);

@@ -28,6 +28,9 @@
     ] }
   ],
   "fieldOverrides": [
+    { "collectionGroup": "purchases", "fieldPath": "*", "indexes": [] },
+    { "collectionGroup": "nativeAppleOwners", "fieldPath": "*", "indexes": [] },
+    { "collectionGroup": "nativeAppleOwners", "fieldPath": "uid", "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION" }] },
     { "collectionGroup": "content", "fieldPath": "*", "indexes": [] },
     { "collectionGroup": "notes", "fieldPath": "text", "indexes": [] },
     { "collectionGroup": "notes", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },

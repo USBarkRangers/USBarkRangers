@@ -24,12 +24,15 @@ after(async () => { await db.terminate(); await deleteApp(app); });
 
 test('measure the same ten-note trip, first visit and Passport actions through real handlers', async () => {
     const uid = `cost-${randomUUID()}`, tripID = randomUUID();
+    // The baseline excludes time-of-day awards. Running CI before 04:00 UTC used
+    // to earn the night badge and add a real award write. Measure yesterday at noon.
+    const day = 86_400_000, now = Math.floor(Date.now() / day) * day - day + 12 * 3600_000;
     const execute = createExecutor({ db: measured.db, handlers: { bootstrapAccount, saveTrip: createSaveTrip({ catalog }),
-        saveTripNotes, ...createVisitHandlers({ catalog }), recordDailyActivity: createDailyActivity({ catalog }) } });
+        saveTripNotes, ...createVisitHandlers({ catalog }), recordDailyActivity: createDailyActivity({ catalog }) }, clock: () => now });
     const read = createReadService(measured.db);
     let calls = 0;
     const send = async (kind, payload, expectedRevision = 0) => { calls++;
-        return execute(uid, { version: 1, operationID: randomUUID(), kind, payload, expectedRevision, createdAtMs: Date.now() }); };
+        return execute(uid, { version: 1, operationID: randomUUID(), kind, payload, expectedRevision, createdAtMs: now }); };
     const get = async (kind, query) => { calls++; return read(uid, { kind, query: { version: 1, ...query } }); };
     await send('bootstrapAccount', {});
     await db.doc(`users/${uid}/state/entitlement`).set({ schemaVersion: 1, revision: 2, premium: true,
@@ -62,12 +65,12 @@ test('measure the same ten-note trip, first visit and Passport actions through r
     await action('open ten-note trip', () => get('trip', { tripID }));
     const park = require('../../catalog/catalog.json').parks.find(p => !p.isRetired);
     const visit = { visitID: randomUUID(), officialPlaceID: park.id, expectedPlaceRevision: 0,
-        happenedAtMs: Date.now(), timeZone: 'UTC' };
+        happenedAtMs: now, timeZone: 'UTC' };
     await action('first unverified visit', async () => {
         const outcome = await send('markVisit', visit); assert.equal(outcome.confirmation.visit.id, visit.visitID);
     });
     await action('first Passport daily activity', async () => {
-        await send('recordDailyActivity', { day: dayKey(Date.now(), 'UTC'), timeZone: 'UTC' });
+        await send('recordDailyActivity', { day: dayKey(now, 'UTC'), timeZone: 'UTC' });
         await measured.db.doc(`users/${uid}/state/progress`).get(); // Direct owner document; no function.
     });
     assert.deepEqual(rows.map(({ reads, writes, calls }) => [reads, writes, calls]), [

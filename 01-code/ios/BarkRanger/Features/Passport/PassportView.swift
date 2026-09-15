@@ -61,6 +61,7 @@ struct PassportView: View {
                     ProgressView("Opening your passport…")
                 }
                 if let notice = model.notice { Text(notice).font(.footnote) }
+                if model.account.identity != nil, !model.canEdit { UpgradeToPremiumButton() }
                 if let message = model.account.nativeVisits?.message
                     ?? model.account.nativeVisits?.sync?.message
                 {

@@ -15,6 +15,7 @@ struct RootView: View {
     var support: SupportDependencies? = nil
     var mapExpedition: MapExpeditionOverlay? = nil
     var catalog: CatalogRepository? = nil
+    var purchases: PurchaseService? = nil
 
     var body: some View {
         Group {
@@ -42,6 +43,10 @@ struct RootView: View {
                 }
                 .sheet(item: $router.sheet) { sheet in
                     switch sheet {
+                    case .premium:
+                        if let purchases {
+                            PremiumView(model: purchases, signIn: { router.open(.tab(.account)) })
+                        }
                     case .sharing:
                         if let account, let catalog {
                             NavigationStack {
@@ -94,6 +99,7 @@ struct RootView: View {
             }
         }
         .environment(\.support, support)
+        .environment(\.showPremium, { router.open(.sheet(.premium)) })
         .environment(\.expeditionOverlay, mapExpedition)
         .onChange(of: router.selectedTab) { _, _ in
             // Fresh summaries are reused; entering a screen after a long foreground
@@ -104,6 +110,7 @@ struct RootView: View {
             await mapExpedition?.updateWalk(expeditions?.recorder.points ?? [])
         }
         .task(id: account?.session.identity?.uid) {
+            purchases?.activate()
             mapExpedition?.clear()
             expeditions?.resetScope()
             await expeditions?.recorder.activateAccount()
@@ -114,8 +121,12 @@ struct RootView: View {
             if phase == .background {
                 passport?.leaderboard.cancel()
             }
-            if phase == .active { passport?.recordActivity() }
+            if phase == .active {
+                passport?.recordActivity()
+                purchases?.activate()
+            }
         }
+        .onChange(of: account?.session.profileState?.entitlement) { _, _ in purchases?.activate() }
         .onChange(of: account?.session.identity?.uid) { _, _ in
             discovery.routeDay?.stop()
             discovery.cancelPlaceSelection()
@@ -170,7 +181,7 @@ struct RootView: View {
                     Text("Development preview")
                         .font(.headline)
                     Text(
-                        "Explore offline park records, local search, filters and Apple Maps directions. Record visits, plan trips and build your passport. Record walks and follow virtual expeditions. New purchases are planned for Phase 6."
+                        "Explore offline park records, local search, filters and Apple Maps directions. Premium adds account saving, park visits, trip planning and walks with virtual expeditions."
                     )
                     Text("Your existing Bark Ranger app is still available as usual.")
                         .fixedSize(horizontal: false, vertical: true)

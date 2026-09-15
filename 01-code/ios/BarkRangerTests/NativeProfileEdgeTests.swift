@@ -58,7 +58,10 @@ struct NativeProfileEdgeTests {
             .init(
                 revision: 2, premium: true, source: .sandbox,
                 validUntilMs: try NativeClientTime.milliseconds(Date().addingTimeInterval(60))), uid: "b")
-        #expect(repository.access?.uid == "b" && repository.access?.premium == false)
+        // Approved Phase 6: a server-confirmed sandbox grant works in TestFlight,
+        // while retaining its exact owner and non-production label.
+        #expect(repository.access?.uid == "b" && repository.access?.premium == true)
+        #expect(repository.access?.source == "app-store-sandbox")
         repository.clear()
         #expect(repository.access == nil)
     }

@@ -10,6 +10,7 @@ import Foundation
     let google: GoogleSignInAdapter?
     var leaderboard: (any LeaderboardReading)? = nil
     var feedback: (any FeedbackSending)? = nil
+    var purchaseCloud: (@MainActor (String) throws -> any PurchaseVerifying)? = nil
     // Apple provider configured only in bark-ranger-ios for paid team V7Y6NA8G23.
     // Enabled for checkpoint-1 device acceptance; release still requires that acceptance.
     static let capabilities = AccountCapabilities(
@@ -134,6 +135,14 @@ import Foundation
                 forgetDeletedIdentity: { uid in
                     if auth.currentUser?.uid == uid { try auth.signOut() }
                 })
+            let purchaseCloud: (@MainActor (String) throws -> any PurchaseVerifying)?
+            if emulator {
+                purchaseCloud = nil
+            } else {
+                purchaseCloud = { uid in
+                    NativePurchaseCloud(transport: try NativeCallableTransport(uid: uid, auth: auth))
+                }
+            }
             return Self(
                 session: AccountSession(
                     auth: service, directory: directory, capabilities: capabilities,
@@ -141,7 +150,8 @@ import Foundation
                 google: emulator
                     ? nil
                     : GoogleSignInAdapter(
-                        clientID: configuredGoogleClientID(options), serverClientID: nil))
+                        clientID: configuredGoogleClientID(options), serverClientID: nil),
+                purchaseCloud: purchaseCloud)
         }
         return unavailable(directory: directory)
     }

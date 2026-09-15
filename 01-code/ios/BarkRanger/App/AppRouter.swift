@@ -32,7 +32,7 @@ final class AppRouter {
     }
 
     enum Sheet: String, Identifiable {
-        case about, settings, expeditions, sharing, support
+        case about, settings, expeditions, sharing, support, premium
         var id: Self { self }
     }
 

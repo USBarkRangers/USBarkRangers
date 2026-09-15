@@ -42,6 +42,7 @@ struct TripsView: View {
                     )
                     .foregroundStyle(.primary)
                 } actions: {
+                    if !model.canUsePremium { UpgradeToPremiumButton() }
                     if model.canEdit {
                         Button("New trip", systemImage: "plus") { model.newTrip() }
                             .barkActionStyle(prominent: true).disabled(!model.canChangeTrip)

@@ -61,12 +61,14 @@ function createDeletionService({ db, auth, clock = Date.now }) {
             await db.recursiveDelete(db.collection('users').doc(uid));
             await db.collection('leaderboard').doc(publicEntryID(uid)).delete();
             // Receipts predate owner-root storage. Query the exact UID; never scan all users.
-            for (;;) {
-                const page = await db.collection('nativeOperationReceipts').where('uid', '==', uid).limit(200).get();
-                if (page.empty) break;
-                const batch = db.batch();
-                for (const receipt of page.docs) batch.delete(receipt.ref);
-                await batch.commit();
+            for (const collection of ['nativeOperationReceipts', 'nativeAppleOwners']) {
+                for (;;) {
+                    const page = await db.collection(collection).where('uid', '==', uid).limit(200).get();
+                    if (page.empty) break;
+                    const batch = db.batch();
+                    for (const record of page.docs) batch.delete(record.ref);
+                    await batch.commit();
+                }
             }
             await job.set({ schemaVersion: 1, status: 'complete',
                 expiresAt: Timestamp.fromMillis(clock() + DELETION_FENCE_MS) });

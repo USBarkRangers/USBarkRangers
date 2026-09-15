@@ -10,13 +10,10 @@ import Foundation
     let google: GoogleSignInAdapter?
     var leaderboard: (any LeaderboardReading)? = nil
     var feedback: (any FeedbackSending)? = nil
-    // APPLE-ACTIVATION: owner reports paid enrollment approved (2026-09-14).
-    // Keep Apple hidden until the paid team's bundle capability/provisioning and the
-    // native Firebase Apple provider are configured and device sign-in/link/revoke pass.
-    // Activation replacement for the last argument below: appleSignIn: true
-    // Approval alone is not proof that signing or Firebase provider setup is complete.
+    // Apple provider configured only in bark-ranger-ios for paid team V7Y6NA8G23.
+    // Enabled for checkpoint-1 device acceptance; release still requires that acceptance.
     static let capabilities = AccountCapabilities(
-        profileWrites: true, authenticationChanges: true, accountManagement: true, appleSignIn: false)
+        profileWrites: true, authenticationChanges: true, accountManagement: true, appleSignIn: true)
 
     static func unavailable(directory: URL) -> Self {
         Self(session: AccountSession(auth: nil, directory: directory), google: nil)

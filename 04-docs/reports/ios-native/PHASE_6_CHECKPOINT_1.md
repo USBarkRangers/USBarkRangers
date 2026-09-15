@@ -1,8 +1,10 @@
-# Phase 6 checkpoint 1 — Apple sign-in foundation
+# Phase 6 checkpoint 1 — Apple sign-in device acceptance
 
-September 14, 2026. **Not accepted or enabled yet.** Local unit checks pass;
-native Apple configuration and real-iPhone acceptance remain blocking gates. Purchasing
-has not started. Existing web services, users, Firebase configuration and billing are untouched.
+September 14, 2026. **Configured and installed; not accepted yet.** Apple sign-in is
+enabled in development build **0.5.20 (79)** on `cjs15pm`. Local checks pass; actual
+Apple authorization/device acceptance and the new commit's full GitHub CI remain gates.
+Purchasing has not started. Existing web services, users, legacy Firebase configuration
+and billing are untouched.
 
 ## What changed
 
@@ -29,6 +31,10 @@ The account model is **214 → 278**; adapter **40 → 70**. Runtime file count 
 Tests add one 207-line file and nine net lines of shared test support. This checkpoint
 adds required Apple behavior; it is not a code-reduction checkpoint.
 
+Activation adds no runtime files: four source/configuration files changed, **15 lines
+added / 21 removed (net -6)**, excluding this report. This consists of the capability,
+entitlement, matching expectation and app/extension version bump; no second service.
+
 - Start gate: [Native iOS CI passed on 16020fe](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34903360552).
 - Initial focused checks: 18 tests / 29 cases passed; no skips.
 - Expanded run reproduced one new cancellation failure: the model attempted revocation
@@ -50,26 +56,59 @@ adds required Apple behavior; it is not a code-reduction checkpoint.
   bundle exposed the omission, so the full suite was run and its actual names checked.
 - Domain suite: 48 passed. No backend runtime, rules or index changes in this checkpoint;
   ordinary data actions gain no new Firestore reads or writes.
+- Activation checks on 0.5.20: **18 tests / 32 cases passed, 0 failed, 0 skipped** across
+  `AppleAccountTests`, `AccountActionTests`, `AccountIsolationTests` and
+  `NativeAccountDeletionTests`. Evidence: `/tmp/BarkApple0520Activation.xcresult`.
+  The activation expectation changed from disabled to enabled because the provider and
+  signed capability are now configured; unrelated safety expectations were not weakened.
+- Signed physical-device build passed; strict code-signature verification passed. The
+  binary and embedded provisioning profile both include `com.apple.developer.applesignin`
+  `Default`, team `V7Y6NA8G23` and the exact main app ID. Embedded Firebase configuration
+  targets only `bark-ranger-ios`. Swift formatting checks passed.
+- Installed and launched **0.5.20 (79)** on the connected `cjs15pm` using Apple's device
+  tools. This confirms installation/launch, not completion of Apple's consent flow.
 
 Synthetic Apple credentials exercise local orchestration, not Apple's real token validation,
 consent sheet, relay delivery or server revocation. Those still require device acceptance.
 The new commit must also complete GitHub's full Native iOS workflow; the earlier green
-start-gate run is not presented as validation of these new changes.
+start-gate run is not presented as validation of these new changes. At activation,
+the foundation commit `ea49cb8`'s [full CI run](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34918092703)
+was still running. The activation commit requires its own full green run.
+
+## Native-only configuration completed with owner approval
+
+- Enabled the main bundle **`swarm.USBARKRANGERS`** as the primary Sign in with Apple App ID
+  on paid team **`V7Y6NA8G23`**. Existing HealthKit configuration was preserved.
+- Created Services ID **`swarm.USBARKRANGERS.signin`**, associated only with that primary
+  app, domain `bark-ranger-ios.firebaseapp.com`, and return URL
+  `https://bark-ranger-ios.firebaseapp.com/__/auth/handler`.
+- Created dedicated key **`4ZK7M78JW3`** with only Sign in with Apple permission for that
+  primary app. The one-download private key is backed up outside Git/app resources at
+  `~/.config/bark-ranger-ios/apple/AuthKey_4ZK7M78JW3.p8` (directory mode 700, file 600).
+  Key bytes were never printed, logged or committed.
+- Created and verified Firebase Authentication's enabled `apple.com` provider through
+  the native-scoped deployer, without owner-credential fallback. Google canonicalizes
+  the resource as `projects/360077919845/defaultSupportedIdpConfigs/apple.com`;
+  project number, Services ID, sole bundle ID, team and key ID were verified exactly.
+  The private key was transmitted directly to the native provider's code-flow configuration.
+  Firebase Console also shows Apple **Enabled**. No functions/rules/index deployment was
+  needed because this checkpoint changes Authentication configuration, not those services.
+- Registered only `noreply@bark-ranger-ios.firebaseapp.com` and
+  `noreply@ios.usbarkrangersmap.com` with Apple's private email relay; both visibly show
+  green SPF checks. Firebase's custom native sender verification is still in progress:
+  its current template uses the first address. Actual relay delivery is not yet verified.
+  No legacy sender or DNS record was changed in this activation.
 
 ## Remaining gate — do not start checkpoint 2 yet
 
-1. Owner's Apple Developer login and team **V7Y6NA8G23** are confirmed. App ID
-   **swarm.USBARKRANGERS** exists; Sign in with Apple is still unchecked. Confirm the
-   native-only security change before enabling it and creating/configuring its dedicated
-   service ID/key in **bark-ranger-ios** Firebase Authentication. Register the native mail
-   sender for Apple's private relay. Keep private key material out of the app and GitHub.
-2. Refresh entitlements/provisioning, build and verify real sign-in, cancellation, returning
-   sign-in, Hide My Email, linking, reauthentication, sign-out/relaunch and disposable-account
-   deletion/revocation. The owner's iPhone currently reports **unavailable**; reconnect and
-   unlock it. Do not delete the owner's account for acceptance testing.
-3. The shipping `appleSignIn` capability remains false. Enable it for device acceptance only
-   once provider/signing setup is ready; checkpoint acceptance requires the actual device flow
-   and green CI, not simply changing the flag.
+1. Owner completes Apple's consent prompt on the installed build. Start by linking Apple
+   while signed into the existing native test account so its saved data and temporary
+   Premium access stay under the same UID. Confirm no duplicate account is created.
+2. Verify actual cancellation, returning sign-in, Hide My Email/relay delivery,
+   sign-out/relaunch, reauthentication and explicitly authorized disposable-account
+   deletion/revocation. Do not delete the owner's account for acceptance testing.
+3. Require the activation commit's full green CI and real-device acceptance before
+   checkpoint 2 or release. An installed build and synthetic credentials are not acceptance.
 4. Owner selected **20/year, seven-day trial, Family Sharing off**. Currency/exact price and
    billing grace duration need confirmation. TestFlight purchases are free Apple sandbox
    transactions; clarify that choice before setting up products. No products or pricing

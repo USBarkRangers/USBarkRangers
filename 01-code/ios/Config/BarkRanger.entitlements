@@ -3,10 +3,7 @@
 <plist version="1.0"><dict>
     <key>com.apple.developer.healthkit</key><true/>
     <key>keychain-access-groups</key><array><string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string></array>
-    <!-- APPLE-ACTIVATION: owner confirmed enrollment pending on 2026-09-13.
-         Enable this key only with paid-team Sign in with Apple capability/provisioning.
-         Then verify the native Firebase provider and device flows before enabling
-         AccountAssembly.capabilities.appleSignIn. This is intentionally inactive XML.
+    <!-- Native Apple provider and primary App ID configured on 2026-09-14.
+         Keep this entitlement aligned with paid team V7Y6NA8G23 provisioning. -->
     <key>com.apple.developer.applesignin</key><array><string>Default</string></array>
-    -->
 </dict></plist>

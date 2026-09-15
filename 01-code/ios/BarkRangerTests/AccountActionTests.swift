@@ -5,11 +5,11 @@ import Testing
 @testable import BarkRanger
 
 @MainActor struct AccountActionTests {
-    @Test func normalAccountConfigurationEnablesPhaseThreeAndKeepsAppleDisabled() {
+    @Test func normalAccountConfigurationEnablesNativeAccountActionsAndConfiguredApple() {
         let capabilities = AccountAssembly.capabilities
         #expect(capabilities.profileWrites && capabilities.authenticationChanges)
         #expect(capabilities.accountManagement && !capabilities.isReadOnly)
-        #expect(!capabilities.appleSignIn)
+        #expect(capabilities.appleSignIn)
     }
 
     @Test(arguments: ["signIn", "link", "reauthenticate"])

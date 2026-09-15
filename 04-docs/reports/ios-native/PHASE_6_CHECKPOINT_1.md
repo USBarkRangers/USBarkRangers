@@ -161,10 +161,21 @@ neither an earlier run nor local checks substitute for that gate.
    or move its Apple sign-in to another account for acceptance testing.
 3. Require the button-fix commit's full green CI and real-device acceptance before
    checkpoint 2 or release. An installed build and synthetic credentials are not acceptance.
-4. App Store Connect is presenting Terms of Service; the owner must review/accept them.
-   No agreement was accepted on the owner's behalf, and the app-record check remains
-   blocked behind that page. This does not prevent local builds or the configured native
-   Apple authentication flow.
+4. The App Store Connect agreement gate has cleared. Its Apps page was rechecked and
+   shows **No Apps**; no app record or subscription products exist there yet. No agreement
+   was accepted by the assistant. App-record/product setup remains the purchase checkpoint;
+   the configured native Apple authentication flow does not depend on a store listing.
+
+## Continued verification handoff
+
+After the owner requested completion without further status prompting, both device access
+paths were checked: Xcode lists `cjs15pm` offline, and iPhone Mirroring reported **iPhone in
+Use**, then timed out due to phone use. No app was installed, account signed out or data erased
+during this access check. The existing native CI/install heartbeat was updated and activated
+for run `34922283360` and build 0.5.21 (80). It stays quiet while CI is unchanged, addresses
+actual scoped failures, and attempts installation after green CI if the phone is reachable.
+It pauses when only user-dependent acceptance remains. No StoreKit work is authorized by
+that follow-up, and completion of CI/install alone must not be reported as full acceptance.
 
 ## Owner's confirmed purchase choices — implementation remains checkpoint 2
 

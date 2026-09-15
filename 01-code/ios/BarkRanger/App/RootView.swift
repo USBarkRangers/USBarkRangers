@@ -34,6 +34,8 @@ struct RootView: View {
                                         for: .navigationBar
                                     )
                             }
+                            // Account navigation/form state must not survive an identity switch.
+                            .id(tab == .account ? account?.session.identity?.uid : nil)
                             // Keep the shared progress projection alive in pushed Passport destinations.
                             .task(id: tab == .passport ? passport?.input : nil) {
                                 if tab == .passport { await passport?.observeProgress() }
@@ -163,7 +165,10 @@ struct RootView: View {
             }
         case .account:
             if let account {
-                AccountView(model: account)
+                AccountView(
+                    model: account,
+                    openSettings: { router.open(.sheet(.settings)) },
+                    openSupport: { router.open(.sheet(.support)) })
             } else {
                 ContentUnavailableView(
                     "Account unavailable in this preview", systemImage: "person.crop.circle")

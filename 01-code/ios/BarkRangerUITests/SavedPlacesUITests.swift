@@ -21,7 +21,7 @@ nonisolated final class SavedPlacesUITests: XCTestCase {
         app.secureTextFields["Password"].typeText("NativeOnly123!")
         app.keyboards.buttons["Done"].tap()
         app.buttons["Sign in"].tap()
-        XCTAssertTrue(app.textFields["New display name"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Premium Plan"].waitForExistence(timeout: 20))
         if app.buttons["Not Now"].waitForExistence(timeout: 2) { app.buttons["Not Now"].tap() }
         openMap(app)
         let search = app.textFields["park-search"]

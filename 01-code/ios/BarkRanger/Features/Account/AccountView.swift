@@ -1,104 +1,116 @@
-import BarkDomain
 import SwiftUI
 
+/// Account landing page: cached projections and navigation only. Feature owners
+/// still perform authentication, entitlement checks and durable offline saves.
 struct AccountView: View {
     let model: AccountModel
-    @State private var name = ""
+    let openSettings: () -> Void
+    let openSupport: () -> Void
+    @Environment(\.showPremium) private var showPremium
+
     var body: some View {
-        Form {
-            if model.session.auth?.isTest == true {
-                Section {
-                    Text("Local test accounts").font(.headline)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(
-                        model.session.nativeProfileConfiguration == nil
-                            ? "Billing and recovery actions are simulated."
-                            : "Connected to isolated native emulators. Purchases are not enabled."
-                    ).font(.footnote)
-                        .fixedSize(horizontal: false, vertical: true)
+        Group {
+            if model.session.identity != nil { dashboard } else { signedOut }
+        }
+        .navigationTitle("Account")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Settings", systemImage: "gearshape", action: openSettings)
+                    .accessibilityIdentifier("account.settings")
+            }
+        }
+        .onChange(of: model.session.identity?.uid) { _, _ in model.cancel() }
+        .onDisappear { model.cancel() }
+    }
+
+    private var dashboard: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Your profile and settings")
+                    .font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 4)
+                AccountProfileCard(model: model)
+                AccountMembershipCard(access: model.session.entitlement.access)
+                VStack(spacing: 0) {
+                    NavigationLink {
+                        PendingChangesView(model: model)
+                    } label: {
+                        AccountMenuRow("Sync", icon: "icloud", detail: syncDetail)
+                    }
+                    .accessibilityIdentifier("account.sync")
+                    menuDivider
+                    NavigationLink {
+                        AccountSecurityPage(model: model)
+                    } label: {
+                        AccountMenuRow(
+                            "Sign-in & Security", icon: "lock",
+                            detail: model.session.identity?.verified == false ? "Verify email" : nil)
+                    }
+                    .accessibilityIdentifier("account.security")
+                    menuDivider
+                    Button(action: showPremium) {
+                        AccountMenuRow("Manage Subscription", icon: "creditcard")
+                    }
+                    .accessibilityIdentifier("account.subscription")
+                    menuDivider
+                    NavigationLink {
+                        AccountPrivacyPage(model: model)
+                    } label: {
+                        AccountMenuRow("Data & Privacy", icon: "hand.raised")
+                    }
+                    .accessibilityIdentifier("account.privacy")
+                    menuDivider
+                    Button(action: openSupport) {
+                        AccountMenuRow("Help & Support", icon: "questionmark.circle")
+                    }
+                    .accessibilityIdentifier("account.support")
                 }
-            } else if model.session.auth != nil, model.capabilities.isReadOnly {
-                Section {
-                    Text("Existing account preview").font(.headline)
-                    Text(
-                        "Sign in to view your saved account. Account changes and purchases are not enabled yet."
-                    )
-                    .font(.footnote)
+                .buttonStyle(.plain).accountCard(padding: 0)
+                if let message = model.session.message {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(message).font(.subheadline)
+                        if model.session.profileState?.visible == nil, !model.session.requiresStorageRecovery
+                        {
+                            Button("Retry opening saved account", action: model.session.retryStorage)
+                        }
+                    }.accountCard()
                 }
+            }
+            .padding(.horizontal, 20).padding(.bottom, 24)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+    }
+
+    private var syncDetail: String {
+        if model.session.profileState?.conflict == true { return "Review needed" }
+        if model.session.isSyncing { return "Syncing…" }
+        guard let profile = model.session.profileState else { return "Opening…" }
+        return "\(profile.totalPendingCount) pending"
+    }
+    private var menuDivider: some View { Divider().padding(.leading, 58) }
+
+    private var signedOut: some View {
+        AccountFormPage(model: model) {
+            Section {
+                Text("Your next adventure starts here").font(.title3.bold())
+                Text("Sign in to keep your places, trips and park memories together.").font(.subheadline)
             }
             if model.session.auth == nil {
                 Section {
                     Text("Account sign-in is not configured for this build.")
-                    Text(
-                        "Park discovery works normally. Native Firebase registration or the local test emulators must be configured before account testing."
-                    )
+                    Text("Park discovery is still available.").font(.subheadline)
                 }
-            } else if let identity = model.session.identity {
-                Section {
-                    Text(identity.email ?? "Private email")
-                        .accessibilityLabel("Email address")
-                        .accessibilityValue(identity.email ?? "Private email")
-                    if !identity.serverConfirmed {
-                        Text("Remembered account · awaiting online confirmation").font(.footnote)
-                    }
-                    if !identity.verified, model.capabilities.authenticationChanges {
-                        Button("Send verification email", action: model.verifyEmail)
-                        Button("I verified my email", action: model.refreshIdentity)
-                    }
-                    if let savedName = savedName {
-                        accountValue("Saved name", value: savedName)
-                        if model.canEditData {
-                            TextField("New display name", text: $name).textContentType(.nickname)
-                            Button("Save display name") { model.saveName(name) }
-                                .font(.body).fixedSize(horizontal: false, vertical: true).disabled(
-                                    name.isEmpty)
-                        }
-                    } else {
-                        Text(model.session.message ?? "Opening saved account…")
-                        if model.session.message != nil, !model.session.requiresStorageRecovery {
-                            Button("Retry opening saved account", action: model.session.retryStorage)
-                        }
-                    }
-                } header: {
-                    Text("Profile").foregroundStyle(Color.primary)
-                }
-                NativeAccountDetails(model: model).id(identity.uid)
-                AccountSecurity(model: model).id(identity.uid)
-                AccountDeletionSection(model: model).id(identity.uid)
             } else {
                 AccountForms(model: model)
             }
-            if let notice = model.notice {
-                Section { Text(notice).accessibilityIdentifier("account.notice") }
-            }
-            if model.busy { Section { ProgressView("Working…") } }
-            if let message = model.session.deletionMessage {
-                Section { Text(message).accessibilityIdentifier("account.deletion-status") }
-            }
         }
-        .scrollDismissesKeyboard(.interactively)
-        .background(KeyboardDismissalArea())
-        // A UID transition starts fresh form controls, including signed-out credentials/create mode.
-        .id(model.session.identity?.uid)
-        .font(.body)
-        .disabled(model.busy)
-        .navigationTitle("Account")
-        .onChange(of: model.session.identity?.uid) { _, _ in
-            name = ""
-            model.cancel()
-        }
-        .onDisappear { model.cancel() }
-    }
-    private var savedName: String? {
-        model.session.profileState?.visible?.displayName
     }
 }
 
-/// Keep native adaptive label/value layout while avoiding faint secondary text for account facts.
+/// Native adaptive label/value layout for the detailed forms.
 func accountValue(_ title: LocalizedStringKey, value: String) -> some View {
     LabeledContent {
-        Text(value).font(.body).foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
+        Text(value).foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
     } label: {
-        Text(title).font(.body).fixedSize(horizontal: false, vertical: true)
+        Text(title).fixedSize(horizontal: false, vertical: true)
     }
 }

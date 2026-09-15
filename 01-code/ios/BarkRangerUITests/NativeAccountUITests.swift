@@ -1,6 +1,95 @@
 import XCTest
 
 nonisolated final class NativeAccountUITests: XCTestCase {
+    @MainActor func testAccountCardsInBothAppearancesAndLargeTextKeepActionsReachable() throws {
+        continueAfterFailure = false
+        guard ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1" else {
+            throw XCTSkip("Requires isolated demo-bark-native emulators.")
+        }
+        let originalAppearance = XCUIDevice.shared.appearance
+        defer { XCUIDevice.shared.appearance = originalAppearance }
+        for (appearance, premium, size) in [
+            (XCUIDevice.Appearance.light, false, "UICTContentSizeCategoryL"),
+            (.dark, false, "UICTContentSizeCategoryL"),
+            (.light, true, "UICTContentSizeCategoryAccessibilityXXXL"),
+            (.dark, true, "UICTContentSizeCategoryAccessibilityXXXL"),
+        ] {
+            XCUIDevice.shared.appearance = appearance
+            let app = XCUIApplication()
+            app.launchEnvironment = [
+                "BARK_TEST_SCOPE": UUID().uuidString, "BARK_NATIVE_ACCOUNT_EMULATORS": "1",
+                "BARK_EMULATOR_HOST": "127.0.0.1",
+            ]
+            app.launchArguments = ["-UIPreferredContentSizeCategoryName", size]
+            app.launch()
+            openAccount(app)
+            let email = app.textFields["Email"]
+            reveal(email, in: app)
+            email.tap()
+            email.typeText(
+                premium ? "profile-ui@native.invalid" : "cards-\(UUID().uuidString)@native.invalid")
+            app.secureTextFields["Password"].tap()
+            app.secureTextFields["Password"].typeText("NativeOnly123!")
+            app.keyboards.buttons["Done"].tap()
+            if !premium {
+                let create = app.switches["Create a new account"]
+                reveal(create, in: app)
+                create.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+            }
+            let authenticate = app.buttons[premium ? "Sign in" : "Create account"]
+            reveal(authenticate, in: app)
+            authenticate.tap()
+            XCTAssertTrue(
+                app.staticTexts[premium ? "Premium Plan" : "Free Plan"].waitForExistence(timeout: 15))
+            dismissPasswordPrompt(in: app)
+            attach(app, name: "Account cards \(appearance.rawValue) \(size)")
+            XCTAssertFalse(app.textFields["New display name"].exists)
+            XCTAssertFalse(app.buttons["account.delete"].exists)
+            let edit = app.buttons["account.edit-profile"]
+            reveal(edit, in: app)
+            edit.tap()
+            XCTAssertTrue(app.navigationBars["Edit Profile"].waitForExistence(timeout: 5))
+            if premium {
+                reveal(app.textFields["New display name"], in: app)
+            } else {
+                XCTAssertFalse(app.textFields["New display name"].exists)
+                XCTAssertTrue(app.buttons["premium.open"].exists)
+            }
+            app.navigationBars.buttons["Account"].tap()
+            reveal(app.buttons["account.sync"], in: app)
+            attach(app, name: "Account settings rows \(appearance.rawValue) \(size)")
+            app.buttons["account.sync"].tap()
+            XCTAssertTrue(app.navigationBars["Pending changes"].waitForExistence(timeout: 5))
+            XCTAssertEqual(app.buttons.matching(identifier: "Sync now").count, 1)
+            app.navigationBars.buttons["Account"].tap()
+            if !premium {
+                reveal(app.buttons["account.privacy"], in: app)
+                app.buttons["account.privacy"].tap()
+                XCTAssertTrue(app.navigationBars["Data & Privacy"].waitForExistence(timeout: 5))
+                app.buttons["Privacy policy"].tap()
+                XCTAssertTrue(app.navigationBars["Privacy policy"].waitForExistence(timeout: 5))
+                app.navigationBars.buttons["Data & Privacy"].tap()
+                app.navigationBars.buttons["Account"].tap()
+                reveal(app.buttons["account.subscription"], in: app)
+                app.buttons["account.subscription"].tap()
+                XCTAssertTrue(app.navigationBars["Premium"].waitForExistence(timeout: 5))
+                app.buttons["Done"].tap()
+                app.buttons["account.settings"].tap()
+                XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+                app.buttons["Done"].tap()
+                reveal(app.buttons["account.support"], in: app)
+                app.buttons["account.support"].tap()
+                XCTAssertTrue(app.navigationBars["Help & feedback"].waitForExistence(timeout: 5))
+                app.buttons["Done"].tap()
+            }
+            signOut(app)
+            XCTAssertTrue(app.navigationBars["Account"].waitForExistence(timeout: 5))
+            XCTAssertTrue(email.waitForExistence(timeout: 10))
+            XCTAssertFalse(app.staticTexts["account.profile-name"].exists)
+            app.terminate()
+        }
+    }
+
     @MainActor func testPendingChangesOpensWithOneSyncActionAndNoPerItemNavigation() throws {
         continueAfterFailure = false
         guard ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1" else {
@@ -20,10 +109,9 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         app.secureTextFields["Password"].typeText("NativeOnly123!")
         app.keyboards.buttons["Done"].tap()
         app.buttons["Sign in"].tap()
-        XCTAssertTrue(app.textFields["New display name"].waitForExistence(timeout: 15))
-        dismissPasswordPrompt()
-        let pending = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Pending changes'"))
-            .firstMatch
+        XCTAssertTrue(app.staticTexts["Premium Plan"].waitForExistence(timeout: 15))
+        dismissPasswordPrompt(in: app)
+        let pending = app.buttons["account.sync"]
         reveal(pending, in: app, maximumSwipes: 10)
         pending.tap()
         XCTAssertTrue(app.navigationBars["Pending changes"].waitForExistence(timeout: 5))
@@ -77,8 +165,8 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         app.secureTextFields["Password"].typeText("NativeOnly123!")
         app.keyboards.buttons["Done"].tap()
         app.buttons["Sign in"].tap()
-        XCTAssertTrue(app.textFields["New display name"].waitForExistence(timeout: 15))
-        dismissPasswordPrompt()
+        XCTAssertTrue(app.staticTexts["Premium Plan"].waitForExistence(timeout: 15))
+        dismissPasswordPrompt(in: app)
         app.tabBars.buttons["Trips"].tap()
         XCTAssertTrue(app.buttons["New trip"].waitForExistence(timeout: 10))
         app.buttons["New trip"].tap()
@@ -138,9 +226,13 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Ranger"].waitForExistence(timeout: 15))
         // Exercise late sheet handling in reveal(), not just immediate dismissal
         // here. Apple's remote password UI can finish loading after this profile.
+        let editProfile = app.buttons["account.edit-profile"]
+        reveal(editProfile, in: app)
+        editProfile.tap()
         XCTAssertFalse(app.textFields["New display name"].exists)
         XCTAssertFalse(app.buttons["Manage existing subscription"].exists)
         XCTAssertFalse(app.buttons["Recover existing membership"].exists)
+        app.navigationBars.buttons["Account"].tap()
 
         signOut(app)
         XCTAssertTrue(email.waitForExistence(timeout: 10))
@@ -151,15 +243,17 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         app.keyboards.buttons["Done"].tap()
         app.buttons["Sign in"].tap()
         let name = "Ranger \(UUID().uuidString.prefix(8))"
+        XCTAssertTrue(app.staticTexts["Premium Plan"].waitForExistence(timeout: 15))
+        reveal(app.buttons["account.edit-profile"], in: app)
+        app.buttons["account.edit-profile"].tap()
         let field = app.textFields["New display name"]
         XCTAssertTrue(field.waitForExistence(timeout: 15))
-        dismissPasswordPrompt()
+        dismissPasswordPrompt(in: app)
         field.tap()
         field.typeText(name)
         app.buttons["Save display name"].tap()
         XCTAssertTrue(app.staticTexts[name].waitForExistence(timeout: 10))
-        app.swipeDown()
-        app.swipeDown()
+        app.navigationBars.buttons["Account"].tap()
         attach(app, name: "Native account saved profile")
 
         openSettings(app)
@@ -212,7 +306,9 @@ nonisolated final class NativeAccountUITests: XCTestCase {
             .tap()
         app.buttons["Create account"].tap()
         XCTAssertTrue(app.staticTexts["Ranger"].waitForExistence(timeout: 15))
-        dismissPasswordPrompt()
+        dismissPasswordPrompt(in: app)
+        reveal(app.buttons["account.privacy"], in: app)
+        app.buttons["account.privacy"].tap()
         let remove = app.buttons["account.delete"]
         reveal(remove, in: app)
         remove.tap()
@@ -245,6 +341,9 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         add(attachment)
     }
     @MainActor private func signOut(_ app: XCUIApplication) {
+        let security = app.buttons["account.security"]
+        reveal(security, in: app)
+        security.tap()
         let button = app.buttons["Sign out"]
         reveal(button, in: app)
         button.tap()
@@ -255,13 +354,20 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         // CI's embedded password sheet did not trigger XCTest interruption
         // monitors. Check it during navigation, not only once after sign-in.
         for _ in 0..<maximumSwipes {
-            dismissPasswordPrompt()
+            dismissPasswordPrompt(in: app)
             if element.isHittable { break }
-            app.collectionViews.firstMatch.swipeUp()
+            if app.scrollViews.firstMatch.exists {
+                app.scrollViews.firstMatch.swipeUp()
+            } else {
+                app.collectionViews.firstMatch.swipeUp()
+            }
         }
         XCTAssertTrue(element.isHittable)
     }
-    @MainActor private func dismissPasswordPrompt() {
+    @MainActor private func dismissPasswordPrompt(in app: XCUIApplication) {
+        // Only query a credential service while its prompt is hosted in this app.
+        // CI can time out querying SpringBoard after the sheet has gone away.
+        guard app.buttons["Not Now"].exists && app.buttons["Save"].exists else { return }
         // iOS 26 embeds a remote credential service. Tapping its mirrored button
         // through the host app sends an event to the wrong process and does nothing.
         for bundle in [
@@ -272,7 +378,9 @@ nonisolated final class NativeAccountUITests: XCTestCase {
             let button = service.buttons["Not Now"]
             if button.exists && service.buttons["Save"].exists {
                 button.tap()
-                XCTAssertTrue(button.waitForNonExistence(timeout: 5))
+                // The service can retain its detached accessibility tree. What
+                // matters is that the prompt no longer covers the tested app.
+                XCTAssertTrue(app.buttons["Not Now"].waitForNonExistence(timeout: 5))
                 return
             }
         }

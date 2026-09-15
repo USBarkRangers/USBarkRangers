@@ -2,7 +2,8 @@ import BarkDomain
 import SwiftUI
 
 struct PendingChangesView: View {
-    let session: AccountSession
+    let model: AccountModel
+    private var session: AccountSession { model.session }
     @State private var items: [NativeStore.PendingChange] = []
     @State private var review: NativeStore.PendingDiscard?
     @State private var confirming = false
@@ -21,6 +22,11 @@ struct PendingChangesView: View {
                 )
                 .font(.footnote)
                 Button("Sync now") { session.requestSync(refresh: true) }
+                if let access = session.entitlement.access, access.premium, let until = access.validUntil {
+                    accountValue(
+                        "Offline editing available until",
+                        value: until.formatted(date: .abbreviated, time: .shortened))
+                }
                 if scopedItems.count >= NativeSyncPolicy.queueWarning {
                     Text(
                         "Many changes are waiting. Sync when connected, or discard never-sent changes you no longer need. New park visits and recorded walks can still be saved."
@@ -35,6 +41,10 @@ struct PendingChangesView: View {
             } else if scopedItems.isEmpty {
                 Text("No pending changes")
             }
+            if let profile = session.profileState, profile.conflict {
+                Section { AccountProfileConflict(model: model, reviewed: profile) }
+            }
+            AccountActionFeedback(model: model)
             ForEach(scopedItems) { item in
                 Section {
                     Text(item.title).font(.headline)
@@ -60,6 +70,7 @@ struct PendingChangesView: View {
             }
         }
         .navigationTitle("Pending changes")
+        .disabled(model.busy).onDisappear { model.cancel() }
         .confirmationDialog(
             "Discard never-sent changes?", isPresented: $confirming, titleVisibility: .visible
         ) {

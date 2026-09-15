@@ -126,7 +126,7 @@ nonisolated final class NativeAdventureUITests: XCTestCase {
                 }
             }
         }
-        XCTAssertTrue(app.textFields["New display name"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Premium Plan"].waitForExistence(timeout: 15))
         return app
     }
     @MainActor private func openWalks(_ app: XCUIApplication) {

@@ -159,12 +159,13 @@ This is required new billing functionality, not a code-reduction checkpoint.
   passed **126 tests / 0 failures / 0 skips**; local deployment/CI-isolation checks passed
   **5/5** and Swift domain checks **49/49**.
 - The same source's [Native iOS run 34942547676](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34942547676)
-  is still running overall. Its required **StoreKit job passed: 1 test / 0 failures**,
+  ultimately failed in the final app/UI suite. Its required **StoreKit job passed: 1 test / 0 failures**,
   including annual offer, purchase retention, restore, renewal and refund. Runtime setup
   succeeded without weakening or skipping the actual test; job `104294337415` recorded
   `TEST SUCCEEDED` at 07:54:28 UTC.
-  The hosted **Native SDK and account UI** step also passed at **08:11:18 UTC**. The final
-  catalog/discovery/accessibility step is now running; overall workflow success is pending.
+  The hosted **Native SDK and account UI** step passed at **08:11:18 UTC**: artifact confirms
+  **190 tests / 205 cases, 0 failures / 0 skips**. Final app/UI: **352 tests / 420 cases
+  passed, 1 failed, 37 skipped**. The sole failure is detailed below; overall CI is not green.
 - Updated full local native regression **passed: 190 unique tests / 205 parameterized cases,
   0 failures / 0 skips**, completed 07:44:10 UTC. Evidence:
   `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-fc8jmy1c/Acceptance.xcresult`,
@@ -179,6 +180,29 @@ This is required new billing functionality, not a code-reduction checkpoint.
   claim them. Live native cloud evidence remains separately recorded above. StoreKit runs
   as its separate required 26.1 check. These overlapping suite counts must not be summed
   as distinct tests. Native emulators are stopped. Final hosted app/UI success is pending.
+
+### September 15 CI follow-up — cold share-sheet readiness
+
+- Hosted failure: `PassportUITests.swift:55` immediately required “Save to Files” after
+  the remote share container appeared. All four watermark corner/bounds checks and resizing
+  passed. CI's exported screen recording ends with a dimmed photo and an empty remote
+  share overlay: the container existed before Apple's activities had loaded. The product's
+  JPEG is written before presentation; this is not evidence of a watermark-position defect.
+- Reproduced the unchanged test on a newly created iOS 26.5 simulator: **0 passed / 1 failed**
+  at the same immediate action assertion, after all watermark checks passed.
+  Evidence: `/tmp/BarkWatermarkCI.6mQjxD/FreshBefore.xcresult`. Hosted artifacts are in
+  `/tmp/BarkWatermarkCI.6mQjxD/BarkShell.xcresult`; the recording/frame are retained there.
+- The test now waits for the exact “Save to Files” action and “JPEG Image” caption, each
+  with a bounded 10-second condition wait. Neither required content nor any watermark,
+  account or one-trip-download assertion is removed. No sleeps, retries-to-green,
+  accessibility exclusions or shipping app/backend changes. Code delta: **1 test file,
+  +8/-2 lines**. On a second freshly created simulator the changed test **passed 1/1,
+  0 failures / 0 skips**: `/tmp/BarkWatermarkCI.6mQjxD/FreshAfter.xcresult`. The action/content
+  readiness checks completed about 2.2 seconds after starting the action wait. The retained
+  screenshot visibly shows “Save to Files” and “JPEG Image · 1.4 MB”. This is a reproduced
+  cold-start test race with before/after evidence, not an assumption based only on a warm pass.
+  Three unconditional complete repetitions are also running on the existing main simulator;
+  every iteration must pass. Final hosted workflow success remains required.
 
 ### Purchase-boundary operation counts
 

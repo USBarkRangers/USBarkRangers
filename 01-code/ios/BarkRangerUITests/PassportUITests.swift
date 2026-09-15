@@ -52,8 +52,14 @@ nonisolated final class PassportUITests: XCTestCase {
         XCTAssertEqual(frame.maxY - logo.frame.maxY, frame.width * 0.02, accuracy: 2)
         app.buttons["Share photo"].tap()
         XCTAssertTrue(app.otherElements["ShareSheet.RemoteContainerView"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.cells.matching(NSPredicate(format: "label == 'Save to Files'")).firstMatch.exists)
-        XCTAssertTrue(app.otherElements["LP.CaptionBar.BottomCaption"].label.contains("JPEG Image"))
+        // CI run 34942547676 shows the remote container before Apple's share
+        // activities have loaded. Wait for the required content, not just its shell.
+        let save = app.cells.matching(NSPredicate(format: "label == 'Save to Files'")).firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 10))
+        let jpeg = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "JPEG Image"),
+            object: app.otherElements["LP.CaptionBar.BottomCaption"])
+        XCTAssertEqual(XCTWaiter.wait(for: [jpeg], timeout: 10), .completed)
         capture(app, "Corner watermark ready in native share sheet")
     }
 

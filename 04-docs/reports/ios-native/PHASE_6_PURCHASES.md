@@ -170,9 +170,15 @@ This is required new billing functionality, not a code-reduction checkpoint.
   `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-fc8jmy1c/Acceptance.xcresult`,
   log `/tmp/BarkPhase6CIReview.7TKpNm/native-full.log`. The same launched command proceeded
   to the full app/UI suite at `/tmp/BarkPhase6CIReview.7TKpNm/ShellFull.xcresult`, with
-  `shell-full.log` in that directory; that suite remains running. Collect its result before
-  starting another run. The now-finished native emulators were stopped; the catalog fixture
-  remains available for app/UI tests. Final hosted native/app UI success is still required.
+  `shell-full.log` in that directory. **Full local app/UI passed at 08:17:40 UTC: 353 unique
+  tests / 421 parameterized cases, 0 failures, 37 skips.** Both previously failing
+  accessibility/Premium checks passed in this full run, not just in isolation.
+  Comparing exact test identifiers confirms **34 of those 37 skips passed in the separate
+  native run**. The other three are unchanged opt-in live Apple place search, live catalog
+  offline relaunch, and disposable live native cloud acceptance; this local run does not
+  claim them. Live native cloud evidence remains separately recorded above. StoreKit runs
+  as its separate required 26.1 check. These overlapping suite counts must not be summed
+  as distinct tests. Native emulators are stopped. Final hosted app/UI success is pending.
 
 ### Purchase-boundary operation counts
 
@@ -193,8 +199,10 @@ exists. Account deletion paginates those rows. No permanent row per notification
 
 ## Still required before claiming Phase 6 complete
 
-1. Finish full native/UI regression, paywall accessibility and Release build; push and require
-   the final commit's GitHub jobs green. Local tests do not establish hosted CI success.
+1. Full local native/app UI, paywall accessibility, StoreKit and signed Release verification
+   passed on reviewed source `fa4b00f`; subsequent commits are evidence-only. Hosted backend,
+   StoreKit and native SDK/account UI passed. Require the remaining full app/UI step and
+   overall Native iOS workflow green. Local tests do not establish hosted CI success.
 2. Native deployment, sandbox notification delivery and live Auth/App Check/rejection checks
    are complete. Verify production notification/API access once Apple's release gate opens.
 3. Verify genuine Apple sandbox → native backend → app, then retire the temporary owner

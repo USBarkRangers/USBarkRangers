@@ -5,7 +5,8 @@ import Foundation
 @testable import BarkRanger
 
 @MainActor final class SyntheticAuth: AccountAuthenticating {
-    let isTest = true
+    // View contracts may expose provider controls without invoking a real provider.
+    var isTest = true
     private var continuation: AsyncStream<AccountIdentity?>.Continuation?
     var signOutFails = false
     private(set) var credentialUses: [CredentialUse] = []

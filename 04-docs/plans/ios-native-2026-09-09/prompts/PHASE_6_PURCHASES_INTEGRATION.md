@@ -9,10 +9,12 @@ the owner's connected, unlocked iPhone and Apple authorization.
 
 ## Product and scope
 
-- One Premium tier in one App Store subscription group. Owner selected **20 per year,
-  seven-day free trial, no Family Sharing**. Currency/exact price, Apple billing-grace
-  duration and TestFlight access remain awaiting clarification. TestFlight cannot charge
-  real money. Do not create products, offers or settings before those choices are confirmed.
+- One Premium tier in one App Store subscription group. Owner confirmed **USD $19.99/year,
+  seven-day free trial, no Family Sharing**. **Apple Billing Grace Period is off**, including
+  sandbox testing. TestFlight uses free sandbox purchases; the current Premium grant is
+  temporary development access, not an Apple subscription. These choices are approved,
+  but create products/settings only after checkpoint 1 is accepted. No StoreKit purchasing
+  implementation starts before that gate.
 - Account and existing paid-feature gates open the **same Upgrade to Premium screen**:
   current benefits, Apple's localized price/period, Subscribe, Restore Purchases,
   terms/privacy links. An active subscriber sees status and Manage Subscription.
@@ -89,8 +91,9 @@ Keep public purchasing gated until checkpoint 3 and sandbox acceptance are compl
    Operation age still has its separate 45-day limit. Refund/revocation is not normal expiry
    and grants no new grace once learned. Retain unsynced work; never discard it on expiry.
    Describe the unavoidable limit that a disconnected phone cannot learn a new revocation.
-   Apple billing grace is distinct from Bark's offline grace: honor verified renewal state
-   without silently resetting or extending the existing 40/45-day clocks on every refresh.
+   Apple Billing Grace Period is off by owner decision, including sandbox. This does not
+   remove Bark's separate approved 40/45-day offline rules. Honor verified renewal state
+   without silently resetting or extending those clocks on every refresh.
 4. Restore uses Apple's explicit user-initiated sync, then server verification. Manage opens
    Apple's subscription management. Account/token ownership remains stable through reinstall,
    renewal and switching devices. Wrong-account restore explains which action is needed;

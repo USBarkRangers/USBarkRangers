@@ -45,9 +45,6 @@ struct AccountDeletionSection: View {
             } message: {
                 Text("This cannot be undone. Cloud cleanup continues automatically after you sign out.")
             }
-            if model.providerButtonsAvailable {
-                AccountProviderButtons(model: model, use: .reauthenticate)
-            }
         }
     }
 }

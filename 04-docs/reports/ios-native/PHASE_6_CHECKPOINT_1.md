@@ -1,8 +1,9 @@
 # Phase 6 checkpoint 1 — Apple sign-in device acceptance
 
-September 14, 2026. **Real linking and returning sign-in verified; not fully accepted yet.**
-Apple sign-in is enabled in development build **0.5.20 (79)** on `cjs15pm`. Local checks
-pass; remaining device edge cases and the activation commit's full GitHub CI remain gates.
+September 14, 2026. **Real linking verified; checkpoint not fully accepted yet.**
+The unnecessary second Apple button is fixed in **0.5.21 (80)** and verified locally.
+The signed build is ready, but `cjs15pm` currently reports unavailable; installation,
+remaining device acceptance and the new commit's full GitHub CI remain gates.
 Purchasing has not started. Existing web services, users, legacy Firebase configuration
 and billing are untouched.
 
@@ -69,10 +70,12 @@ entitlement, matching expectation and app/extension version bump; no second serv
   tools. This confirms installation/launch, not completion of Apple's consent flow.
 - The owner subsequently reported completing Apple linking and signing in a second time.
   A read-only native Authentication lookup verified both `apple.com` and `password` on
-  the original test account, created **2026-09-14 05:12:56 UTC**, with a new sign-in at
+  the original test account, created **2026-09-14 05:12:56 UTC**, with authentication at
   **2026-09-15 02:25:34 UTC**. Its existing development entitlement still matches that
-  same UID and remains valid. This verifies successful linking and a subsequent login on
-  the original account; it does not independently verify all saved content on the screen.
+  same UID and remains valid. **Correction:** the later screen investigation found a
+  standalone reauthentication button. This proves successful linking, not necessarily
+  sign-out/returning Apple sign-in; the second tap may have only reconfirmed identity.
+  A deliberate sign-out/Apple sign-in/relaunch check is still required.
   Verification used **1 Auth lookup + 1 Firestore document read, 0 writes**. No tokens,
   Apple subject identifiers, email addresses or private document contents were logged.
 
@@ -83,7 +86,35 @@ start-gate run is not presented as validation of these new changes. At activatio
 the foundation commit `ea49cb8`'s [full CI run](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34918092703)
 was still running. The activation commit `d252f54`'s
 [full CI run](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34920812352)
-is in progress, not yet green. This evidence-only report update changes no app/backend code.
+was still running when the button fix began. The 0.5.21 fix requires its own green run;
+neither an earlier run nor local checks substitute for that gate.
+
+## Second-button correction — 0.5.21 (80)
+
+- Root cause: `AccountDeletionSection` always appended provider reauthentication controls
+  below the deletion section. Once Apple was linked, that produced another identically
+  labeled Apple button even when no protected action had been requested.
+- Removed only that three-line block: **runtime section 53 → 50 lines (-3)**, no new
+  runtime files or services. The destructive alert → fresh Apple confirmation → revocation
+  → existing deletion lifecycle remains unchanged. Account linking and signed-out sign-in
+  remain available in their intended locations.
+- Added **one 60-line presentation test** and **one net line of test support**. It renders
+  the real security/deletion views with synthetic identities and counts native
+  `ASAuthorizationAppleIDButton` controls. No real Apple request or cloud mutation is made.
+  Password-only accounts provide a positive control: exactly one linking button.
+  Apple-only and Apple/password accounts must have zero unsolicited Apple buttons.
+- Before the fix, the test reproduced **1 actual vs 0 expected** on an Apple-linked account:
+  `/tmp/BarkAppleButtonBefore0521.xcresult`. After the fix, the same expectation passes.
+  Before/after rendered attachments were visually inspected, not just the test exit status.
+- Final focused checks: **19 tests / 33 cases passed, 0 failures, 0 skips**, including
+  request/cancellation/account-isolation and deletion ordering/failure preservation checks:
+  `/tmp/BarkApple0521Focused.xcresult`. Existing security expectations were not weakened.
+- Signed 0.5.21 build and strict code-signature verification passed. Verified exact app/team,
+  enabled Apple entitlement, build number 80 and embedded `bark-ranger-ios` configuration.
+  Existing derived-data output directory is `/tmp/BarkDeviceApple0520`; its app now contains
+  0.5.21 (80), not the previous build. Swift formatting and scoped diff checks passed.
+- No backend runtime, rules/index changes or deployment were needed for this UI fix;
+  ordinary reads/writes are unchanged. Products and StoreKit implementation remain untouched.
 
 ## Native-only configuration completed with owner approval
 
@@ -111,16 +142,24 @@ is in progress, not yet green. This evidence-only report update changes no app/b
 
 ## Remaining gate — do not start checkpoint 2 yet
 
-1. Linking to the original native account and subsequent sign-in are verified. Confirm
-   saved content remains visible after returning sign-in and relaunch on the phone.
+1. Reconnect/unlock `cjs15pm`, install 0.5.21 (80), and confirm no extra Apple button appears
+   on the linked account. Then deliberately sign out, cancel one Apple sign-in attempt,
+   sign in with Apple, and relaunch; confirm saved content remains on the same account.
 2. Verify actual cancellation, Hide My Email/relay delivery, reauthentication and explicitly
    authorized disposable-account deletion/revocation. Do not delete the owner's account
    or move its Apple sign-in to another account for acceptance testing.
-3. Require the activation commit's full green CI and real-device acceptance before
+3. Require the button-fix commit's full green CI and real-device acceptance before
    checkpoint 2 or release. An installed build and synthetic credentials are not acceptance.
-4. Owner selected **20/year, seven-day trial, Family Sharing off**. Currency/exact price and
-   billing grace duration need confirmation. TestFlight purchases are free Apple sandbox
-   transactions; clarify that choice before setting up products. No products or pricing
-   have been created or changed.
+4. App Store Connect is presenting Terms of Service; the owner must review/accept them.
+   No agreement was accepted on the owner's behalf, and the app-record check remains
+   blocked behind that page. This does not prevent local builds or the configured native
+   Apple authentication flow.
+
+## Owner's confirmed purchase choices — implementation remains checkpoint 2
+
+**USD $19.99/year, seven-day free trial, Family Sharing off, Apple Billing Grace Period off
+in both live and sandbox settings.** Current Premium is temporary test entitlement only,
+not an Apple subscription. No products/settings were created or changed. Bark's separately
+approved 40/45-day offline rules are unchanged. The web app stays untouched.
 
 Implementation follows [Firebase's Apple authentication and revocation guidance](https://firebase.google.com/docs/auth/ios/apple).

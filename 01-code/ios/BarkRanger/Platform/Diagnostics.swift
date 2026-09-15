@@ -23,7 +23,7 @@ nonisolated struct Diagnostics: Sendable {
     private let catalogLogger = Logger(subsystem: "swarm.USBARKRANGERS", category: "Catalog")
     private let catalogSink: (@Sendable (CatalogStage, CatalogFailure) -> Void)?
     enum AccountStage: String, Sendable {
-        case openStore, readStore, submit, acknowledge, readCloud, saveSnapshot
+        case openStore, readStore, submit, acknowledge, readCloud, saveSnapshot, removeAccountData
     }
     enum AccountFailure: String, Sendable {
         case cancelled, accountChanged, denied, network, decoding, storage, unavailable, rejected, unknown

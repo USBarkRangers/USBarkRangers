@@ -22,6 +22,9 @@ nonisolated enum NativeAccountRemovalFiles {
         try JSONEncoder().encode(request).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
     static func pending(directory: URL) throws -> [Request] {
+        // FileManager enumerates canonical URLs. iOS's /var container can arrive
+        // here as /private/var; compare in one namespace, keeping exact owner checks.
+        let directory = directory.resolvingSymlinksInPath()
         let folder = directory.appendingPathComponent("removals-v1")
         guard FileManager.default.fileExists(atPath: folder.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)

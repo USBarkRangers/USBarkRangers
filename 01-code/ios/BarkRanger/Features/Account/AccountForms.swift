@@ -86,7 +86,7 @@ struct AccountAppleButton: View {
         }
         .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
         .frame(height: 44)
-        .disabled(model.busy)
+        .disabled(model.busy || model.session.cleanupState != .ready)
     }
 }
 

@@ -5,6 +5,34 @@ import Testing
 @testable import BarkRanger
 
 @MainActor struct NativeAccountDeletionTests {
+    @Test func deletionMarkerCanBeResumedThroughASymlinkedContainerPath() throws {
+        let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let real = root.appendingPathComponent("Application Support")
+        let alias = root.appendingPathComponent("container-alias")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: real)
+        let request = NativeAccountRemovalFiles.Request(project: "demo-bark-native", uid: "deleted-owner")
+        try NativeAccountRemovalFiles.retain(request, directory: alias)
+        #expect(try NativeAccountRemovalFiles.pending(directory: alias) == [request])
+        #expect(try NativeAccountRemovalFiles.pending(directory: real) == [request])
+        try NativeAccountRemovalFiles.finish(request, directory: alias)
+        #expect(try NativeAccountRemovalFiles.pending(directory: real).isEmpty)
+    }
+
+    @Test func deletionMarkerStillRequiresItsExactOwnerFilename() throws {
+        let folder = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let request = NativeAccountRemovalFiles.Request(project: "demo-bark-native", uid: "delete-a")
+        try NativeAccountRemovalFiles.retain(request, directory: folder)
+        let markers = folder.appendingPathComponent("removals-v1")
+        let original = try #require(FileManager.default.contentsOfDirectory(at: markers, includingPropertiesForKeys: nil).first)
+        try FileManager.default.moveItem(at: original, to: markers.appendingPathComponent("wrong-owner.json"))
+        #expect(throws: NativeStore.Failure.wrongScope) {
+            try NativeAccountRemovalFiles.pending(directory: folder)
+        }
+    }
+
     @Test func acceptedDeletionDrainsWritersErasesOnlyItsAccountAndKeepsGuestAndOtherOwner() async throws {
         var requests: [String] = []
         let f = try await NativeOfflineAccountFixture.make(deleteAccount: { requests.append($0) })

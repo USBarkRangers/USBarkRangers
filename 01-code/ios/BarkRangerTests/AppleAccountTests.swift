@@ -12,6 +12,65 @@ import Testing
         #expect(!message.contains("AuthorizationError") && !message.contains("1000"))
     }
 
+    @Test func nonceFailureDoesNotExposeAuthenticationValues() {
+        let error = NSError(
+            domain: AuthErrors.domain, code: AuthErrorCode.missingOrInvalidNonce.rawValue,
+            userInfo: [NSLocalizedDescriptionKey: "synthetic-raw-nonce-and-token"])
+        let message = AccountModel.message(error)
+        #expect(message.contains("Apple sign-in") && message.contains("try again"))
+        #expect(!message.contains("synthetic-raw") && !message.contains("token"))
+    }
+
+    @Test func failedDeletionCleanupSurvivesReopenAndAllowsAppleAfterExplicitRetry() async throws {
+        var removed: [String] = []
+        let f = try await fixture(deleteAccount: { removed.append($0) })
+        var failCleanup = true
+        var attempts = 0
+        f.session.eraseAdditionalAccountData = { _ in
+            attempts += 1
+            if failCleanup { throw CocoaError(.fileWriteNoPermission) }
+        }
+        let model = AccountModel(session: f.session, apple: SyntheticAppleCredential())
+        model.deleteAccount()
+        await model.action?.value
+        try await eventually { f.session.cleanupState == .failed }
+        #expect(removed == ["a"] && f.session.identity == nil)
+        #expect(try NativeAccountRemovalFiles.pending(directory: f.directory).count == 1)
+
+        // Recreate startup against the durable failed request, not a fresh empty fixture.
+        await f.session.stopAndWait()
+        f.session.start()
+        try await eventually { f.session.cleanupState == .failed }
+        #expect(model.prepareApple(ASAuthorizationAppleIDProvider().createRequest(), intent: .signIn) == nil)
+        model.email("must-not-sign-in", password: "SyntheticOnly123!", create: false)
+        #expect(model.action == nil && f.session.identity == nil && f.auth.credentialUses.isEmpty)
+
+        failCleanup = false
+        let beforeRetry = attempts
+        f.session.start()  // Same action as Retry device cleanup; duplicate taps cannot start two workers.
+        f.session.start()
+        try await eventually { f.session.cleanupState == .ready && f.session.nativeTrips != nil }
+        #expect(attempts == beforeRetry + 1)
+        #expect(try NativeAccountRemovalFiles.pending(directory: f.directory).isEmpty)
+        #expect(f.session.deletionMessage?.contains("cleanup finished") == true)
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: try NativeStore.scopeDirectory(
+                    directory: f.directory, project: "demo-bark-native", uid: "a"
+                ).path))
+
+        f.auth.credentialWork = { f.auth.select("b", providers: ["apple.com"]) }
+        let id = try #require(
+            model.prepareApple(ASAuthorizationAppleIDProvider().createRequest(), intent: .signIn))
+        model.finishApple(.failure(AccountFailure.configuration), id: id)
+        await model.action?.value
+        try await eventually { f.session.identity?.uid == "b" && f.session.nativeTrips != nil }
+        #expect(f.auth.credentialUses == [.signIn])
+        f.session.eraseAdditionalAccountData = nil
+        f.auth.credentialWork = nil
+        try await f.close()
+    }
+
     @Test func adapterUsesFreshNonceStateAndConsumesEachReplyOnce() throws {
         let adapter = AppleSignInAdapter()
         let first = ASAuthorizationAppleIDProvider().createRequest()

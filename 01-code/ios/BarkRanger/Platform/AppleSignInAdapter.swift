@@ -25,7 +25,9 @@ struct AppleAccountCredential {
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
             throw AccountFailure.configuration
         }
-        let raw = Data(bytes).base64EncodedString()
+        // Firebase sends this through a form-encoded OAuth body. Base64 '+' can
+        // become a space there; hex preserves all 256 random bits without escaping.
+        let raw = bytes.map { String(format: "%02x", $0) }.joined()
         pending = (id, raw)
         request.state = id.uuidString
         request.requestedScopes = [.fullName, .email]

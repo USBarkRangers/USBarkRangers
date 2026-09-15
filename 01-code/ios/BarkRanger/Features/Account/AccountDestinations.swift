@@ -104,7 +104,16 @@ struct AccountActionFeedback: View {
         }
         if model.busy { Section { ProgressView("Working…") } }
         if let message = model.session.deletionMessage {
-            Section { Text(message).accessibilityIdentifier("account.deletion-status") }
+            Section {
+                Text(message).accessibilityIdentifier("account.deletion-status")
+                if model.session.cleanupState == .failed {
+                    Button("Retry device cleanup", action: model.session.start)
+                        .accessibilityIdentifier("account.retry-cleanup")
+                }
+            }
+        }
+        if model.session.cleanupState == .checking {
+            Section { ProgressView("Opening account…") }
         }
     }
 }

@@ -317,6 +317,23 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         remove.tap()
         app.buttons["Permanently delete account"].tap()
         XCTAssertTrue(email.waitForExistence(timeout: 20))
+        XCTAssertTrue(
+            app.staticTexts[
+                "Account deletion requested. Device data removed; cloud cleanup continues automatically."
+            ].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["account.retry-cleanup"].exists)
+        // Do not relaunch yet: deletion must preserve the foreground sync lifecycle
+        // so a different account can load its server profile in the same open app.
+        email.tap()
+        email.typeText("profile-ui@native.invalid")
+        app.secureTextFields["Password"].tap()
+        app.secureTextFields["Password"].typeText("NativeOnly123!")
+        app.keyboards.buttons["Done"].tap()
+        app.buttons["Sign in"].tap()
+        XCTAssertTrue(app.staticTexts["Premium Plan"].waitForExistence(timeout: 15))
+        dismissPasswordPrompt(in: app)
+        signOut(app)
+        XCTAssertTrue(email.waitForExistence(timeout: 10))
         app.terminate()
         app.launch()
         openAccount(app)

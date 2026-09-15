@@ -1,5 +1,6 @@
 import AuthenticationServices
 import BarkDomain
+import FirebaseAuth
 import Foundation
 import Observation
 
@@ -107,7 +108,8 @@ enum AppleAccountAction {
         }
     }
     func prepareApple(_ request: ASAuthorizationAppleIDRequest, intent: AppleAccountAction) -> UUID? {
-        guard !busy, capabilities.appleSignIn, capabilities.allows(intent.credentialUse),
+        guard !busy, session.cleanupState == .ready,
+            capabilities.appleSignIn, capabilities.allows(intent.credentialUse),
             intent != .deleteAccount || capabilities.accountManagement,
             (intent == .signIn) == (session.identity == nil)
         else { return nil }
@@ -229,7 +231,7 @@ enum AppleAccountAction {
     private func perform(
         success: String? = nil, id: UUID = UUID(), _ work: @escaping @MainActor () async throws -> Void
     ) {
-        guard action == nil, !busy else { return }
+        guard action == nil, !busy, session.cleanupState == .ready else { return }
         actionID = id
         busy = true
         notice = nil
@@ -253,6 +255,15 @@ enum AppleAccountAction {
         }
     }
     static func message(_ error: any Error) -> String {
+        let failure = error as NSError
+        if failure.domain == AuthErrors.domain,
+            failure.code == AuthErrorCode.missingOrInvalidNonce.rawValue
+        {
+            // Firebase's raw error includes one-use security values. Never put
+            // those values in the UI, screenshots or support messages.
+            return
+                "Apple sign-in could not be verified. Please try again. If it keeps happening, contact support."
+        }
         if (error as NSError).domain == ASAuthorizationError.errorDomain {
             return
                 "Apple sign-in couldn’t finish. Check that you’re signed in to your Apple Account in Settings and connected to the internet, then try again."

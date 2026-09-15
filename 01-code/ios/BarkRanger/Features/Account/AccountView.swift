@@ -101,6 +101,7 @@ struct AccountView: View {
                 }
             } else {
                 AccountForms(model: model)
+                    .disabled(model.session.cleanupState != .ready)
             }
         }
     }

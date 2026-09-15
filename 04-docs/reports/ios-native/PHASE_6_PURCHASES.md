@@ -274,6 +274,11 @@ This is required new billing functionality, not a code-reduction checkpoint.
   safe cleanup scopes and their indentation). **0 shipping app/backend files changed**.
   Full updated local native acceptance is running; log:
   `/tmp/BarkNativeFourFailures.vNruIz/native-full.log`. Do not call this run passed yet.
+  Result target: `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-2m8tuo99/Acceptance.xcresult`.
+  Fix/report pushed as **`f00e156`**; required hosted successor
+  [run 34962968565](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34962968565)
+  is running. The disposable fresh simulator was removed after acceptance; result bundles
+  and diagnostics were retained. No existing simulator or user data was erased.
 
 ### Purchase-boundary operation counts
 

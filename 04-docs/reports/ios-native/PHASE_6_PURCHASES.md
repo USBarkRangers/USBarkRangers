@@ -338,6 +338,10 @@ This is required new billing functionality, not a code-reduction checkpoint.
   with the isolated native demo emulators and local catalog fixture. Log:
   `/tmp/BarkNativePasswordCI.5f6x3T/account-after.log`. Full hosted confirmation remains required.
   No production deployment, phone installation, owner credentials or web changes.
+- Test fix and evidence pushed as **`c5dd469`**. Required full successor
+  [Native iOS run 34972048393](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34972048393)
+  is running; **not yet green**. It runs both native acceptance/full shell and the separate
+  required real StoreKit check. Shipping app/backend remains unchanged from `fa4b00f`.
 
 ### Purchase-boundary operation counts
 

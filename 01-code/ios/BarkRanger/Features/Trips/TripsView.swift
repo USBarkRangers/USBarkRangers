@@ -29,27 +29,29 @@ struct TripsView: View {
                     ProgressView("Loading trips…")
                 }
             } else {
-                ContentUnavailableView {
-                    Label(
-                        "Plan your next trip",
-                        systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                } description: {
-                    Text(
-                        model.notice
-                            ?? (model.canEdit
-                                ? "Choose parks and organize your days. Drafts stay on this iPhone."
-                                : AccountDataAccess.readOnlyMessage)
-                    )
-                    .foregroundStyle(.primary)
-                } actions: {
-                    if !model.canUsePremium { UpgradeToPremiumButton() }
-                    if model.canEdit {
-                        Button("New trip", systemImage: "plus") { model.newTrip() }
-                            .barkActionStyle(prominent: true).disabled(!model.canChangeTrip)
+                // The free/Premium actions must wrap and scroll at accessibility sizes;
+                // ContentUnavailableView's compact action layout clipped this combination.
+                ScrollView {
+                    VStack(spacing: 16) {
+                        Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                            .font(.largeTitle).accessibilityHidden(true)
+                        Text("Plan your next trip").font(.title2.bold())
+                        Text(
+                            model.notice
+                                ?? (model.canEdit
+                                    ? "Choose parks and organize your days. Drafts stay on this iPhone."
+                                    : AccountDataAccess.readOnlyMessage))
+                        if !model.canUsePremium { UpgradeToPremiumButton() }
+                        if model.canEdit {
+                            Button("New trip", systemImage: "plus") { model.newTrip() }
+                                .barkActionStyle(prominent: true).disabled(!model.canChangeTrip)
+                        }
+                        if model.availableTripID != nil {
+                            Button("Switch trip") { showingTrips = true }
+                        }
                     }
-                    if model.availableTripID != nil {
-                        Button("Switch trip") { showingTrips = true }
-                    }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity).padding(24)
                 }
             }
         }

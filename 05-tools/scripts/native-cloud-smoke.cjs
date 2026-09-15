@@ -58,6 +58,27 @@ async function main() {
         { 'content-type': 'application/json', 'X-Firebase-AppCheck': appCheckToken })).status, 401);
     const bootstrap = await send('nativeCommand', command('bootstrapAccount'));
     assert.equal(bootstrap.body.result?.status, 'accepted', JSON.stringify(bootstrap));
+    const purchaseContext = { version: 1, kind: 'context' };
+    assert.equal((await send('nativePurchase', purchaseContext,
+        { 'content-type': 'application/json', authorization: headers.authorization })).status, 401,
+        'Purchases require App Check, not just sign-in');
+    assert.equal((await send('nativePurchase', purchaseContext,
+        { 'content-type': 'application/json', 'X-Firebase-AppCheck': appCheckToken })).status, 401,
+        'Purchases require sign-in, not just App Check');
+    const purchase = await send('nativePurchase', purchaseContext);
+    assert.equal(purchase.status, 200, 'Deployed purchase context can load the private native secret');
+    assert.equal(purchase.body.result?.productID, 'swarm.USBARKRANGERS.premium.annual');
+    assert.equal(purchase.body.result.entitlement.premium, false);
+    assert.equal(purchase.body.result.subscription, null);
+    assert.deepEqual((await send('nativePurchase', purchaseContext)).body, purchase.body,
+        'Repeated context reuses the same account token');
+    assert.deepEqual((await send('nativePurchase', { version: 1, kind: 'refresh' })).body, purchase.body,
+        'Free-account refresh does not manufacture a subscription');
+    const unsigned = ['{"alg":"none"}', '{"environment":"Xcode"}', 'not-a-signature']
+        .map(value => Buffer.from(value).toString('base64url')).join('.');
+    const rejectedPurchase = await send('nativePurchase', { version: 1, kind: 'verify', signedTransaction: unsigned });
+    assert.equal(rejectedPurchase.body.error?.details?.reason, 'invalid-purchase',
+        'Live backend rejects unsigned/Xcode-claimed proof');
     const bookmarkIdentity = { kind: 'custom', id: randomUUID() };
     const bookmark = { pinID: storageID(bookmarkIdentity), saved: true, place: { identity: bookmarkIdentity,
         name: 'Private acceptance pin', coordinate: { latitude: 41, longitude: -81 }, state: 'Ohio',
@@ -70,6 +91,10 @@ async function main() {
     assert.equal(pinPage.body.result?.items?.length, 1, JSON.stringify(pinPage));
     assert.equal((await send('nativeCommand', command('updateProfile', 1, { displayName: 'Must stay free' }))).status, 403);
     const documents = 'https://firestore.googleapis.com/v1/projects/bark-ranger-ios/databases/(default)/documents';
+    assert.equal((await fetch(`${documents}/users/${uid}/purchases/apple`, { headers })).status, 403,
+        'Raw Apple purchase state is private even to the signed-in owner');
+    assert.equal((await fetch(`${documents}/nativeAppleOwners`, { headers })).status, 403,
+        'Global Apple ownership is never client-readable');
     const forged = await fetch(`${documents}/users/${uid}/state/entitlement`, {
         method: 'PATCH', headers, body: JSON.stringify({ fields: { premium: { booleanValue: true } } }) });
     assert.equal(forged.status, 403, 'Client cannot grant paid access');
@@ -135,6 +160,7 @@ async function main() {
         body: JSON.stringify({ fields: { sites: { integerValue: '999' } } }) })).status, 403);
     console.log(JSON.stringify({ cloudAcceptance: 'passed', uid, tripID, expiresAt: expiry.toISOString(),
         verified: ['real sign-up', 'App Check required', 'authentication required', 'free write denied',
+            'purchase Auth/App Check / stable context / free refresh / invalid signature rejection / private state',
             'direct entitlement write denied', '44-day acceptance / 46-day rejection',
             'profile overwrites preserve unrelated fields', 'free saved-pin sync / confirmation / removal / old replay',
             'compact trip/note/visit confirmation', 'direct owner progress read / forged points denied',

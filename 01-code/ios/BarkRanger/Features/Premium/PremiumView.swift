@@ -10,7 +10,10 @@ extension EnvironmentValues {
 struct UpgradeToPremiumButton: View {
     @Environment(\.showPremium) private var show
     var title = "Upgrade to Premium"
-    var body: some View { Button(title, action: show).accessibilityIdentifier("premium.open") }
+    var body: some View {
+        Button(action: show) { Text(title).frame(minHeight: 44) }
+            .barkActionStyle().accessibilityIdentifier("premium.open")
+    }
 }
 
 struct PremiumView: View {
@@ -28,7 +31,7 @@ struct PremiumView: View {
                     )
                     Text("Your saved information stays on your iPhone for use offline.").font(.footnote)
                 }
-                Section("Membership") {
+                Section {
                     membership
                     if model.signedIn {
                         Button("Restore Purchases") { Task { await model.restore() } }
@@ -41,6 +44,8 @@ struct PremiumView: View {
                     if let notice = model.notice {
                         Text(notice).font(.footnote).accessibilityIdentifier("premium.notice")
                     }
+                } header: {
+                    Text("Membership").foregroundStyle(Color.primary)
                 }
                 Section {
                     if let offer = model.offer {
@@ -65,8 +70,10 @@ struct PremiumView: View {
                         Text(
                             "Apple’s price is not available yet. You won’t be charged without confirming Apple’s purchase sheet."
                         )
-                        Button("Load subscription offer") { Task { await model.load() } }.disabled(
-                            model.busy || !model.available)
+                        if model.available {
+                            Button("Load subscription offer") { Task { await model.load() } }.disabled(
+                                model.busy)
+                        }
                     }
                     if !model.available {
                         Text("Purchasing is unavailable in this isolated test or preview build.").font(

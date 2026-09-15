@@ -11,8 +11,8 @@ import FirebaseCore
         #if DEBUG
             AppCheck.setAppCheckProviderFactory(AppCheckDebugProviderFactory())
         #else
-            // APPLE-ACTIVATION: configure App Attest for the approved paid Apple team
-            // and add its signing entitlement before Release device acceptance.
+            // Native registration: paid team V7Y6NA8G23, production App Attest
+            // entitlement. Genuine device attestation remains a device acceptance gate.
             AppCheck.setAppCheckProviderFactory(AppAttestProviderFactory())
         #endif
         configured = true

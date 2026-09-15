@@ -6,4 +6,7 @@
     <!-- Native Apple provider and primary App ID configured on 2026-09-14.
          Keep this entitlement aligned with paid team V7Y6NA8G23 provisioning. -->
     <key>com.apple.developer.applesignin</key><array><string>Default</string></array>
+    <!-- Firebase App Check accepts Apple's production App Attest environment.
+         Debug uses private registered debug tokens; Release never falls back to them. -->
+    <key>com.apple.developer.devicecheck.appattest-environment</key><string>production</string>
 </dict></plist>

@@ -109,12 +109,23 @@ neither an earlier run nor local checks substitute for that gate.
 - Final focused checks: **19 tests / 33 cases passed, 0 failures, 0 skips**, including
   request/cancellation/account-isolation and deletion ordering/failure preservation checks:
   `/tmp/BarkApple0521Focused.xcresult`. Existing security expectations were not weakened.
+- Native integration checks on the same 0.5.21 build: **10 passed, 0 failures, 0 skips**
+  using CI's `demo-bark-native` configuration, Node 22 and Java 21. This includes both
+  account-feature cases, all six trip-feature cases (including the unchanged exact-one-download
+  requirement), account creation/edit/appearance/relaunch/sign-out UI, and disposable
+  email-account deletion UI. Actual case names and counts were inspected in
+  `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-ewp4e0hs/Acceptance.xcresult`.
+  Emulator email-account deletion does not prove real Apple revocation.
 - Signed 0.5.21 build and strict code-signature verification passed. Verified exact app/team,
   enabled Apple entitlement, build number 80 and embedded `bark-ranger-ios` configuration.
   Existing derived-data output directory is `/tmp/BarkDeviceApple0520`; its app now contains
   0.5.21 (80), not the previous build. Swift formatting and scoped diff checks passed.
 - No backend runtime, rules/index changes or deployment were needed for this UI fix;
   ordinary reads/writes are unchanged. Products and StoreKit implementation remain untouched.
+- Code and regression check pushed as **`fa025a5`**. Its
+  [full GitHub CI](https://github.com/USBarkRangers/USBarkRangers/actions/runs/34922283360)
+  is pending, not green. Subsequent evidence-only documentation changes do not change the
+  tested app/backend code. Local emulators and the temporary catalog server were stopped.
 
 ## Native-only configuration completed with owner approval
 

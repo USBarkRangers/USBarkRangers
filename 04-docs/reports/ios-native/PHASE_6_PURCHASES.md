@@ -293,6 +293,42 @@ This is required new billing functionality, not a code-reduction checkpoint.
   **Still running, not a pass.** Native emulators were cleanly stopped first; only the local
   public catalog fixture remains. No source, deployment or phone installation in this follow-up.
 
+### September 15 CI follow-up — embedded password sheet is not an interruption
+
+- Hosted `f00e156` run `34962968565` **failed: 188 unique tests / 203 parameterized cases
+  passed, 2 failures, 0 skips**. StoreKit passed. The two failures are account create/edit
+  sign-out and disposable-account deletion, at the assertions requiring their buttons to
+  be hittable. Full hosted shell did not run. Artifact `10395660095` is retained at
+  `/tmp/BarkNativePasswordCI.5f6x3T/_temp/BarkAccountChecks-u7gwatwi/Acceptance.xcresult`.
+- Both exported recordings end with **Save Password?** covering the account form.
+  XCTest logged interruption checks but never invoked the added monitor. The earlier
+  monitor change was therefore **insufficient**, despite passing fresh and full local checks.
+  This is not a reason to loosen the sign-out or deletion assertions.
+- All native SDK/data tests passed in that same hosted run, including profile bootstrap
+  (3.187s), saved-pin model (1.450s), pending/account switch (0.308s), and **exact-one-trip-
+  download** (2.006s). The previous cloud stalls did not recur; their cause remains unproven.
+- Current local follow-up removes the ineffective monitor and explicitly checks the
+  owning credential service during the existing bounded account scrolling loop. The same
+  helper serves pending, sign-out and deletion; the original 10/12-swipe limits and final
+  assertions remain. The account test now exercises this navigation-time dismissal without
+  a preceding immediate password dismissal after its first account creation.
+  **Not yet accepted or pushed:** the changed UI checks must pass before checkpointing code.
+  Separate Debug test build succeeded at `/tmp/BarkNativePasswordCI.5f6x3T/build`.
+- A diagnostic experiment suspended only SafariViewService in disposable simulator
+  `90242EF5-4506-4A26-9B21-D09B1D6FE50A` for 15 seconds, then resumed it successfully.
+  The old binary passed the first sign-out and later failed while typing/saving the name;
+  it **did not reproduce the original blocked-sign-out failure** and is not fix proof.
+  Result: `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-m7esiosg/Acceptance.xcresult`.
+  Another simulator's UI suite was running concurrently, so rerun the focused account
+  checks serially after that suite finishes, before attributing this typing failure to app code.
+- The full local shell run at `/tmp/BarkNativeFourFailures.vNruIz/ShellFull.xcresult` is
+  still running on the prior test binary; it includes the unchanged shipping app and shell
+  checks, not the new opt-in native password-helper edit. Do not rebuild its products or run
+  another UI session concurrently. Once finished, run the changed native account UI from
+  `/tmp/BarkNativePasswordCI.5f6x3T/build/Build/Products` on the disposable simulator above.
+  Native demo emulators and the local catalog fixture are running for that verification.
+  No production deployment, phone installation, owner credentials or web changes.
+
 ### Purchase-boundary operation counts
 
 Firestore emulator instrumentation; excludes transaction retries and Apple's external API cost.

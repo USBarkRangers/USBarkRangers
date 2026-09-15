@@ -163,6 +163,8 @@ This is required new billing functionality, not a code-reduction checkpoint.
   including annual offer, purchase retention, restore, renewal and refund. Runtime setup
   succeeded without weakening or skipping the actual test; job `104294337415` recorded
   `TEST SUCCEEDED` at 07:54:28 UTC.
+  The hosted **Native SDK and account UI** step also passed at **08:11:18 UTC**. The final
+  catalog/discovery/accessibility step is now running; overall workflow success is pending.
 - Updated full local native regression **passed: 190 unique tests / 205 parameterized cases,
   0 failures / 0 skips**, completed 07:44:10 UTC. Evidence:
   `/var/folders/71/0jrgj85x78g562jhy30l4j600000gp/T/BarkAccountChecks-fc8jmy1c/Acceptance.xcresult`,

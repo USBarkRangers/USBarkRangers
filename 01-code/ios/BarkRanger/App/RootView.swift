@@ -29,6 +29,7 @@ struct RootView: View {
                                         tab == .map || tab == .trips
                                             ? "" : tab == .home ? "Bark Ranger" : tab.title
                                     )
+                                    .navigationBarTitleDisplayMode(tab == .home ? .inline : .automatic)
                                     .toolbar(
                                         tab == .map || tab == .trips || tab == .passport ? .hidden : .visible,
                                         for: .navigationBar

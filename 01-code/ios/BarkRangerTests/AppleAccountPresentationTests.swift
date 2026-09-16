@@ -8,7 +8,7 @@ nonisolated final class AppleAccountPresentationTests: XCTestCase {
     @MainActor func testLinkedAppleAccountDoesNotOfferAnotherAppleButton() async throws {
         let fixture = try await NativeOfflineAccountFixture.make(
             capabilities: .init(
-                profileWrites: true, authenticationChanges: true, accountManagement: true, appleSignIn: true))
+                profileWrites: true, authenticationChanges: true, accountManagement: true))
         // The account and its data remain synthetic/isolated. Only expose the real
         // provider controls; no button is pressed and no Apple request is made.
         fixture.auth.isTest = false

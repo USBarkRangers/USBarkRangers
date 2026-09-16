@@ -20,10 +20,6 @@ BARK_DEVELOPMENT_TEAM = V7Y6NA8G23
 BARK_CATALOG_MANIFEST_URL = https:/$()/storage.googleapis.com/bark-ranger-ios-public-catalog/native-catalog/v1/manifest.json
 #include? "Catalog.local.xcconfig"
 
-// Native provider callback is developer-owned until Firebase iOS registration is supplied.
-BARK_GOOGLE_REVERSED_CLIENT_ID = barkranger-google-unconfigured
-#include? "Accounts.local.xcconfig"
-
 // Empty for normal/Release builds. Debug may opt into a Mac's local test account services.
 BARK_DEVICE_ACCOUNT_HOST =
 

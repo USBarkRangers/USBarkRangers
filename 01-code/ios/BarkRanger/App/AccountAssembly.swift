@@ -7,17 +7,14 @@ import Foundation
 /// The only Firebase construction boundary. Missing native registration leaves public discovery available.
 @MainActor struct AccountAssembly {
     let session: AccountSession
-    let google: GoogleSignInAdapter?
     var leaderboard: (any LeaderboardReading)? = nil
     var feedback: (any FeedbackSending)? = nil
     var purchaseCloud: (@MainActor (String) throws -> any PurchaseVerifying)? = nil
-    // Apple provider configured only in bark-ranger-ios for paid team V7Y6NA8G23.
-    // Enabled for checkpoint-1 device acceptance; release still requires that acceptance.
     static let capabilities = AccountCapabilities(
-        profileWrites: true, authenticationChanges: true, accountManagement: true, appleSignIn: true)
+        profileWrites: true, authenticationChanges: true, accountManagement: true)
 
     static func unavailable(directory: URL) -> Self {
-        Self(session: AccountSession(auth: nil, directory: directory), google: nil)
+        Self(session: AccountSession(auth: nil, directory: directory))
     }
     static func live(directory: URL) -> Self {
         guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
@@ -59,14 +56,6 @@ import Foundation
                 || (values[0] == 172 && (16...31).contains(values[1]))
         }
     #endif
-    private static func configuredGoogleClientID(_ options: FirebaseOptions) -> String? {
-        guard let clientID = options.clientID,
-            let schemes = Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]],
-            schemes.flatMap({ $0["CFBundleURLSchemes"] as? [String] ?? [] })
-                .contains(clientID.split(separator: ".").reversed().joined(separator: "."))
-        else { return nil }
-        return clientID
-    }
     private static func make(
         options: FirebaseOptions, name: String, directory: URL, emulator: Bool,
         capabilities: AccountCapabilities,
@@ -147,10 +136,6 @@ import Foundation
                 session: AccountSession(
                     auth: service, directory: directory, capabilities: capabilities,
                     nativeProfileConfiguration: configuration),
-                google: emulator
-                    ? nil
-                    : GoogleSignInAdapter(
-                        clientID: configuredGoogleClientID(options), serverClientID: nil),
                 purchaseCloud: purchaseCloud)
         }
         return unavailable(directory: directory)

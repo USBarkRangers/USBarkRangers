@@ -95,7 +95,7 @@ struct AppComposition {
             accounts
             ?? AccountAssembly.unavailable(
                 directory: URL.cachesDirectory.appendingPathComponent("UnusedAccounts"))
-        let account = AccountModel(session: accounts.session, google: accounts.google)
+        let account = AccountModel(session: accounts.session)
         let purchases = PurchaseService(
             account: accounts.session, store: StoreKitClient(), connect: accounts.purchaseCloud)
         let routeCache = RouteGeometryStore(

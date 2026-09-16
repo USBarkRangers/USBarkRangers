@@ -11,7 +11,6 @@
 		BA4C30000000000000000001 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000001 /* FirebaseAuth */; };
 		BA4C30000000000000000002 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000002 /* FirebaseFirestore */; };
 		BA4C30000000000000000003 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000003 /* FirebaseFunctions */; };
-		BA4C30000000000000000004 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000004 /* GoogleSignIn */; };
 		BA4C30000000000000000005 /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = BA4C31000000000000000005 /* FirebaseAppCheck */; };
 		BA4C50000000000000000001 /* BarkRangerActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BA4C50000000000000000002 /* BarkRangerActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -107,7 +106,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				BA4C10000000000000000017 /* BarkDomain in Frameworks */,
-				BA4C30000000000000000004 /* GoogleSignIn in Frameworks */,
 				BA4C30000000000000000003 /* FirebaseFunctions in Frameworks */,
 				BA4C30000000000000000005 /* FirebaseAppCheck in Frameworks */,
 				BA4C30000000000000000002 /* FirebaseFirestore in Frameworks */,
@@ -215,7 +213,6 @@
 			);
 			name = BarkRanger;
 			packageProductDependencies = (
-				BA4C31000000000000000004 /* GoogleSignIn */,
 				BA4C31000000000000000003 /* FirebaseFunctions */,
 				BA4C31000000000000000005 /* FirebaseAppCheck */,
 				BA4C31000000000000000002 /* FirebaseFirestore */,
@@ -322,7 +319,6 @@
 			mainGroup = 8B2A66B32FD504090093FDAD;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				BA4C32000000000000000002 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				BA4C32000000000000000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				BA4C10000000000000000015 /* XCLocalSwiftPackageReference "Packages/BarkDomain" */,
 			);
@@ -786,14 +782,6 @@
 				version = 12.19.1;
 			};
 		};
-		BA4C32000000000000000002 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/google/GoogleSignIn-iOS.git";
-			requirement = {
-				kind = exactVersion;
-				version = 10.0.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -816,11 +804,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = BA4C32000000000000000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFunctions;
-		};
-		BA4C31000000000000000004 /* GoogleSignIn */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = BA4C32000000000000000002 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
-			productName = GoogleSignIn;
 		};
 		BA4C31000000000000000005 /* FirebaseAppCheck */ = {
 			isa = XCSwiftPackageProductDependency;

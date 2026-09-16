@@ -31,34 +31,8 @@ struct AccountForms: View {
             }
         }
         .onChange(of: create) { _, _ in focusedField = nil }
-        if model.providerButtonsAvailable { AccountProviderButtons(model: model, use: .signIn) }
-    }
-}
-
-struct AccountProviderButtons: View {
-    let model: AccountModel
-    let use: CredentialUse
-    var body: some View {
-        Section {
-            if model.capabilities.appleSignIn,
-                use != .link || model.session.identity?.providers.contains("apple.com") != true,
-                use != .reauthenticate || model.session.identity?.providers.contains("apple.com") == true
-            {
-                if use == .link {
-                    Text(
-                        "Link Apple to this existing Bark account, including when you choose Hide My Email. Your saved data stays in this account."
-                    )
-                    .font(.footnote)
-                }
-                AccountAppleButton(
-                    model: model,
-                    intent: use == .signIn ? .signIn : use == .link ? .link : .reauthenticate)
-            }
-            if model.google?.isConfigured == true,
-                use != .link || model.session.identity?.providers.contains("google.com") != true
-            {
-                Button(use == .link ? "Link Google" : "Continue with Google") { model.useGoogle(use) }
-            }
+        if model.providerButtonsAvailable {
+            Section { AccountAppleButton(model: model, intent: .signIn) }
         }
     }
 }
@@ -123,8 +97,14 @@ struct AccountSecurity: View {
                 }
                 Button("Sign out", action: model.signOut)
             }
-            if model.providerButtonsAvailable, model.capabilities.authenticationChanges {
-                AccountProviderButtons(model: model, use: .link)
+            if model.providerButtonsAvailable, model.capabilities.authenticationChanges,
+                !identity.providers.contains("apple.com")
+            {
+                Section("Link Apple") {
+                    Text("Link Apple to this existing Bark account, including when you choose Hide My Email. Your saved data stays in this account.")
+                        .font(.footnote)
+                    AccountAppleButton(model: model, intent: .link)
+                }
             }
         }
     }

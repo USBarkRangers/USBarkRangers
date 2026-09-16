@@ -18,7 +18,6 @@ enum AppleAccountAction {
 /// Account form intents. Session owns identity/data; repositories own durable changes; adapters own providers.
 @MainActor @Observable final class AccountModel {
     let session: AccountSession
-    let google: (any GoogleCredentialProviding)?
     var capabilities: AccountCapabilities { session.capabilities }
     var canEditData: Bool {
         capabilities.profileWrites && session.dataAccess.canEditAccount
@@ -31,11 +30,10 @@ enum AppleAccountAction {
     private var actionID = UUID()
     private var appleRequest: (id: UUID, uid: String?, intent: AppleAccountAction)?
     init(
-        session: AccountSession, google: (any GoogleCredentialProviding)? = nil,
+        session: AccountSession,
         apple: any AppleCredentialProviding = AppleSignInAdapter()
     ) {
         self.session = session
-        self.google = google
         self.apple = apple
     }
     var providerButtonsAvailable: Bool { session.auth != nil && session.auth?.isTest == false }
@@ -109,7 +107,7 @@ enum AppleAccountAction {
     }
     func prepareApple(_ request: ASAuthorizationAppleIDRequest, intent: AppleAccountAction) -> UUID? {
         guard !busy, session.cleanupState == .ready,
-            capabilities.appleSignIn, capabilities.allows(intent.credentialUse),
+            session.auth != nil, capabilities.allows(intent.credentialUse),
             intent != .deleteAccount || capabilities.accountManagement,
             (intent == .signIn) == (session.identity == nil)
         else { return nil }
@@ -168,21 +166,6 @@ enum AppleAccountAction {
             {
                 notice = Self.message(error)
             }
-        }
-    }
-    func useGoogle(_ use: CredentialUse) {
-        guard capabilities.allows(use) else { return }
-        guard let auth = session.auth, let google else { return }
-        let uid = session.identity?.uid
-        let request = UUID()
-        perform(id: request) {
-            if use == .signIn { try await self.session.prepareTripIdentityChange?() }
-            let credential = try await google.credential()
-            try Task.checkCancellation()
-            guard self.actionID == request, self.session.identity?.uid == uid else {
-                throw AccountFailure.accountChanged
-            }
-            try await auth.credential(credential, use: use, uid: uid)
         }
     }
     func linkEmail(_ email: String, password: String) {

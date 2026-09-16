@@ -26,7 +26,7 @@ struct BarkRangerApp: App {
                 composition.lifecycle.sceneChanged(phase)
             }
             .onOpenURL { url in
-                if composition.account.google?.handle(url) != true { composition.router.handle(url: url) }
+                composition.router.handle(url: url)
             }
         }
     }

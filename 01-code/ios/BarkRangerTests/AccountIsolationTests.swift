@@ -55,7 +55,7 @@ import Testing
         model.email("other", password: "SyntheticOnly", create: true)
         #expect(f.session.profileState?.visible?.displayName == "Ranger a")
         #expect(f.session.profileState?.pendingCount == 0)
-        #expect(!model.capabilities.appleSignIn)
+        #expect(!model.capabilities.allows(.link))
         f.auth.signOutFails = true
         #expect(throws: (any Error).self) { try f.auth.signOut() }
         #expect(f.session.identity?.uid == "a" && f.session.nativeProfile?.uid == "a")

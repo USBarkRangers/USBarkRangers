@@ -249,7 +249,7 @@ import Testing
     ) async throws -> NativeOfflineAccountFixture {
         try await .make(
             capabilities: .init(
-                profileWrites: true, authenticationChanges: true, accountManagement: true, appleSignIn: true),
+                profileWrites: true, authenticationChanges: true, accountManagement: true),
             signIn: signIn, deleteAccount: deleteAccount)
     }
 }

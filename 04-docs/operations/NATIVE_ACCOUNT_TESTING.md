@@ -53,7 +53,7 @@ The seed has two preserved visit records (including a retired and an unresolved 
 3. For an offline round trip, export emulators to a disposable folder using `firebase emulators:export /tmp/bark-account-offline --config firebase.ios-emulators.json --project demo-barkranger-ios`. Stop the emulator terminal, leaving the catalog server running. Change name/eligible appearance, close and reopen the app. The local edit and pending count must remain. Restart emulators with the same start command plus `--import /tmp/bark-account-offline`; do **not** reseed this test. Tap Sync now. Pending should clear after acceptance.
 4. Sign out, sign into B, then return to A. A's name/entitlement/pending work must never appear in B. Failed sign-out must retain the current account. Free/expired access must not erase saved local history. A fresh free account cannot download routes protected by the existing Premium rule.
 5. For a conflict, save an offline name, change A's `displayName` **and** `username` through the local emulator UI, reconnect and sync. Review local/server values and choose which to keep. No silent overwrite is expected.
-6. Exercise reset, verification, a newly created synthetic account and deletion. Deletion requires re-confirming identity and typing DELETE. Existing-provider management/recovery/cancellation is explicitly simulated. Real Apple/Google sign-in needs the separate prerequisites below.
+6. Exercise reset, verification, a newly created synthetic account and deletion. Deletion requires re-confirming identity and typing DELETE. Existing-provider management/recovery/cancellation is explicitly simulated. Real Apple sign-in needs the separate prerequisites below.
 7. Stop emulators and relaunch while signed in. Public parks must still open and the remembered account's local copy must remain available. Network/server errors must not claim a fresh cloud copy or silently replace saved records with empty data.
 
 Automated tests cover dropped responses, stable retries, altered payload reuse, permanent rejection, read/write cancellation, low-storage failure, account switching, late reads, provider UID checks and exact transactions. There is no debug toggle pretending to drop a real provider payment response.
@@ -77,15 +77,14 @@ Simulator builds use an ad-hoc signature because Firebase Auth needs the Keychai
 
 Ordinary Product → Test keeps the hosted app isolated and skips the two explicit emulator tests. The helper adds their opt-in flag to a temporary generated test-run configuration, then removes only that copy. CI runs both ordinary and emulator-backed paths and has no deployment step.
 
-## Live provider and release prerequisites
+## Current provider boundary
 
-Read-only inspection during Phase 3 found only a web Firebase app registered in `barkrangermap-auth`. No native app was created. Later, with explicit authorization:
+Native accounts use Apple and email/password in `bark-ranger-ios` only. Google sign-in,
+its callback configuration and SDK are removed. Google Maps directions are unchanged.
+The old web project and its historical iOS registration remain untouched; do not use
+them for native acceptance. The retired preview/deployment instructions are in Git history.
 
-- Register the actual iOS bundle `swarm.USBARKRANGERS` in that project; use its genuine GoogleService-Info.plist and enable the required providers.
-- The currently selected personal Apple development team cannot provision Sign in with Apple. Use the simulator for this handoff; real provider testing needs the appropriate registered developer team/capability.
-- Configure the matching Apple team/app identifier and Sign in with Apple capability/provisioning; confirm token revocation on a physical device.
-- Set the genuine Google reversed client ID in ignored Accounts.local.xcconfig; verify callback/link/cancellation flows with the registered iOS client.
-- Review and deploy only the new native callable entry points/rules after the later rollout plan, provision receipt TTL, and verify native field/access contracts against approved test accounts. Local emulator functions/configuration are blocked from deployment.
-- Complete real-device and minimum-iOS verification, privacy/account-deletion review and later StoreKit integration. Build success is not App Store readiness.
-
-Never copy a web app ID into the native app, connect to JDDM, use current paying customers as fixtures or enable the production wrappers just to make local testing pass.
+AppleAccountTests cover one-use nonce/state, late callbacks, cancellation, UID changes
+and revocation before deletion. Synthetic/emulator success is not live Apple consent
+acceptance. Never use owner credentials, delete a real account or purchase a subscription
+as an automated diagnostic. AccountActionTests retain independent capability checks.

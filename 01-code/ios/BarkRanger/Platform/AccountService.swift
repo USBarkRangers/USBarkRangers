@@ -6,7 +6,6 @@ nonisolated struct AccountCapabilities: Equatable, Sendable {
     var profileWrites = false
     var authenticationChanges = false
     var accountManagement = false
-    var appleSignIn = false
     var isReadOnly: Bool { !profileWrites && !authenticationChanges && !accountManagement }
     func allows(_ use: CredentialUse) -> Bool {
         switch use {

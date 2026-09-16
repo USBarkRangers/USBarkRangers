@@ -20,7 +20,8 @@ Simulator SDK tests need ad-hoc signing (`CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLO
 
 ## Accounts and App Check
 
-Firebase 12.19.1 and GoogleSignIn 10.0.0 are pinned. Auth, Firestore, Functions and
+Firebase 12.19.1 is pinned. GoogleSignIn, AppAuth and GTMAppAuth are removed;
+Firebase-required Google dependencies remain. Auth, Firestore, Functions and
 App Check are linked, not Analytics. Email/password is enabled in the new project.
 Native composition does not use existing users, Lemon Squeezy or old web API keys.
 Firestore uses memory cache; the account-scoped native store owns durable data and
@@ -44,13 +45,11 @@ helper requires an explicitly authorized verified account:
 `node 05-tools/scripts/grant-native-development-access.cjs bark-ranger-ios EMAIL 14`.
 There is no callable that grants access.
 
-Google sign-in remains hidden without a genuine new-project client ID and callback
-scheme. Do not reuse old Accounts.local.xcconfig values. Apple sign-in, real StoreKit
-purchasing/server verification and support submission remain unfinished. Native
-account deletion is implemented; Apple authorization revocation must be added before
-Apple sign-in is enabled. Approval alone does not implement those services or update an installed
-build. Complete implementation and device verification at the APPLE-ACTIVATION
-boundaries before release.
+Accounts support Apple and email/password only. Google Maps directions are unrelated
+and remain available. Apple sign-in, revocation on deletion, StoreKit purchasing and
+server verification are implemented; real Apple account actions require interactive
+device acceptance, not merely simulator test success. Never reuse the retired web
+project registration or Google OAuth callback files.
 
 The current [Phase 6 plan](../../../04-docs/plans/ios-native-2026-09-09/prompts/PHASE_6_PURCHASES_INTEGRATION.md)
 is Apple-subscriptions-only; it supersedes the earlier multi-provider billing plan.

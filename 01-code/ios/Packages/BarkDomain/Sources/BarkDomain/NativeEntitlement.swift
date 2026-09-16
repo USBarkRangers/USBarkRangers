@@ -7,6 +7,7 @@ public struct NativeEntitlement: Codable, Equatable, Sendable {
         case production = "app-store-production"
         case sandbox = "app-store-sandbox"
         case development
+        case owner
     }
     public let schemaVersion: Int
     public let revision: Int64
@@ -30,6 +31,11 @@ public struct NativeEntitlement: Codable, Equatable, Sendable {
         }
     }
     public func permitsEditing(at now: Date) -> Bool {
+        // Permanent, administrator-issued access to this account. Never inferred
+        // from an email, Apple sign-in, or a client setting.
+        if source == .owner {
+            return schemaVersion == 1 && premium && validUntilMs == nil
+        }
         // Only a server-confirmed administrative grant enables development builds.
         // Genuine server-verified sandbox enables TestFlight/App Review. It remains
         // distinctly labeled; StoreKit-local evidence can never write this projection.

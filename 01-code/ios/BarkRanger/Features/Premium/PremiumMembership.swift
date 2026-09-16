@@ -7,7 +7,20 @@ struct PremiumMembership: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let subscription = model.subscription {
+            if model.ownerPremium {
+                Label("Owner Premium", systemImage: "gift.fill").font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Permanent complimentary access. No charge or renewal.").font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Available wherever you sign in to this Bark account.").font(.footnote)
+                    .fixedSize(horizontal: false, vertical: true)
+                if model.subscription?.autoRenews == true {
+                    Text(
+                        "An existing Apple subscription renews separately. Use Manage Subscription to cancel it."
+                    )
+                    .font(.footnote).fixedSize(horizontal: false, vertical: true)
+                }
+            } else if let subscription = model.subscription {
                 Label(
                     title(subscription),
                     systemImage: model.activeSubscription ? "checkmark.seal.fill" : "person.crop.circle"

@@ -23,7 +23,16 @@ function requireWritableProfile(profile, allowCreation) {
     if (profile.status !== 'active') throw new NativeError('account-deleting', 'This account is being deleted.');
 }
 
+// Issued only by an administrator into the protected, account-owned entitlement.
+// It is independent of Apple billing and never follows an editable email address.
+function hasOwnerPremium(entitlement, uid) {
+    return entitlement?.schemaVersion === 1 && entitlement.premium === true
+        && entitlement.source === 'owner' && typeof uid === 'string' && uid.length > 0
+        && entitlement.ownerUID === uid && entitlement.validUntil === null;
+}
+
 function requirePremium(entitlement, nowMs, uid) {
+    if (hasOwnerPremium(entitlement, uid)) return;
     // purchases/ owns Apple verification and the one entitlement projection. Genuine
     // sandbox supports TestFlight/App Review; Xcode-local signatures never reach this row.
     const validUntilMs = typeof entitlement?.validUntil?.toMillis === 'function'
@@ -57,4 +66,4 @@ function nextRate(previous, nowMs, maximum) {
     return { windowStartMs, count: count + 1 };
 }
 
-module.exports = { accountID, requireWritableProfile, requirePremium, nextRate };
+module.exports = { accountID, requireWritableProfile, hasOwnerPremium, requirePremium, nextRate };

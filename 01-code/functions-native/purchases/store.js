@@ -2,7 +2,7 @@
 
 const { randomUUID } = require('node:crypto');
 const { Timestamp } = require('firebase-admin/firestore');
-const { accountID, requireWritableProfile, nextRate } = require('../commands/access');
+const { accountID, requireWritableProfile, hasOwnerPremium, nextRate } = require('../commands/access');
 const { NativeError } = require('../shared/errors');
 const policy = require('./policy');
 
@@ -102,7 +102,8 @@ function createPurchaseStore({ db, clock = Date.now }) {
             let confirmed = old;
             const unchanged = old?.source === source && old.premium === selected.premium
                 && old.validUntil?.toMillis() === selected.expiresAtMs;
-            if (!unchanged) {
+            // Apple history still reconciles, but cannot replace independent owner access.
+            if (!unchanged && !hasOwnerPremium(old, uid)) {
                 if (!Number.isSafeInteger(old?.revision) || old.revision >= Number.MAX_SAFE_INTEGER) {
                     throw new NativeError('unavailable', 'Membership needs support.');
                 }

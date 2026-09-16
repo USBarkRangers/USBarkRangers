@@ -7,6 +7,17 @@ const stamp = value => ({ toMillis: () => value });
 const grant = { schemaVersion: 1, premium: true, source: 'development', developmentUID: 'owner',
     developmentGrantedAt: stamp(now), validUntil: stamp(now + 3600_000) };
 
+test('permanent owner access is bound to the account and cannot be inferred from free or development access', () => {
+    const owner = { schemaVersion: 1, premium: true, source: 'owner', ownerUID: 'owner', validUntil: null };
+    assert.doesNotThrow(() => requirePremium(owner, now + 100 * 365 * 86400_000, 'owner'));
+    for (const uid of [undefined, '', 'another-owner']) assert.throws(() => requirePremium(owner, now, uid));
+    for (const patch of [{ premium: false }, { schemaVersion: 2 }, { source: 'none' },
+        { source: 'development' }, { ownerUID: undefined }, { validUntil: undefined },
+        { validUntil: stamp(now + 3600_000) }]) {
+        assert.throws(() => requirePremium({ ...owner, ...patch }, now, 'owner'));
+    }
+});
+
 test('development access requires a finite administrator grant bound to the authenticated UID', () => {
     assert.doesNotThrow(() => requirePremium(grant, now, 'owner'));
     for (const uid of [undefined, '', 'another-owner']) assert.throws(() => requirePremium(grant, now, uid));

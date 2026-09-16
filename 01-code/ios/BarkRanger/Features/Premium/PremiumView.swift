@@ -45,7 +45,7 @@ struct PremiumView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity).padding(.vertical, 12)
                 }
-                annualPlan
+                if !model.ownerPremium { annualPlan }
                 PremiumBenefits()
                 Section {
                     PremiumMembership(model: model)

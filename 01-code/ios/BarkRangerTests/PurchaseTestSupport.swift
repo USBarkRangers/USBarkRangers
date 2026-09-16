@@ -49,6 +49,7 @@ actor PurchaseCloudFixture: PurchaseVerifying {
     let token: UUID
     let now = Int64(Date().timeIntervalSince1970 * 1000)
     var accepted = false
+    var ownerPremium = false
     var revoked = false
     var failing = false
     var contextFailing = false
@@ -61,6 +62,7 @@ actor PurchaseCloudFixture: PurchaseVerifying {
     var contextWaiter: CheckedContinuation<Void, Never>?
     init(token: UUID) { self.token = token }
     func setFailing(_ value: Bool) { failing = value }
+    func setOwnerPremium() { ownerPremium = true }
     func setContextFailing(_ value: Bool) { contextFailing = value }
     func requireOfferLink() { needsOfferLink = true }
     func setRevoked() { revoked = true }
@@ -104,8 +106,10 @@ actor PurchaseCloudFixture: PurchaseVerifying {
         return .init(
             version: 1, appAccountToken: token, productID: AppleMembership.productID,
             entitlement: .init(
-                revision: revoked ? 4 : accepted ? 3 : 2, premium: accepted && !revoked,
-                source: accepted ? .sandbox : .none, validUntilMs: accepted ? expiry : nil),
+                revision: ownerPremium ? 5 : revoked ? 4 : accepted ? 3 : 2,
+                premium: ownerPremium || (accepted && !revoked),
+                source: ownerPremium ? .owner : accepted ? .sandbox : .none,
+                validUntilMs: ownerPremium ? nil : accepted ? expiry : nil),
             subscription: accepted
                 ? .init(
                     environment: "Sandbox", expiresAtMs: expiry,

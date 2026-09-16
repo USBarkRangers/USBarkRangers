@@ -51,6 +51,17 @@ helper requires an explicitly authorized verified account:
 `node 05-tools/scripts/grant-native-development-access.cjs bark-ranger-ios EMAIL 14`.
 There is no callable that grants access.
 
+Permanent complimentary owner access uses the separate server-issued `owner` source,
+supported by Debug and Release from **0.5.34 (94)**. It is bound to the existing native
+account UID, so linked Apple/email sign-in and replacement phones reach the same access.
+It has no expiration, Apple charge or renewal. Only the administrator tool
+`grant-native-owner-access.cjs bark-ranger-ios EMAIL --commit` can issue it; its default
+is a read-only dry run. The exact enabled account must already have Apple linked.
+Install a compatible app before issuing the new source. Existing development grants
+remain Debug-only. Apple transaction processing preserves owner access while retaining
+actual billing history; account deletion removes the grant with the account. A newly
+created account is never automatically granted access by matching an email address.
+
 Accounts support Apple and email/password only. Google Maps directions are unrelated
 and remain available. Apple sign-in, revocation on deletion, StoreKit purchasing and
 server verification are implemented; real Apple account actions require interactive

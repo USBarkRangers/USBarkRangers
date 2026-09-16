@@ -5,6 +5,27 @@ import Testing
 @testable import BarkRanger
 
 @MainActor struct PurchaseServiceTests {
+    @Test func ownerPremiumBlocksPurchaseAndSurvivesRestoreAndCoordinatorRelaunch() async throws {
+        let f = try await NativeOfflineAccountFixture.make()
+        let store = PurchaseStoreFixture()
+        let cloud = PurchaseCloudFixture(token: store.token)
+        await cloud.setOwnerPremium()
+        let model = PurchaseService(account: f.session, store: store, connect: { _ in cloud })
+        await model.load()
+        try await eventually { model.ownerPremium }
+        await model.buy()
+        #expect(store.purchases == 0)
+        #expect(model.notice?.contains("permanent complimentary Premium") == true)
+        await model.restore()
+        #expect(model.ownerPremium && model.subscription == nil)
+        let relaunched = PurchaseService(account: f.session, store: store, connect: { _ in cloud })
+        #expect(relaunched.ownerPremium)
+        await relaunched.load()
+        #expect(relaunched.ownerPremium && !relaunched.activeSubscription)
+        #expect(try await f.session.nativeProfile?.store.readEntitlement()?.source == .owner)
+        try await f.close()
+    }
+
     @Test func delayedFreeContextCannotReplaceANewerConfirmedPurchase() async throws {
         let f = try await NativeOfflineAccountFixture.make()
         let store = PurchaseStoreFixture()

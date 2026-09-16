@@ -58,6 +58,20 @@ test('bootstrap is durable, replay is exact, and free accounts cannot forge acce
     await assert.rejects(f.execute({ ...bootstrap, expectedRevision: 1 }), error => error.code === 'operation-reused');
 });
 
+test('owner Premium authorizes ordinary edits only for the bound active account', async () => {
+    const f = fixture();
+    await f.execute(f.command('bootstrapAccount'));
+    const access = f.user.collection('state').doc('entitlement');
+    await access.set({ schemaVersion: 1, revision: 2, premium: true,
+        source: 'owner', ownerUID: f.uid, validUntil: null });
+    assert.equal((await f.execute(f.command('updateMapStyle', 1, { mapStyle: 'satellite' }))).status, 'accepted');
+    await access.update({ ownerUID: 'another-owner' });
+    await assert.rejects(f.execute(f.command('updateMapStyle', 2, { mapStyle: 'default' })), e => e.code === 'premium-required');
+    await access.update({ ownerUID: f.uid });
+    await f.user.update({ status: 'deleting' });
+    await assert.rejects(f.execute(f.command('updateMapStyle', 2, { mapStyle: 'default' })), e => e.code === 'account-deleting');
+});
+
 test('profile field overwrites both succeed, retain bounded reads and replay exact receipts', async () => {
     const f = fixture();
     await f.execute(f.command('bootstrapAccount'));

@@ -59,6 +59,28 @@ test('context is account-bound and first purchase returns durable entitlement wi
     assert.deepEqual(f.measured.totals(),{reads:9,writes:2});
     assert.equal((await db.collection('nativeAppleOwners').where('uid','==',f.uid).get()).size,2);
 });
+test('owner Premium survives Apple verification, restore and refund without granting another account', async () => {
+    const f = await fixture(), other = await fixture();
+    const entitlement = { schemaVersion: 1, revision: 3, premium: true,
+        source: 'owner', ownerUID: f.uid, validUntil: null };
+    await f.user.collection('state').doc('entitlement').set(entitlement);
+    const before = await f.store.context(f.uid);
+    assert.equal(before.entitlement.source, 'owner');
+    assert.equal(before.subscription, null);
+    const purchased = await f.service.execute(f.uid, f.input);
+    assert.equal(purchased.entitlement.source, 'owner');
+    f.patch({ premium: false, revokedAtMs: f.current().signedAtMs + 1,
+        signedAtMs: f.current().signedAtMs + 1, status: 5 });
+    await f.service.notification(signed);
+    const after = await f.store.load(f.uid);
+    assert.equal(after.reply.subscription.revoked, true);
+    assert.deepEqual(after.reply.entitlement, before.entitlement);
+    assert.deepEqual((await f.user.collection('state').doc('entitlement').get()).data(), entitlement);
+    assert.equal((await other.store.context(other.uid)).entitlement.premium, false);
+    await f.user.update({ status: 'deleting' });
+    await assert.rejects(f.store.apply(f.uid, f.current()), e => e.code === 'account-deleting');
+});
+
 test('forged account tokens, wrong owners and extra request fields never grant or call Apple status', async () => {
     const f = await fixture(), other = await fixture();
     await assert.rejects(f.service.execute(other.uid,f.input),e => e.code === 'purchase-account-mismatch');

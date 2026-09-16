@@ -26,6 +26,9 @@ import Observation
     private(set) var subscription: PurchaseConfirmation.Subscription?
     var available: Bool { connect != nil }
     var signedIn: Bool { account.identity != nil }
+    var ownerPremium: Bool {
+        account.entitlement.access?.source == "owner" && account.entitlement.access?.premium == true
+    }
     var activeSubscription: Bool {
         subscription.map { !$0.revoked && Double($0.expiresAtMs) / 1000 > Date().timeIntervalSince1970 }
             ?? false
@@ -136,6 +139,13 @@ import Observation
             try check(generation)
             if !unfinished.isEmpty {
                 for proof in unfinished { try await confirm(proof, generation: generation) }
+                return
+            }
+            if ownerPremium
+                || (context.entitlement.source == .owner
+                    && context.entitlement.permitsEditing(at: Date()))
+            {
+                notice = "You have permanent complimentary Premium. No subscription is needed."
                 return
             }
             if context.subscription.map({

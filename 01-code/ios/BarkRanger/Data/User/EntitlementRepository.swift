@@ -12,12 +12,16 @@ import Observation
         expiry?.cancel()
         expiry = nil
         access = next
-        guard let native, let until = next?.validUntil, next?.premium == true, until > Date() else { return }
+        guard let native, next?.premium == true else { return }
+        // Paid expiry changes the label; the separate 40-day deadline changes editing.
+        // One timer serves both transitions and is replaced on renewal/revocation.
+        let paidThrough = native.validUntilMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+        guard let until = [paidThrough, next?.validUntil].compactMap({ $0 }).filter({ $0 > Date() }).min()
+        else { return }
         expiry = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(max(0, until.timeIntervalSinceNow))) } catch { return }
             guard !Task.isCancelled else { return }
-            self?.access = Entitlement(native: native, uid: uid)
-            self?.expiry = nil
+            self?.update(native, uid: uid)
         }
     }
     func clear() {

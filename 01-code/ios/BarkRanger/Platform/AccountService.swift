@@ -23,6 +23,7 @@ nonisolated struct AccountIdentity: Equatable, Sendable {
     let verified: Bool
     let providers: [String]
     let serverConfirmed: Bool
+    var passwordEmail: String? = nil
 }
 
 @MainActor protocol AccountAuthenticating: AnyObject {
@@ -35,7 +36,7 @@ nonisolated struct AccountIdentity: Equatable, Sendable {
     func resetPassword(email: String) async throws
     func verifyEmail(uid: String) async throws
     func reload() async throws
-    func unlink(_ provider: String, uid: String) async throws
+    func unlink(_ provider: String, uid: String, confirmingWith credential: AuthCredential) async throws
     func revokeApple(authorizationCode: String, uid: String) async throws
 }
 enum CredentialUse { case signIn, link, reauthenticate }
@@ -48,6 +49,7 @@ enum CredentialUse { case signIn, link, reauthenticate }
     private var continuation: AsyncStream<AccountIdentity?>.Continuation?
     private var confirmation: Task<Void, Never>?
     private var generation = UUID()
+    private var changingIdentity = false
     init(auth: Auth, isTest: Bool) {
         self.auth = auth
         self.isTest = isTest
@@ -100,10 +102,15 @@ enum CredentialUse { case signIn, link, reauthenticate }
                 AccountIdentity(
                     uid: $0.uid, email: $0.email,
                     displayName: $0.displayName, verified: $0.isEmailVerified,
-                    providers: $0.providerData.map(\.providerID), serverConfirmed: confirmed)
+                    providers: $0.providerData.map(\.providerID), serverConfirmed: confirmed,
+                    passwordEmail: $0.providerData.first { $0.providerID == "password" }?.email)
             })
     }
     func email(_ email: String, password: String, create: Bool) async throws {
+        try beginIdentityChange()
+        defer { changingIdentity = false }
+        try Task.checkCancellation()
+        guard auth.currentUser == nil else { throw AccountFailure.accountChanged }
         if create {
             _ = try await auth.createUser(withEmail: email, password: password)
         } else {
@@ -111,6 +118,8 @@ enum CredentialUse { case signIn, link, reauthenticate }
         }
     }
     func credential(_ credential: AuthCredential, use: CredentialUse, uid: String?) async throws {
+        try beginIdentityChange()
+        defer { changingIdentity = false }
         try Task.checkCancellation()
         guard auth.currentUser?.uid == uid, use == .signIn || uid != nil else {
             throw AccountFailure.accountChanged
@@ -123,7 +132,7 @@ enum CredentialUse { case signIn, link, reauthenticate }
             guard auth.currentUser?.uid == user.uid else { throw AccountFailure.accountChanged }
         case .reauthenticate:
             guard let user = auth.currentUser else { throw AccountFailure.signInRequired }
-            _ = try await user.reauthenticate(with: credential)
+            try await confirmIdentity(credential, user: user)
             guard auth.currentUser?.uid == user.uid else { throw AccountFailure.accountChanged }
         }
         try await reload()
@@ -132,7 +141,10 @@ enum CredentialUse { case signIn, link, reauthenticate }
         let value = EmailAuthProvider.credential(withEmail: email, password: password)
         try await credential(value, use: use, uid: uid)
     }
-    func signOut() throws { try auth.signOut() }
+    func signOut() throws {
+        guard !changingIdentity else { throw AccountFailure.authenticationInProgress }
+        try auth.signOut()
+    }
     func resetPassword(email: String) async throws { try await auth.sendPasswordReset(withEmail: email) }
     func verifyEmail(uid: String) async throws {
         guard let user = auth.currentUser, user.uid == uid else { throw AccountFailure.accountChanged }
@@ -145,16 +157,68 @@ enum CredentialUse { case signIn, link, reauthenticate }
         guard auth.currentUser?.uid == user.uid else { throw AccountFailure.accountChanged }
         publish(user, confirmed: true)
     }
-    func unlink(_ provider: String, uid: String) async throws {
-        guard let user = auth.currentUser, user.uid == uid else { throw AccountFailure.accountChanged }
-        guard user.providerData.count > 1 else {
-            throw AccountFailure.lastProvider
-        }
+    /// Confirm the remaining method in this same operation; no reusable "confirmed" flag.
+    /// Firebase owns the provider list. Never duplicate it in Firestore or move account data.
+    func unlink(_ provider: String, uid: String, confirmingWith credential: AuthCredential) async throws {
+        try beginIdentityChange()
+        defer { changingIdentity = false }
+        let user = try currentUser(uid)
+        try await user.reload()
+        try requireRemoval(provider, from: try currentUser(uid), confirmation: credential)
+        try await confirmIdentity(credential, user: user)
+        try await user.reload()
+        try requireRemoval(provider, from: try currentUser(uid), confirmation: credential)
         _ = try await user.unlink(fromProvider: provider)
-        guard auth.currentUser?.uid == uid else { throw AccountFailure.accountChanged }
+        _ = try currentUser(uid)
         try await reload()
     }
+    private func currentUser(_ uid: String) throws -> User {
+        try Task.checkCancellation()
+        guard let user = auth.currentUser, user.uid == uid else { throw AccountFailure.accountChanged }
+        return user
+    }
+    private func confirmIdentity(_ credential: AuthCredential, user: User) async throws {
+        let uid = user.uid
+        // Firebase 12.19.1's async bridge checks result BEFORE error. Its callback
+        // can supply both on userMismatch, so do not use that bridge for a security
+        // confirmation. Honor errors first and verify the returned UID explicitly.
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            user.reauthenticate(with: credential) { result, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if result?.user.uid == uid {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: AccountFailure.accountChanged)
+                }
+            }
+        }
+        _ = try currentUser(uid)
+    }
+    /// Canceling a screen cannot cancel an already-sent Firebase request. Keep
+    /// identity writes serialized until the SDK finishes, including after cancellation.
+    private func beginIdentityChange() throws {
+        try Task.checkCancellation()
+        guard !changingIdentity else { throw AccountFailure.authenticationInProgress }
+        changingIdentity = true
+    }
+    private func requireRemoval(_ provider: String, from user: User, confirmation: AuthCredential) throws {
+        let remaining = provider == "apple.com" ? "password" : "apple.com"
+        guard ["apple.com", "password"].contains(provider),
+            user.providerData.contains(where: { $0.providerID == provider }),
+            user.providerData.contains(where: { $0.providerID == remaining })
+        else { throw AccountFailure.lastProvider }
+        guard confirmation.provider == remaining else { throw AccountFailure.remainingMethodRequired }
+        if remaining == "password" {
+            let email = user.providerData.first { $0.providerID == "password" }?.email
+            guard user.isEmailVerified, let email,
+                user.email?.caseInsensitiveCompare(email) == .orderedSame
+            else { throw AccountFailure.verifiedPasswordRequired }
+        }
+    }
     func revokeApple(authorizationCode: String, uid: String) async throws {
+        try beginIdentityChange()
+        defer { changingIdentity = false }
         try Task.checkCancellation()
         guard auth.currentUser?.uid == uid else { throw AccountFailure.accountChanged }
         guard !authorizationCode.isEmpty else { throw AccountFailure.appleConfirmationRequired }
@@ -174,4 +238,6 @@ enum CredentialUse { case signIn, link, reauthenticate }
 
 enum AccountFailure: Error {
     case signInRequired, accountChanged, lastProvider, configuration, cancelled, appleConfirmationRequired
+    case remainingMethodRequired, verifiedPasswordRequired
+    case authenticationInProgress
 }

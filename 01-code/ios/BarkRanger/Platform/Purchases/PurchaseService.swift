@@ -288,6 +288,16 @@ import Observation
         }
         try await feature.store.acceptEntitlement(reply.entitlement)
         try check(generation)
+        // Context loads and transaction updates can finish out of order. The store
+        // already rejects older entitlements; apply the same fence to purchase UI.
+        let confirmed = try await feature.store.readEntitlement()
+        try check(generation)
+        guard confirmed?.revision == reply.entitlement.revision else { return }
+        if let previous = context, previous.entitlement.revision == reply.entitlement.revision,
+            (previous.subscription?.checkedAtMs ?? 0) > (reply.subscription?.checkedAtMs ?? 0)
+        {
+            return
+        }
         context = reply
         subscription = reply.subscription
     }

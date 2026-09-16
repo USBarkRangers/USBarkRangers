@@ -11,6 +11,10 @@ import Foundation
     var signOutFails = false
     private(set) var credentialUses: [CredentialUse] = []
     private(set) var passwordResets = 0
+    private(set) var resetAddresses: [String] = []
+    private(set) var passwordInputs: [(email: String, password: String)] = []
+    private(set) var removals: [(provider: String, uid: String, confirmation: String)] = []
+    var removalWork: (@MainActor () async throws -> Void)?
     var credentialWork: (@MainActor () async throws -> Void)?
     var revocationWork: (@MainActor () async throws -> Void)?
     private(set) var revokedAppleUIDs: [String] = []
@@ -22,11 +26,14 @@ import Foundation
         continuation.yield(current)
         return stream
     }
-    func select(_ uid: String?, confirmed: Bool = true, providers: [String] = ["password"]) {
+    func select(
+        _ uid: String?, confirmed: Bool = true, providers: [String] = ["password"], verified: Bool = true
+    ) {
         current = uid.map {
             AccountIdentity(
                 uid: $0, email: "\($0)@example.test", displayName: $0,
-                verified: true, providers: providers, serverConfirmed: confirmed)
+                verified: verified, providers: providers, serverConfirmed: confirmed,
+                passwordEmail: providers.contains("password") ? "\($0)@example.test" : nil)
         }
         continuation?.yield(current)
     }
@@ -39,11 +46,21 @@ import Foundation
         credentialUses.append(use)
         try await credentialWork?()
     }
-    func password(_ email: String, password: String, use: CredentialUse, uid: String?) async throws {}
-    func resetPassword(email: String) async throws { passwordResets += 1 }
+    func password(_ email: String, password: String, use: CredentialUse, uid: String?) async throws {
+        passwordInputs.append((email, password))
+        try await credentialWork?()
+    }
+    func resetPassword(email: String) async throws {
+        passwordResets += 1
+        resetAddresses.append(email)
+    }
     func verifyEmail(uid: String) async throws {}
     func reload() async throws { if let current { select(current.uid, providers: current.providers) } }
-    func unlink(_ provider: String, uid: String) async throws {}
+    func unlink(_ provider: String, uid: String, confirmingWith credential: AuthCredential) async throws {
+        try await removalWork?()
+        guard current?.uid == uid else { throw AccountFailure.accountChanged }
+        removals.append((provider, uid, credential.provider))
+    }
     func revokeApple(authorizationCode: String, uid: String) async throws {
         guard current?.uid == uid else { throw AccountFailure.accountChanged }
         try await revocationWork?()

@@ -57,6 +57,8 @@ actor PurchaseCloudFixture: PurchaseVerifying {
     var calls: [String] = []
     var verifyWaiter: CheckedContinuation<Void, Never>?
     var shouldHold = false
+    private var shouldHoldContext = false
+    var contextWaiter: CheckedContinuation<Void, Never>?
     init(token: UUID) { self.token = token }
     func setFailing(_ value: Bool) { failing = value }
     func setContextFailing(_ value: Bool) { contextFailing = value }
@@ -68,10 +70,18 @@ actor PurchaseCloudFixture: PurchaseVerifying {
         verifyWaiter?.resume()
         verifyWaiter = nil
     }
-    func context() throws -> PurchaseConfirmation {
+    func holdContext() { shouldHoldContext = true }
+    func releaseContext() {
+        shouldHoldContext = false
+        contextWaiter?.resume()
+        contextWaiter = nil
+    }
+    func context() async throws -> PurchaseConfirmation {
         calls.append("context")
         if contextFailing { throw PurchaseFailure.accountRequired }
-        return reply()
+        let captured = reply()
+        if shouldHoldContext { await withCheckedContinuation { contextWaiter = $0 } }
+        return captured
     }
     func verify(_ proof: String, claimOffer: Bool) async throws -> PurchaseConfirmation {
         calls.append("verify")

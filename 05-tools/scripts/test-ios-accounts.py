@@ -54,6 +54,7 @@ tests = [
     "BarkRangerTests/NativeMailroomTests", "BarkRangerTests/NativeCacheRetentionTests",
     "BarkRangerTests/AccountDiagnosticsTests", "BarkRangerUITests/NativeAccountUITests",
     "BarkRangerTests/NativeAccountDeletionTests",
+    "BarkRangerTests/NativeAuthLifecycleEmulatorTests",
 ]
 if not args.native_profile:
     tests = []

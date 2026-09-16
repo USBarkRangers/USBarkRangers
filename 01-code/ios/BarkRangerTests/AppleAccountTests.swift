@@ -133,20 +133,42 @@ import Testing
         try await f.close()
     }
 
-    @Test func cancelledOldCallbackCannotConsumeANewerRequest() async throws {
+    @Test(arguments: [AppleAccountAction.link, .reauthenticate])
+    func cancelledOldCallbackCannotConsumeANewerRequest(_ intent: AppleAccountAction) async throws {
         let f = try await fixture()
         let apple = SyntheticAppleCredential()
         let model = AccountModel(session: f.session, apple: apple)
         let oldID = try #require(
-            model.prepareApple(ASAuthorizationAppleIDProvider().createRequest(), intent: .link))
+            model.prepareApple(ASAuthorizationAppleIDProvider().createRequest(), intent: intent))
         model.cancel()
         let current = try #require(
-            model.prepareApple(ASAuthorizationAppleIDProvider().createRequest(), intent: .link))
+            model.prepareApple(ASAuthorizationAppleIDProvider().createRequest(), intent: intent))
         model.finishApple(.failure(AccountFailure.configuration), id: oldID)
         #expect(model.busy && apple.consumed.isEmpty && f.auth.credentialUses.isEmpty)
         model.finishApple(.failure(AccountFailure.configuration), id: current)
         await model.action?.value
-        #expect(apple.consumed == [current] && f.auth.credentialUses == [.link])
+        #expect(apple.consumed == [current] && f.auth.credentialUses == [intent.credentialUse])
+        try await f.close()
+    }
+
+    @Test func removingPasswordUsesFreshAppleConfirmationWithoutRevokingAppleOrDeletingData() async throws {
+        let f = try await fixture()
+        f.auth.select("a", providers: ["password", "apple.com"])
+        try await eventually { f.session.identity?.providers.count == 2 }
+        let model = AccountModel(session: f.session, apple: SyntheticAppleCredential())
+        let old = try #require(
+            model.prepareApple(ASAuthorizationAppleIDProvider().createRequest(), intent: .unlinkPassword))
+        model.cancel()
+        let current = try #require(
+            model.prepareApple(ASAuthorizationAppleIDProvider().createRequest(), intent: .unlinkPassword))
+        model.finishApple(.failure(AccountFailure.configuration), id: old)
+        #expect(f.auth.removals.isEmpty && model.busy)
+        model.finishApple(.failure(AccountFailure.configuration), id: current)
+        await model.action?.value
+        #expect(f.auth.removals.count == 1 && f.auth.removals.first?.provider == "password")
+        #expect(f.auth.removals.first?.confirmation == "apple.com")
+        #expect(f.auth.credentialUses.isEmpty && f.auth.revokedAppleUIDs.isEmpty)
+        #expect(f.session.identity?.uid == "a" && f.session.nativeProfile != nil)
         try await f.close()
     }
 
@@ -265,8 +287,9 @@ import Testing
         if let failure { throw failure }
         consumed.append(id)
         return .init(
-            credential: EmailAuthProvider.credential(
-                withEmail: "synthetic@example.test", password: "SyntheticOnly123!"), authorizationCode: code)
+            credential: OAuthProvider.appleCredential(
+                withIDToken: "synthetic-token", rawNonce: "synthetic-nonce", fullName: nil),
+            authorizationCode: code)
     }
     func cancel() {}
 }

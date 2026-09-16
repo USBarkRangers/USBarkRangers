@@ -5,6 +5,23 @@ import Testing
 @testable import BarkRanger
 
 @MainActor struct PurchaseServiceTests {
+    @Test func delayedFreeContextCannotReplaceANewerConfirmedPurchase() async throws {
+        let f = try await NativeOfflineAccountFixture.make()
+        let store = PurchaseStoreFixture()
+        let cloud = PurchaseCloudFixture(token: store.token)
+        let model = PurchaseService(account: f.session, store: store, connect: { _ in cloud })
+        await model.load()
+        await cloud.holdContext()
+        let loading = Task { await model.load() }
+        try await eventually { await cloud.contextWaiter != nil }
+        store.deliver(store.proof())
+        try await eventually { model.subscription != nil && store.finished == ["101"] }
+        await cloud.releaseContext()
+        await loading.value
+        #expect(model.subscription != nil && model.activeSubscription)
+        #expect(f.session.entitlement.access?.premium == true)
+        try await f.close()
+    }
     @Test func restoreFailureDoesNotClaimAnUnmadePurchaseIsWaitingForConfirmation() async throws {
         let f = try await NativeOfflineAccountFixture.make()
         let store = PurchaseStoreFixture()

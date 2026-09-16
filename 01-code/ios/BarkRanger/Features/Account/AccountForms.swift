@@ -5,34 +5,62 @@ import SwiftUI
 struct AccountForms: View {
     let model: AccountModel
     private enum Field { case email, password }
+    private enum Mode { case signIn, create, reset }
     @State private var email = ""
     @State private var password = ""
-    @State private var create = false
+    @State private var mode = Mode.signIn
     @FocusState private var focusedField: Field?
     var body: some View {
-        Section("Sign in") {
+        if mode == .signIn, model.providerButtonsAvailable {
+            Section {
+                AccountAppleButton(model: model, intent: .signIn)
+                Text(
+                    "Already have an email account? Sign in below, then connect Apple in Sign-in & Security to keep your saved data together."
+                )
+                .font(.footnote)
+            }
+        }
+        Section(mode == .create ? "Create account" : mode == .reset ? "Reset password" : "Sign in with email")
+        {
             TextField("Email", text: $email).textContentType(.emailAddress)
                 .keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
-                .focused($focusedField, equals: .email).submitLabel(.next)
-                .onSubmit { focusedField = .password }
-            SecureField("Password", text: $password).textContentType(create ? .newPassword : .password)
+                .focused($focusedField, equals: .email).submitLabel(mode == .reset ? .done : .next)
+                .onSubmit { focusedField = mode == .reset ? nil : .password }
+            if mode != .reset {
+                SecureField("Password", text: $password).textContentType(
+                    mode == .create ? .newPassword : .password
+                )
                 .focused($focusedField, equals: .password).submitLabel(.done)
                 .onSubmit { focusedField = nil }
-            if model.capabilities.authenticationChanges { Toggle("Create a new account", isOn: $create) }
-            Button(create ? "Create account" : "Sign in") {
+            }
+            if mode == .create { Text("Use at least 8 characters.").font(.footnote) }
+            if mode == .reset {
+                Text(
+                    "For email/password accounts, we’ll send a reset link if the address is eligible. If you use Apple only, continue with Apple instead."
+                ).font(.footnote)
+            }
+            Button(mode == .create ? "Create account" : mode == .reset ? "Send reset email" : "Sign in") {
                 focusedField = nil
-                model.email(email, password: password, create: create)
+                if mode == .reset {
+                    model.resetPassword(email)
+                } else {
+                    model.email(email, password: password, create: mode == .create)
+                }
             }
             if model.capabilities.authenticationChanges {
-                Button("Reset password") {
-                    focusedField = nil
-                    model.resetPassword(email)
+                if mode == .signIn {
+                    Button("Forgot password?") { mode = .reset }
+                    Button("Create an account") { mode = .create }
+                        .accessibilityIdentifier("account.create-mode")
+                } else {
+                    Button("Back to sign in") { mode = .signIn }
                 }
             }
         }
-        .onChange(of: create) { _, _ in focusedField = nil }
-        if model.providerButtonsAvailable {
-            Section { AccountAppleButton(model: model, intent: .signIn) }
+        .onChange(of: mode) { _, _ in
+            focusedField = nil
+            password = ""
+            model.cancel()
         }
     }
 }
@@ -68,18 +96,24 @@ struct AccountSecurity: View {
     let model: AccountModel
     @State private var email = ""
     @State private var password = ""
+    @State private var removing: String?
     var body: some View {
         if let identity = model.session.identity {
             Section("Sign-in methods") {
-                ForEach(identity.providers, id: \.self) { provider in
+                ForEach(["apple.com", "password"], id: \.self) { provider in
                     HStack {
-                        Text(
-                            provider == "password"
-                                ? "Email and password" : provider == "apple.com" ? "Apple" : provider)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(provider == "password" ? "Email and password" : "Apple")
+                            Text(identity.providers.contains(provider) ? "Connected" : "Not connected")
+                                .foregroundStyle(.secondary).font(.subheadline)
+                        }
                         Spacer()
                         if identity.providers.count > 1, model.capabilities.authenticationChanges {
-                            Button("Unlink", role: .destructive) { model.unlink(provider) }
+                            Button("Disconnect", role: .destructive) { removing = provider }
                                 .foregroundStyle(Color("DestructiveAction"))
+                                .accessibilityLabel(
+                                    provider == "apple.com" ? "Disconnect Apple" : "Remove email and password"
+                                )
                         }
                     }
                 }
@@ -90,19 +124,62 @@ struct AccountSecurity: View {
                         )
                         .font(.footnote)
                     }
-                    TextField("Email to link", text: $email).keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    SecureField("New password", text: $password)
-                    Button("Link email and password") { model.linkEmail(email, password: password) }
+                    TextField("Email to link", text: $email).textContentType(.emailAddress).keyboardType(
+                        .emailAddress
+                    )
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    SecureField("New password", text: $password).textContentType(.newPassword)
+                    Button("Link email and password") {
+                        model.linkEmail(email, password: password)
+                        password = ""
+                    }
                 }
+                if identity.providers.contains("password"), model.capabilities.authenticationChanges {
+                    Button("Send password reset email") {
+                        model.resetPassword(identity.passwordEmail ?? identity.email ?? "")
+                    }
+                }
+                Button("Refresh sign-in methods", action: model.refreshIdentity)
                 Button("Sign out", action: model.signOut)
+            }
+            if let removing {
+                Section(removing == "apple.com" ? "Disconnect Apple" : "Remove email and password") {
+                    Text(
+                        "Your Bark account, saved data and subscription stay unchanged. Disconnecting a sign-in method does not cancel Apple billing."
+                    ).font(.footnote)
+                    if removing == "apple.com" {
+                        Text(
+                            "Confirm your password to keep email sign-in. If you use Apple after disconnecting it, you may create a separate account. To reconnect it here, sign in with email first."
+                        ).font(.footnote)
+                        Text(identity.passwordEmail ?? "Verify your connected email first.").font(
+                            .subheadline)
+                        SecureField("Password to keep email sign-in", text: $password).textContentType(
+                            .password)
+                        Button("Confirm and disconnect Apple", role: .destructive) {
+                            model.unlinkApple(password: password)
+                            password = ""
+                            self.removing = nil
+                        }.disabled(password.isEmpty)
+                    } else {
+                        Text(
+                            "Confirm with the connected Apple Account. Apple will be your remaining sign-in method."
+                        ).font(.footnote)
+                        AccountAppleButton(model: model, intent: .unlinkPassword) { self.removing = nil }
+                    }
+                    Button("Cancel", role: .cancel) {
+                        self.removing = nil
+                        password = ""
+                    }
+                }
             }
             if model.providerButtonsAvailable, model.capabilities.authenticationChanges,
                 !identity.providers.contains("apple.com")
             {
                 Section("Link Apple") {
-                    Text("Link Apple to this existing Bark account, including when you choose Hide My Email. Your saved data stays in this account.")
-                        .font(.footnote)
+                    Text(
+                        "Link Apple to this existing Bark account, including when you choose Hide My Email. Your saved data stays in this account."
+                    )
+                    .font(.footnote)
                     AccountAppleButton(model: model, intent: .link)
                 }
             }

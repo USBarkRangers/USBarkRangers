@@ -12,7 +12,8 @@ public struct Entitlement: Equatable, Sendable {
     public init(native: NativeEntitlement, uid: String, now: Date = Date()) {
         self.uid = uid
         premium = native.permitsEditing(at: now)
-        status = premium ? "active" : "free"
+        let paidThrough = native.validUntilMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+        status = !premium ? "free" : paidThrough.map { $0 <= now } == true ? "grace" : "active"
         source = native.source.rawValue
         validUntil = native.editingDeadline
     }

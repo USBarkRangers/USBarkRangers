@@ -1,6 +1,41 @@
 import XCTest
 
 nonisolated final class NativeAccountUITests: XCTestCase {
+    @MainActor func testCreateAndPasswordResetAreExplicitAndNeverCarryAPasswordBetweenModes() throws {
+        continueAfterFailure = false
+        guard ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1" else {
+            throw XCTSkip("Requires isolated demo-bark-native emulators.")
+        }
+        let app = XCUIApplication()
+        app.launchEnvironment = [
+            "BARK_TEST_SCOPE": UUID().uuidString,
+            "BARK_NATIVE_ACCOUNT_EMULATORS": "1", "BARK_EMULATOR_HOST": "127.0.0.1",
+        ]
+        app.launch()
+        openAccount(app)
+        XCTAssertFalse(app.buttons["Continue with Google"].exists)
+        let email = app.textFields["Email"]
+        XCTAssertTrue(email.waitForExistence(timeout: 10))
+        email.tap()
+        email.typeText("profile-ui@native.invalid")
+        app.secureTextFields["Password"].tap()
+        app.secureTextFields["Password"].typeText("NotRetained123!")
+        app.keyboards.buttons["Done"].tap()
+        app.buttons["account.create-mode"].tap()
+        XCTAssertTrue(app.buttons["Create account"].exists)
+        XCTAssertEqual(app.secureTextFields["Password"].value as? String, "Password")
+        XCTAssertEqual(email.value as? String, "profile-ui@native.invalid")
+        app.buttons["Back to sign in"].tap()
+        app.buttons["Forgot password?"].tap()
+        XCTAssertFalse(app.secureTextFields["Password"].exists)
+        app.buttons["Send reset email"].tap()
+        let sent = app.staticTexts[
+            "If an account uses that email, password reset instructions are available."]
+        XCTAssertTrue(sent.waitForExistence(timeout: 10))
+        attach(app, name: "Explicit password reset — no retained password")
+        app.terminate()
+    }
+
     @MainActor func testAccountCardsInBothAppearancesAndLargeTextKeepActionsReachable() throws {
         continueAfterFailure = false
         guard ProcessInfo.processInfo.environment["BARK_RUN_NATIVE_PROFILE_EMULATOR_TESTS"] == "1" else {
@@ -23,19 +58,17 @@ nonisolated final class NativeAccountUITests: XCTestCase {
             app.launchArguments = ["-UIPreferredContentSizeCategoryName", size]
             app.launch()
             openAccount(app)
+            if !premium {
+                let create = app.buttons["account.create-mode"]
+                reveal(create, in: app)
+                create.tap()
+            }
             let email = app.textFields["Email"]
             reveal(email, in: app)
             email.tap()
             email.typeText(
                 premium ? "profile-ui@native.invalid" : "cards-\(UUID().uuidString)@native.invalid")
-            app.secureTextFields["Password"].tap()
-            app.secureTextFields["Password"].typeText("NativeOnly123!")
-            app.keyboards.buttons["Done"].tap()
-            if !premium {
-                let create = app.switches["Create a new account"]
-                reveal(create, in: app)
-                create.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
-            }
+            enterPassword("NativeOnly123!", creating: !premium, in: app)
             let authenticate = app.buttons[premium ? "Sign in" : "Create account"]
             reveal(authenticate, in: app)
             authenticate.tap()
@@ -84,6 +117,9 @@ nonisolated final class NativeAccountUITests: XCTestCase {
             }
             signOut(app)
             XCTAssertTrue(app.navigationBars["Account"].waitForExistence(timeout: 5))
+            // At accessibility XXXL, the welcome copy fills the first viewport;
+            // SwiftUI's lazy form does not instantiate the email cell until scrolled.
+            reveal(email, in: app)
             XCTAssertTrue(email.waitForExistence(timeout: 10))
             XCTAssertFalse(app.staticTexts["account.profile-name"].exists)
             app.terminate()
@@ -212,16 +248,12 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         openAccount(app)
         let address = "ui-\(UUID().uuidString.lowercased())@native.invalid"
         let password = "NativeOnly123!"
+        app.buttons["account.create-mode"].tap()
         let email = app.textFields["Email"]
         XCTAssertTrue(email.waitForExistence(timeout: 10))
         email.tap()
         email.typeText(address)
-        app.secureTextFields["Password"].tap()
-        app.secureTextFields["Password"].typeText(password)
-        app.keyboards.buttons["Done"].tap()
-        let create = app.switches["Create a new account"]
-        create.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
-        XCTAssertEqual(create.value as? String, "1")
+        enterPassword(password, creating: true, in: app)
         app.buttons["Create account"].tap()
         XCTAssertTrue(app.staticTexts["Ranger"].waitForExistence(timeout: 15))
         // Exercise late sheet handling in reveal(), not just immediate dismissal
@@ -297,13 +329,10 @@ nonisolated final class NativeAccountUITests: XCTestCase {
         openAccount(app)
         let email = app.textFields["Email"]
         XCTAssertTrue(email.waitForExistence(timeout: 10))
+        app.buttons["account.create-mode"].tap()
         email.tap()
         email.typeText("ui-delete-\(UUID().uuidString.lowercased())@native.invalid")
-        app.secureTextFields["Password"].tap()
-        app.secureTextFields["Password"].typeText("NativeOnly123!")
-        app.keyboards.buttons["Done"].tap()
-        app.switches["Create a new account"].coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5))
-            .tap()
+        enterPassword("NativeOnly123!", creating: true, in: app)
         app.buttons["Create account"].tap()
         XCTAssertTrue(app.staticTexts["Ranger"].waitForExistence(timeout: 15))
         dismissPasswordPrompt(in: app)
@@ -401,5 +430,27 @@ nonisolated final class NativeAccountUITests: XCTestCase {
                 return
             }
         }
+    }
+    @MainActor private func enterPassword(_ value: String, creating: Bool, in app: XCUIApplication) {
+        let field = app.secureTextFields["Password"]
+        field.tap()
+        // Keep password generation enabled in production. Decline the real iOS
+        // suggestion only in this test so the synthetic fixture password is used.
+        if creating && app.buttons["GenerateStrongPasswordButton"].waitForExistence(timeout: 3) {
+            for bundle in [
+                "com.apple.AuthenticationServicesUI", "com.apple.SafariViewService", "com.apple.springboard",
+            ] {
+                let service = XCUIApplication(bundleIdentifier: bundle)
+                guard service.state != .notRunning,
+                    service.buttons["GenerateStrongPasswordButton"].exists
+                else { continue }
+                service.buttons["Close"].tap()
+                break
+            }
+            XCTAssertTrue(app.buttons["GenerateStrongPasswordButton"].waitForNonExistence(timeout: 5))
+            field.tap()
+        }
+        field.typeText(value)
+        app.keyboards.buttons["Done"].tap()
     }
 }

@@ -23,6 +23,12 @@ Simulator SDK tests need ad-hoc signing (`CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLO
 Firebase 12.19.1 is pinned. GoogleSignIn, AppAuth and GTMAppAuth are removed;
 Firebase-required Google dependencies remain. Auth, Firestore, Functions and
 App Check are linked, not Analytics. Email/password is enabled in the new project.
+Native Auth enforces an eight-character minimum for new/reset passwords, matching
+the app. Existing users are not forced to upgrade their password at sign-in.
+Email-enumeration protection remains on. Firebase owns linked providers; removing
+one requires fresh confirmation of the remaining method, and Apple removal also
+requires a verified password email. There is no Firestore identity mirror or
+automatic app-written account merge.
 Native composition does not use existing users, Lemon Squeezy or old web API keys.
 Firestore uses memory cache; the account-scoped native store owns durable data and
 pending writes.
@@ -67,7 +73,10 @@ xcconfig so the slash pair is not parsed as a comment.
 Firebase hosts the native verification handler at /__/auth/action. Real links must
 contain Firebase-generated mode, action code and API key. The console's dummy preview
 link is not usable for verification. The separate sender
-`noreply@ios.usbarkrangersmap.com` is owner-approved; DNS verification is pending.
+`noreply@ios.usbarkrangersmap.com` is owner-approved. On September 15, both this
+sender and `noreply@bark-ranger-ios.firebaseapp.com` were registered in Apple's
+private-email relay settings with green SPF verification. This is not a guarantee
+of inbox placement or an end-to-end private-relay delivery test.
 Never overwrite the existing web sender's root SPF/DKIM records.
 
 ## Testing

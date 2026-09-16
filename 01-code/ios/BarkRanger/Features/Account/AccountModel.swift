@@ -5,12 +5,12 @@ import Foundation
 import Observation
 
 enum AppleAccountAction {
-    case signIn, link, reauthenticate, deleteAccount
+    case signIn, link, reauthenticate, deleteAccount, unlinkPassword
     var credentialUse: CredentialUse {
         switch self {
         case .signIn: .signIn
         case .link: .link
-        case .reauthenticate, .deleteAccount: .reauthenticate
+        case .reauthenticate, .deleteAccount, .unlinkPassword: .reauthenticate
         }
     }
 }
@@ -38,7 +38,9 @@ enum AppleAccountAction {
     }
     var providerButtonsAvailable: Bool { session.auth != nil && session.auth?.isTest == false }
     func email(_ email: String, password: String, create: Bool) {
-        guard let auth = session.auth, !create || capabilities.authenticationChanges else { return }
+        guard session.identity == nil, let auth = session.auth,
+            !create || capabilities.authenticationChanges
+        else { return }
         guard !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             !password.isEmpty, !create || password.count >= 8
         else {
@@ -47,12 +49,15 @@ enum AppleAccountAction {
         }
         perform {
             try await self.session.prepareTripIdentityChange?()
+            try Task.checkCancellation()
+            guard self.session.identity == nil else { throw AccountFailure.accountChanged }
             try await auth.email(
                 email.trimmingCharacters(in: .whitespacesAndNewlines), password: password, create: create)
         }
     }
     func resetPassword(_ email: String) {
         guard capabilities.authenticationChanges else { return }
+        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let auth = session.auth, !email.isEmpty else {
             notice = "Enter your email first."
             return
@@ -80,8 +85,11 @@ enum AppleAccountAction {
     }
     func signOut() {
         guard let auth = session.auth else { return }
+        let uid = session.identity?.uid
         perform {
             try await self.session.prepareTripIdentityChange?()
+            try Task.checkCancellation()
+            guard self.session.identity?.uid == uid else { throw AccountFailure.accountChanged }
             try auth.signOut()
         }
     }
@@ -109,8 +117,20 @@ enum AppleAccountAction {
         guard !busy, session.cleanupState == .ready,
             session.auth != nil, capabilities.allows(intent.credentialUse),
             intent != .deleteAccount || capabilities.accountManagement,
+            intent != .unlinkPassword || capabilities.authenticationChanges,
             (intent == .signIn) == (session.identity == nil)
         else { return nil }
+        if intent == .link, session.identity?.providers.contains("apple.com") == true {
+            notice = "Apple is already connected to this Bark account."
+            return nil
+        }
+        if intent == .unlinkPassword,
+            session.identity?.providers.contains("password") != true
+                || session.identity?.providers.contains("apple.com") != true
+        {
+            notice = Self.message(AccountFailure.lastProvider)
+            return nil
+        }
         let id = UUID()
         do {
             try apple.prepare(request, id: id)
@@ -139,14 +159,20 @@ enum AppleAccountAction {
             perform(
                 success: request.intent == .link
                     ? "Apple sign-in linked to this account."
-                    : request.intent == .reauthenticate ? "Identity confirmed." : nil,
+                    : request.intent == .unlinkPassword
+                        ? "Email and password removed. Use Apple to sign in."
+                        : request.intent == .reauthenticate ? "Identity confirmed." : nil,
                 id: request.id
             ) {
                 if request.intent == .signIn { try await self.session.prepareTripIdentityChange?() }
                 try Task.checkCancellation()
                 guard self.session.identity?.uid == request.uid else { throw AccountFailure.accountChanged }
-                try await auth.credential(
-                    result.credential, use: request.intent.credentialUse, uid: request.uid)
+                if request.intent == .unlinkPassword, let uid = request.uid {
+                    try await auth.unlink("password", uid: uid, confirmingWith: result.credential)
+                } else {
+                    try await auth.credential(
+                        result.credential, use: request.intent.credentialUse, uid: request.uid)
+                }
                 if request.intent == .deleteAccount, let uid = request.uid,
                     let code = result.authorizationCode
                 {
@@ -176,7 +202,7 @@ enum AppleAccountAction {
         usePassword(email, password: password, use: .link)
     }
     func reauthenticate(password: String) {
-        guard let email = session.identity?.email else { return }
+        guard let email = session.identity?.passwordEmail ?? session.identity?.email else { return }
         usePassword(email, password: password, use: .reauthenticate)
     }
     private func usePassword(_ email: String, password: String, use: CredentialUse) {
@@ -187,13 +213,25 @@ enum AppleAccountAction {
             success: use == .reauthenticate
                 ? "Identity confirmed. You can now delete this account." : "Sign-in method linked."
         ) {
-            try await auth.password(email, password: password, use: use, uid: uid)
+            try await auth.password(
+                email.trimmingCharacters(in: .whitespacesAndNewlines), password: password, use: use, uid: uid)
         }
     }
-    func unlink(_ provider: String) {
+    func unlinkApple(password: String) {
         guard capabilities.authenticationChanges else { return }
-        guard let auth = session.auth, let uid = session.identity?.uid else { return }
-        perform(success: "Sign-in method removed.") { try await auth.unlink(provider, uid: uid) }
+        guard let auth = session.auth, let identity = session.identity else { return }
+        guard identity.providers.contains("password"), identity.providers.contains("apple.com") else {
+            notice = Self.message(AccountFailure.lastProvider)
+            return
+        }
+        guard !password.isEmpty, let email = identity.passwordEmail else {
+            notice = "Enter the password for your connected email address."
+            return
+        }
+        perform(success: "Apple disconnected. Use your email and password to sign in.") {
+            let credential = EmailAuthProvider.credential(withEmail: email, password: password)
+            try await auth.unlink("apple.com", uid: identity.uid, confirmingWith: credential)
+        }
     }
     func deleteAccount() {
         guard session.identity?.providers.contains("apple.com") != true else {
@@ -247,6 +285,36 @@ enum AppleAccountAction {
             return
                 "Apple sign-in could not be verified. Please try again. If it keeps happening, contact support."
         }
+        if failure.domain == AuthErrors.domain {
+            switch AuthErrorCode(rawValue: failure.code) {
+            case .credentialAlreadyInUse:
+                return
+                    "This sign-in method belongs to another Bark account. Nothing was moved. Sign in to that account, or keep using this account's current sign-in method."
+            case .emailAlreadyInUse, .accountExistsWithDifferentCredential:
+                return
+                    "That email is already associated with an account. Sign in using its existing method or choose Forgot password. To connect Apple, sign in first and open Sign-in & Security."
+            case .providerAlreadyLinked:
+                return
+                    "This sign-in method is already connected. Refresh your account to see its current status."
+            case .wrongPassword, .invalidCredential, .userNotFound, .userMismatch:
+                return
+                    "We couldn’t confirm these sign-in details for this account. Try again, or use Forgot password for email sign-in."
+            case .invalidEmail:
+                return "Enter a valid email address."
+            case .weakPassword, .passwordDoesNotMeetRequirements:
+                return "Use a password with at least 8 characters."
+            case .requiresRecentLogin:
+                return "For your security, confirm your identity again before making this change."
+            case .networkError:
+                return "Connect to the internet and try again. Your saved data has not been removed."
+            case .tooManyRequests:
+                return "Too many attempts. Please wait a little before trying again."
+            case .userDisabled:
+                return "This account is unavailable. Contact support for help."
+            default:
+                return "This account action could not finish. Try again or contact support if it continues."
+            }
+        }
         if (error as NSError).domain == ASAuthorizationError.errorDomain {
             return
                 "Apple sign-in couldn’t finish. Check that you’re signed in to your Apple Account in Settings and connected to the internet, then try again."
@@ -265,12 +333,18 @@ enum AppleAccountAction {
             NativeProfileCloud.Failure.accountChanged:
             "The account changed. Please try again."
         case AccountFailure.lastProvider: "Keep at least one sign-in method linked to your account."
+        case AccountFailure.authenticationInProgress:
+            "The previous sign-in change is still finishing. Please wait a moment and try again."
+        case AccountFailure.remainingMethodRequired:
+            "Confirm the sign-in method you will keep before removing the other one."
+        case AccountFailure.verifiedPasswordRequired:
+            "Verify your connected email address before disconnecting Apple. You must be able to sign in with that email and password."
         case AccountFailure.configuration: "This sign-in provider is not configured for this build."
         case AccountFailure.appleConfirmationRequired:
             "Confirm with Apple to revoke its authorization and delete this account. No data has been deleted."
         case NativeStore.Failure.invalidAcknowledgment:
             "The saved values changed while you were reviewing them. Review the current values and try again."
-        default: (error as NSError).localizedDescription
+        default: "This account action could not finish. Try again or contact support if it continues."
         }
     }
 }

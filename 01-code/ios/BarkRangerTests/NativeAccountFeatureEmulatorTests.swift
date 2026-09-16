@@ -33,8 +33,15 @@ import Testing
         do {
             session.setForeground(true)
             session.connectivityChanged(true)
+            // The real sign-in form is disabled until recovery finishes. Do not
+            // bypass that gate by invoking the model in the same startup turn.
+            try await eventually { session.cleanupState == .ready }
             model.email("\(UUID().uuidString)@native.invalid", password: "NativeOnly123!", create: true)
+            #expect(
+                model.action != nil,
+                "Account action must start: \(session.cleanupState), \(String(describing: model.notice))")
             await model.action?.value
+            #expect(model.notice == nil, "Sign-up failed: \(String(describing: model.notice))")
             // GitHub run 34924658674: the cold SDK/bootstrap request reached the
             // emulator after this check's former 5s deadline, then completed normally.
             // Match the existing trip fixture's bounded cloud-startup allowance;
@@ -75,8 +82,13 @@ import Testing
         let db = Firestore.firestore(app: app)
         session.setForeground(true)
         session.connectivityChanged(true)
+        try await eventually { session.cleanupState == .ready }
         model.email("\(UUID().uuidString)@native.invalid", password: "NativeOnly123!", create: true)
+        #expect(
+            model.action != nil,
+            "Account action must start: \(session.cleanupState), \(String(describing: model.notice))")
         await model.action?.value
+        #expect(model.notice == nil, "Sign-up failed: \(String(describing: model.notice))")
         try await eventually(timeout: .seconds(15)) {
             session.profileState?.confirmed?.displayName == "Ranger"
         }
@@ -88,7 +100,7 @@ import Testing
         model.resetPassword(session.identity?.email ?? "")
         await model.action?.value
         #expect(model.notice?.contains("password reset instructions") == true)
-        model.unlink("password")
+        model.unlinkApple(password: "NativeOnly123!")
         await model.action?.value
         #expect(model.notice?.contains("at least one") == true)
         model.saveName("Not permitted")

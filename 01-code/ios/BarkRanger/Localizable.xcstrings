@@ -1,6 +1,129 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Already have an email account? Sign in below, then connect Apple in Sign-in & Security to keep your saved data together." : {
+
+    },
+    "Apple" : {
+
+    },
+    "Apple sandbox subscription · No real charge" : {
+
+    },
+    "Back to sign in" : {
+
+    },
+    "Complimentary Premium" : {
+
+    },
+    "Confirm and disconnect Apple" : {
+
+    },
+    "Confirm with the connected Apple Account. Apple will be your remaining sign-in method." : {
+
+    },
+    "Confirm your password to keep email sign-in. If you use Apple after disconnecting it, you may create a separate account. To reconnect it here, sign in with email first." : {
+
+    },
+    "Connect to confirm your Apple subscription." : {
+
+    },
+    "Connected" : {
+
+    },
+    "Create an account" : {
+
+    },
+    "Disconnect" : {
+
+    },
+    "Disconnect Apple" : {
+
+    },
+    "Email and password" : {
+
+    },
+    "For email/password accounts, we’ll send a reset link if the address is eligible. If you use Apple only, continue with Apple instead." : {
+
+    },
+    "Forgot password?" : {
+
+    },
+    "Free Plan" : {
+
+    },
+    "Free account. Upgrade to unlock every Premium feature." : {
+
+    },
+    "Join the adventure" : {
+
+    },
+    "Link Apple" : {
+
+    },
+    "Link Apple to this existing Bark account, including when you choose Hide My Email. Your saved data stays in this account." : {
+
+    },
+    "Linking connects this email address to your Apple sign-in, including a hidden Apple email address." : {
+
+    },
+    "Not connected" : {
+
+    },
+    "Password to keep email sign-in" : {
+
+    },
+    "Premium Plan" : {
+
+    },
+    "Premium grace period" : {
+
+    },
+    "Refresh sign-in methods" : {
+
+    },
+    "Remove email and password" : {
+
+    },
+    "Renew Premium" : {
+
+    },
+    "Send password reset email" : {
+
+    },
+    "Send reset email" : {
+
+    },
+    "Sign in to save your adventures." : {
+
+    },
+    "Sign in with email" : {
+
+    },
+    "Upgrade to Premium" : {
+
+    },
+    "Use at least 8 characters." : {
+
+    },
+    "View Premium membership" : {
+
+    },
+    "You have temporary complimentary access, not an Apple subscription." : {
+
+    },
+    "Your Bark account, saved data and subscription stay unchanged. Disconnecting a sign-in method does not cancel Apple billing." : {
+
+    },
+    "Your membership" : {
+
+    },
+    "Your saved data stays readable. Renewing restores editing on this same Bark account." : {
+
+    },
+    "Your subscription has ended. Bark’s editing grace lasts through %@. Renew to keep editing afterward. Your saved data will stay readable." : {
+
+    },
     "" : {
 
     },

@@ -13,13 +13,20 @@ struct AccountMembershipCard: View {
                     .background(Color.accentColor.opacity(0.1), in: .rect(cornerRadius: 16))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(access.map { $0.premium ? "Premium Plan" : "Free Plan" } ?? "Your membership")
-                        .font(.headline).accessibilityIdentifier("account.plan")
+                    Text(
+                        access.map {
+                            $0.status == "grace"
+                                ? "Premium grace period" : $0.premium ? "Premium Plan" : "Free Plan"
+                        } ?? "Your membership"
+                    )
+                    .font(.headline).accessibilityIdentifier("account.plan")
                     Text(description).font(.subheadline).foregroundStyle(.secondary)
                 }.fixedSize(horizontal: false, vertical: true)
             }
             Button(
-                access?.premium == true ? "View Premium membership" : "Upgrade to Premium",
+                access?.status == "grace"
+                    ? "Renew Premium"
+                    : access?.premium == true ? "View Premium membership" : "Upgrade to Premium",
                 action: showPremium
             )
             .buttonStyle(AccountCardButtonStyle(prominent: true)).accessibilityIdentifier("premium.open")
@@ -30,6 +37,10 @@ struct AccountMembershipCard: View {
     private var description: String {
         guard let access else {
             return "Connect to confirm your membership. Your saved data stays on this iPhone."
+        }
+        if access.status == "grace", let until = access.validUntil {
+            return
+                "Your subscription ended. Editing remains available through \(until.formatted(date: .abbreviated, time: .omitted)); afterward your saved data stays viewable."
         }
         return access.premium
             ? "Your places, trips and park adventures—all together, even when you’re offline."

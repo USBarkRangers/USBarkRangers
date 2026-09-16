@@ -20,7 +20,9 @@ struct AccountDeletionSection: View {
                     "Deleting your Bark account does not cancel Apple billing. Cancel your subscription in Apple’s subscription settings if you no longer want it."
                 ).font(.footnote)
                 Button("Manage Apple Subscription") { managingSubscription = true }
-                if model.session.identity?.providers.contains("password") == true {
+                if model.session.identity?.providers.contains("password") == true,
+                    model.session.identity?.providers.contains("apple.com") != true
+                {
                     SecureField("Password to confirm identity", text: $password).textContentType(.password)
                     Button("Confirm identity") {
                         model.reauthenticate(password: password)

@@ -4,6 +4,17 @@ import Testing
 @testable import BarkDomain
 
 struct NativeSyncPolicyTests {
+    @Test func membershipLabelsSeparateSubscriptionExpiryFromEditingGrace() {
+        let end = Date(timeIntervalSince1970: 1_800_000_000)
+        let value = NativeEntitlement(
+            revision: 1, premium: true, source: .production,
+            validUntilMs: 1_800_000_000_000)
+        #expect(Entitlement(native: value, uid: "a", now: end.addingTimeInterval(-1)).status == "active")
+        let grace = Entitlement(native: value, uid: "a", now: end)
+        #expect(grace.status == "grace" && grace.premium)
+        #expect(
+            Entitlement(native: value, uid: "a", now: end.addingTimeInterval(40 * 86_400)).status == "free")
+    }
     @Test func productionEditingStopsAtFortyDaysButRevocationHasNoGrace() {
         let expiry = Date(timeIntervalSince1970: 1_800_000_000)
         let entitlement = NativeEntitlement(

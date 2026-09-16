@@ -48,6 +48,17 @@ struct PremiumMembership: View {
                 .font(.subheadline)
                 .fixedSize(horizontal: false, vertical: true)
             }
+            if model.account.entitlement.access?.status == "grace",
+                let until = model.account.entitlement.access?.validUntil
+            {
+                Text(
+                    "Your subscription has ended. Bark’s editing grace lasts through \(until.formatted(date: .abbreviated, time: .omitted)). Renew to keep editing afterward. Your saved data will stay readable."
+                )
+                .font(.subheadline).fixedSize(horizontal: false, vertical: true)
+            } else if model.account.entitlement.access?.premium == false {
+                Text("Your saved data stays readable. Renewing restores editing on this same Bark account.")
+                    .font(.subheadline).fixedSize(horizontal: false, vertical: true)
+            }
         }
         .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 4)

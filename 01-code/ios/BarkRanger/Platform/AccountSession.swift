@@ -2,6 +2,104 @@ import BarkDomain
 import Foundation
 import Observation
 
+/// One immutable set of owned resources. AccountSession remains the lifecycle owner.
+@MainActor struct AccountScope {
+    /// Lifecycle operations travel with each feature at its opening site. Adding a
+    /// feature cannot silently omit it from close, sync, wait, or network propagation.
+    struct Feature {
+        let stage: ScopeOpenFailure.Stage
+        let value: Any
+        let close: () async -> Void
+        var request: (Bool) -> Void = { _ in }
+        var wait: () async -> Void = {}
+        var setNetworkAllowed: (Bool) -> Void = { _ in }
+    }
+    let features: [Feature]
+    let scheduler: NativeFeatureSync?
+    let observation: Task<Void, Never>?
+    let guestStore: NativeStore?
+    init(
+        features: [Feature] = [], scheduler: NativeFeatureSync? = nil,
+        observation: Task<Void, Never>? = nil, guestStore: NativeStore? = nil
+    ) {
+        self.features = features
+        self.scheduler = scheduler
+        self.observation = observation
+        self.guestStore = guestStore
+    }
+    func feature<F>(_ type: F.Type = F.self) -> F? {
+        features.lazy.compactMap { $0.value as? F }.first
+    }
+    var profile: NativeProfileFeature? { feature() }
+    var savedPins: NativeSavedPinFeature? { feature() }
+    var trips: NativeTripFeature? { feature() }
+    var visits: NativeVisitFeature? { feature() }
+    var expeditions: NativeExpeditionFeature? { feature() }
+    var leaderboard: NativeLeaderboardRepository? { feature() }
+    private var accountFeatures: [Feature] {
+        features.filter { $0.stage != .profile && $0.stage != .savedPins }
+    }
+    private var syncingFeatures: [Feature] {
+        accountFeatures + features.filter { $0.stage == .savedPins }
+    }
+    func close(afterObservation drain: Task<Void, Never>? = nil, record: ((String) -> Void)? = nil) async {
+        await scheduler?.close()
+        #if DEBUG
+            if scheduler != nil { record?("scheduler") }
+        #endif
+        await observation?.value
+        #if DEBUG
+            if observation != nil { record?("observation") }
+        #endif
+        await drain?.value
+        #if DEBUG
+            if drain != nil { record?("editor") }
+        #endif
+        // Registration order is trips, visits, expeditions, leaderboard. Saved pins,
+        // the guest writer, and the profile writer deliberately close afterward.
+        for feature in accountFeatures {
+            await feature.close()
+            #if DEBUG
+                record?(feature.stage.rawValue)
+            #endif
+        }
+        for feature in features where feature.stage == .savedPins {
+            await feature.close()
+            #if DEBUG
+                record?("savedPins")
+            #endif
+        }
+        await guestStore?.close()
+        #if DEBUG
+            if guestStore != nil { record?("guestStore") }
+        #endif
+        for feature in features where feature.stage == .profile {
+            await feature.close()
+            #if DEBUG
+                record?("profile")
+            #endif
+        }
+    }
+    func requestSync(refresh: Bool) {
+        for feature in syncingFeatures { feature.request(refresh) }
+        scheduler?.request(refresh: refresh)
+    }
+    func waitForSync() async {
+        await scheduler?.wait()
+        for feature in syncingFeatures { await feature.wait() }
+    }
+    func setNetworkAllowed(_ allowed: Bool) {
+        for feature in syncingFeatures { feature.setNetworkAllowed(allowed) }
+    }
+}
+
+struct ScopeOpenFailure: Error {
+    // Guest storage keeps the existing general-storage recovery behavior.
+    enum Stage: String { case profile, savedPins, trips, visits, expeditions, leaderboard, guest }
+    let stage: Stage
+    let underlying: any Error
+}
+
 /// One active account lifetime. UID changes clear presentation before any asynchronous close/open work.
 @MainActor @Observable final class AccountSession {
     #if DEBUG
@@ -11,13 +109,15 @@ import Observation
         var scopeStartedForTesting: Bool { scopeStarted }
     #endif
     private(set) var identity: AccountIdentity?
-    private(set) var nativeProfile: NativeProfileFeature?
-    private(set) var nativeTrips: NativeTripFeature?
-    private(set) var nativeVisits: NativeVisitFeature?
-    private(set) var nativeExpeditions: NativeExpeditionFeature?
-    private(set) var nativeLeaderboard: NativeLeaderboardRepository?
-    private(set) var nativeSavedPins: NativeSavedPinFeature?
-    private var guestNativeStore: NativeStore?
+    private var scope = AccountScope()
+    var nativeProfile: NativeProfileFeature? { scope.profile }
+    var nativeTrips: NativeTripFeature? { scope.trips }
+    var nativeVisits: NativeVisitFeature? { scope.visits }
+    var nativeExpeditions: NativeExpeditionFeature? { scope.expeditions }
+    var nativeLeaderboard: NativeLeaderboardRepository? { scope.leaderboard }
+    var nativeSavedPins: NativeSavedPinFeature? { scope.savedPins }
+    /// Typed access for additional registered features; existing named projections remain compatible.
+    func feature<F>(_ type: F.Type) -> F? { scope.feature(type) }
     // Installed once by the shared editor. Capture/drain its old-scope checkpoint
     // before closing that writer; identity still clears synchronously below.
     var closeTripEditing: (() -> Task<Void, Never>)?
@@ -25,11 +125,9 @@ import Observation
     var tripScope: String? { nativeTrips?.scope }
     private(set) var profileState: NativeStore.ProfileView?
     let nativeProfileConfiguration: NativeProfileConfiguration?
-    private var profileObservation: Task<Void, Never>?
     private var sessionMessage: String?
-    var message: String? { sessionMessage ?? profileScheduler?.message }
-    var isSyncing: Bool { profileScheduler?.running == true }
-    private var profileScheduler: NativeFeatureSync?
+    var message: String? { sessionMessage ?? scope.scheduler?.message }
+    var isSyncing: Bool { scope.scheduler?.running == true }
     private(set) var tripLibraryMessage: String?
     private(set) var requiresStorageRecovery = false
     let entitlement = EntitlementRepository()
@@ -108,26 +206,10 @@ import Observation
         generation = UUID()
         scopeStarted = true
         let generation = generation
-        let oldProfile = nativeProfile
-        let oldScheduler = profileScheduler
-        profileScheduler = nil
         let tripEditingDrain = closeTripEditing?()
-        let oldTrips = nativeTrips
-        let oldVisits = nativeVisits
-        nativeVisits = nil
-        let oldExpeditions = nativeExpeditions
-        nativeExpeditions = nil
-        let oldLeaderboard = nativeLeaderboard
-        nativeLeaderboard = nil
-        let oldSavedPins = nativeSavedPins
-        nativeSavedPins = nil
-        let oldGuestStore = guestNativeStore
-        nativeTrips = nil
-        guestNativeStore = nil
-        let oldProfileObservation = profileObservation
-        profileObservation?.cancel()
-        profileObservation = nil
-        nativeProfile = nil
+        let outgoing = scope
+        outgoing.observation?.cancel()
+        scope = AccountScope()
         profileState = nil
         let previousTask = scopeTask
         scopeTask?.cancel()
@@ -138,200 +220,249 @@ import Observation
         requiresStorageRecovery = false
         #if DEBUG
             let observeLifecycle = lifecycleObserver
+        #else
+            let observeLifecycle: ((String) -> Void)? = nil
         #endif
         scopeTask = Task { [weak self] in
             await previousTask?.value
             #if DEBUG
                 if previousTask != nil { observeLifecycle?("previousTask") }
             #endif
-            await oldScheduler?.close()
-            #if DEBUG
-                if oldScheduler != nil { observeLifecycle?("scheduler") }
-            #endif
-            await oldProfileObservation?.value
-            #if DEBUG
-                if oldProfileObservation != nil { observeLifecycle?("observation") }
-            #endif
-            await tripEditingDrain?.value
-            #if DEBUG
-                if tripEditingDrain != nil { observeLifecycle?("editor") }
-            #endif
-            await oldTrips?.close()
-            #if DEBUG
-                if oldTrips != nil { observeLifecycle?("trips") }
-            #endif
-            await oldVisits?.close()
-            #if DEBUG
-                if oldVisits != nil { observeLifecycle?("visits") }
-            #endif
-            await oldExpeditions?.close()
-            #if DEBUG
-                if oldExpeditions != nil { observeLifecycle?("expeditions") }
-            #endif
-            await oldLeaderboard?.close()
-            #if DEBUG
-                if oldLeaderboard != nil { observeLifecycle?("leaderboard") }
-            #endif
-            await oldSavedPins?.close()
-            #if DEBUG
-                if oldSavedPins != nil { observeLifecycle?("savedPins") }
-            #endif
-            await oldGuestStore?.close()
-            #if DEBUG
-                if oldGuestStore != nil { observeLifecycle?("guestStore") }
-            #endif
-            await oldProfile?.close()
-            #if DEBUG
-                if oldProfile != nil { observeLifecycle?("profile") }
-            #endif
-            guard let self, !Task.isCancelled, generation == self.generation, next != nil || openGuest else {
-                return
-            }
-            do {
-                if let next, self.nativeProfileConfiguration != nil {
-                    guard try await self.openNativeProfile(next, generation: generation) else { return }
-                }
-                if next == nil || self.nativeProfile != nil {
-                    let project = self.nativeProfileConfiguration?.project ?? "bark-ranger-ios"
-                    let nativeStore: NativeStore
-                    if let profile = self.nativeProfile {
-                        nativeStore = profile.store
-                    } else {
-                        nativeStore = try await NativeStore.open(
-                            directory: self.directory, project: project, uid: "guest-drafts", guest: true)
-                    }
-                    let tripCloud = try next.flatMap {
-                        try self.nativeProfileConfiguration?.connectTrips?($0.uid)
-                    }
-                    let feature = NativeTripFeature(
-                        scope: project + ":" + (next?.uid ?? "guest-drafts"), store: nativeStore,
-                        cloud: tripCloud)
-                    do {
-                        if let next {
-                            try await NativeDraftHandoff.adopt(
-                                directory: self.directory, project: project,
-                                uid: next.uid, into: nativeStore)
-                        }
-                        #if DEBUG
-                            try await self.beforeFeatureStart?("trips", nativeStore)
-                        #endif
-                        try await feature.start()
-                    } catch {
-                        await feature.close()
-                        if next == nil { await nativeStore.close() }
-                        throw error
-                    }
-                    guard !Task.isCancelled, self.generation == generation else {
-                        await feature.close()
-                        if next == nil { await nativeStore.close() }
-                        return
-                    }
-                    if next == nil { self.guestNativeStore = nativeStore }
-                    self.nativeTrips = feature
-                    self.updateFeatureNetwork()
-                }
-                if let next, let profile = self.nativeProfile,
-                    let configuration = self.nativeProfileConfiguration
-                {
-                    let visits = NativeVisitFeature(
-                        scope: configuration.project + ":" + next.uid,
-                        store: profile.store, cloud: try configuration.connectVisits?(next.uid),
-                        refreshAccess: { [weak self] in self?.refreshNativeAccess() })
-                    do { try await visits.start() } catch {
-                        await visits.close()
-                        throw error
-                    }
-                    guard !Task.isCancelled, self.generation == generation else {
-                        await visits.close()
-                        return
-                    }
-                    self.nativeVisits = visits
-                    let walks = NativeExpeditionFeature(
-                        scope: configuration.project + ":" + next.uid,
-                        store: profile.store, cloud: try configuration.connectExpeditions?(next.uid),
-                        refreshAccess: { [weak self] in self?.refreshNativeAccess() })
-                    do { try await walks.start() } catch {
-                        await walks.close()
-                        throw error
-                    }
-                    guard !Task.isCancelled, self.generation == generation else {
-                        await walks.close()
-                        return
-                    }
-                    self.nativeExpeditions = walks
-                    self.nativeLeaderboard = try configuration.connectLeaderboard?(next.uid)
-                    self.updateFeatureNetwork()
-                    // All shipping personal features now use the scoped native writer.
-                    // Do not open, observe or decode the transitional account graph.
-                    return
-                }
-                // Guest planning is completely native and has no account graph.
-                if next == nil, self.nativeTrips != nil { return }
-                throw NativeStore.Failure.unavailable
-            } catch {
-                if !Task.isCancelled, self.generation == generation {
-                    self.diagnostics.accountFailure(error, at: .openStore)
-                    if self.nativeProfile != nil {
-                        self.tripLibraryMessage =
-                            self.nativeTrips == nil
-                            ? "Trip storage could not be opened. Your saved files are retained; keep the app installed and retry."
-                            : "Visit or walk storage could not be opened. Your files are retained; your profile and trips are available."
-                        return
-                    }
-                    self.requiresStorageRecovery =
-                        error is DecodingError
-                        || (error as? NativeStore.Failure) == .corrupt
-                    self.sessionMessage =
-                        self.requiresStorageRecovery
-                        ? "Your saved account needs a compatible app update or recovery. Keep this app installed; your saved files have not been replaced."
-                        : "Your saved account data could not be opened. It has been kept for recovery."
-                }
-            }
+            await outgoing.close(afterObservation: tripEditingDrain, record: observeLifecycle)
+            guard let self, self.isCurrent(generation), next != nil || openGuest else { return }
+            await self.openScope(next, generation: generation)
         }
     }
-    /// The profile has no dependency on loading or decoding unconverted feature files.
-    private func openNativeProfile(_ identity: AccountIdentity, generation: UUID) async throws -> Bool {
-        guard let configuration = nativeProfileConfiguration else { return false }
-        let feature = try await NativeProfileFeature.open(
-            configuration: configuration, directory: directory, uid: identity.uid)
-        guard !Task.isCancelled, self.generation == generation else {
+    private func owns(_ generation: UUID) -> Bool { self.generation == generation }
+    private func isCurrent(_ generation: UUID) -> Bool { !Task.isCancelled && owns(generation) }
+
+    /// Start a feature or close it. nil means this activation was superseded.
+    private func opened<F>(
+        _ feature: F, generation: UUID, start: () async throws -> Void, close: () async -> Void
+    ) async throws -> F? {
+        do { try await start() } catch {
+            await close()
+            throw error
+        }
+        guard isCurrent(generation) else {
+            await close()
+            return nil
+        }
+        return feature
+    }
+    private func atStage<T>(
+        _ stage: ScopeOpenFailure.Stage, _ work: () async throws -> T
+    ) async throws -> T {
+        do { return try await work() } catch { throw ScopeOpenFailure(stage: stage, underlying: error) }
+    }
+    private func registered<F>(
+        _ feature: F, stage: ScopeOpenFailure.Stage, store: NativeStore, generation: UUID,
+        start: () async throws -> Void = {}, close: @escaping () async -> Void,
+        request: @escaping (Bool) -> Void = { _ in }, wait: @escaping () async -> Void = {},
+        network: @escaping (Bool) -> Void = { _ in }
+    ) async throws -> AccountScope.Feature? {
+        guard
+            let feature = try await opened(
+                feature, generation: generation,
+                start: {
+                    #if DEBUG
+                        try await self.beforeFeatureStart?(stage.rawValue, store)
+                    #endif
+                    try await start()
+                }, close: close)
+        else { return nil }
+        return AccountScope.Feature(
+            stage: stage, value: feature, close: close, request: request, wait: wait,
+            setNetworkAllowed: network)
+    }
+    private func openScope(_ next: AccountIdentity?, generation: UUID) async {
+        var features: [AccountScope.Feature] = []
+        var guestStore: NativeStore?
+        do {
+            let store: NativeStore
+            let project = nativeProfileConfiguration?.project ?? "bark-ranger-ios"
+            if let next {
+                guard let base = try await openNativeProfile(next, generation: generation),
+                    let profile = base.profile
+                else { return }
+                features = base.features
+                store = profile.store
+            } else {
+                store = try await atStage(.guest) {
+                    try await NativeStore.open(
+                        directory: self.directory, project: project, uid: "guest-drafts", guest: true)
+                }
+                guestStore = store
+            }
+            for (stage, open) in featureOpeners(store: store, identity: next, generation: generation) {
+                guard let feature = try await atStage(stage, open) else {
+                    await AccountScope(features: features, guestStore: guestStore).close()
+                    return
+                }
+                features.append(feature)
+            }
+            guard isCurrent(generation) else {
+                await AccountScope(features: features, guestStore: guestStore).close()
+                return
+            }
+            publish(AccountScope(features: features, guestStore: guestStore), generation: generation)
+        } catch {
+            guard isCurrent(generation) else {
+                await AccountScope(features: features, guestStore: guestStore).close()
+                return
+            }
+            // A guest trip failure owns its writer. Account feature failures retain the
+            // healthy earlier features, exactly as before; saved-pin failure retains none.
+            if let guestStore { await guestStore.close() }
+            guard isCurrent(generation) else {
+                await AccountScope(features: features).close()
+                return
+            }
+            publish(AccountScope(features: features), generation: generation)
+            reportOpenFailure(error as? ScopeOpenFailure ?? .init(stage: .profile, underlying: error))
+        }
+    }
+    /// Each feature's opening and all four lifecycle operations are registered together.
+    private func featureOpeners(
+        store: NativeStore, identity: AccountIdentity?, generation: UUID
+    ) -> [(ScopeOpenFailure.Stage, () async throws -> AccountScope.Feature?)] {
+        let configuration = nativeProfileConfiguration
+        let project = configuration?.project ?? "bark-ranger-ios"
+        var openers: [(ScopeOpenFailure.Stage, () async throws -> AccountScope.Feature?)] = [
+            (
+                identity == nil ? .guest : .trips,
+                {
+                    let feature = NativeTripFeature(
+                        scope: project + ":" + (identity?.uid ?? "guest-drafts"), store: store,
+                        cloud: try identity.flatMap { try configuration?.connectTrips?($0.uid) })
+                    return try await self.registered(
+                        feature, stage: .trips, store: store, generation: generation,
+                        start: {
+                            if let identity {
+                                try await NativeDraftHandoff.adopt(
+                                    directory: self.directory, project: project, uid: identity.uid,
+                                    into: store)
+                            }
+                            try await feature.start()
+                        }, close: { await feature.close() },
+                        request: { feature.requestSync(refresh: $0) }, wait: { await feature.waitForSync() },
+                        network: { feature.setNetworkAllowed($0) })
+                }
+            )
+        ]
+        if let identity, let configuration {
+            openers += [
+                (
+                    .visits,
+                    {
+                        let feature = NativeVisitFeature(
+                            scope: project + ":" + identity.uid, store: store,
+                            cloud: try configuration.connectVisits?(identity.uid),
+                            refreshAccess: { [weak self] in self?.refreshNativeAccess() })
+                        return try await self.registered(
+                            feature, stage: .visits, store: store, generation: generation,
+                            start: { try await feature.start() }, close: { await feature.close() },
+                            request: { feature.sync?.request(refresh: $0) },
+                            wait: { await feature.sync?.wait() },
+                            network: { feature.sync?.setAllowed($0) })
+                    }
+                ),
+                (
+                    .expeditions,
+                    {
+                        let feature = NativeExpeditionFeature(
+                            scope: project + ":" + identity.uid, store: store,
+                            cloud: try configuration.connectExpeditions?(identity.uid),
+                            refreshAccess: { [weak self] in self?.refreshNativeAccess() })
+                        return try await self.registered(
+                            feature, stage: .expeditions, store: store, generation: generation,
+                            start: { try await feature.start() }, close: { await feature.close() },
+                            request: { feature.sync?.request(refresh: $0) },
+                            wait: { await feature.sync?.wait() },
+                            network: { feature.sync?.setAllowed($0) })
+                    }
+                ),
+            ]
+            if let connect = configuration.connectLeaderboard {
+                openers.append(
+                    (
+                        .leaderboard,
+                        {
+                            let feature = try connect(identity.uid)
+                            return try await self.registered(
+                                feature, stage: .leaderboard, store: store, generation: generation,
+                                close: { await feature.close() })
+                        }
+                    ))
+            }
+        }
+        return openers
+    }
+    /// Profile and saved pins are admitted together; failure cannot strand an unobserved writer.
+    private func openNativeProfile(_ identity: AccountIdentity, generation: UUID) async throws
+        -> AccountScope?
+    {
+        let feature = try await atStage(.profile) {
+            guard let configuration = self.nativeProfileConfiguration else {
+                throw NativeStore.Failure.unavailable
+            }
+            return try await NativeProfileFeature.open(
+                configuration: configuration, directory: self.directory, uid: identity.uid)
+        }
+        guard isCurrent(generation) else {
             await feature.close()
-            return false
+            return nil
         }
-        nativeProfile = feature
-        // Saved-place availability is independent of trip/walk initialization.
-        let pins = NativeSavedPinFeature(
-            store: feature.store, cloud: try configuration.connectSavedPins?(identity.uid))
-        #if DEBUG
-            try await beforeFeatureStart?("savedPins", feature.store)
-        #endif
-        try await pins.start()
-        guard !Task.isCancelled, self.generation == generation else {
-            await pins.close()
-            return false
+        do {
+            let pins = try await atStage(.savedPins) {
+                let pins = NativeSavedPinFeature(
+                    store: feature.store,
+                    cloud: try self.nativeProfileConfiguration?.connectSavedPins?(identity.uid))
+                return try await self.registered(
+                    pins, stage: .savedPins, store: feature.store, generation: generation,
+                    start: { try await pins.start() }, close: { await pins.close() },
+                    request: { pins.sync?.request(refresh: $0) }, wait: { await pins.sync?.wait() },
+                    network: { pins.sync?.setAllowed($0) })
+            }
+            guard let pins else {
+                await feature.close()
+                return nil
+            }
+            return AccountScope(features: [
+                .init(stage: .profile, value: feature, close: { await feature.close() }), pins,
+            ])
+        } catch {
+            await feature.close()
+            throw error
         }
-        nativeSavedPins = pins
-        profileScheduler = NativeFeatureSync(
+    }
+    private func publish(_ incoming: AccountScope, generation: UUID) {
+        guard let feature = incoming.profile else {
+            scope = incoming
+            updateFeatureNetwork()
+            return
+        }
+        let scheduler = NativeFeatureSync(
             label: "Profile",
             work: { [weak self] refresh in
-                guard let self, self.generation == generation else { throw CancellationError() }
+                guard let self, self.owns(generation) else { throw CancellationError() }
                 if self.identity?.serverConfirmed != true { try await self.auth?.reload() }
                 try Task.checkCancellation()
-                guard self.generation == generation, self.identity?.uid == feature.uid,
+                guard self.owns(generation), self.identity?.uid == feature.uid,
                     self.identity?.serverConfirmed == true
                 else { throw AccountFailure.accountChanged }
                 try await feature.sync.resume()
                 let result = try await feature.sync.synchronize(refresh: refresh)
                 try Task.checkCancellation()
-                guard self.generation == generation else { throw CancellationError() }
+                guard self.owns(generation) else { throw CancellationError() }
                 self.sessionMessage = nil
                 if case .retry(let date) = result { return date }
                 return nil
             }, pause: { await feature.sync.pause() })
-        profileObservation = Task { [weak self] in
+        let observation = Task { [weak self] in
             do {
                 for await value in try await feature.store.profileUpdates() {
-                    guard let self, !Task.isCancelled, self.generation == generation else { return }
+                    guard let self, !Task.isCancelled, self.owns(generation) else { return }
                     let previous = self.profileState
                     self.profileState = value
                     self.entitlement.update(value.entitlement, uid: feature.uid)
@@ -343,14 +474,39 @@ import Observation
                     }
                 }
             } catch {
-                guard let self, !Task.isCancelled, self.generation == generation else { return }
+                guard let self, !Task.isCancelled, self.owns(generation) else { return }
                 self.sessionMessage = "Your saved profile could not be read. Its data has been retained."
                 self.requiresStorageRecovery = true
                 self.diagnostics.accountFailure(error, at: .openStore)
             }
         }
+        scope = AccountScope(
+            features: incoming.features, scheduler: scheduler, observation: observation,
+            guestStore: incoming.guestStore)
         requestSync()
-        return true
+    }
+    private func reportOpenFailure(_ failure: ScopeOpenFailure) {
+        let error = failure.underlying
+        diagnostics.accountFailure(error, at: .openStore)
+        switch failure.stage {
+        case .trips:
+            tripLibraryMessage =
+                "Trip storage could not be opened. Your saved files are retained; keep the app installed and retry."
+        case .profile, .guest, .savedPins:
+            requiresStorageRecovery = error is DecodingError || (error as? NativeStore.Failure) == .corrupt
+            if failure.stage == .savedPins {
+                sessionMessage =
+                    "Saved pins could not be opened. Your saved files are retained; keep the app installed and retry."
+            } else {
+                sessionMessage =
+                    requiresStorageRecovery
+                    ? "Your saved account needs a compatible app update or recovery. Keep this app installed; your saved files have not been replaced."
+                    : "Your saved account data could not be opened. It has been kept for recovery."
+            }
+        default:
+            tripLibraryMessage =
+                "Visit or walk storage could not be opened. Your files are retained; your profile and trips are available."
+        }
     }
     func connectivityChanged(_ connected: Bool) {
         guard self.connected != connected else { return }
@@ -369,39 +525,24 @@ import Observation
             pauseSync()
         }
     }
-    private func pauseSync() { profileScheduler?.setAllowed(false) }
+    private func pauseSync() { scope.scheduler?.setAllowed(false) }
     func requestSync(refresh: Bool = false) {
         updateFeatureNetwork()
-        nativeTrips?.requestSync(refresh: refresh)
-        nativeVisits?.sync?.request(refresh: refresh)
-        nativeExpeditions?.requestSync(refresh: refresh)
-        nativeSavedPins?.sync?.request(refresh: refresh)
-        profileScheduler?.request(refresh: refresh)
+        scope.requestSync(refresh: refresh)
     }
-    private func refreshNativeAccess() { profileScheduler?.request(refresh: true) }
+    private func refreshNativeAccess() { scope.scheduler?.request(refresh: true) }
     func retryStorage() { activate(identity, force: true) }
     func waitForSync() async {
         requestSync()
-        await profileScheduler?.wait()
-        await nativeTrips?.waitForSync()
-        await nativeVisits?.sync?.wait()
-        await nativeExpeditions?.sync?.wait()
-        await nativeSavedPins?.sync?.wait()
+        await scope.waitForSync()
+    }
+    private var featureNetworkAllowed: Bool {
+        foreground && connected && identity?.serverConfirmed == true
+            && profileState?.confirmed?.status == .active
     }
     private func updateFeatureNetwork() {
-        profileScheduler?.setAllowed(foreground && connected && identity != nil)
-        nativeTrips?.setNetworkAllowed(
-            foreground && connected && identity?.serverConfirmed == true
-                && profileState?.confirmed?.status == .active)
-        nativeVisits?.sync?.setAllowed(
-            foreground && connected && identity?.serverConfirmed == true
-                && profileState?.confirmed?.status == .active)
-        nativeExpeditions?.sync?.setAllowed(
-            foreground && connected && identity?.serverConfirmed == true
-                && profileState?.confirmed?.status == .active)
-        nativeSavedPins?.sync?.setAllowed(
-            foreground && connected && identity?.serverConfirmed == true
-                && profileState?.confirmed?.status == .active)
+        scope.scheduler?.setAllowed(foreground && connected && identity != nil)
+        scope.setNetworkAllowed(featureNetworkAllowed)
     }
     func stopAndWait(preservingForeground: Bool = false) async {
         if !preservingForeground { foreground = false }

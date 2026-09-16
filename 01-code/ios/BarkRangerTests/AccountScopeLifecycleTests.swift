@@ -8,6 +8,123 @@ import Testing
 @testable import BarkRanger
 
 @MainActor struct AccountScopeLifecycleTests {
+    @Test func supersededStartClosesItsWriterBeforeTheNextUIDOpens() async throws {
+        let f = try await AccountScopeFixture.make(signIn: false)
+        let gate = ScopeDrainGate()
+        var openingStore: NativeStore?
+        f.session.beforeFeatureStart = { stage, store in
+            if stage == "visits" && f.session.identity?.uid == "a" {
+                openingStore = store
+                await gate.wait()
+            }
+        }
+        f.auth.select("a")
+        try await eventually { openingStore != nil }
+        f.auth.select("b")
+        try await eventually { f.session.identity?.uid == "b" }
+        #expect(f.session.nativeProfile == nil && f.session.nativeTrips == nil)
+        await gate.release()
+        try await f.ready("b")
+        let obsolete = try #require(openingStore)
+        #expect(await obsolete.closed)
+        #expect(f.session.nativeProfile?.store !== obsolete)
+        #expect(f.session.tripLibraryMessage == nil && f.session.message == nil)
+        try await f.close()
+    }
+
+    @Test(arguments: ["corrupt", "decoding", "unavailable"])
+    func savedPinFailurePreservesRecoveryClassificationAndRetry(_ failure: String) async throws {
+        let f = try await AccountScopeFixture.make(signIn: false)
+        var failedStore: NativeStore?
+        f.session.beforeFeatureStart = { stage, store in
+            guard stage == "savedPins" else { return }
+            failedStore = store
+            switch failure {
+            case "corrupt": throw NativeStore.Failure.corrupt
+            case "decoding":
+                throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "fixture"))
+            default: throw NativeStore.Failure.unavailable
+            }
+        }
+        f.auth.select("a")
+        try await eventually { f.session.message != nil }
+        #expect(f.session.requiresStorageRecovery == (failure != "unavailable"))
+        let store = try #require(failedStore)
+        #expect(await store.closed)
+        #expect(f.session.nativeProfile == nil && f.session.nativeSavedPins == nil)
+        f.session.beforeFeatureStart = nil
+        f.session.retryStorage()
+        try await f.ready("a")
+        #expect(!f.session.requiresStorageRecovery && f.session.message == nil)
+        #expect(f.session.nativeProfile?.store !== store)
+        try await f.close()
+    }
+
+    @Test(arguments: ["visits", "expeditions", "leaderboard"])
+    func laterFailureRetainsHealthyFeaturesAndExistingMessage(_ failedStage: String) async throws {
+        let f = try await AccountScopeFixture.make(signIn: false)
+        f.session.beforeFeatureStart = { stage, _ in
+            if stage == failedStage { throw NativeStore.Failure.corrupt }
+        }
+        f.auth.select("a")
+        try await eventually { f.session.tripLibraryMessage != nil && f.session.profileState != nil }
+        #expect(
+            f.session.tripLibraryMessage
+                == "Visit or walk storage could not be opened. Your files are retained; your profile and trips are available."
+        )
+        #expect(
+            f.session.nativeProfile != nil && f.session.nativeSavedPins != nil && f.session.nativeTrips != nil
+        )
+        #expect((f.session.nativeVisits != nil) == (failedStage != "visits"))
+        #expect((f.session.nativeExpeditions != nil) == (failedStage == "leaderboard"))
+        #expect(f.session.nativeLeaderboard == nil && !f.session.requiresStorageRecovery)
+        try await f.close()
+    }
+
+    @Test func failedGuestTripClosesItsWriterAndKeepsGeneralRecoveryCopy() async throws {
+        let f = try await AccountScopeFixture.make(signIn: false)
+        var failedStore: NativeStore?
+        f.session.beforeFeatureStart = { stage, store in
+            if stage == "trips" {
+                failedStore = store
+                throw NativeStore.Failure.corrupt
+            }
+        }
+        f.session.retryStorage()
+        try await eventually { f.session.message != nil }
+        #expect(
+            f.session.message
+                == "Your saved account needs a compatible app update or recovery. Keep this app installed; your saved files have not been replaced."
+        )
+        #expect(f.session.requiresStorageRecovery && f.session.nativeTrips == nil)
+        let store = try #require(failedStore)
+        #expect(await store.closed)
+        try await f.close()
+    }
+
+    @Test func savedPinStartFailureReportsItsStageAndClosesProfileStore() async throws {
+        let f = try await AccountScopeFixture.make(signIn: false)
+        var openedStore: NativeStore?
+        f.session.beforeFeatureStart = { stage, store in
+            if stage == "savedPins" {
+                openedStore = store
+                throw NativeStore.Failure.unavailable
+            }
+        }
+        f.auth.select("a")
+        try await eventually { f.session.message != nil || f.session.tripLibraryMessage != nil }
+        #expect(
+            f.session.message
+                == "Saved pins could not be opened. Your saved files are retained; keep the app installed and retry."
+        )
+        #expect(f.session.tripLibraryMessage == nil)
+        #expect(f.session.nativeProfile == nil && f.session.nativeSavedPins == nil)
+        #expect(f.session.profileState == nil && !f.session.isSyncing)
+        let store = try #require(openedStore)
+        #expect(await store.closed)
+        try await f.close()
+    }
+
     @Test func signOutAndDifferentUIDCloseEveryResourceOnceInDrainOrder() async throws {
         let f = try await AccountScopeFixture.make()
         let storeA = try #require(f.session.nativeProfile?.store)

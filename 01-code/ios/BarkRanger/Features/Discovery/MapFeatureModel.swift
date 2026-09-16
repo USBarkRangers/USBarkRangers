@@ -31,6 +31,8 @@ final class MapFeatureModel {
     let detail: ParkDetailModel
     let personal: PersonalParkProjection?
     let routeDay: RouteDaySheetViewModel?
+    /// Retain MapKit's native surface across SwiftUI remounts so foregrounding does not redraw warm routes.
+    @ObservationIgnored let nativeMapSurface = NativeMapSurface()
     private let catalog: CatalogRepository
     private let location: LocationClient
     private var observation: Task<Void, Never>?

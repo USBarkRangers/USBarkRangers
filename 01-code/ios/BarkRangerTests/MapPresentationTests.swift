@@ -7,6 +7,32 @@ import XCTest
 
 nonisolated final class MapPresentationTests: XCTestCase {
     @MainActor
+    func testNativeMapSurfaceKeepsWarmOverlaysAcrossSwiftUIRemounts() throws {
+        let context = try DiscoveryTestContext(scenario: "valid")
+        defer { context.close() }
+        let surface = context.model.nativeMapSurface
+        let firstCoordinator = surface.coordinator(for: context.model)
+        let firstMap = surface.mount(model: context.model, coordinator: firstCoordinator)
+        let coordinates = [
+            CLLocationCoordinate2D(latitude: 44, longitude: -68),
+            CLLocationCoordinate2D(latitude: 45, longitude: -69),
+        ]
+        let route = MKPolyline(coordinates: coordinates, count: coordinates.count)
+        firstMap.addOverlay(route)
+
+        NativeMapView.dismantleUIView(firstMap, coordinator: firstCoordinator)
+        let secondCoordinator = surface.coordinator(for: context.model)
+        let secondMap = surface.mount(model: context.model, coordinator: secondCoordinator)
+
+        XCTAssertTrue(firstMap === secondMap)
+        XCTAssertTrue(firstCoordinator === secondCoordinator)
+        XCTAssertTrue(secondMap.overlays.contains { $0 === route })
+        XCTAssertEqual(
+            secondMap.gestureRecognizers?.filter { $0.delegate === secondCoordinator }.count, 1,
+            "Remounting must not duplicate the map tap recognizer")
+    }
+
+    @MainActor
     func testDetailRevealGrowsGraduallyAndReversesWithoutScrolling() async throws {
         let model = ParkDetailModel(maps: MapsHandoff(open: { _ in true }))
         model.show(try park(name: "Acadia National Park Hulls Cove Visitor Center"))

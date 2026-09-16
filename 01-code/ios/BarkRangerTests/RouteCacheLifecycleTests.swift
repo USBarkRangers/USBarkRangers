@@ -25,6 +25,8 @@ import Testing
         #expect(await planner.awaitCheckpoint())
         try await eventually { !roads.isLoading && roads.legs.count == 3 }
         #expect(requests == 3)
+        let retainedLines = roads.legs.mapValues { ObjectIdentifier($0.polyline) }
+        let retainedVersion = roads.geometryVersion
         let tripID = planner.draft?.id
         map.stop()
         shared.stop()
@@ -33,6 +35,8 @@ import Testing
         map.start()
         try await eventually { !roads.isLoading }
         #expect(requests == 3 && map.draft?.id == tripID)
+        #expect(roads.legs.mapValues { ObjectIdentifier($0.polyline) } == retainedLines)
+        #expect(roads.geometryVersion == retainedVersion)
         planner.resetScope()
         shared.start()
         await planner.resumeActive()

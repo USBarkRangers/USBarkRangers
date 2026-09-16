@@ -37,10 +37,6 @@ struct RootView: View {
                             }
                             // Account navigation/form state must not survive an identity switch.
                             .id(tab == .account ? account?.session.identity?.uid : nil)
-                            // Keep the shared progress projection alive in pushed Passport destinations.
-                            .task(id: tab == .passport ? passport?.input : nil) {
-                                if tab == .passport { await passport?.observeProgress() }
-                            }
                         }
                     }
                 }
@@ -104,6 +100,8 @@ struct RootView: View {
         .environment(\.support, support)
         .environment(\.showPremium, { router.open(.sheet(.premium)) })
         .environment(\.expeditionOverlay, mapExpedition)
+        // Home and Passport share this projection; neither screen should have to open first.
+        .task(id: passport?.input) { await passport?.observeProgress() }
         .onChange(of: router.selectedTab) { _, _ in
             // Fresh summaries are reused; entering a screen after a long foreground
             // session checks for changes without installing a background polling timer.

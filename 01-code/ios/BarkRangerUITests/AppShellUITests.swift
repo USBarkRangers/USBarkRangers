@@ -13,6 +13,7 @@ nonisolated final class AppShellUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Bark Ranger"].waitForExistence(timeout: 5))
         app.buttons["About Bark Ranger"].tap()
         XCTAssertTrue(app.navigationBars["About Bark Ranger"].exists)
+        XCTAssertTrue(app.staticTexts["What is a B.A.R.K. Ranger?"].exists)
         app.buttons["Done"].tap()
         XCTAssertFalse(app.navigationBars["About Bark Ranger"].exists)
 

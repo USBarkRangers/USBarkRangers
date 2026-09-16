@@ -180,17 +180,15 @@ struct RootView: View {
     private var aboutSheet: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    Label("Made for you and your trail buddy", systemImage: "pawprint.fill")
-                        .font(.title2.bold())
-                    Text("A new native home for US BARK Rangers.")
-                    Text("Development preview")
-                        .font(.headline)
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("What is a B.A.R.K. Ranger?")
+                        .font(.title.bold())
+                        .accessibilityAddTraits(.isHeader)
                     Text(
-                        "Explore offline park records, local search, filters and Apple Maps directions. Premium adds account saving, park visits, trip planning and walks with virtual expeditions."
+                        "If you take your pup to a park and follow the principles, they can join the ranks of the #USBarkRangers! Many park sites have an actual program where you and your pup complete fun activities to earn a badge, tag, or bandana. Some will even swear your dog in! Whether they have a full program or just sell the tags, it is a ton of fun and you'll make great memories."
                     )
-                    Text("Your existing Bark Ranger app is still available as usual.")
-                        .fixedSize(horizontal: false, vertical: true)
+                    .font(.body)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(24)
             }

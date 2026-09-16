@@ -279,9 +279,11 @@ struct HomeView: View {
 
     private var community: some View {
         sectionCard(title: "Community", systemImage: "person.3.fill") {
-            Text("Join nearly 50,000 members sharing park ideas and adventures.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            Text(
+                "Join over 50,000 members sharing park ideas, dog-friendly adventures, and B.A.R.K. Ranger experiences."
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
 
             LazyVGrid(
                 columns: dynamicTypeSize.isAccessibilitySize

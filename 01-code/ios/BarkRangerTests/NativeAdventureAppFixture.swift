@@ -40,6 +40,8 @@ import Testing
         let session = assembly.session
         session.setForeground(true)
         session.connectivityChanged(true)
+        // Foreground starts asynchronous account cleanup; sign-in is gated until it finishes.
+        try await eventually { session.cleanupState == .ready }
         let account = AccountModel(session: session)
         account.email("\(UUID().uuidString)@native.invalid", password: "NativeOnly123!", create: true)
         await account.action?.value

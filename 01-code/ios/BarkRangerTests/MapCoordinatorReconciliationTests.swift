@@ -1,10 +1,70 @@
 import BarkDomain
 import MapKit
+import Synchronization
 import Testing
 
 @testable import BarkRanger
 
 @MainActor struct MapCoordinatorReconciliationTests {
+    @Test func reusedAttachedViewUpdatesWithoutSynchronousDelegateCallback() async throws {
+        let f = try await ReconciliationFixture.make()
+        f.map.requestsReusedViews = false
+        try await f.addTarget()
+        let count = Mutex(0)
+        let id = f.target.id
+        f.coordinator.configureObserver = { configured in
+            if configured == id { count.withLock { $0 += 1 } }
+        }
+        f.coordinator.apply(to: f.map)
+        #expect(count.withLock { $0 } == 1)
+        #expect(f.map.pins[id]?.clusteringIdentifier == nil)
+        #expect(f.map.pins[id]?.accessibilityValue?.contains("Stop 2") == true)
+        await f.close()
+    }
+
+    @Test func firstEnrollmentAlreadyHasCurrentNumbersAndGrouping() async throws {
+        let f = try await ReconciliationFixture.make(applyInitially: false)
+        try await f.addTarget()
+        f.coordinator.apply(to: f.map)
+        let registrations = try #require(f.map.registrations[f.target.id])
+        #expect(registrations.count == 1)
+        #expect(registrations.allSatisfy { !$0.grouped && $0.label?.contains("Stop 2") == true })
+        await f.close()
+    }
+
+    @Test func simultaneousSelectionAndNumberChangeReenrollsOnlyOnce() async throws {
+        let f = try await ReconciliationFixture.make()
+        try await f.addTarget()
+        f.model.selectPark(id: f.target.id, focusOnMap: false)
+        f.map.added = []
+        f.map.removed = []
+        f.map.registrations = [:]
+        f.coordinator.apply(to: f.map, reduceMotion: true)
+        #expect(f.map.added.filter { $0 == f.target.id }.count == 1)
+        #expect(f.map.removed.filter { $0 == f.target.id }.count == 1)
+        #expect(f.map.registrations[f.target.id]?.allSatisfy { !$0.grouped } == true)
+        await f.close()
+    }
+
+    @Test func singleApplyConfigureCountForNewActiveDayStop() async throws {
+        let f = try await ReconciliationFixture.make()
+        try await f.addTarget()
+        let count = Mutex(0)
+        let targetID = f.target.id
+        f.coordinator.configureObserver = { id in
+            if id == targetID { count.withLock { $0 += 1 } }
+        }
+        // Exactly one apply after the trip projection changes. The test map requests
+        // viewFor synchronously for every re-enrollment, including reused views.
+        f.coordinator.apply(to: f.map)
+        let actual = count.withLock { $0 }
+        print("MAPCONFIG singleApply activeDayStop configureCount=\(actual)")
+        #expect(actual == 2)
+        #expect(f.map.pins[targetID]?.clusteringIdentifier == nil)
+        #expect(f.map.pins[targetID]?.accessibilityValue?.contains("Stop 2") == true)
+        await f.close()
+    }
+
     @Test func gainingStopNumberEndsUngrouped() async throws {
         let f = try await ReconciliationFixture.make()
         try await f.addTarget()
@@ -96,7 +156,8 @@ import Testing
 
     private init(
         context: DiscoveryTestContext, directory: URL, account: AccountSession,
-        day: RouteDaySheetViewModel, model: MapFeatureModel, target: Park, draft: TripDraft
+        day: RouteDaySheetViewModel, model: MapFeatureModel, target: Park, draft: TripDraft,
+        applyInitially: Bool
     ) {
         self.context = context
         self.directory = directory
@@ -107,9 +168,9 @@ import Testing
         self.draft = draft
         coordinator = MapCoordinator(model: model)
         map.delegate = coordinator
-        coordinator.apply(to: map)
+        if applyInitially { coordinator.apply(to: map) }
     }
-    static func make() async throws -> ReconciliationFixture {
+    static func make(applyInitially: Bool = true) async throws -> ReconciliationFixture {
         let context = try DiscoveryTestContext()
         try await context.start()
         var settings = context.settings.value
@@ -143,7 +204,7 @@ import Testing
         }
         return ReconciliationFixture(
             context: context, directory: directory, account: account, day: day, model: model,
-            target: target, draft: draft)
+            target: target, draft: draft, applyInitially: applyInitially)
     }
     func addTarget() async throws {
         draft.trip.days[0].stops.append(.init(park: target))
@@ -169,6 +230,8 @@ import Testing
     var added: [ParkID] = []
     var removed: [ParkID] = []
     var pins: [ParkID: ParkAnnotationView] = [:]
+    var registrations: [ParkID: [(grouped: Bool, label: String?)]] = [:]
+    var requestsReusedViews = true
     private var enrolled: [ParkID: ParkAnnotation] = [:]
     private var selected: [any MKAnnotation] = []
     override var annotations: [any MKAnnotation] { Array(enrolled.values) }
@@ -197,7 +260,11 @@ import Testing
         for case let park as ParkAnnotation in annotations {
             enrolled[park.park.id] = park
             added.append(park.park.id)
-            _ = delegate?.mapView?(self, viewFor: park)
+            if !requestsReusedViews && pins[park.park.id] != nil { continue }
+            if let view = delegate?.mapView?(self, viewFor: park) {
+                registrations[park.park.id, default: []].append(
+                    (view.clusteringIdentifier != nil, view.accessibilityValue))
+            }
         }
     }
     override func removeAnnotations(_ annotations: [any MKAnnotation]) {

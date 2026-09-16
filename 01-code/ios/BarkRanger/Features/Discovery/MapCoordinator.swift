@@ -4,7 +4,7 @@ import MapKit
 /// Reconciles annotations by canonical ID; catalog updates never refit the camera or clear filters.
 final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
     var interactionBegan: () -> Void = {}
-    unowned let model: MapFeatureModel
+    let model: MapFeatureModel
     private(set) var annotations: [ParkID: ParkAnnotation] = [:]
     private var visible = Set<ParkID>()
     private var cameraID: UUID?

@@ -98,14 +98,17 @@ final class MapRouteOverlays {
         if !removed.isEmpty { map.removeOverlays(removed) }
         if !changed.isEmpty {
             let firstLine = map.overlays.first { ($0 as? DayRoutePolyline)?.isCasing == false }
-            for entry in changed {
-                if let firstLine {
+            if let firstLine {
+                for entry in changed {
                     map.insertOverlay(entry.casing, below: firstLine)
-                } else {
-                    map.addOverlay(entry.casing, level: .aboveLabels)
                 }
+                map.addOverlays(changed.map(\.overlay), level: .aboveLabels)
+            } else {
+                // A newly mounted map receives the complete saved route in one MapKit
+                // transaction. Avoid visibly attaching one segment at a time on relaunch.
+                map.addOverlays(
+                    changed.map(\.casing) + changed.map(\.overlay), level: .aboveLabels)
             }
-            map.addOverlays(changed.map(\.overlay), level: .aboveLabels)
         }
     }
     func renderer(for overlay: DayRoutePolyline) -> MKPolylineRenderer {

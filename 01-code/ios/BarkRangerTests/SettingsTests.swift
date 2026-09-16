@@ -55,6 +55,8 @@ struct SettingsTests {
         model.selectPark(id: try #require(model.parks.first).id, focusOnMap: false)
         let selected = model.selectedID
         let map = MKMapView(frame: CGRect(x: 0, y: 0, width: 390, height: 760))
+        map.register(ParkAnnotationView.self, forAnnotationViewWithReuseIdentifier: "park")
+        map.register(ParkClusterView.self, forAnnotationViewWithReuseIdentifier: "cluster")
         let coordinator = MapCoordinator(model: model)
         let delegate: any MKMapViewDelegate = coordinator
         coordinator.apply(to: map, reduceMotion: true)
@@ -124,5 +126,63 @@ struct SettingsTests {
         model.setFilters(query)
         try await eventually { model.projection?.input.query == query }
         #expect(await probe.inputs.count == 2)
+    }
+
+    @Test func airplaneModeKeepsCompletedRouteOverlaysAttached() async throws {
+        let context = try DiscoveryTestContext()
+        defer { context.close() }
+        try await context.start()
+        let account = AccountSession(
+            auth: nil, directory: .temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        let roads = DayRouteService(spacing: .zero) {
+            RoadRoute(RouteCacheFixture.route($0), fetchedAt: Date())
+        }
+        let activeTrip = ActiveTripSession(account: account, routes: roads)
+        let routeDay = RouteDaySheetViewModel.testModel(
+            account: account, routes: roads, activeTrip: activeTrip)
+        let model = MapFeatureModel(
+            catalog: context.catalog, settings: context.settings, location: LocationClient(manager: nil),
+            maps: MapsHandoff(), account: account, routeDay: routeDay)
+        defer {
+            model.stop()
+            activeTrip.resetScope()
+        }
+        model.start()
+        let trip = try RouteCacheFixture.trip(stops: 4)
+        activeTrip.open(
+            TripDraft(trip: trip, nativeBase: .init()), replacing: Optional<TripDraft>.none)
+        try await eventually { activeTrip.plan != nil }
+        roads.update(
+            tripID: trip.id, plan: try #require(activeTrip.plan), preferredDay: trip.days.first?.id,
+            permitted: true)
+        try await eventually { !roads.isLoading && roads.legs.count == 3 }
+
+        let map = MKMapView(frame: CGRect(x: 0, y: 0, width: 390, height: 760))
+        map.register(ParkAnnotationView.self, forAnnotationViewWithReuseIdentifier: "park")
+        map.register(ParkClusterView.self, forAnnotationViewWithReuseIdentifier: "cluster")
+        let coordinator = MapCoordinator(model: model)
+        map.delegate = coordinator
+        coordinator.apply(to: map, reduceMotion: true)
+        let routes = coordinator.routeOverlays.overlays
+        #expect(routes.count == 6)
+        let sentinel = MKCircle(center: .init(latitude: 0, longitude: 0), radius: 10)
+        map.addOverlay(sentinel, level: .aboveLabels)
+        let routeIDs = Set(routes.map(ObjectIdentifier.init))
+
+        model.connectivityChanged(false)
+        coordinator.apply(to: map, reduceMotion: true)
+        let offlineRoutes = map.overlays.compactMap { $0 as? DayRoutePolyline }
+        #expect(Set(offlineRoutes.map(ObjectIdentifier.init)) == routeIDs)
+        #expect(
+            try #require(map.overlays.firstIndex { $0 === routes[0] })
+                < #require(map.overlays.firstIndex { $0 === sentinel }),
+            "Airplane Mode must insert its basemap below routes without detaching and re-adding them")
+
+        model.connectivityChanged(true)
+        coordinator.apply(to: map, reduceMotion: true)
+        #expect(Set(map.overlays.compactMap { $0 as? DayRoutePolyline }.map(ObjectIdentifier.init)) == routeIDs)
+        #expect(
+            try #require(map.overlays.firstIndex { $0 === routes[0] })
+                < #require(map.overlays.firstIndex { $0 === sentinel }))
     }
 }

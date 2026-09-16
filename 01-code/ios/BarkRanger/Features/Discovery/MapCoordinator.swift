@@ -185,10 +185,19 @@ final class MapCoordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDele
         guard overview != model.usesOfflineMap else { return }
         overview = model.usesOfflineMap
         if model.usesOfflineMap {
-            map.removeOverlays(routeOverlays.overlays)
-            map.addOverlay(basemap, level: .aboveLabels)
-            map.addOverlays(outlines, level: .aboveLabels)
-            map.addOverlays(routeOverlays.overlays, level: .aboveLabels)
+            // Changing connectivity must not detach and recreate completed route lines.
+            // Insert the bundled fallback underneath the existing foreground overlays so
+            // their objects/renderers stay warm through Airplane Mode and foregrounding.
+            let foreground = map.overlays.first { overlay in
+                overlay !== basemap && !outlines.contains { $0 === overlay }
+            }
+            if let foreground {
+                map.insertOverlay(basemap, below: foreground)
+                for outline in outlines { map.insertOverlay(outline, below: foreground) }
+            } else {
+                map.addOverlay(basemap, level: .aboveLabels)
+                map.addOverlays(outlines, level: .aboveLabels)
+            }
         } else {
             map.removeOverlay(basemap)
             map.removeOverlays(outlines)

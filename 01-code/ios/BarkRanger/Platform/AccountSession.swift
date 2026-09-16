@@ -4,6 +4,12 @@ import Observation
 
 /// One active account lifetime. UID changes clear presentation before any asynchronous close/open work.
 @MainActor @Observable final class AccountSession {
+    #if DEBUG
+        // Test-only lifecycle events contain resource names, never account data.
+        @ObservationIgnored var lifecycleObserver: ((String) -> Void)?
+        @ObservationIgnored var beforeFeatureStart: ((String, NativeStore) async throws -> Void)?
+        var scopeStartedForTesting: Bool { scopeStarted }
+    #endif
     private(set) var identity: AccountIdentity?
     private(set) var nativeProfile: NativeProfileFeature?
     private(set) var nativeTrips: NativeTripFeature?
@@ -130,18 +136,54 @@ import Observation
         entitlement.clear()
         sessionMessage = nil
         requiresStorageRecovery = false
+        #if DEBUG
+            let observeLifecycle = lifecycleObserver
+        #endif
         scopeTask = Task { [weak self] in
             await previousTask?.value
+            #if DEBUG
+                if previousTask != nil { observeLifecycle?("previousTask") }
+            #endif
             await oldScheduler?.close()
+            #if DEBUG
+                if oldScheduler != nil { observeLifecycle?("scheduler") }
+            #endif
             await oldProfileObservation?.value
+            #if DEBUG
+                if oldProfileObservation != nil { observeLifecycle?("observation") }
+            #endif
             await tripEditingDrain?.value
+            #if DEBUG
+                if tripEditingDrain != nil { observeLifecycle?("editor") }
+            #endif
             await oldTrips?.close()
+            #if DEBUG
+                if oldTrips != nil { observeLifecycle?("trips") }
+            #endif
             await oldVisits?.close()
+            #if DEBUG
+                if oldVisits != nil { observeLifecycle?("visits") }
+            #endif
             await oldExpeditions?.close()
+            #if DEBUG
+                if oldExpeditions != nil { observeLifecycle?("expeditions") }
+            #endif
             await oldLeaderboard?.close()
+            #if DEBUG
+                if oldLeaderboard != nil { observeLifecycle?("leaderboard") }
+            #endif
             await oldSavedPins?.close()
+            #if DEBUG
+                if oldSavedPins != nil { observeLifecycle?("savedPins") }
+            #endif
             await oldGuestStore?.close()
+            #if DEBUG
+                if oldGuestStore != nil { observeLifecycle?("guestStore") }
+            #endif
             await oldProfile?.close()
+            #if DEBUG
+                if oldProfile != nil { observeLifecycle?("profile") }
+            #endif
             guard let self, !Task.isCancelled, generation == self.generation, next != nil || openGuest else {
                 return
             }
@@ -170,6 +212,9 @@ import Observation
                                 directory: self.directory, project: project,
                                 uid: next.uid, into: nativeStore)
                         }
+                        #if DEBUG
+                            try await self.beforeFeatureStart?("trips", nativeStore)
+                        #endif
                         try await feature.start()
                     } catch {
                         await feature.close()
@@ -257,6 +302,9 @@ import Observation
         // Saved-place availability is independent of trip/walk initialization.
         let pins = NativeSavedPinFeature(
             store: feature.store, cloud: try configuration.connectSavedPins?(identity.uid))
+        #if DEBUG
+            try await beforeFeatureStart?("savedPins", feature.store)
+        #endif
         try await pins.start()
         guard !Task.isCancelled, self.generation == generation else {
             await pins.close()

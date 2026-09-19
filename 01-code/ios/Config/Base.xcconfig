@@ -17,7 +17,9 @@ BARK_DEVELOPMENT_TEAM = V7Y6NA8G23
 #include? "Signing.local.xcconfig"
 
 // Public native-only assets. The manifest is conditional; changed catalogs are saved atomically on device.
-BARK_CATALOG_MANIFEST_URL = https:/$()/storage.googleapis.com/bark-ranger-ios-public-catalog/native-catalog/v1/manifest.json
+// This is the bucket the sheet publisher writes every five minutes. The bark-ranger-ios bucket held
+// one static upload that nothing updated, so phones pointed there never received a catalog change.
+BARK_CATALOG_MANIFEST_URL = https:/$()/storage.googleapis.com/barkrangermap-auth-native-catalog/native-catalog/v1/manifest.json
 #include? "Catalog.local.xcconfig"
 
 // Empty for normal/Release builds. Debug may opt into a Mac's local test account services.

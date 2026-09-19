@@ -21,7 +21,7 @@ struct CatalogDiagnosticsTests {
             to: context.disk.directory.appendingPathComponent("current.json"))
         let repository = CatalogRepository(disk: context.disk, client: nil, diagnostics: diagnostics)
         let state = await repository.loadLocal()
-        #expect(state.snapshot?.parks.count == 393 && state.source == .bundle)
+        #expect(state.snapshot?.parks.count == 402 && state.source == .bundle)
         #expect(events.withLock { $0.count == 1 && $0.first?.0 == .cacheRead && $0.first?.1 == .decoding })
     }
 

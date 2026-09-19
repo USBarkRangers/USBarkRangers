@@ -56,7 +56,8 @@ struct CatalogRefreshTests {
         let endpoint = try #require(URL(string: value))
         #expect(endpoint.scheme == "https")
         #expect(endpoint.host == "storage.googleapis.com")
-        #expect(endpoint.path == "/bark-ranger-ios-public-catalog/native-catalog/v1/manifest.json")
+        // The bucket the sheet publisher updates, not the static copy nothing writes to.
+        #expect(endpoint.path == "/barkrangermap-auth-native-catalog/native-catalog/v1/manifest.json")
         #expect(CatalogHTTPClient.allowedEndpoint(endpoint))
     }
 

@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "revision": 1788339349000,
-  "publishedAt": "2026-09-02T08:55:49.000Z",
-  "sourceRevision": "3723fb9cb8715aff07186516dff7efb0fe538e045c88cc40bdb102a68e39bd4f",
-  "count": 393,
-  "bytes": 654127,
-  "sha256": "bfbd5b0d6e06cfcc75adc7f040756c2a9cdd422a3ce6221604195dfd6348ee08",
-  "path": "revisions/1788339349000-bfbd5b0d6e06cfcc75adc7f040756c2a9cdd422a3ce6221604195dfd6348ee08.json"
+  "revision": 1789776000000,
+  "publishedAt": "2026-09-19T00:00:00.000Z",
+  "sourceRevision": "87159f2677b4accd78a631369e402c9e23d7e5d1821f179e8f2a1784c471be62",
+  "count": 402,
+  "bytes": 669614,
+  "sha256": "472823f049d1835237addcbb2a5d99968b77a06aab856b24597f3dc842b70b7d",
+  "path": "revisions/1789776000000-472823f049d1835237addcbb2a5d99968b77a06aab856b24597f3dc842b70b7d.json"
 }

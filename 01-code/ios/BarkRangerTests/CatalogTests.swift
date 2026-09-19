@@ -31,7 +31,7 @@ struct CatalogTests {
         try Data("corrupt".utf8).write(to: disk.directory.appendingPathComponent("current.json"))
         let catalog = CatalogRepository(disk: disk, client: nil)
         let loaded = await catalog.loadLocal()
-        #expect(loaded.snapshot?.parks.count == 393)
+        #expect(loaded.snapshot?.parks.count == 402)
         #expect(loaded.source == .bundle)
         try disk.commit(old, previous: old)
         try Data("corrupt".utf8).write(to: disk.directory.appendingPathComponent("current.json"))
@@ -47,7 +47,7 @@ struct CatalogTests {
         let updated = await catalog.current()
         #expect(updated.status == .fresh)
         #expect(try #require(updated.snapshot?.revision) > #require(local.snapshot?.revision))
-        #expect(updated.snapshot?.parks.count == 393)
+        #expect(updated.snapshot?.parks.count == 402)
         let offline = await CatalogRepository(disk: disk, client: nil).loadLocal()
         #expect(offline.snapshot?.revision == updated.snapshot?.revision)
         #expect(offline.source == .saved)
@@ -336,7 +336,7 @@ struct CatalogTests {
         try await eventually { model.projection?.input.query == query }
         #expect(model.result.matchingCount == 0)
         preferences.resetPreferences()
-        try await eventually { model.result.matchingCount == 393 }
+        try await eventually { model.result.matchingCount == 402 }
         let region = MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: 13.4, longitude: 144.7),
             span: MKCoordinateSpan(latitudeDelta: 1, longitudeDelta: 2))

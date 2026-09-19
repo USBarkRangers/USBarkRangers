@@ -8,6 +8,18 @@ const MIN_PARKS = 300;
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 const fail = message => { throw new Error(`catalog_invalid: ${message}`); };
 const clean = value => String(value ?? "").trim();
+// The identifier rule every native command applies to an official place and site ID. A catalog
+// identity that breaks it can be shown on a map but never marked visited, so it must not publish.
+const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_:-]{0,127}$/;
+// Identities that were published by mistake (a relative date pasted into the Park id cell) and
+// have since been corrected in the sheet. They are migration inputs only: each is carried as an
+// alias of its corrected park so the publisher and every phone accept the transition and old
+// references still resolve. None can ever be a current park or site ID again.
+const CORRECTED_IDENTITIES = Object.freeze({
+    "0b04a828-a089-49e3-8e97-8613574bfa08": Object.freeze(["1d ago"]),      // Mammoth Cave National Park
+    "417a203f-fd35-4e57-8417-f3a5a705a8eb": Object.freeze(["2 days ago"]),  // Pocahontas State Park
+});
+const RETIRED_AS_CURRENT = new Set(Object.values(CORRECTED_IDENTITIES).flat());
 
 function normalizeHeaders(row) {
     const result = {};
@@ -58,7 +70,8 @@ function normalizePark(input) {
         hazards: get("hazards & safety", "hazards"), extraSwag: get("extra swag"),
         websites: safeLinks(get("website")), pictures: safeLinks(get("swag pics - if available, and may not be current.")),
         videos: safeLinks(get("swearing-in video. not all sites do this, and ones that do only do it as time permits.", "swearing-in video")),
-        aliases: list(get("park id aliases", "aliases")), isRetired: get("retired").toLowerCase() === "true"
+        aliases: [...new Set([...list(get("park id aliases", "aliases")), ...(CORRECTED_IDENTITIES[id] || [])])],
+        isRetired: get("retired").toLowerCase() === "true"
     };
 }
 
@@ -101,7 +114,20 @@ function validateCatalog(snapshot, previous = null, minimum = MIN_PARKS) {
     return snapshot;
 }
 
+// New catalogs only. A previously published catalog is validated leniently by validateCatalog,
+// because it may still contain the mistaken identities this rule exists to stop.
+function requireCurrentIdentities(parks) {
+    for (const park of parks) {
+        for (const value of [park.id, park.siteID]) {
+            if (typeof value !== "string" || !IDENTIFIER.test(value) || RETIRED_AS_CURRENT.has(value)) {
+                fail(`identity is not a valid identifier: ${JSON.stringify(value)} (${park.name})`);
+            }
+        }
+    }
+}
+
 function encodeSnapshot(parks, { revision, publishedAt, retiredParkIDs = [], previous = null, minimum = MIN_PARKS }) {
+    requireCurrentIdentities(parks);
     const sorted = parks.slice().sort((a, b) => a.id.localeCompare(b.id, "en"));
     const content = { parks: sorted, retiredParkIDs: retiredParkIDs.slice().sort() };
     const snapshot = { schemaVersion: SCHEMA_VERSION, revision, publishedAt, sourceRevision: sha256(JSON.stringify(content)), ...content };
@@ -114,4 +140,5 @@ function encodeSnapshot(parks, { revision, publishedAt, retiredParkIDs = [], pre
     return { snapshot, bytes, manifest };
 }
 
-module.exports = { normalizeHeaders, normalizePark, validateCatalog, encodeSnapshot, sha256, SCHEMA_VERSION, MAX_BYTES, MIN_PARKS };
+module.exports = { normalizeHeaders, normalizePark, validateCatalog, encodeSnapshot, sha256, SCHEMA_VERSION, MAX_BYTES, MIN_PARKS,
+    IDENTIFIER, CORRECTED_IDENTITIES };

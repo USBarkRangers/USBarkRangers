@@ -54,7 +54,7 @@ nonisolated final class MapInteractionUITests: XCTestCase {
             .completed, "Intentional double-tap zoom remains available without a popup")
         XCTAssertFalse(app.scrollViews["park-detail-sheet"].exists)
         XCTAssertFalse(overview.exists, "Zoom followed by a press must not switch to offline overview")
-        XCTAssertEqual(app.staticTexts["park-count"].label, "2 of 393 parks")
+        XCTAssertEqual(app.staticTexts["park-count"].label, "2 of 402 parks")
         XCTAssertEqual(search.value as? String, "Indiana Dunes")
     }
 
@@ -83,7 +83,7 @@ nonisolated final class MapInteractionUITests: XCTestCase {
                     app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "park-pin-"))
                         .firstMatch.exists)
             }
-            XCTAssertEqual(app.staticTexts["park-count"].label, "393 of 393 parks")
+            XCTAssertEqual(app.staticTexts["park-count"].label, "402 of 402 parks")
         }
         let search = app.textFields["park-search"]
         search.tap()
@@ -104,7 +104,7 @@ nonisolated final class MapInteractionUITests: XCTestCase {
             XCTAssertTrue(selected.isSelected)
             XCTAssertTrue(selected.isHittable)
             XCTAssertTrue(app.staticTexts["Indiana Dunes National Park Visitor Center"].exists)
-            XCTAssertEqual(app.staticTexts["park-count"].label, "2 of 393 parks")
+            XCTAssertEqual(app.staticTexts["park-count"].label, "2 of 402 parks")
         }
     }
 
@@ -225,7 +225,7 @@ nonisolated final class MapInteractionUITests: XCTestCase {
         capture("Branded map clusters", app)
         cluster.tap()
         XCTAssertFalse(app.scrollViews["park-detail-sheet"].exists)
-        XCTAssertEqual(app.staticTexts["park-count"].label, "393 of 393 parks")
+        XCTAssertEqual(app.staticTexts["park-count"].label, "402 of 402 parks")
         let search = app.textFields["park-search"]
         search.tap()
         search.typeText("hulls cove")
@@ -296,7 +296,7 @@ nonisolated final class MapInteractionUITests: XCTestCase {
     private func assertSearchPreserved(_ app: XCUIApplication, text: String, count: Int) {
         XCTAssertEqual(app.textFields["park-search"].value as? String, text)
         XCTAssertTrue(app.buttons["Remove search filter"].exists)
-        XCTAssertEqual(app.staticTexts["park-count"].label, "\(count) of 393 parks")
+        XCTAssertEqual(app.staticTexts["park-count"].label, "\(count) of 402 parks")
         let map = app.descendants(matching: .any).matching(identifier: "park-map").firstMatch
         XCTAssertEqual(map.value as? String, "\(count) matching parks")
     }

@@ -9,9 +9,9 @@ const { normalizePark, validateCatalog, encodeSnapshot, sha256 } = require("../c
 const { createPublisher, cloudObjects, firestoreLease } = require("../catalog/publishCatalog");
 const { verifySignal, claimEditSignal, createCatalogTriggers } = require("../catalog/catalogTriggers");
 const root = path.resolve(__dirname, "../../..");
-const rows = parseCSV(fs.readFileSync(path.join(root, "01-code/app/assets/data/bark-fallback-0.142.csv"), "utf8"));
+const rows = parseCSV(fs.readFileSync(path.join(root, "05-tools/catalog-source/native-catalog-2026-09-19.csv"), "utf8"));
 const parks = rows.map(normalizePark);
-const options = { revision: 1788339349000, publishedAt: "2026-09-02T08:55:49.000Z" };
+const options = { revision: 1789776000000, publishedAt: "2026-09-19T00:00:00.000Z" };
 const original = encodeSnapshot(parks, options);
 
 function memoryStore() {
@@ -39,7 +39,7 @@ function harness(source = rows) {
 }
 
 test("approved fallback round-trips every identity and produces the checked-in bytes", () => {
-    assert.equal(parks.length, 393);
+    assert.equal(parks.length, 402);
     assert.deepEqual(new Set(parks.map(p => p.id)), new Set(rows.map(r => r["park id"])));
     assert.deepEqual(original.bytes, fs.readFileSync(path.join(root, "01-code/ios/BarkRanger/Resources/catalog.json")));
     for (let i = 0; i < rows.length; i++) {
@@ -164,3 +164,65 @@ test("publication errors cannot turn an accepted sheet write into a retryable ap
         env: { BARK_NATIVE_CATALOG_ENABLED: "true", GCLOUD_PROJECT: "wrong-project" } });
     assert.equal((await handlers.afterAcceptedSheetWrite()).status, "pending");
 });
+
+// The sheet's Park id cells for Mammoth Cave and Pocahontas once held a pasted relative date.
+// They were corrected in the sheet without aliases, which stopped every later publication.
+const MAMMOTH = "0b04a828-a089-49e3-8e97-8613574bfa08", POCAHONTAS = "417a203f-fd35-4e57-8417-f3a5a705a8eb";
+const mistaken = { [MAMMOTH]: "1d ago", [POCAHONTAS]: "2 days ago" };
+// What the publisher and old phones hold today: the same parks under the mistaken identities.
+function publishedWithMistakes() {
+    const old = parks.map(park => mistaken[park.id]
+        ? { ...park, id: mistaken[park.id], siteID: mistaken[park.id], aliases: [] } : park)
+        .sort((a, b) => a.id.localeCompare(b.id, "en"));
+    const content = { parks: old, retiredParkIDs: [] };
+    return validateCatalog({ schemaVersion: 1, revision: 1789329964653, publishedAt: "2026-09-13T20:06:04.750Z",
+        sourceRevision: sha256(JSON.stringify(content)), ...content });
+}
+
+test("the corrected sheet publishes over a catalog that still holds the mistaken identities", async () => {
+    const previous = publishedWithMistakes();
+    assert.equal(previous.parks.filter(park => Object.values(mistaken).includes(park.id)).length, 2);
+    const next = encodeSnapshot(parks, { revision: previous.revision + 1, publishedAt: options.publishedAt, previous });
+    const two = next.snapshot.parks.filter(park => /Mammoth Cave National Park|Pocahontas State Park/.test(park.name));
+    assert.deepEqual(two.map(park => [park.id, park.siteID, park.aliases]).sort(),
+        [[MAMMOTH, MAMMOTH, ["1d ago"]], [POCAHONTAS, POCAHONTAS, ["2 days ago"]]]);
+    assert.ok(next.snapshot.parks.every(park => !Object.values(mistaken).includes(park.id)));
+    // End to end through the publisher: the stuck pointer advances from the mistaken catalog.
+    const { publisher, objects } = harness();
+    const bytes = Buffer.from(JSON.stringify(previous)), hash = sha256(bytes);
+    assert.ok(options.revision + 1000 > previous.revision);
+    const manifest = { schemaVersion: 1, revision: previous.revision, publishedAt: previous.publishedAt,
+        sourceRevision: previous.sourceRevision, count: previous.parks.length, bytes: bytes.length, sha256: hash,
+        path: `revisions/${previous.revision}-${hash}.json` };
+    await objects.create(manifest.path, bytes);
+    await objects.create("manifest.json", Buffer.from(JSON.stringify(manifest)));
+    const published = await publisher.publishCatalog();
+    assert.equal(published.status, "published");
+    assert.ok(published.manifest.revision > previous.revision);
+});
+
+test("a mistaken identity can never be a current park or site ID again, and garbage IDs cannot publish", () => {
+    const withID = (id, siteID = id) => parks.map((park, index) => index === 0 ? { ...park, id, siteID } : park);
+    for (const id of ["1d ago", "2 days ago", "3 hours ago", "", " leading-space", "has space", "caf\u00e9", "x".repeat(129)]) {
+        assert.throws(() => encodeSnapshot(withID(id), options), /not a valid identifier|invalid identity|park fields/, JSON.stringify(id));
+    }
+    assert.throws(() => encodeSnapshot(withID(parks[0].id, "2 days ago"), options), /not a valid identifier/);
+    // A correction typed back into the sheet by hand does not double the alias.
+    const row = { ...rows.find(r => r["park id"] === MAMMOTH), "Park ID Aliases": "1d ago" };
+    assert.deepEqual(normalizePark(row).aliases, ["1d ago"]);
+});
+
+test("a new valid sheet row publishes as a new revision without any app or pipeline change", async () => {
+    const { publisher, objects } = harness();
+    assert.equal((await publisher.publishCatalog()).status, "published");
+    const added = { ...rows[0], "location": "Brand New State Park", "park id": "9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f",
+        "lat": "44.123456", "lng": "-93.654321" };
+    const grown = harness([...rows, added]);
+    for (const [name, record] of objects.records) await grown.objects.create(name, record.bytes);
+    const second = await grown.publisher.publishCatalog();
+    assert.equal(second.status, "published");
+    assert.equal(second.manifest.count, 403);
+    const payload = JSON.parse((await grown.objects.read(second.manifest.path)).bytes);
+    assert.ok(payload.parks.some(park => park.id === "9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f"));
+});
+

@@ -15,7 +15,7 @@ struct DiscoveryPerformanceTests {
         if large { await context.catalog.refresh(reason: .startup) }
         try await context.start()
         let model = context.model
-        let count = large ? 5000 : 393
+        let count = large ? 5000 : 402
         #expect(model.parks.count == count)
         let map = CountingMapView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let coordinator = MapCoordinator(model: model)
@@ -85,7 +85,7 @@ struct DiscoveryPerformanceTests {
         #expect(await probe.inputs.count == computations + (large ? 0 : 1))
     }
 
-    @Test(arguments: [393, 5000])
+    @Test(arguments: [402, 5000])
     func projectionTimingsAndMainActorResponsiveness(count: Int) async throws {
         let data = try Data(
             contentsOf: #require(Bundle.main.url(forResource: "catalog", withExtension: "json")))

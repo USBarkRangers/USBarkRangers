@@ -5,7 +5,7 @@ import Testing
 @testable import BarkRanger
 
 struct NativeVisitQueueTests {
-    /// The advertised ceiling. Today's catalog has 393 sites, so 500 is the contract's limit and
+    /// The advertised ceiling. Today's catalog has 402 sites, so 500 is the contract's limit and
     /// not a reachable selection. The phone must accept 500, refuse 501, and produce a command
     /// that fits the transport limit. Resending identical sealed bytes after a lost reply is
     /// the mailroom's general contract and is covered by NativeMailroomTests.

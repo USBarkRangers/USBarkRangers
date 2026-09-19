@@ -165,7 +165,7 @@ test('daily activity is server-day-idempotent and cannot backfill a competitive 
     assert.equal((await f.user.get()).get('streakCount'), undefined);
 });
 
-// The client and the parser both advertise 500. Today's catalog has 393 sites, so this is the
+// The client and the parser both advertise 500. Today's catalog has 402 sites, so this is the
 // contract's ceiling rather than a reachable selection, and it is the size that must commit
 // in one transaction and replay from its receipt after a lost reply.
 test('the advertised 500-visit removal commits atomically, replays from its receipt and refuses 501', async () => {

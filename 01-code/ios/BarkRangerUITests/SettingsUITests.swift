@@ -20,7 +20,7 @@ nonisolated final class SettingsUITests: XCTestCase {
         app.tabBars.buttons["Map"].tap()
         XCTAssertTrue(
             app.staticTexts["Offline geographic overview · Natural Earth"].waitForExistence(timeout: 3))
-        XCTAssertEqual(app.staticTexts["park-count"].label, "393 of 393 parks")
+        XCTAssertEqual(app.staticTexts["park-count"].label, "402 of 402 parks")
         app.terminate()
         app.launch()
         app.buttons["Settings"].tap()
@@ -38,7 +38,7 @@ nonisolated final class SettingsUITests: XCTestCase {
         XCTAssertEqual(app.switches["Remember map position"].value as? String, "1")
         app.buttons["Done"].tap()
         app.tabBars.buttons["Map"].tap()
-        XCTAssertEqual(app.staticTexts["park-count"].label, "393 of 393 parks")
+        XCTAssertEqual(app.staticTexts["park-count"].label, "402 of 402 parks")
     }
 
     @MainActor

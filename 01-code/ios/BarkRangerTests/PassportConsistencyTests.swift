@@ -10,7 +10,7 @@ import Testing
             let observation = Task { await model.observeProgress() }
             defer { observation.cancel() }
             try await eventually { model.content != nil }
-            #expect(model.content?.summary.catalogSites == 393)
+            #expect(model.content?.summary.catalogSites == 402)
             await context.catalog.refresh(reason: .manual)
             #expect(await context.catalog.current().snapshot?.parks.count == 5000)
             try await eventually { model.content?.summary.catalogSites == 5000 }

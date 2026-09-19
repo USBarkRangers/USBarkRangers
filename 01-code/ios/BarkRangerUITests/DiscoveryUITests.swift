@@ -61,7 +61,7 @@ nonisolated final class DiscoveryUITests: XCTestCase {
         let matching = NSPredicate(format: "value == %@", "\(count) matching parks")
         expectation(for: matching, evaluatedWith: map)
         waitForExpectations(timeout: 5)
-        XCTAssertEqual(app.staticTexts["park-count"].label, "\(count) of 393 parks")
+        XCTAssertEqual(app.staticTexts["park-count"].label, "\(count) of 402 parks")
     }
 
     @MainActor
@@ -82,7 +82,7 @@ nonisolated final class DiscoveryUITests: XCTestCase {
         XCTAssertTrue(count.exists)
         XCTAssertGreaterThanOrEqual(count.frame.minX, search.frame.maxX)
         XCTAssertLessThanOrEqual(count.frame.maxX, app.buttons["Filters"].frame.minX)
-        expectPins(393, in: app)
+        expectPins(402, in: app)
         capture("Map fills discovery", app: app)
         search.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
@@ -104,7 +104,7 @@ nonisolated final class DiscoveryUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["No matching parks"].exists)
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         app.buttons["Clear search"].tap()
-        expectPins(393, in: app)
+        expectPins(402, in: app)
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         search.typeText("hulls cove")
         result.tap()
@@ -142,7 +142,7 @@ nonisolated final class DiscoveryUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Remove Tag swag filter"].exists)
         app.buttons["Remove search filter"].tap()
         app.buttons["Remove Tag swag filter"].tap()
-        expectPins(393, in: app)
+        expectPins(402, in: app)
         app.tabBars.buttons["Home"].tap()
         app.buttons["Settings"].tap()
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Map appearance,")).firstMatch.tap()

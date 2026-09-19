@@ -11,8 +11,8 @@ struct CatalogDomainTests {
     }
     @Test func allApprovedRecordsAndCompleteDetailFieldsDecode() throws {
         let catalog = try catalog()
-        #expect(catalog.parks.count == 393)
-        #expect(Set(catalog.parks.map(\.id)).count == 393)
+        #expect(catalog.parks.count == 402)
+        #expect(Set(catalog.parks.map(\.id)).count == 402)
         #expect(
             catalog.parks.contains {
                 !$0.entranceFees.isEmpty && !$0.approvedTrails.isEmpty && !$0.hazards.isEmpty
@@ -23,7 +23,7 @@ struct CatalogDomainTests {
     @Test func filtersUseMatchingRecordsAndNeverCountViewportClusters() throws {
         let catalog = try catalog()
         let all = ParkFilter.apply(catalog: catalog, query: .init())
-        #expect(all.totalCount == 393 && all.matchingCount == 393)
+        #expect(all.totalCount == 402 && all.matchingCount == 402)
         var query = ParkFilter.Query()
         query.categories = [.national]
         query.swag = [.tag]
@@ -31,7 +31,7 @@ struct CatalogDomainTests {
         #expect(
             result.matchingCount == catalog.parks.filter { $0.category == .national && $0.swag == .tag }.count
         )
-        #expect(result.totalCount == 393)
+        #expect(result.totalCount == 402)
         query.search = "There is no such fictional park"
         #expect(ParkFilter.apply(catalog: catalog, query: query).matchingCount == 0)
     }
@@ -46,7 +46,7 @@ struct CatalogDomainTests {
             ])
         query.personal = .unvisited
         #expect(
-            ParkFilter.apply(catalog: catalog, visitedParkIDs: [park.id], query: query).matchingCount == 392)
+            ParkFilter.apply(catalog: catalog, visitedParkIDs: [park.id], query: query).matchingCount == 401)
         query.personal = .trip
         #expect(
             ParkFilter.apply(catalog: catalog, tripParkIDs: [park.id], query: query).matchingIDs == [park.id])

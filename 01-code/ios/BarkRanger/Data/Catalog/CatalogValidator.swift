@@ -33,8 +33,7 @@ nonisolated struct CatalogValidator: Sendable {
         var aliases = Set<ParkID>()
         var sites: [String: SiteID] = [:]
         for park in snapshot.parks {
-            guard validID(park.id.rawValue), ids.insert(park.id).inserted,
-                !park.siteID.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            guard validID(park.id.rawValue), ids.insert(park.id).inserted, validID(park.siteID.rawValue)
             else { throw Rejection.identity }
             guard !park.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 !park.stateCodes.isEmpty,
@@ -86,8 +85,12 @@ nonisolated struct CatalogValidator: Sendable {
         ["https", "http"].contains(url.scheme?.lowercased() ?? "") && url.host?.isEmpty == false
             && url.user == nil && url.password == nil
     }
+    /// A current park or site ID must satisfy the identifier rule every native command applies
+    /// to it. One that does not can be drawn on the map but never marked visited, which is how
+    /// "1d ago" and "2 days ago" once shipped. Aliases are history and stay unrestricted.
     private func validID(_ id: String) -> Bool {
-        !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && id.lowercased() != "unknown"
+        id.lowercased() != "unknown"
+            && id.range(of: #"^[A-Za-z0-9][A-Za-z0-9_:-]{0,127}$"#, options: .regularExpression) != nil
             && id.range(of: #"^-?\d+\.\d{2}_-?\d+\.\d{2}$"#, options: .regularExpression) == nil
     }
     private func isHash(_ value: String) -> Bool {

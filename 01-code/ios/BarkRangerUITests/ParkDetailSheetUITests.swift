@@ -160,7 +160,7 @@ nonisolated final class ParkDetailSheetUITests: XCTestCase {
         app.buttons["Close park details"].tap()
         XCTAssertTrue(search.waitForExistence(timeout: 3))
         XCTAssertEqual(search.value as? String, "hulls cove")
-        XCTAssertEqual(app.staticTexts["park-count"].label, "1 of 393 parks")
+        XCTAssertEqual(app.staticTexts["park-count"].label, "1 of 402 parks")
         XCTAssertTrue(app.buttons["Remove search filter"].exists)
         search.tap()
         XCTAssertTrue(app.scrollViews["park-results"].exists)

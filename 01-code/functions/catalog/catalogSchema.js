@@ -98,7 +98,7 @@ function validateCatalog(snapshot, previous = null, minimum = MIN_PARKS) {
             if (typeof alias !== "string" || !alias.trim() || aliases.has(alias)) fail("ambiguous alias");
             aliases.add(alias);
         }
-        const physical = `${park.name.toLowerCase().replace(/[^a-z0-9]/g, "")}|${latitude.toFixed(5)},${longitude.toFixed(5)}`;
+        const physical = physicalKey(park);
         if (sites.has(physical) && sites.get(physical) !== park.siteID) fail("inconsistent physical site identity");
         sites.set(physical, park.siteID);
     }
@@ -112,6 +112,39 @@ function validateCatalog(snapshot, previous = null, minimum = MIN_PARKS) {
         for (const park of previous.parks) for (const alias of park.aliases) if (!aliases.has(alias) && !retired.has(alias)) fail("lost alias history");
     }
     return snapshot;
+}
+
+// A row deleted from the sheet takes its pin off the map; it must never take anyone's visits or
+// points with it, and it must never stop publication. The park stays in the catalog marked
+// retired: phones hide it from the map and search, the backend refuses new visits there, and
+// existing visits keep working. A row that comes back is an ordinary park again.
+// More than MAX_RETIRED_AT_ONCE disappearing together is a wiped or half-read sheet, not an edit.
+const MAX_RETIRED_AT_ONCE = 10;
+const physicalKey = park => `${park.name.toLowerCase().replace(/[^a-z0-9]/g, "")}|${park.coordinate.latitude.toFixed(5)},${park.coordinate.longitude.toFixed(5)}`;
+function carryDeletedRows(rows, previous) {
+    if (!previous) return rows;
+    let parks = rows;
+    const listed = new Set(parks.flatMap(park => [park.id, ...park.aliases]));
+    // Deleting a row and typing the same park back in gives it a new Park id. It is still the
+    // same place: the new row keeps the old site, and the old id becomes its alias, so everyone's
+    // visits stay attached to the pin instead of being stranded on a retired twin.
+    const readded = new Map();
+    for (const old of previous.parks) {
+        if (listed.has(old.id) || !IDENTIFIER.test(old.id)) continue;
+        const twin = parks.find(park => physicalKey(park) === physicalKey(old) && park.siteID === park.id);
+        if (twin) readded.set(twin.id, [...(readded.get(twin.id) || []), old]);
+    }
+    parks = parks.map(park => !readded.has(park.id) ? park : { ...park, siteID: readded.get(park.id)[0].siteID,
+        aliases: [...new Set([...park.aliases, ...readded.get(park.id).flatMap(old => [old.id, ...old.aliases])])] });
+    const present = new Set(parks.flatMap(park => [park.id, ...park.aliases]));
+    const gone = previous.parks.filter(park => !present.has(park.id) && IDENTIFIER.test(park.id));
+    const newlyGone = gone.filter(park => park.isRetired !== true);
+    if (newlyGone.length > MAX_RETIRED_AT_ONCE) {
+        fail(`${newlyGone.length} parks disappeared at once; refusing to retire more than ${MAX_RETIRED_AT_ONCE} in one update`);
+    }
+    // An alias now claimed by a live row belongs to that row, not to the retired record.
+    return parks.concat(gone.map(park => ({ ...park, isRetired: true,
+        aliases: park.aliases.filter(alias => !present.has(alias)) })));
 }
 
 // New catalogs only. A previously published catalog is validated leniently by validateCatalog,
@@ -141,4 +174,4 @@ function encodeSnapshot(parks, { revision, publishedAt, retiredParkIDs = [], pre
 }
 
 module.exports = { normalizeHeaders, normalizePark, validateCatalog, encodeSnapshot, sha256, SCHEMA_VERSION, MAX_BYTES, MIN_PARKS,
-    IDENTIFIER, CORRECTED_IDENTITIES };
+    IDENTIFIER, CORRECTED_IDENTITIES, carryDeletedRows, MAX_RETIRED_AT_ONCE };

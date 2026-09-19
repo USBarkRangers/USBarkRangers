@@ -226,3 +226,58 @@ test("a new valid sheet row publishes as a new revision without any app or pipel
     assert.ok(payload.parks.some(park => park.id === "9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f"));
 });
 
+
+// Deleting a row takes the pin off the map. It never takes visits or points, and never stops publishing.
+async function publishedThen(nextRows) {
+    const first = harness();
+    assert.equal((await first.publisher.publishCatalog()).status, "published");
+    const next = harness(nextRows);
+    for (const [name, record] of first.objects.records) await next.objects.create(name, record.bytes);
+    const result = await next.publisher.publishCatalog();
+    const payload = result.manifest && next.objects.records.get(result.manifest.path);
+    return { result, catalog: payload ? JSON.parse(payload.bytes) : null };
+}
+
+test("a deleted row publishes, and its park stays in the catalog retired so visits and points survive", async () => {
+    const deleted = rows[5], kept = rows.filter(row => row !== deleted);
+    const { result, catalog } = await publishedThen(kept);
+    assert.equal(result.status, "published");
+    assert.equal(catalog.parks.length, 402);
+    const park = catalog.parks.find(item => item.id === deleted["park id"]);
+    assert.equal(park.isRetired, true);
+    assert.equal(park.siteID, deleted["park id"]);
+    assert.equal(catalog.parks.filter(item => item.isRetired).length, 1);
+    // If the row comes back, it is an ordinary park again.
+    const returned = harness(rows);
+    returned.objects.records.set("manifest.json", { bytes: Buffer.from(JSON.stringify(result.manifest)), generation: "1" });
+    returned.objects.records.set(result.manifest.path, { bytes: Buffer.from(JSON.stringify(catalog)), generation: "1" });
+    // The harness clock is fixed, so the publisher advances by one past the previous revision.
+    const back = await returned.publisher.publishCatalog();
+    assert.equal(back.status, "published");
+    const restored = JSON.parse(returned.objects.records.get(back.manifest.path).bytes);
+    assert.equal(restored.parks.find(item => item.id === deleted["park id"]).isRetired, false);
+    assert.equal(restored.parks.filter(item => item.isRetired).length, 0);
+});
+
+test("a park deleted and typed back in keeps its site, so existing visits stay on the new pin", async () => {
+    const original = rows[7];
+    const retyped = { ...original, "park id": "7c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f" };
+    const { result, catalog } = await publishedThen(rows.map(row => row === original ? retyped : row));
+    assert.equal(result.status, "published");
+    const park = catalog.parks.find(item => item.id === retyped["park id"]);
+    assert.equal(park.siteID, original["park id"]);
+    assert.ok(park.aliases.includes(original["park id"]));
+    assert.equal(park.isRetired, false);
+    assert.equal(catalog.parks.filter(item => item.name === park.name).length, 1);
+    assert.equal(catalog.parks.length, 402);
+});
+
+test("a wiped or half-read sheet is refused instead of emptying the map", async () => {
+    const { result, catalog } = await publishedThen(rows.slice(0, rows.length - 11)).catch(error => ({ result: { status: "rejected", error: error.message }, catalog: null }));
+    assert.equal(catalog, null);
+    assert.match(result.error || result.status, /disappeared at once|rejected|invalid/);
+    // Ten at once is an edit, and publishes.
+    const ten = await publishedThen(rows.slice(0, rows.length - 10));
+    assert.equal(ten.result.status, "published");
+    assert.equal(ten.catalog.parks.filter(item => item.isRetired).length, 10);
+});

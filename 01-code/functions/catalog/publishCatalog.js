@@ -1,6 +1,6 @@
 "use strict";
 const { randomUUID } = require("node:crypto");
-const { normalizePark, validateCatalog, encodeSnapshot, sha256, MAX_BYTES } = require("./catalogSchema");
+const { normalizePark, validateCatalog, encodeSnapshot, sha256, MAX_BYTES, carryDeletedRows } = require("./catalogSchema");
 
 // I/O is injected so tests exercise real ordering/preconditions without cloud writes.
 function createPublisher({ objects, lease, readRows, now = Date.now }) {
@@ -23,7 +23,7 @@ function createPublisher({ objects, lease, readRows, now = Date.now }) {
             // A single authenticated source read happens after the lease and baseline capture.
             const rows = await readRows();
             const revision = Math.max(now(), (previous?.revision || 0) + 1);
-            const candidate = encodeSnapshot(rows.map(normalizePark), {
+            const candidate = encodeSnapshot(carryDeletedRows(rows.map(normalizePark), previous), {
                 revision, publishedAt: new Date(now()).toISOString(), previous,
                 retiredParkIDs: previous?.retiredParkIDs || []
             });

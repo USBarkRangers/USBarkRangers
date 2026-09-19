@@ -19,7 +19,7 @@ nonisolated struct NativeSavedPinCloud: Sendable {
     }
     func submit(_ value: NativeStore.Submission) async throws -> Outcome {
         let outcome = try await transport.callBytes("nativeCommand", bytes: value.bytes, as: Outcome.self)
-        try outcome.validate()
+        try NativeCallableTransport.validateReply { try outcome.validate() }
         guard outcome.operationID == value.id else { throw NativeCallableTransport.Failure.invalidReply }
         return outcome
     }
@@ -30,7 +30,7 @@ nonisolated struct NativeSavedPinCloud: Sendable {
         }
         let value = try await transport.call(
             "nativeRead", input: Read(query: query), as: NativeSavedPinChanges.self)
-        try value.validate(for: query)
+        try NativeCallableTransport.validateReply { try value.validate(for: query) }
         return value
     }
 }

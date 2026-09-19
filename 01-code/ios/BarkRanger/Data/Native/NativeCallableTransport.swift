@@ -95,6 +95,12 @@ actor NativeCallableTransport {
             throw Failure.invalidReply
         }
     }
+    /// A freshly decoded reply that breaks its own contract is the server's invalid reply.
+    /// Only for a value that just arrived from the server. Never for a local row or request
+    /// input: bad local data must stay a storage error and end the pass.
+    nonisolated static func validateReply(_ check: () throws -> Void) throws {
+        do { try check() } catch { throw Failure.invalidReply }
+    }
     nonisolated static func serverFailure(_ error: any Error) -> ServerFailure? {
         let failure = error as NSError
         guard failure.domain == FunctionsErrorDomain else { return nil }

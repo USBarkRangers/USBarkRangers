@@ -32,7 +32,7 @@ nonisolated struct NativeVisitCloud: Sendable {
                 kind: "visit",
                 query: VisitQuery(visitID: id, officialPlaceID: officialPlaceID)),
             as: NativeVisitSnapshot.self)
-        try value.validate()
+        try NativeCallableTransport.validateReply { try value.validate() }
         guard value.visitID == id, value.officialPlaceID == officialPlaceID else {
             throw NativeCallableTransport.Failure.invalidReply
         }
@@ -44,7 +44,7 @@ nonisolated struct NativeVisitCloud: Sendable {
             input: Read(
                 kind: "visitHistory",
                 query: HistoryQuery(before: cursor)), as: NativeVisitPage.self)
-        try value.validate(after: cursor)
+        try NativeCallableTransport.validateReply { try value.validate(after: cursor) }
         return value
     }
     func progress() async throws -> NativeProgressSnapshot {
@@ -52,7 +52,7 @@ nonisolated struct NativeVisitCloud: Sendable {
         let value = try await transport.call(
             "nativeRead", input: Read(kind: "progress", query: ["version": 1]),
             as: NativeProgressSnapshot.self)
-        try value.validate()
+        try NativeCallableTransport.validateReply { try value.validate() }
         return value
     }
     func close() async {
@@ -100,13 +100,13 @@ nonisolated struct NativeVisitCloud: Sendable {
         let value = try await transport.call(
             "nativeRead", input: Read(kind: "placeProgressChanges", query: query),
             as: NativePlaceProgressChanges.self)
-        try value.validate(for: query)
+        try NativeCallableTransport.validateReply { try value.validate(for: query) }
         return value
     }
     func submit(_ submission: NativeStore.Submission) async throws -> NativeVisitOutcome {
         let value = try await transport.callBytes(
             "nativeCommand", bytes: submission.bytes, as: NativeVisitOutcome.self)
-        try value.validate()
+        try NativeCallableTransport.validateReply { try value.validate() }
         guard value.operationID == submission.id else { throw NativeCallableTransport.Failure.invalidReply }
         return value
     }
@@ -117,13 +117,13 @@ nonisolated struct NativeVisitCloud: Sendable {
             visits: references.map { .init(visitID: $0.visitID, officialPlaceID: $0.officialPlaceID) })
         let value = try await transport.call(
             "nativeRead", input: Read(kind: "visitSelection", query: query), as: NativeVisitSelection.self)
-        try value.validate(for: references)
+        try NativeCallableTransport.validateReply { try value.validate(for: references) }
         return value
     }
     func submitBulk(_ submission: NativeStore.Submission) async throws -> NativeBulkVisitOutcome {
         let value = try await transport.callBytes(
             "nativeCommand", bytes: submission.bytes, as: NativeBulkVisitOutcome.self)
-        try value.validate()
+        try NativeCallableTransport.validateReply { try value.validate() }
         guard value.operationID == submission.id else { throw NativeCallableTransport.Failure.invalidReply }
         return value
     }

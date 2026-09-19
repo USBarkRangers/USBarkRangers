@@ -44,8 +44,15 @@ actor NativeProfileCloud {
         try check()
         guard !profileDocument.metadata.isFromCache else { throw Failure.incomplete }
         guard profileDocument.exists else { return Snapshot(profile: nil, entitlement: nil) }
-        let profile = try profileDocument.data(as: NativeProfile.self)
-        try profile.validate()
+        // These documents just arrived from the server. One of the wrong shape, or one that
+        // breaks its own contract, is an invalid reply and never damaged local storage.
+        let profile: NativeProfile
+        do {
+            profile = try profileDocument.data(as: NativeProfile.self)
+            try profile.validate()
+        } catch {
+            throw Failure.invalidReply
+        }
         #if DEBUG
             documentReadCount += 1
         #endif
@@ -55,7 +62,12 @@ actor NativeProfileCloud {
         guard entitlementDocument.exists, !entitlementDocument.metadata.isFromCache else {
             throw Failure.incomplete
         }
-        let entitlement = try entitlementDocument.data(as: EntitlementDocument.self).projection()
+        let entitlement: NativeEntitlement
+        do {
+            entitlement = try entitlementDocument.data(as: EntitlementDocument.self).projection()
+        } catch {
+            throw Failure.invalidReply
+        }
         return Snapshot(profile: profile, entitlement: entitlement)
     }
 

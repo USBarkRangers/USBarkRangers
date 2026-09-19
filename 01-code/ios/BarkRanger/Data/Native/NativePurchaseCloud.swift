@@ -16,7 +16,7 @@ nonisolated struct NativePurchaseCloud: PurchaseVerifying {
     func refresh() async throws -> PurchaseConfirmation { try await call(.init(kind: "refresh")) }
     private func call(_ request: Request) async throws -> PurchaseConfirmation {
         let reply = try await transport.call("nativePurchase", input: request, as: PurchaseConfirmation.self)
-        try reply.validate()
+        try NativeCallableTransport.validateReply { try reply.validate() }
         return reply
     }
 }

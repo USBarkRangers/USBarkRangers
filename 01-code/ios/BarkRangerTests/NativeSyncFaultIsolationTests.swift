@@ -45,10 +45,9 @@ import Testing
         }
     }
 
-    @Test func aValidationFailureIsNotIsolatableBecauseLocalRowsRaiseTheSameError() throws {
-        // BarkDomain keeps this error type internal, so the app cannot tell a reply that broke
-        // its contract from a damaged local row. Until the remote boundary reports it as an
-        // invalid reply, it ends the pass as it always has.
+    @Test func aBareValidationFailureIsNotIsolatableBecauseOnlyLocalDataCanStillRaiseIt() throws {
+        // BarkDomain keeps this error type internal, so the app cannot name it. Every cloud
+        // boundary turns it into invalidReply, which leaves local rows as its only source.
         let item = try tripItem()
         let upper = try NativeServerTime(seconds: 1_800_000_001, nanoseconds: 0)
         do {
@@ -57,6 +56,64 @@ import Testing
         } catch {
             #expect(!NativeMailroom.isIsolatableRemoteResponseFailure(error))
         }
+    }
+
+    @Test func aWellFormedReplyThatBreaksItsContractIsAnInvalidReply() throws {
+        // Syntactically valid: it decodes. Domain-invalid: the same trip is listed twice.
+        let item = try tripItem()
+        let upper = try NativeServerTime(seconds: 1_800_000_001, nanoseconds: 0)
+        let wire = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(NativeTripPage(items: [item, item], readTime: upper)))
+        let reply = try NativeCallableTransport.decodeReply(NativeTripPage.self, from: wire)
+        #expect(reply.items.count == 2)
+        do {
+            try NativeCallableTransport.validateReply { try reply.validate() }
+            Issue.record("A page listing the same trip twice must not validate.")
+        } catch {
+            #expect(error as? NativeCallableTransport.Failure == .invalidReply)
+            #expect(NativeMailroom.isIsolatableRemoteResponseFailure(error))
+            #expect(!NativeProfileCloud.isTransient(error))
+        }
+        // A reply that honours its contract passes through unchanged.
+        let good = NativeTripPage(items: [item], readTime: upper)
+        try NativeCallableTransport.validateReply { try good.validate() }
+    }
+
+    @Test func aDamagedLocalRecordNeverBecomesAnInvalidReply() async throws {
+        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try await NativeStore.open(directory: directory, project: "demo-bark-native", uid: "a")
+        let coordinate = try #require(Coordinate(latitude: 41, longitude: -81))
+        let place = NativeSavedPin.Place(
+            identity: .custom("a"), name: "Place", coordinate: coordinate,
+            state: "", subtitle: "", stopID: "stop-a", savedAtMs: 1_800_000_000_000)
+        let pin = NativeSavedPin(id: place.identity.storageID, revision: 1, saved: true, place: place)
+        try await store.seedSavedPinsForTest([pin])
+        // Wrong shape on disk: the local read reports damaged storage, as the app expects.
+        try await store.overwriteConfirmedPinForTest(pin.id, with: Data("not json".utf8))
+        do {
+            _ = try await store.savedPinValue(pin.id)
+            Issue.record("A damaged local row must not read.")
+        } catch {
+            #expect(error is DecodingError)
+            #expect(!NativeMailroom.isIsolatableRemoteResponseFailure(error))
+        }
+        // Right shape but contract broken on disk: still a local failure, never invalidReply.
+        let unnamed = NativeSavedPin.Place(
+            identity: place.identity, name: "", coordinate: place.coordinate, state: "", subtitle: "",
+            stopID: "stop-a", savedAtMs: place.savedAtMs)
+        try await store.overwriteConfirmedPinForTest(
+            pin.id,
+            with: JSONEncoder().encode(NativeSavedPin(id: pin.id, revision: 1, saved: true, place: unnamed)))
+        do {
+            _ = try await store.savedPinValue(pin.id)
+            Issue.record("A local row that breaks its contract must not read.")
+        } catch {
+            #expect(error as? NativeCallableTransport.Failure == nil)
+            #expect(error as? NativeProfileCloud.Failure == nil)
+            #expect(!NativeMailroom.isIsolatableRemoteResponseFailure(error))
+        }
+        await store.close()
     }
 
     @Test func aBadReplySkipsOnlyItsStepAndTheFirstOneIsStillThrownAtTheEnd() async throws {
@@ -160,5 +217,14 @@ import Testing
         #expect(try await store.acceptTripChanges(page, requested: query))
         #expect(try await store.tripChangesQuery() != query)
         await store.close()
+    }
+}
+
+extension NativeStore {
+    /// Test-only damage to one local row; production code never writes unvalidated bytes here.
+    func overwriteConfirmedPinForTest(_ id: String, with bytes: Data) throws {
+        guard let row = try savedPinRow(id) else { throw Failure.corrupt }
+        row.confirmed = bytes
+        try commit()
     }
 }

@@ -10,14 +10,19 @@ extension NativeStore {
         let createdAt: Date
         let state: String
         let failure: String?
-        var canDiscard: Bool { state == "queued" }
+        let isSavedPin: Bool
+        /// Mirrors `reviewPendingDiscard`: never-sent work, or a refused saved pin.
+        var canDiscard: Bool { state == "queued" || (state == "rejected" && isSavedPin) }
         var status: String {
             if failure == "premium-required" { return "Waiting for Premium renewal" }
             if failure == "intent-expired" { return "Older than 45 days · retained for review" }
             switch state {
             case "queued": return "Saved on iPhone · not sent"
             case "sealed": return "Waiting for server confirmation"
-            default: return "Needs review · saved on iPhone"
+            default:
+                return isSavedPin
+                    ? "Not accepted by the server · discard to edit this pin again"
+                    : "Needs review · saved on iPhone"
             }
         }
     }
@@ -101,7 +106,8 @@ extension NativeStore {
             return .init(
                 id: id, title: title, detail: detail,
                 createdAt: Date(timeIntervalSince1970: Double(row.createdAtMs) / 1000),
-                state: row.state, failure: row.failureCode)
+                state: row.state, failure: row.failureCode,
+                isSavedPin: row.entityKey.hasPrefix("savedPin:"))
         }
     }
 }

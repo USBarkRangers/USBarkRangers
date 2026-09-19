@@ -13,7 +13,7 @@ The approved simplification is recorded in [the checkpoint report](../../04-docs
 | Profile/trip/visit/walk adapters | Typed selection, dependencies, wire calls and acknowledgment validation, not copied delivery loops. |
 | `NativeSyncPolicy` / backend `shared/syncPolicy.js` | One policy per runtime: 40-day editing grace, 45-day upload acceptance, queue 1,000/warning 800 and capture exceptions. |
 
-Pending Changes reads local descriptions, shows one Sync now and offers Discard only for never-sent dependency groups. Active/dirty/pending trip content is protected outside the clean 100-trip/64-MiB cache. Clean editor copies and notes count toward that same budget. Cache trimming fetches no cloud detail. Saved places are local and account/project-separated; cloud pins, dogs and journal/media models are not implemented.
+Pending Changes reads local descriptions, shows one Sync now and offers Discard only for never-sent dependency groups, with one exception: a saved pin the server refused may be discarded with its never-sent suffix, because pins have no review screen and a refused head otherwise blocks every later edit to that pin. Active/dirty/pending trip content is protected outside the clean 100-trip/64-MiB cache. Clean editor copies and notes count toward that same budget. Cache trimming fetches no cloud detail. Saved places are local and account/project-separated; cloud pins, dogs and journal/media models are not implemented.
 
 ## iOS-only rebuild — connected account, trips, visits and walks, September 14
 

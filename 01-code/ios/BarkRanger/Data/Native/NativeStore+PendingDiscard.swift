@@ -11,9 +11,14 @@ extension NativeStore {
 
     /// Removing a predecessor also removes its never-sent dependent suffix. Review
     /// captures exact IDs; a later save/send invalidates that review instead of being lost.
+    /// One exception to never-sent: a refused saved pin. The server answered and applied
+    /// nothing, pins have no review screen, and the refused head blocks every later edit
+    /// to that pin, so discarding it is the only exit. Other features keep their own review.
     func reviewPendingDiscard(_ id: UUID) throws -> PendingDiscard {
         try requireOpen()
-        guard let root = try operation(id), root.state == "queued", root.sealedBytes == nil else {
+        guard let root = try operation(id) else { throw Failure.unavailable }
+        let refusedPin = root.state == "rejected" && root.entityKey.hasPrefix("savedPin:")
+        guard refusedPin || (root.state == "queued" && root.sealedBytes == nil) else {
             throw Failure.unavailable
         }
         let ids: [UUID]
@@ -55,7 +60,7 @@ extension NativeStore {
                     return id
                 }
         }
-        for candidate in ids {
+        for candidate in ids where !(refusedPin && candidate == id) {
             guard let row = try operation(candidate), row.state == "queued", row.sealedBytes == nil else {
                 throw Failure.unavailable
             }

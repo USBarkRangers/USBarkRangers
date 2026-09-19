@@ -187,6 +187,65 @@ struct NativeSavedPinTests {
         #expect(resumed.id == submitted.id && resumed.bytes == submitted.bytes)
         await store.close()
     }
+    @Test func refusedPinBlocksLaterEditsUntilDiscardedThenTheConfirmedPinReturns() async throws {
+        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try await NativeStore.open(directory: directory, project: "demo-bark-native", uid: "a")
+        try await store.seedPremium()
+        let a = try place()
+        try await store.seedSavedPinsForTest([
+            .init(id: a.id, revision: 1, saved: true, place: try a.nativeValue)
+        ])
+        try await store.saveSavedPin(a, saved: false)
+        let refused = try #require(try await store.nextSavedPinSubmission())
+        try await store.rejectSavedPin(refused.id, code: "invalid")
+        // The later edit queues behind the refused head and is never selected for delivery.
+        try await store.saveSavedPin(a)
+        #expect(try await store.nextSavedPinSubmission() == nil)
+        #expect(try await store.savedPinValue(a.id).pending)
+        let items = try await store.pendingChanges()
+        #expect(items.map(\.state) == ["rejected", "queued"] && items.allSatisfy(\.canDiscard))
+        await store.close()
+        // The refusal and its exit survive relaunch.
+        let reopened = try await NativeStore.open(directory: directory, project: "demo-bark-native", uid: "a")
+        #expect(try await reopened.nextSavedPinSubmission() == nil)
+        let review = try await reopened.reviewPendingDiscard(refused.id)
+        #expect(review.ids.count == 2 && review.ids.first == refused.id)
+        try await reopened.discardPending(review)
+        #expect(try await reopened.pendingChanges().isEmpty)
+        let restored = try await reopened.savedPinValue(a.id)
+        #expect(restored.place != nil && !restored.pending)
+        #expect(try await reopened.savedPins(in: region, including: [])[a.id]?.isPending == false)
+        // The pin accepts edits again, as a fresh operation.
+        try await reopened.saveSavedPin(a, saved: false)
+        let fresh = try #require(try await reopened.nextSavedPinSubmission())
+        #expect(fresh.id != refused.id)
+        await reopened.close()
+    }
+    @Test func onlyRefusedPinsGainDiscardAndSentOrOtherFeatureWorkStaysProtected() async throws {
+        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try await NativeStore.open(directory: directory, project: "demo-bark-native", uid: "a")
+        try await store.seedPremium()
+        // A sealed pin may already be applied by the server; its outcome is unknown.
+        try await store.saveSavedPin(place())
+        let sealed = try #require(try await store.nextSavedPinSubmission())
+        await #expect(throws: NativeStore.Failure.unavailable) {
+            try await store.reviewPendingDiscard(sealed.id)
+        }
+        // Waiting for renewal is also a refusal the user may give up on.
+        try await store.rejectSavedPin(sealed.id, code: "premium-required")
+        #expect(try await store.reviewPendingDiscard(sealed.id).ids == [sealed.id])
+        // A refused profile edit keeps its own review; Discard stays never-sent only.
+        _ = try await store.stageProfileEdit(.displayName("First"))
+        let profile = try #require(try await store.nextProfileSubmission())
+        try await store.rejectProfileOperation(profile.id, code: "invalid")
+        await #expect(throws: NativeStore.Failure.unavailable) {
+            try await store.reviewPendingDiscard(profile.id)
+        }
+        #expect(try await store.pendingChanges().first { $0.id == profile.id }?.canDiscard == false)
+        await store.close()
+    }
     @Test func repeatedMapQueriesDoNotRebuildTheIndexAndOnePinUpdatesOnlyOneRow() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

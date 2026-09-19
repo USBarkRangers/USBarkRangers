@@ -72,7 +72,7 @@ struct PendingChangesView: View {
         .navigationTitle("Pending changes")
         .disabled(model.busy).onDisappear { model.cancel() }
         .confirmationDialog(
-            "Discard never-sent changes?", isPresented: $confirming, titleVisibility: .visible
+            "Discard these changes?", isPresented: $confirming, titleVisibility: .visible
         ) {
             Button("Discard \(review?.ids.count ?? 0) changes", role: .destructive) {
                 guard let review, let feature = session.nativeProfile, ownerUID == feature.uid else { return }

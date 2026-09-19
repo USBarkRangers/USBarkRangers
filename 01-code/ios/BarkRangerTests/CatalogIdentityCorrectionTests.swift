@@ -195,6 +195,31 @@ import Testing
         await store.close()
     }
 
+    /// Deleting a sheet row retires the park. Typing it back in gives it a new ID: a new park
+    /// beside the retired one, never matched to it. Only the new one is on the map or in search.
+    @Test func aParkReAddedAtTheSamePlaceIsANewParkBesideTheRetiredOne() throws {
+        let catalog = try bundled()
+        let baseline = try CatalogValidator().decodeAndValidate(
+            bytes: published(catalog).bytes, manifest: published(catalog).manifest)
+        var parks = try #require(catalog["parks"] as? [[String: Any]])
+        var readded = parks[0]
+        let oldID = try #require(parks[0]["id"] as? String)
+        let newID = "9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f"
+        parks[0]["isRetired"] = true
+        readded["id"] = newID
+        readded["siteID"] = newID
+        readded["aliases"] = [String]()
+        var next = catalog
+        next["revision"] = try revision(catalog) + 60_000
+        next["parks"] = parks + [readded]
+        let update = try published(next)
+        let accepted = try CatalogValidator().decodeAndValidate(
+            bytes: update.bytes, manifest: update.manifest, baseline: baseline)
+        let onMap = ParkSearchIndex(parks: accepted.parks).search("").map(\.rawValue)
+        #expect(onMap.contains(newID) && !onMap.contains(oldID))
+        #expect(accepted.parks.first { $0.id.rawValue == oldID }?.siteID.rawValue == oldID)
+    }
+
     @Test func aTripThatStillNamesTheOldIdentityResolvesToTheCorrectedPark() throws {
         let catalog = try bundled()
         let snapshot = try CatalogValidator().decodeAndValidate(

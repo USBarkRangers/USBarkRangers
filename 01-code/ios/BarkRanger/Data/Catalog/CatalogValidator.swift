@@ -52,6 +52,9 @@ nonisolated struct CatalogValidator: Sendable {
                     aliases.insert(alias).inserted
                 else { throw Rejection.identity }
             }
+            // A retired park is history, not a live place. A park added later at the same spot is
+            // a new park with its own site, so the one-site-per-place rule covers live parks only.
+            if park.isRetired { continue }
             let name = park.name.lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
             let physical = String(
                 format: "%@|%.5f,%.5f", locale: Locale(identifier: "en_US_POSIX"), name,

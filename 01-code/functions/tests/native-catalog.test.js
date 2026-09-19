@@ -259,17 +259,20 @@ test("a deleted row publishes, and its park stays in the catalog retired so visi
     assert.equal(restored.parks.filter(item => item.isRetired).length, 0);
 });
 
-test("a park deleted and typed back in keeps its site, so existing visits stay on the new pin", async () => {
+test("a park deleted and typed back in gets a new ID and is a new park; nothing is matched automatically", async () => {
     const original = rows[7];
     const retyped = { ...original, "park id": "7c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f" };
     const { result, catalog } = await publishedThen(rows.map(row => row === original ? retyped : row));
     assert.equal(result.status, "published");
     const park = catalog.parks.find(item => item.id === retyped["park id"]);
-    assert.equal(park.siteID, original["park id"]);
-    assert.ok(park.aliases.includes(original["park id"]));
+    assert.equal(park.siteID, retyped["park id"]);
+    assert.deepEqual(park.aliases, []);
     assert.equal(park.isRetired, false);
-    assert.equal(catalog.parks.filter(item => item.name === park.name).length, 1);
-    assert.equal(catalog.parks.length, 402);
+    // The old park keeps its own ID and site, retired, so visits stored under it are untouched.
+    const old = catalog.parks.find(item => item.id === original["park id"]);
+    assert.equal(old.isRetired, true);
+    assert.equal(old.siteID, original["park id"]);
+    assert.equal(catalog.parks.length, 403);
 });
 
 test("a wiped or half-read sheet is refused instead of emptying the map", async () => {

@@ -1,5 +1,4 @@
 import BarkDomain
-import CryptoKit
 import Foundation
 
 actor FeedbackDraftStore {
@@ -14,9 +13,11 @@ actor FeedbackDraftStore {
         self.beforeSave = beforeSave
     }
     private func url(owner: String) -> URL {
+        // A guest draft borrows the account layout under a fixed key that is no account's uid,
+        // so no deletion ever removes it.
         let scope = owner.hasPrefix("account:") ? String(owner.dropFirst("account:".count)) : "feedback-guest"
-        let key = SHA256.hash(data: Data(scope.utf8)).map { String(format: "%02x", $0) }.joined()
-        return directory.appendingPathComponent(key).appendingPathComponent("feedback.json")
+        return NativeAccountRemovalFiles.accountFiles(directory: directory, uid: scope)
+            .appendingPathComponent("feedback.json")
     }
     func load(owner: String) throws -> FeedbackReport? {
         let file = url(owner: owner)

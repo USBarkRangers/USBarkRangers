@@ -1,5 +1,4 @@
 import BarkDomain
-import CryptoKit
 import Foundation
 
 /// One protected checkpoint per UID; append-only sample bytes never enter account sync.
@@ -13,9 +12,8 @@ actor RecordingStore {
     }
     private func folder(_ uid: String) throws -> URL {
         guard !uid.isEmpty else { throw Failure.wrongAccount }
-        let key = SHA256.hash(data: Data(uid.utf8)).map { String(format: "%02x", $0) }.joined()
-        return directory.appendingPathComponent(key, isDirectory: true).appendingPathComponent(
-            "Recording", isDirectory: true)
+        return NativeAccountRemovalFiles.accountFiles(directory: directory, uid: uid)
+            .appendingPathComponent("Recording", isDirectory: true)
     }
     func recover(uid: String) throws -> WalkRecording? {
         let file = try folder(uid).appendingPathComponent("recording.json")

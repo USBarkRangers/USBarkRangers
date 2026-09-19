@@ -180,6 +180,36 @@ import Testing
         #expect(try NativeAccountRemovalFiles.pending(directory: folder).isEmpty)
     }
 
+    /// Deletion is automatic for anything under the account's folder, which only holds if
+    /// every store asks the same function where that folder is.
+    @Test func storesKeepAccountFilesWhereDeletionRemovesThem() async throws {
+        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let request = NativeAccountRemovalFiles.Request(project: "demo-bark-native", uid: "delete-a")
+        let feedback = FeedbackDraftStore(directory: directory)
+        let recordings = RecordingStore(directory: directory)
+        for owner in ["account:delete-a", "account:keep-b", "guest"] {
+            try await feedback.save(FeedbackReport(), owner: owner)
+        }
+        for uid in ["delete-a", "keep-b"] {
+            try await recordings.begin(
+                WalkRecording(uid: uid, source: .gps, runID: nil, trailName: "Walk", now: Date()))
+        }
+        let home = NativeAccountRemovalFiles.accountFiles(directory: directory, uid: request.uid)
+        // Pinned: sha256 of the uid alone. Changing the formula would orphan files already on phones.
+        #expect(home.lastPathComponent == "0d50a5f3877e4ad4cb2b1a9843a42bd22e1d3588b31507f9abe9c5e3fc4067da")
+        #expect(FileManager.default.fileExists(atPath: home.appendingPathComponent("feedback.json").path))
+        #expect(FileManager.default.fileExists(atPath: home.appendingPathComponent("Recording").path))
+
+        try NativeAccountRemovalFiles.eraseClosedAccount(request, directory: directory)
+        #expect(!FileManager.default.fileExists(atPath: home.path))
+        #expect(try await feedback.load(owner: "account:delete-a") == nil)
+        #expect(try await recordings.recover(uid: "delete-a") == nil)
+        #expect(try await feedback.load(owner: "account:keep-b") != nil)
+        #expect(try await recordings.recover(uid: "keep-b") != nil)
+        #expect(try await feedback.load(owner: "guest") != nil)
+    }
+
     @Test func scopedPinErasureCannotRemoveRootOrAnotherAccount() async throws {
         let folder = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }

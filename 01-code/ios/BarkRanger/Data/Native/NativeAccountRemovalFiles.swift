@@ -15,6 +15,13 @@ nonisolated enum NativeAccountRemovalFiles {
         directory.appendingPathComponent("removals-v1")
             .appendingPathComponent(key(request.project + ":" + request.uid) + ".json")
     }
+    /// The one definition of where an account keeps files outside its NativeStore.
+    /// `eraseClosedAccount` removes this whole folder, so whatever a feature stores under it
+    /// is deleted with the account and needs no cleanup hook. Every store must ask here:
+    /// a path derived by hand is a path deletion cannot see.
+    static func accountFiles(directory: URL, uid: String) -> URL {
+        directory.appendingPathComponent(key(uid), isDirectory: true)
+    }
     static func retain(_ request: Request, directory: URL) throws {
         try validate(request)
         let url = file(request, directory: directory)
@@ -54,7 +61,7 @@ nonisolated enum NativeAccountRemovalFiles {
     static func eraseClosedAccount(_ request: Request, directory: URL) throws {
         try validate(request)
         let folders = [try NativeStore.scopeDirectory(directory: directory, project: request.project, uid: request.uid),
-            directory.appendingPathComponent(key(request.uid))] // Recording and feedback drafts.
+            accountFiles(directory: directory, uid: request.uid)]
         for folder in folders where FileManager.default.fileExists(atPath: folder.path) {
             try FileManager.default.removeItem(at: folder)
         }

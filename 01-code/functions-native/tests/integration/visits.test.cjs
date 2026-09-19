@@ -21,7 +21,7 @@ const parks = Array.from({ length: 12 }, (_, i) => ({ id: `official-${i}`, siteI
     name: `Park ${i}`, state: 'Ohio', stateCodes: ['OH'], coordinate: { latitude: 41, longitude: -81 }, isRetired: i === 11 }));
 const catalog = { revision: 1, siteCount: 12, stateTotals: { OH: 12 }, park: id => parks.find(p => p.id === id) };
 const handlers = { bootstrapAccount, ...createVisitHandlers({ catalog }), recordDailyActivity: createDailyActivity({ catalog }) };
-async function fixture() {
+async function fixture(using = handlers) {
     const uid = `visit-${randomUUID()}`, reads = [], writes = [];
     const tracked = { collection: path => db.collection(path), runTransaction: work => db.runTransaction(tx => work({
         async get(ref) { const result = await tx.get(ref); reads.push({ path: ref.path || 'bounded-query', count: result.docs?.length ?? 1 }); return result; },
@@ -29,7 +29,7 @@ async function fixture() {
         set(ref, ...args) { writes.push(ref.path); return tx.set(ref, ...args); },
         create: tx.create.bind(tx), update: tx.update.bind(tx), delete: tx.delete.bind(tx),
     })) };
-    const execute = createExecutor({ db: tracked, handlers });
+    const execute = createExecutor({ db: tracked, handlers: using });
     const command = (kind, payload, expectedRevision = 0) => ({ version: 1, operationID: randomUUID(),
         createdAtMs: Date.now(), kind, payload, expectedRevision });
     const user = db.collection('users').doc(uid);
@@ -163,6 +163,43 @@ test('daily activity is server-day-idempotent and cannot backfill a competitive 
     await f.execute(old);
     assert.deepEqual((await progressRef.get()).data(), saved);
     assert.equal((await f.user.get()).get('streakCount'), undefined);
+});
+
+// The client and the parser both advertise 500. Today's catalog has 393 sites, so this is the
+// contract's ceiling rather than a reachable selection, and it is the size that must commit
+// in one transaction and replay from its receipt after a lost reply.
+test('the advertised 500-visit removal commits atomically, replays from its receipt and refuses 501', async () => {
+    const many = Array.from({ length: 501 }, (_, i) => ({ id: `bulk-official-${i}`, siteID: `bulk-site-${i}`,
+        name: `Bulk ${i}`, state: 'Ohio', stateCodes: ['OH'], coordinate: { latitude: 41, longitude: -81 }, isRetired: false }));
+    const byID = new Map(many.map(park => [park.id, park]));
+    const bulkCatalog = { revision: 1, siteCount: 501, stateTotals: { OH: 501 }, park: id => byID.get(id) };
+    const f = await fixture({ bootstrapAccount, ...createVisitHandlers({ catalog: bulkCatalog }) });
+    const marks = many.map(park => ({ visitID: randomUUID(), officialPlaceID: park.id, expectedPlaceRevision: 0,
+        happenedAtMs: Date.now(), timeZone: 'America/New_York' }));
+    for (const item of marks) assert.equal((await f.send('markVisit', item)).status, 'accepted');
+    assert.equal((await f.user.collection('state').doc('progress').get()).get('sites'), 501);
+    const selection = items => ({ visits: items.map(item => ({ visitID: item.visitID,
+        officialPlaceID: item.officialPlaceID, expectedRevision: 1 })) });
+    await assert.rejects(f.send('deleteVisits', selection(marks)), { code: 'invalid' });
+    const command = f.command('deleteVisits', selection(marks.slice(0, 500)));
+    assert.ok(Buffer.byteLength(JSON.stringify(command), 'utf8') < 400_000);
+    f.reads.length = 0; f.writes.length = 0;
+    const outcome = await f.execute(command);
+    assert.equal(outcome.status, 'accepted');
+    assert.equal(Object.keys(outcome.revisions.visits).length, 500);
+    assert.equal(Object.keys(outcome.revisions.places).length, 500);
+    assert.ok(Object.values(outcome.revisions.visits).every(value => value === 2));
+    const committed = f.writes.length;
+    assert.ok(committed >= 1002, `expected 500 visits, 500 places, progress and leaderboard; saw ${committed}`);
+    // A lost reply resends the same bytes: the receipt answers, nothing is written twice.
+    f.writes.length = 0;
+    assert.deepEqual(await f.execute(command), outcome);
+    assert.equal(f.writes.length, 0);
+    assert.equal((await f.user.collection('visits').where('deleted', '==', false).get()).size, 1);
+    assert.equal((await f.user.collection('state').doc('progress').get()).get('sites'), 1);
+    // The same operation ID with different content is refused, not applied.
+    await assert.rejects(f.execute({ ...command, payload: selection(marks.slice(1, 3)) }), { code: 'operation-reused' });
+    console.log(`BULK_500 writes=${committed} envelopeBytes=${Buffer.byteLength(JSON.stringify(command), 'utf8')}`);
 });
 
 test('bulk visit removal is one atomic revision-checked selection and does not erase earned awards', async () => {

@@ -5,6 +5,58 @@ import Testing
 @testable import BarkRanger
 
 struct NativeVisitQueueTests {
+    /// The advertised ceiling. Today's catalog has 393 sites, so 500 is the contract's limit and
+    /// not a reachable selection. The phone must accept 500, refuse 501, and produce a command
+    /// that fits the transport limit. Resending identical sealed bytes after a lost reply is
+    /// the mailroom's general contract and is covered by NativeMailroomTests.
+    @Test func aFiveHundredVisitRemovalIsAcceptedFitsTheTransportLimitAndFiveHundredOneIsRefused()
+        async throws
+    {
+        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try await NativeStore.open(
+            directory: directory, project: "demo-bark-native", uid: "bulk-owner")
+        try await store.seedPremium()
+        var removals: [NativeVisitChange] = []
+        for index in 0..<501 {
+            let id = String(format: "bulk-%03d", index)
+            let park = Park(
+                id: .init(rawValue: id), siteID: .init(rawValue: id),
+                name: "A park with a realistic name \(index)",
+                coordinate: try #require(Coordinate(latitude: 40, longitude: -80)))
+            let draft = try NativeVisitDraft(
+                park: park, id: UUID().uuidString.lowercased(), now: Date(), timeZone: .gmt, fix: nil)
+            func target(_ revision: Int64) -> NativeVisitIntent.Target {
+                .init(
+                    visitID: draft.id, officialPlaceID: draft.officialPlaceID, siteID: draft.siteID,
+                    visitRevision: revision, placeRevision: revision)
+            }
+            // A removal needs a visit the phone knows about; a pending mark provides it.
+            try await store.stageNativeVisitOperation(
+                .single(
+                    .init(
+                        intent: .init(
+                            target: target(0),
+                            edit: .mark(
+                                happenedAtMs: draft.happenedAtMs, timeZone: draft.timeZone, proximity: nil)),
+                        before: nil, after: draft)))
+            removals.append(.init(intent: .init(target: target(1), edit: .remove), before: draft, after: nil))
+        }
+        await #expect(throws: (any Error).self) {
+            try await store.stageNativeVisitOperation(.removeMany(removals))
+        }
+        #expect(try await store.pendingChanges().count == 501)
+        let bulk = NativeVisitOperation.removeMany(Array(removals.prefix(500)))
+        let id = try await store.stageNativeVisitOperation(bulk)
+        let row = try #require(try await store.pendingChanges().last)
+        #expect(row.id == id && row.title == "Remove 500 visits" && row.canDiscard)
+        let bytes = try bulk.commandBytes(id: id, createdAtMs: 1_800_000_000_000)
+        #expect(bytes.count < 400_000)
+        try NativeCallableTransport.checkRequest(endpoint: "nativeCommand", bytes: bytes)
+        print("BULK_500_CLIENT commandBytes=\(bytes.count)")
+        await store.close()
+    }
+
     @Test func blockedSiteAndBulkDependenciesDoNotBlockAnUnrelatedSite() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

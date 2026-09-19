@@ -57,6 +57,14 @@ Two problems in the native sync path, both the same shape as the account defects
   - The saved-pin test signed in again after its second sign-out before the listener had cleared the identity; email sign-in is ignored while an identity is present. It now waits, as its first sign-out already did.
 - Not run: the four UI suites (`NativeAccountUITests`, `TripNavigationUITests`, `SavedPlacesUITests`, `NativeAdventureUITests`), the catalog-server suites, and anything on a physical device.
 
+## Close-out checks
+
+Run after the work above, tests first. All passed, so no production code changed.
+
+- With the catalog fixture server running (`node 05-tools/scripts/serve-ios-catalog.js`), the six catalog-dependent suites pass, 35 tests. The 15 earlier unit failures and the one emulator failure were environmental only.
+- A reply that repeats an identity cannot reach a trapping `Dictionary(uniqueKeysWithValues:)`. Every remote type checks uniqueness before it builds one, and the store acceptors validate again before theirs. `NativeRemoteIdentityTests` feeds repeated runs, visit requests, completed trails and trips through the real decode, validate and accept paths; each is refused as an error.
+- The advertised 500-visit removal. Server (`tests/integration/visits.test.cjs`, Firestore emulator): 500 visits are removed in one transaction of 1,003 writes, the same command replays from its receipt with no further writes, 501 is refused as `invalid`, and the same operation ID with different content is refused as `operation-reused`. Phone (`NativeVisitQueueTests`): 500 is accepted, 501 is refused, and the command is about 51 KB against the 400 KB limit. Two limits on this evidence: the emulator does not prove production Firestore limits, and today's catalog has 393 sites, so 500 is the contract's ceiling rather than a selection a user can make.
+
 ## Running the emulator suites
 
 1. `xcodebuild build-for-testing -project BarkRanger.xcodeproj -scheme BarkRanger -destination 'platform=iOS Simulator,id=<booted>' -derivedDataPath <dir>`. The plain `test` action leaves no `.xctestrun`.

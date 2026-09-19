@@ -12,6 +12,7 @@ const { createCommandCallable } = require('./runtime/callable');
 const { createExecutor } = require('./commands/executor');
 const { bootstrapAccount, updateProfile, updateMapStyle } = require('./profile/commands');
 const catalog = require('./catalog');
+const { createCatalogRefresher, officialPlaceIDs } = require('./catalog/remote');
 const { createSaveTrip } = require('./trips/save');
 const { editNote } = require('./trips/editNote');
 const { saveTripNotes } = require('./trips/saveNotes');
@@ -37,17 +38,33 @@ const execute = createExecutor({ db: getFirestore(app),
         assignVirtualRun: createAssignRun({ catalog }), claimVirtualRun: createClaimRun({ catalog }),
         recordActivity: createRecordActivity({ catalog }), ...createActivityEdits({ catalog }) } });
 
+// The park catalog follows the sheet publisher, so a park added to the sheet can be marked
+// visited without redeploying this backend. The published catalog is public data; the bundled
+// copy remains the floor. Off in the emulator and when BARK_NATIVE_LIVE_CATALOG=off.
+const liveCatalog = runtime.emulator || process.env.BARK_NATIVE_LIVE_CATALOG === 'off' ? null
+    : createCatalogRefresher({ catalog, report: detail => logger.info(detail),
+        manifestURL: process.env.BARK_NATIVE_CATALOG_MANIFEST_URL
+            || 'https://storage.googleapis.com/barkrangermap-auth-native-catalog/native-catalog/v1/manifest.json' });
+// Runs before the command or read, never inside its transaction, and can never fail it.
+const withCurrentCatalog = work => async (uid, input, context) => {
+    if (liveCatalog) {
+        await liveCatalog.ifStale();
+        await liveCatalog.forUnknown(officialPlaceIDs(input));
+    }
+    return work(uid, input, context);
+};
+
 // Conservative development capacity, not the verified 100K-user launch configuration.
 // Raise only after measured workloads and the approved spending envelope are reviewed.
 exports.nativeCommand = onCall({ region: runtime.region, enforceAppCheck: !runtime.emulator,
     serviceAccount: runtime.emulator ? undefined : 'native-ios-runtime@bark-ranger-ios.iam.gserviceaccount.com',
     minInstances: 0, maxInstances: 2, concurrency: 10, cpu: 1, memory: '256MiB', timeoutSeconds: 30,
-}, createCommandCallable({ runtime, execute, reportFailure: detail => logger.error(detail) }));
+}, createCommandCallable({ runtime, execute: withCurrentCatalog(execute), reportFailure: detail => logger.error(detail) }));
 
 exports.nativeRead = onCall({ region: runtime.region, enforceAppCheck: !runtime.emulator,
     serviceAccount: runtime.emulator ? undefined : 'native-ios-runtime@bark-ranger-ios.iam.gserviceaccount.com',
     minInstances: 0, maxInstances: 2, concurrency: 10, cpu: 1, memory: '256MiB', timeoutSeconds: 30,
-}, createCommandCallable({ runtime, execute: createReadService(getFirestore(app)),
+}, createCommandCallable({ runtime, execute: withCurrentCatalog(createReadService(getFirestore(app))),
     reportFailure: () => logger.error({ event: 'native-read-failed', reason: 'internal' }) }));
 
 exports.nativeDeleteAccount = onCall({ region: runtime.region, enforceAppCheck: !runtime.emulator,

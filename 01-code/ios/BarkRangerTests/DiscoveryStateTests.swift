@@ -148,6 +148,50 @@ struct DiscoveryStateTests {
         settings.stop()
     }
 
+    /// Account switching has one owner. The first value is only a baseline; a real change
+    /// resets every listed model once, in order; a repeat of the same account resets nothing.
+    @Test func accountChangeResetsEveryScopedModelOnceAndNeverAtLaunch() async throws {
+        let context = try DiscoveryTestContext()
+        defer { context.close() }
+        let network = NetworkMonitor(fixedConnection: true)
+        let diagnostics = Diagnostics(enabled: false)
+        var resets: [String] = []
+        let first = ScopedProbe { resets.append("first") }
+        let second = ScopedProbe { resets.append("second") }
+        let lifecycle = AppLifecycle(
+            startup: StartupModel(catalog: context.catalog, network: network, diagnostics: diagnostics),
+            catalog: context.catalog, network: network, discovery: context.model,
+            settings: SettingsModel(
+                preferences: context.settings, catalog: context.catalog, openSettings: {}),
+            diagnostics: diagnostics, accountScoped: [first, second])
+        await lifecycle.accountChanged(nil)
+        await lifecycle.accountChanged(nil)
+        #expect(resets.isEmpty)
+        await lifecycle.accountChanged("a")
+        #expect(resets == ["first", "second"])
+        await lifecycle.accountChanged("a")
+        #expect(resets.count == 2)
+        await lifecycle.accountChanged("b")
+        await lifecycle.accountChanged(nil)
+        #expect(resets == ["first", "second", "first", "second", "first", "second"])
+    }
+
+    @Test func aRememberedAccountAtLaunchIsABaselineNotAChange() async throws {
+        let context = try DiscoveryTestContext()
+        defer { context.close() }
+        let network = NetworkMonitor(fixedConnection: true)
+        let diagnostics = Diagnostics(enabled: false)
+        var resets = 0
+        let lifecycle = AppLifecycle(
+            startup: StartupModel(catalog: context.catalog, network: network, diagnostics: diagnostics),
+            catalog: context.catalog, network: network, discovery: context.model,
+            settings: SettingsModel(
+                preferences: context.settings, catalog: context.catalog, openSettings: {}),
+            diagnostics: diagnostics, accountScoped: [ScopedProbe { resets += 1 }])
+        await lifecycle.accountChanged("remembered")
+        #expect(resets == 0)
+    }
+
     @Test func immediateForegroundRestartWaitsForOldCatalogCancellation() async throws {
         let context = try DiscoveryTestContext(scenario: "slow")
         defer { context.close() }
@@ -196,4 +240,11 @@ struct DiscoveryStateTests {
         await current?.value
         #expect(model.detail.message == nil && !model.detail.isOpeningMaps)
     }
+}
+
+
+@MainActor private final class ScopedProbe: AccountScoped {
+    private let onReset: () -> Void
+    init(_ onReset: @escaping () -> Void) { self.onReset = onReset }
+    func resetScope() { onReset() }
 }

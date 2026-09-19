@@ -3,7 +3,7 @@ import Foundation
 import Observation
 
 /// Itinerary intents and planning. The draft session checkpoints; pure rules edit; adapters navigate.
-@MainActor @Observable final class TripEditorModel {
+@MainActor @Observable final class TripEditorModel: AccountScoped {
     let account: AccountSession
     let catalog: CatalogRepository
     var routes: DayRouteService { activeTrip.routing.service }

@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Owns foreground polling and connectivity observation. No timer survives the background transition.
+/// Owns foreground polling, connectivity observation and the app's reaction to an account
+/// change. No timer survives the background transition.
 @MainActor
 final class AppLifecycle {
     private let startup: StartupModel
@@ -12,6 +13,10 @@ final class AppLifecycle {
     private let account: AccountSession?
     private let trips: ActiveTripSession?
     private let recorder: WalkRecorder?
+    private let purchases: PurchaseService?
+    private let accountScoped: [any AccountScoped]
+    private var observedAccount: String?
+    private var observingAccount = false
     private var recordingCheckpoint: Task<Void, Never>?
     private var connectivity: Task<Void, Never>?
     private var polling: Task<Void, Never>?
@@ -21,8 +26,11 @@ final class AppLifecycle {
     init(
         startup: StartupModel, catalog: CatalogRepository, network: NetworkMonitor,
         discovery: MapFeatureModel, settings: SettingsModel, diagnostics: Diagnostics,
-        account: AccountSession? = nil, trips: ActiveTripSession? = nil, recorder: WalkRecorder? = nil
+        account: AccountSession? = nil, trips: ActiveTripSession? = nil, recorder: WalkRecorder? = nil,
+        purchases: PurchaseService? = nil, accountScoped: [any AccountScoped] = []
     ) {
+        self.purchases = purchases
+        self.accountScoped = accountScoped
         self.recorder = recorder
         self.trips = trips
         self.account = account
@@ -32,6 +40,18 @@ final class AppLifecycle {
         self.discovery = discovery
         self.settings = settings
         self.diagnostics = diagnostics
+    }
+    /// The one place the app reacts to a different signed-in account. The first value only
+    /// sets the baseline: nothing from another account can be on screen yet. Purchases and
+    /// the recorder then load whichever account is current, including at launch.
+    func accountChanged(_ uid: String?) async {
+        if observingAccount, observedAccount != uid {
+            for model in accountScoped { model.resetScope() }
+        }
+        observingAccount = true
+        observedAccount = uid
+        purchases?.activate()
+        await recorder?.activateAccount()
     }
     func sceneChanged(_ newPhase: ScenePhase) {
         guard phase != newPhase else { return }

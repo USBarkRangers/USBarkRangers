@@ -3,7 +3,7 @@ import Foundation
 import Observation
 
 /// Screen intents and read projection only. Recorder, recovery files, route geometry and sync own their work.
-@MainActor @Observable final class ExpeditionModel {
+@MainActor @Observable final class ExpeditionModel: AccountScoped {
     let account: AccountSession
     let trails: [Trail]
     let geometry: TrailRepository

@@ -16,6 +16,7 @@ struct RootView: View {
     var mapExpedition: MapExpeditionOverlay? = nil
     var catalog: CatalogRepository? = nil
     var purchases: PurchaseService? = nil
+    var lifecycle: AppLifecycle? = nil
 
     var body: some View {
         Group {
@@ -111,10 +112,7 @@ struct RootView: View {
             await mapExpedition?.updateWalk(expeditions?.recorder.points ?? [])
         }
         .task(id: account?.session.identity?.uid) {
-            purchases?.activate()
-            mapExpedition?.clear()
-            expeditions?.resetScope()
-            await expeditions?.recorder.activateAccount()
+            await lifecycle?.accountChanged(account?.session.identity?.uid)
         }
         .onChange(of: account?.session.nativeVisits?.scope) { _, _ in passport?.recordActivity() }
         .onChange(of: passport?.canEdit) { _, allowed in if allowed == true { passport?.recordActivity() } }
@@ -128,12 +126,6 @@ struct RootView: View {
             }
         }
         .onChange(of: account?.session.profileState?.entitlement) { _, _ in purchases?.activate() }
-        .onChange(of: account?.session.identity?.uid) { _, _ in
-            discovery.routeDay?.stop()
-            discovery.cancelPlaceSelection()
-            trips?.resetScope()
-            passport?.resetScope()
-        }
     }
 
     @ViewBuilder

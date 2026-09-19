@@ -3,7 +3,7 @@ import Foundation
 import Observation
 
 /// A derived passport snapshot and visit intents. The store owns visits; the server owns confirmed awards.
-@MainActor @Observable final class PassportModel {
+@MainActor @Observable final class PassportModel: AccountScoped {
     nonisolated struct Input: Equatable, Sendable {
         let uid: String
         let progress: NativeProgress?

@@ -93,6 +93,12 @@ import Observation
     }
 }
 
+/// A model holding one account's transient screen state. `AppComposition` lists every
+/// conformer once; `AppLifecycle` resets them all when the signed-in account changes.
+@MainActor protocol AccountScoped: AnyObject {
+    func resetScope()
+}
+
 /// Thrown by `prepareTripIdentityChange` to keep the current account open. The owner of
 /// the unsaved work words the reason; account forms show it as written.
 struct IdentityChangeBlocked: Error {

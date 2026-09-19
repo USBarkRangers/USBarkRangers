@@ -48,7 +48,19 @@ One small presentation fix rides along: the "Account deletion requested" notice 
 
 - Every non-retryable outcome needs an exit. All six defects were a careful retry path next to a terminal state with none.
 - `NativeProfile.MapStyle` and `NativeProfile.Status` are decoded as closed enums, and the profile and entitlement are read in the same call. Adding a map style or an account status on the server breaks profile and entitlement refresh on every older app version. Loosen the decode in a shipped release first.
-- New account-owned data that lives outside the account's `NativeStore` folder must be added in four places: the folder list in `NativeAccountRemovalFiles.eraseClosedAccount`, the erase closure in `AppComposition`, the collection list in `functions-native/accounts/deletion.js`, and the owning model's `resetScope`.
+- New account-owned data that lives outside the account's `NativeStore` folder must be added in four places: the folder list in `NativeAccountRemovalFiles.eraseClosedAccount`, the erase closure in `AppComposition`, the collection list in `functions-native/accounts/deletion.js`, and the `accountScoped` list described below.
+
+## Follow-up the same night: one owner for account switching
+
+`RootView` had two account-change hooks that reset different models, with no rule for which hook a reset belonged in, and no test could reach either. Deletion cleanup is a separate mechanism and is unchanged.
+
+- `AccountScoped` is a one-method protocol, `resetScope()`. Passport, the trip editor, expeditions, the map feature model and the map walk overlay conform. Three already had the method; the two map types wrap what `RootView` used to call.
+- `AppComposition` lists the conformers once, where it constructs them. A new account feature conforms and joins that array. `AppLifecycle` never learns its name.
+- `AppLifecycle.accountChanged(_:)` resets the list on a real change only. The first observed value is a baseline, which matches the old `.onChange` behaviour and keeps a trip restored at launch from being cancelled. It then activates purchases and the recorder for the current account, including at launch, as before.
+- `RootView` keeps one trigger, `.task(id: uid)`. The scene-phase hooks stay in `RootView`: they are not account state and do not grow with features.
+- Behaviour kept exactly: the map model's reset still calls `routeDay.stop()`, not the route-day sheet's fuller `resetScope()`. Whether that difference is intended is an open question, now visible in one place.
+
+Verified: 377 unit tests run with the same environment failures as before and no new ones, two new tests for the baseline and change rules, and all six `AppShellUITests` against the real app. Not verified: signing in, switching and signing out through the UI, which needs the emulators or a device.
 
 ## Known limits, accepted
 

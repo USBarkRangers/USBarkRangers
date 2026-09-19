@@ -135,14 +135,17 @@ struct AppComposition {
             geometry: TrailRepository(), health: HealthWorkoutImporter())
         let startup = StartupModel(
             catalog: catalog, network: network, diagnostics: diagnostics, state: initialState)
+        let mapExpedition = MapExpeditionOverlay()
         return AppComposition(
             catalog: catalog, router: AppRouter(diagnostics: diagnostics), startup: startup,
             lifecycle: AppLifecycle(
                 startup: startup, catalog: catalog, network: network, discovery: discovery,
                 settings: settings, diagnostics: diagnostics, account: accounts.session, trips: activeTrip,
-                recorder: recorder),
+                recorder: recorder, purchases: purchases,
+                // Every model that shows one account's data. A new account feature joins here.
+                accountScoped: [discovery, trips, passport, mapExpedition, expeditions]),
             discovery: discovery, settings: settings, account: account, trips: trips, passport: passport,
-            expeditions: expeditions, mapExpedition: MapExpeditionOverlay(),
+            expeditions: expeditions, mapExpedition: mapExpedition,
             support: SupportDependencies(
                 account: accounts.session, service: accounts.feedback,
                 store: FeedbackDraftStore(directory: accounts.session.directory)), purchases: purchases)

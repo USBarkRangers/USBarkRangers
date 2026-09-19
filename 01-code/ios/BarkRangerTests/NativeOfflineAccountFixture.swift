@@ -35,6 +35,8 @@ import Testing
         let session = AccountSession(
             auth: auth, directory: directory, capabilities: capabilities,
             nativeProfileConfiguration: configuration)
+        // This fixture keeps nothing outside the account folder. Cleanup requires the hook, so say so.
+        session.eraseAdditionalAccountData = { _ in }
         let fixture = Self(directory: directory, app: app, db: db, auth: auth, session: session)
         session.setForeground(true)
         do {

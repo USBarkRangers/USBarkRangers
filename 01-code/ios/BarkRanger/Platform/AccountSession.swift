@@ -703,8 +703,12 @@ struct ScopeOpenFailure: Error {
         guard request.project == nativeProfileConfiguration?.project else {
             throw NativeStore.Failure.wrongScope
         }
+        // Finishing without the app's hook would report this iPhone clean with saved places and
+        // caches left behind for good. Failing keeps the marker, so a build that wires the hook
+        // can still finish the job.
+        guard let eraseAdditionalAccountData else { throw NativeStore.Failure.unavailable }
         try nativeProfileConfiguration?.forgetDeletedIdentity?(request.uid)
-        try await eraseAdditionalAccountData?(request.uid)
+        try await eraseAdditionalAccountData(request.uid)
         try Task.checkCancellation()
         try NativeAccountRemovalFiles.eraseClosedAccount(request, directory: directory)
         try NativeAccountRemovalFiles.finish(request, directory: directory)

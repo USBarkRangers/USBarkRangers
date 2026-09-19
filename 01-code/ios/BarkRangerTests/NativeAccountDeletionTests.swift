@@ -61,6 +61,32 @@ import Testing
         try await f.close()
     }
 
+    /// A build that forgot to wire the app's erase hook must not report the device clean.
+    /// The marker survives, so a fixed build finishes the cleanup.
+    @Test func cleanupWithoutTheEraseHookFailsRecoverablyInsteadOfFinishing() async throws {
+        let f = try await NativeOfflineAccountFixture.make(signIn: false)
+        await f.session.stopAndWait()
+        let request = NativeAccountRemovalFiles.Request(project: "demo-bark-native", uid: "deleted-owner")
+        try NativeAccountRemovalFiles.retain(request, directory: f.directory)
+        let store = try await NativeStore.open(directory: f.directory, project: request.project, uid: request.uid)
+        await store.close()
+        let folder = try NativeStore.scopeDirectory(directory: f.directory, project: request.project, uid: request.uid)
+
+        f.session.eraseAdditionalAccountData = nil
+        f.session.start()
+        try await eventually { f.session.cleanupState == .failed && f.session.nativeTrips != nil }
+        #expect(try NativeAccountRemovalFiles.pending(directory: f.directory) == [request])
+        #expect(FileManager.default.fileExists(atPath: folder.path))
+
+        f.session.eraseAdditionalAccountData = { _ in }
+        await f.session.retryCleanup()
+        try await eventually { f.session.cleanupState == .ready }
+        #expect(try NativeAccountRemovalFiles.pending(directory: f.directory).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
+        f.session.eraseAdditionalAccountData = nil
+        try await f.close()
+    }
+
     /// The reply was lost after the server accepted. The device erases nothing on its own
     /// suspicion; the server's word settles it, from whichever device the deletion came.
     @Test(arguments: ["deleting-profile", "missing-user"])

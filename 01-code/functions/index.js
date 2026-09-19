@@ -4485,7 +4485,7 @@ exports.nativeCatalogEditSignal = functions.runWith({ secrets: ["BARK_CATALOG_ED
     .https.onRequest(nativeCatalog.handleEditSignal);
 exports.publishNativeCatalog = functions.runWith(ADMIN_CALLABLE_OPTIONS).https.onCall(nativeCatalog.publishNow);
 exports.reconcileNativeCatalog = functions.runWith({ timeoutSeconds: 120, maxInstances: 1 })
-    .pubsub.schedule("every 6 hours").onRun(nativeCatalog.reconcileCatalog);
+    .pubsub.schedule("every 5 minutes").onRun(nativeCatalog.reconcileCatalog);
 
 exports.syncToSpreadsheet = functions
     .runWith(ADMIN_CALLABLE_OPTIONS)

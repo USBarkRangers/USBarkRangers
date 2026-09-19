@@ -56,6 +56,15 @@ extension Trip {
                 name: name, coordinate: coordinate)
         }
 
+        /// The account accepts only a park's current ID. A saved note belongs to the old place,
+        /// so the re-identified stop is a new occurrence that carries the same content.
+        func usingCurrentParkID(_ current: [ParkID: ParkID]) -> Self {
+            guard let old = parkID, let new = current[old], new != old else { return self }
+            var next = newOccurrence()
+            next.placeIdentity = .official(new)
+            return next
+        }
+
         /// A round-trip bookend is another occurrence of the same place, not a new private pin.
         public func newOccurrence() -> Self {
             Self(placeIdentity: placeIdentity, name: name, coordinate: coordinate, state: state,

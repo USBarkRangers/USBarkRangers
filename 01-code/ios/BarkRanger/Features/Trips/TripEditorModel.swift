@@ -257,7 +257,20 @@ import Observation
             notice = "Sign in with Premium to save trips to your account."
             return
         }
-        run { _ in try await self.activeTrip.saveDraftToAccount() }
+        run { _ in
+            await self.useCurrentParkIDs()
+            try await self.activeTrip.saveDraftToAccount()
+        }
+    }
+    /// A trip made before a catalog correction still names the park's old ID, which the account
+    /// refuses. Runs inside the save action, so no other editor change interleaves with it.
+    private func useCurrentParkIDs() async {
+        guard let parks = await catalog.current().snapshot?.parks, var next = draft else { return }
+        let current = Dictionary(
+            parks.flatMap { park in park.aliases.map { ($0, park.id) } },
+            uniquingKeysWith: { first, _ in first })
+        next.trip = next.trip.usingCurrentParkIDs(current)
+        if next != draft { activeTrip.replace(next, success: nil) }
     }
     /// Clears shared presentation only. Trips remain in the switcher, including for free accounts.
     func clearTrip() {

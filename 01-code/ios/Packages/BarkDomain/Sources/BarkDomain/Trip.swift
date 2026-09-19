@@ -49,6 +49,18 @@ public struct Trip: Codable, Equatable, Sendable, Identifiable {
         return Trip(name: title + " copy", days: days, start: start, end: end)
     }
 
+    /// A catalog correction can change a park's ID. The map still resolves the old one through
+    /// aliases, but the account refuses it, so a save swaps every old ID for the current one.
+    public func usingCurrentParkIDs(_ current: [ParkID: ParkID]) -> Trip {
+        var next = self
+        for index in next.days.indices {
+            next.days[index].stops = next.days[index].stops.map { $0.usingCurrentParkID(current) }
+        }
+        next.start = start?.usingCurrentParkID(current)
+        next.end = end?.usingCurrentParkID(current)
+        return next
+    }
+
     public func dayIndex(containing park: Park) -> Int? {
         TripStopPolicy.dayIndices(for: park, in: self).min()
     }

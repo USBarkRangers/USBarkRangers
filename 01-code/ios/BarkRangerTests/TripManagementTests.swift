@@ -139,4 +139,27 @@ import Testing
         await store.close()
         try FileManager.default.removeItem(at: directory)
     }
+
+    /// Mammoth Cave once shipped as "1d ago". A trip made then still names that ID, and the
+    /// account refuses it, so saving must send the corrected ID and keep the stop's content.
+    @Test func savingATripThatNamesAParksOldIDSendsTheCurrentOne() async throws {
+        let fixture = try await PlannerFixture.make()
+        defer { fixture.context.close() }
+        let model = fixture.model()
+        let stop = Trip.Stop(
+            placeIdentity: .official(ParkID(rawValue: "1d ago")), name: "Mammoth Cave National Park",
+            coordinate: Coordinate(latitude: 37.1989548, longitude: -86.1155956), notes: "Bring a leash")
+        let draft = TripDraft(
+            trip: Trip(id: "old", name: "Kentucky", days: [.init(id: "day", stops: [stop])]))
+        model.selectDraft(draft)
+        #expect(await model.awaitCheckpoint())
+        model.save()
+        try await eventually { !model.saving }
+        let saved = try #require(try await fixture.repository.currentDraft(id: draft.id))
+        #expect(saved.trip.parkIDs == [ParkID(rawValue: "0b04a828-a089-49e3-8e97-8613574bfa08")])
+        #expect(saved.trip.days[0].stops.map(\.notes) == ["Bring a leash"])
+        #expect(try await fixture.repository.store.tripQueueState(draft.id).count == 1)
+        model.resetScope()
+        await fixture.session.stopAndWait()
+    }
 }

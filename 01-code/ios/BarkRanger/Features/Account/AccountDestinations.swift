@@ -107,12 +107,12 @@ struct AccountActionFeedback: View {
             Section {
                 Text(message).accessibilityIdentifier("account.deletion-status")
                 if model.session.cleanupState == .failed {
-                    Button("Retry device cleanup", action: model.session.start)
+                    Button("Retry device cleanup") { Task { await model.session.retryCleanup() } }
                         .accessibilityIdentifier("account.retry-cleanup")
                 }
             }
         }
-        if model.session.cleanupState == .checking {
+        if model.session.isCleaningUp {
             Section { ProgressView("Opening account…") }
         }
     }

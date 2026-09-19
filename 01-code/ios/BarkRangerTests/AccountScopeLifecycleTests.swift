@@ -61,7 +61,7 @@ import Testing
     }
 
     @Test(arguments: ["visits", "expeditions", "leaderboard"])
-    func laterFailureRetainsHealthyFeaturesAndExistingMessage(_ failedStage: String) async throws {
+    func oneFailedFeatureIsReportedAndEveryOtherFeatureStillOpens(_ failedStage: String) async throws {
         let f = try await AccountScopeFixture.make(signIn: false)
         f.session.beforeFeatureStart = { stage, _ in
             if stage == failedStage { throw NativeStore.Failure.corrupt }
@@ -75,9 +75,12 @@ import Testing
         #expect(
             f.session.nativeProfile != nil && f.session.nativeSavedPins != nil && f.session.nativeTrips != nil
         )
-        #expect((f.session.nativeVisits != nil) == (failedStage != "visits"))
-        #expect((f.session.nativeExpeditions != nil) == (failedStage == "leaderboard"))
-        #expect(f.session.nativeLeaderboard == nil && !f.session.requiresStorageRecovery)
+        try await eventually {
+            (f.session.nativeVisits != nil) == (failedStage != "visits")
+                && (f.session.nativeExpeditions != nil) == (failedStage != "expeditions")
+                && (f.session.nativeLeaderboard != nil) == (failedStage != "leaderboard")
+        }
+        #expect(!f.session.requiresStorageRecovery)
         try await f.close()
     }
 
@@ -228,6 +231,22 @@ import Testing
         try await f.close()
     }
 
+    @Test func unreadableGuestDraftsCannotCostAnAccountItsOwnTrips() async throws {
+        let f = try await AccountScopeFixture.make(signIn: false)
+        await f.session.stopAndWait()
+        let guest = try NativeStore.scopeDirectory(
+            directory: f.directory, project: "demo-bark-native", uid: "guest-drafts", guest: true)
+        for file in try FileManager.default.contentsOfDirectory(at: guest, includingPropertiesForKeys: nil) {
+            try Data("not a store".utf8).write(to: file)
+        }
+        f.session.start()
+        f.auth.select("a")
+        try await f.ready("a")
+        #expect(f.session.tripLibraryMessage?.contains("could not be moved into this account") == true)
+        #expect(f.session.message == nil && !f.session.requiresStorageRecovery)
+        try await f.close()
+    }
+
     @Test func tripStartFailureKeepsWorkingProfileAndExactMessage() async throws {
         let f = try await AccountScopeFixture.make(signIn: false)
         f.session.beforeFeatureStart = { stage, _ in
@@ -240,6 +259,11 @@ import Testing
                 == "Trip storage could not be opened. Your saved files are retained; keep the app installed and retry."
         )
         #expect(f.session.nativeTrips == nil && f.session.nativeSavedPins != nil)
+        // Trips open first. Their failure must not take visits, walks and standings with it.
+        try await eventually {
+            f.session.nativeVisits != nil && f.session.nativeExpeditions != nil
+                && f.session.nativeLeaderboard != nil
+        }
         let profile = try #require(f.session.nativeProfile)
         #expect(await profile.store.closed == false)
         try await profile.saveName("Still editable")

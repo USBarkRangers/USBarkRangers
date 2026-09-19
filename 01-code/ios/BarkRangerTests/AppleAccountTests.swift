@@ -21,7 +21,7 @@ import Testing
         #expect(!message.contains("synthetic-raw") && !message.contains("token"))
     }
 
-    @Test func failedDeletionCleanupSurvivesReopenAndAllowsAppleAfterExplicitRetry() async throws {
+    @Test func failedDeletionCleanupFencesOnlyItsOwnerAndFinishesOnExplicitRetry() async throws {
         var removed: [String] = []
         let f = try await fixture(deleteAccount: { removed.append($0) })
         var failCleanup = true
@@ -40,16 +40,29 @@ import Testing
         // Recreate startup against the durable failed request, not a fresh empty fixture.
         await f.session.stopAndWait()
         f.session.start()
-        try await eventually { f.session.cleanupState == .failed }
-        #expect(model.prepareApple(ASAuthorizationAppleIDProvider().createRequest(), intent: .signIn) == nil)
-        model.email("must-not-sign-in", password: "SyntheticOnly123!", create: false)
-        #expect(model.action == nil && f.session.identity == nil && f.auth.credentialUses.isEmpty)
+        // A failed cleanup is a warning. Guest storage still opens.
+        try await eventually { f.session.cleanupState == .failed && f.session.nativeTrips != nil }
+
+        // Firebase may still remember the deleted owner; it is signed out, never reopened.
+        f.auth.select("a")
+        try await eventually { f.auth.currentUID == nil }
+        #expect(f.session.identity == nil && f.session.nativeProfile == nil)
+
+        // Everyone else signs in as usual.
+        f.auth.credentialWork = { f.auth.select("b", providers: ["apple.com"]) }
+        let id = try #require(
+            model.prepareApple(ASAuthorizationAppleIDProvider().createRequest(), intent: .signIn))
+        model.finishApple(.failure(AccountFailure.configuration), id: id)
+        await model.action?.value
+        try await eventually { f.session.identity?.uid == "b" && f.session.nativeTrips != nil }
+        #expect(f.auth.credentialUses == [.signIn])
 
         failCleanup = false
         let beforeRetry = attempts
-        f.session.start()  // Same action as Retry device cleanup; duplicate taps cannot start two workers.
-        f.session.start()
-        try await eventually { f.session.cleanupState == .ready && f.session.nativeTrips != nil }
+        async let duplicateTap: Void = f.session.retryCleanup()  // Cannot start a second worker.
+        await f.session.retryCleanup()
+        await duplicateTap
+        try await eventually { f.session.cleanupState == .ready && f.session.identity?.uid == "b" }
         #expect(attempts == beforeRetry + 1)
         #expect(try NativeAccountRemovalFiles.pending(directory: f.directory).isEmpty)
         #expect(f.session.deletionMessage?.contains("cleanup finished") == true)
@@ -58,14 +71,6 @@ import Testing
                 atPath: try NativeStore.scopeDirectory(
                     directory: f.directory, project: "demo-bark-native", uid: "a"
                 ).path))
-
-        f.auth.credentialWork = { f.auth.select("b", providers: ["apple.com"]) }
-        let id = try #require(
-            model.prepareApple(ASAuthorizationAppleIDProvider().createRequest(), intent: .signIn))
-        model.finishApple(.failure(AccountFailure.configuration), id: id)
-        await model.action?.value
-        try await eventually { f.session.identity?.uid == "b" && f.session.nativeTrips != nil }
-        #expect(f.auth.credentialUses == [.signIn])
         f.session.eraseAdditionalAccountData = nil
         f.auth.credentialWork = nil
         try await f.close()
@@ -219,9 +224,27 @@ import Testing
         try await f.close()
     }
 
+    /// Revoked but not deleted was the one state a dismissed screen could strand. Once Apple
+    /// revocation starts, the session finishes the confirmed deletion.
+    @Test func leavingTheScreenDuringRevocationCannotStrandARevokedLivingAccount() async throws {
+        var deleted: [String] = []
+        let f = try await fixture(deleteAccount: { deleted.append($0) })
+        let model = AccountModel(session: f.session, apple: SyntheticAppleCredential())
+        f.auth.revocationWork = { model.cancel() }
+        let id = try #require(
+            model.prepareApple(ASAuthorizationAppleIDProvider().createRequest(), intent: .deleteAccount))
+        model.finishApple(.failure(AccountFailure.configuration), id: id)
+        try await eventually {
+            f.session.identity == nil && f.session.nativeTrips != nil && f.session.cleanupState == .ready
+        }
+        #expect(f.auth.revokedAppleUIDs == ["a"] && deleted == ["a"])
+        #expect(try NativeAccountRemovalFiles.pending(directory: f.directory).isEmpty)
+        f.auth.revocationWork = nil
+        try await f.close()
+    }
+
     @Test(arguments: [
-        "missing-code", "reauthentication", "revocation", "account-switch", "cancel-reauth", "cancel-revoke",
-        "switch-revoke",
+        "missing-code", "reauthentication", "revocation", "account-switch", "cancel-reauth", "switch-revoke",
     ])
     func failedAppleDeletionPreservesDataAndDoesNotSubmitDeletion(_ failure: String) async throws {
         var deleted: [String] = []
@@ -238,7 +261,6 @@ import Testing
         }
         let model = AccountModel(session: f.session, apple: apple)
         if failure == "cancel-reauth" { f.auth.credentialWork = { model.cancel() } }
-        if failure == "cancel-revoke" { f.auth.revocationWork = { model.cancel() } }
         if failure == "switch-revoke" {
             f.auth.revocationWork = {
                 f.auth.select("b")
@@ -249,10 +271,7 @@ import Testing
             model.prepareApple(ASAuthorizationAppleIDProvider().createRequest(), intent: .deleteAccount))
         model.finishApple(.failure(AccountFailure.configuration), id: id)
         await model.action?.value
-        #expect(deleted.isEmpty)
-        // An already-started network revocation can finish after cancellation;
-        // cancellation must still prevent submitting the deletion request.
-        #expect(f.auth.revokedAppleUIDs == (failure == "cancel-revoke" ? ["a"] : []))
+        #expect(deleted.isEmpty && f.auth.revokedAppleUIDs.isEmpty)
         #expect(try NativeAccountRemovalFiles.pending(directory: f.directory).isEmpty)
         #expect(
             FileManager.default.fileExists(

@@ -61,7 +61,12 @@ import Observation
             guard let self else { return }
             if self.session.needsRetry { self.session.requestCheckpoint() }
             await self.session.waitForCheckpoint()
-            guard !self.session.pending else { throw TripIdentityChangeFailure.unsavedDraft }
+            guard !self.session.pending else {
+                throw IdentityChangeBlocked(
+                    reason:
+                        "Your latest trip edits could not be saved on this iPhone. Retry saving in Trips before changing accounts. Keep the app open to retain those edits."
+                )
+            }
         }
     }
     func open(_ next: TripDraft, replacing base: TripDraft?, selectDay: Bool = true) {
@@ -404,12 +409,5 @@ import Observation
             session.restore(recovery)
         }
         routing.reset(scope: scope)
-    }
-}
-
-private enum TripIdentityChangeFailure: LocalizedError {
-    case unsavedDraft
-    var errorDescription: String? {
-        "Your latest trip edits could not be saved on this iPhone. Retry saving in Trips before changing accounts. Keep the app open to retain those edits."
     }
 }

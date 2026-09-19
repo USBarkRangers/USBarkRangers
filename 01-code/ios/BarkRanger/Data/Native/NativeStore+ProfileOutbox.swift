@@ -49,6 +49,25 @@ extension NativeStore {
         }
     }
 
+    /// A new account's first command. Bootstrap carries no user content and has no server
+    /// profile to review against, so a refused one has nothing to resolve: a forced refresh
+    /// replaces it with a fresh attempt instead of leaving the account without a profile.
+    func stageBootstrap(replacingRefused: Bool, now: Date = Date()) throws {
+        try requireOpen()
+        guard try profileRow() == nil else { return }
+        let pending = try profileOperations()
+        if let head = pending.first {
+            guard replacingRefused, ["rejected", "conflict"].contains(head.state),
+                try pending.allSatisfy({
+                    try JSONDecoder().decode(NativeProfileEdit.self, from: $0.intent) == .bootstrap
+                })
+            else { return }
+            for row in pending { modelContext.delete(row) }
+            try commit()  // A crash here leaves an empty queue, which stages bootstrap next time.
+        }
+        try stageProfileEdit(.bootstrap, now: now)
+    }
+
     func nextProfileSubmission(now: Date = Date()) throws -> Submission? {
         try requireOpen()
         guard

@@ -21,20 +21,34 @@ nonisolated enum NativeAccountRemovalFiles {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(request).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
-    static func pending(directory: URL) throws -> [Request] {
+    /// The fence for one owner. It reads only the hashed filename, so it still holds
+    /// when a marker's contents can no longer be decoded.
+    static func isPending(_ request: Request, directory: URL) -> Bool {
+        FileManager.default.fileExists(atPath: file(request, directory: directory).path)
+    }
+    /// A marker that cannot be trusted is set aside, never thrown: its owner cannot be
+    /// recovered from a hash, and one damaged file must not strand every other cleanup.
+    static func pending(directory: URL, unreadable: (any Error) -> Void = { _ in }) throws -> [Request] {
         let folder = directory.appendingPathComponent("removals-v1")
         guard FileManager.default.fileExists(atPath: folder.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "json" }.map { url in
-                let request = try JSONDecoder().decode(Request.self, from: Data(contentsOf: url))
-                try validate(request)
-                // Enumeration already restricts these to this folder's direct children.
-                // Check the exact hashed owner filename, not platform-dependent URL identity.
-                guard file(request, directory: directory).lastPathComponent == url.lastPathComponent else {
-                    throw NativeStore.Failure.wrongScope
+            .filter { $0.pathExtension == "json" }.compactMap { url in
+                do { return try read(url, directory: directory) } catch {
+                    unreadable(error)
+                    try? FileManager.default.moveItem(at: url, to: url.appendingPathExtension("unreadable"))
+                    return nil
                 }
-                return request
             }
+    }
+    private static func read(_ url: URL, directory: URL) throws -> Request {
+        let request = try JSONDecoder().decode(Request.self, from: Data(contentsOf: url))
+        try validate(request)
+        // Enumeration already restricts these to this folder's direct children.
+        // Check the exact hashed owner filename, not platform-dependent URL identity.
+        guard file(request, directory: directory).lastPathComponent == url.lastPathComponent else {
+            throw NativeStore.Failure.wrongScope
+        }
+        return request
     }
     /// All writers must be drained first. Only these exact, hashed owner directories are removed.
     static func eraseClosedAccount(_ request: Request, directory: URL) throws {

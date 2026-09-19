@@ -114,7 +114,7 @@ enum AppleAccountAction {
         }
     }
     func prepareApple(_ request: ASAuthorizationAppleIDRequest, intent: AppleAccountAction) -> UUID? {
-        guard !busy, session.cleanupState == .ready,
+        guard !busy, !session.isCleaningUp,
             session.auth != nil, capabilities.allows(intent.credentialUse),
             intent != .deleteAccount || capabilities.accountManagement,
             intent != .unlinkPassword || capabilities.authenticationChanges,
@@ -173,16 +173,13 @@ enum AppleAccountAction {
                     try await auth.credential(
                         result.credential, use: request.intent.credentialUse, uid: request.uid)
                 }
-                if request.intent == .deleteAccount, let uid = request.uid,
-                    let code = result.authorizationCode
-                {
+                if request.intent == .deleteAccount, let code = result.authorizationCode {
                     // A fresh reauthentication/code belongs to this confirmed deletion only.
+                    // From here the session owns revoke-then-delete; leaving this screen
+                    // cannot stop between them and strand a revoked, living account.
                     try Task.checkCancellation()
-                    guard self.session.identity?.uid == uid else { throw AccountFailure.accountChanged }
-                    try await auth.revokeApple(authorizationCode: code, uid: uid)
-                    try Task.checkCancellation()
-                    guard self.session.identity?.uid == uid else { throw AccountFailure.accountChanged }
-                    try await self.session.deleteAccount()
+                    guard self.session.identity?.uid == request.uid else { throw AccountFailure.accountChanged }
+                    try await self.session.deleteAccount(appleAuthorizationCode: code)
                 }
             }
         } catch {
@@ -252,7 +249,7 @@ enum AppleAccountAction {
     private func perform(
         success: String? = nil, id: UUID = UUID(), _ work: @escaping @MainActor () async throws -> Void
     ) {
-        guard action == nil, !busy, session.cleanupState == .ready else { return }
+        guard action == nil, !busy, !session.isCleaningUp else { return }
         actionID = id
         busy = true
         notice = nil
@@ -320,6 +317,7 @@ enum AppleAccountAction {
                 "Apple sign-in couldn’t finish. Check that you’re signed in to your Apple Account in Settings and connected to the internet, then try again."
         }
         return switch error {
+        case let blocked as IdentityChangeBlocked: blocked.reason
         case let failure as NativeCallableTransport.ServerFailure
         where failure.reason == "recent-auth-required":
             "Confirm your password or sign-in provider, then try deleting the account again."

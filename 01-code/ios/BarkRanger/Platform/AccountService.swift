@@ -24,6 +24,9 @@ nonisolated struct AccountIdentity: Equatable, Sendable {
     let providers: [String]
     let serverConfirmed: Bool
     var passwordEmail: String? = nil
+    /// The server no longer has this account. The session never opens it; it removes
+    /// this iPhone's copy and signs out.
+    var removedByServer = false
 }
 
 @MainActor protocol AccountAuthenticating: AnyObject {
@@ -76,12 +79,15 @@ enum CredentialUse { case signIn, link, reauthenticate }
                         self.publish(user, confirmed: true)
                     } catch {
                         let code = (error as NSError).code
-                        if [
-                            AuthErrorCode.userDisabled.rawValue, AuthErrorCode.userNotFound.rawValue,
-                            AuthErrorCode.invalidUserToken.rawValue, AuthErrorCode.userTokenExpired.rawValue,
-                        ].contains(code),
-                            self.auth.currentUser?.uid == user.uid, !Task.isCancelled
-                        {
+                        guard self.auth.currentUser?.uid == user.uid, !Task.isCancelled else { return }
+                        if code == AuthErrorCode.userNotFound.rawValue {
+                            // Deleted, not merely locked out: the session owns the sign-out
+                            // so this iPhone's copy is removed with it.
+                            self.publish(user, confirmed: false, removedByServer: true)
+                        } else if [
+                            AuthErrorCode.userDisabled.rawValue, AuthErrorCode.invalidUserToken.rawValue,
+                            AuthErrorCode.userTokenExpired.rawValue,
+                        ].contains(code) {
                             try? self.auth.signOut()
                         }
                         // A network failure retains the remembered account without claiming confirmation.
@@ -96,14 +102,15 @@ enum CredentialUse { case signIn, link, reauthenticate }
         }
         return stream
     }
-    private func publish(_ user: User?, confirmed: Bool) {
+    private func publish(_ user: User?, confirmed: Bool, removedByServer: Bool = false) {
         continuation?.yield(
             user.map {
                 AccountIdentity(
                     uid: $0.uid, email: $0.email,
                     displayName: $0.displayName, verified: $0.isEmailVerified,
                     providers: $0.providerData.map(\.providerID), serverConfirmed: confirmed,
-                    passwordEmail: $0.providerData.first { $0.providerID == "password" }?.email)
+                    passwordEmail: $0.providerData.first { $0.providerID == "password" }?.email,
+                    removedByServer: removedByServer)
             })
     }
     func email(_ email: String, password: String, create: Bool) async throws {

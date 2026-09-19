@@ -28,9 +28,66 @@ import Testing
         let markers = folder.appendingPathComponent("removals-v1")
         let original = try #require(FileManager.default.contentsOfDirectory(at: markers, includingPropertiesForKeys: nil).first)
         try FileManager.default.moveItem(at: original, to: markers.appendingPathComponent("wrong-owner.json"))
-        #expect(throws: NativeStore.Failure.wrongScope) {
-            try NativeAccountRemovalFiles.pending(directory: folder)
+        var refused: [any Error] = []
+        #expect(try NativeAccountRemovalFiles.pending(directory: folder, unreadable: { refused.append($0) }).isEmpty)
+        #expect(refused.first as? NativeStore.Failure == .wrongScope)
+        // Set aside once: it authorizes no erase and is not reported again.
+        #expect(FileManager.default.fileExists(atPath: markers.appendingPathComponent("wrong-owner.json.unreadable").path))
+        #expect(try NativeAccountRemovalFiles.pending(directory: folder, unreadable: { refused.append($0) }).isEmpty)
+        #expect(refused.count == 1)
+    }
+
+    @Test func unreadableMarkerStrandsNeitherOtherCleanupsNorAnotherAccount() async throws {
+        let f = try await NativeOfflineAccountFixture.make(signIn: false)
+        await f.session.stopAndWait()
+        let damaged = NativeAccountRemovalFiles.Request(project: "demo-bark-native", uid: "damaged-owner")
+        let healthy = NativeAccountRemovalFiles.Request(project: "demo-bark-native", uid: "healthy-owner")
+        let markers = f.directory.appendingPathComponent("removals-v1")
+        try NativeAccountRemovalFiles.retain(damaged, directory: f.directory)
+        let marker = try #require(FileManager.default.contentsOfDirectory(at: markers, includingPropertiesForKeys: nil).first)
+        try Data("not a marker".utf8).write(to: marker)
+        try NativeAccountRemovalFiles.retain(healthy, directory: f.directory)
+        let store = try await NativeStore.open(directory: f.directory, project: healthy.project, uid: healthy.uid)
+        await store.close()
+
+        f.session.start()
+        try await eventually { f.session.cleanupState == .ready && f.session.nativeTrips != nil }
+        #expect(try NativeAccountRemovalFiles.pending(directory: f.directory).isEmpty)
+        #expect(FileManager.default.fileExists(atPath: marker.appendingPathExtension("unreadable").path))
+        #expect(!FileManager.default.fileExists(atPath: try NativeStore.scopeDirectory(directory: f.directory, project: healthy.project, uid: healthy.uid).path))
+
+        f.auth.select("b")
+        try await eventually { f.session.identity?.uid == "b" && f.session.nativeTrips != nil }
+        try await f.close()
+    }
+
+    /// The reply was lost after the server accepted. The device erases nothing on its own
+    /// suspicion; the server's word settles it, from whichever device the deletion came.
+    @Test(arguments: ["deleting-profile", "missing-user"])
+    func lostDeletionReplyIsSettledByTheServersWord(_ word: String) async throws {
+        let f = try await NativeOfflineAccountFixture.make(deleteAccount: { _ in
+            throw URLError(.networkConnectionLost)
+        })
+        let model = AccountModel(session: f.session)
+        model.deleteAccount()
+        await model.action?.value
+        #expect(f.session.identity?.uid == "a" && f.session.profileState?.confirmed != nil)
+        #expect(try NativeAccountRemovalFiles.pending(directory: f.directory).isEmpty)
+
+        if word == "deleting-profile" {
+            let store = try #require(f.session.nativeProfile?.store)
+            try await store.acceptProfile(.init(revision: 2, displayName: "Ranger a", status: .deleting))
+        } else {
+            f.auth.select("a", removedByServer: true)
         }
+        try await eventually {
+            f.session.identity == nil && f.session.nativeTrips != nil && f.session.cleanupState == .ready
+        }
+        #expect(f.auth.currentUID == nil)
+        #expect(try NativeAccountRemovalFiles.pending(directory: f.directory).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: try NativeStore.scopeDirectory(directory: f.directory, project: "demo-bark-native", uid: "a").path))
+        #expect(f.session.deletionMessage?.contains("Device data removed") == true)
+        try await f.close()
     }
 
     @Test func acceptedDeletionDrainsWritersErasesOnlyItsAccountAndKeepsGuestAndOtherOwner() async throws {
@@ -56,6 +113,10 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: try NativeStore.scopeDirectory(directory: f.directory, project: "demo-bark-native", uid: "b").path))
         await #expect(throws: NativeStore.Failure.closed) { try await original.profileView() }
         #expect(f.session.deletionMessage?.contains("Device data removed") == true)
+        // The notice belongs to the signed-out screen, not to whoever signs in next.
+        f.auth.select("b")
+        try await eventually { f.session.identity?.uid == "b" && f.session.nativeTrips != nil }
+        #expect(f.session.deletionMessage == nil)
         f.session.eraseAdditionalAccountData = nil
         try await f.close()
     }

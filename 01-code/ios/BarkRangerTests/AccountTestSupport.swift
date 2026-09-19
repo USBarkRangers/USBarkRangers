@@ -19,6 +19,7 @@ import Foundation
     var revocationWork: (@MainActor () async throws -> Void)?
     private(set) var revokedAppleUIDs: [String] = []
     private var current: AccountIdentity?
+    var currentUID: String? { current?.uid }
     func changes() -> AsyncStream<AccountIdentity?> {
         let (stream, continuation) = AsyncStream<AccountIdentity?>.makeStream(
             bufferingPolicy: .bufferingNewest(1))
@@ -27,13 +28,15 @@ import Foundation
         return stream
     }
     func select(
-        _ uid: String?, confirmed: Bool = true, providers: [String] = ["password"], verified: Bool = true
+        _ uid: String?, confirmed: Bool = true, providers: [String] = ["password"], verified: Bool = true,
+        removedByServer: Bool = false
     ) {
         current = uid.map {
             AccountIdentity(
                 uid: $0, email: "\($0)@example.test", displayName: $0,
                 verified: verified, providers: providers, serverConfirmed: confirmed,
-                passwordEmail: providers.contains("password") ? "\($0)@example.test" : nil)
+                passwordEmail: providers.contains("password") ? "\($0)@example.test" : nil,
+                removedByServer: removedByServer)
         }
         continuation?.yield(current)
     }

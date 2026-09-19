@@ -47,7 +47,7 @@ actor NativeProfileSync {
             guard remote.profile == nil, local.confirmed == nil else {
                 throw NativeProfileCloud.Failure.incomplete
             }
-            if local.pendingCount == 0 { try await store.stageProfileEdit(.bootstrap) }
+            try await store.stageBootstrap(replacingRefused: force)
         }
     }
     private func next() async throws -> NativeMailroom.Delivery? {

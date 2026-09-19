@@ -115,7 +115,9 @@ import SwiftData
                 FetchDescriptor<NativeLocalSchema.PendingOperation>()),
             pendingIDs: operations.compactMap { UUID(uuidString: $0.id) },
             failureCode: operations.first?.failureCode,
-            conflict: operations.contains { $0.state == "conflict" || $0.state == "rejected" },
+            // Without a confirmed profile there is nothing to review; bootstrap retries instead.
+            conflict: baseline != nil
+                && operations.contains { $0.state == "conflict" || $0.state == "rejected" },
             entitlement: try readEntitlement())
     }
 

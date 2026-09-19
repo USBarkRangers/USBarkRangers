@@ -93,6 +93,12 @@ import Observation
     }
 }
 
+/// Thrown by `prepareTripIdentityChange` to keep the current account open. The owner of
+/// the unsaved work words the reason; account forms show it as written.
+struct IdentityChangeBlocked: Error {
+    let reason: String
+}
+
 struct ScopeOpenFailure: Error {
     // Guest storage keeps the existing general-storage recovery behavior.
     enum Stage: String { case profile, savedPins, trips, visits, expeditions, leaderboard, guest }
@@ -126,7 +132,16 @@ struct ScopeOpenFailure: Error {
     private(set) var profileState: NativeStore.ProfileView?
     let nativeProfileConfiguration: NativeProfileConfiguration?
     private var sessionMessage: String?
-    var message: String? { sessionMessage ?? scope.scheduler?.message }
+    var message: String? { sessionMessage ?? setupMessage ?? scope.scheduler?.message }
+    /// A new account whose first command was refused has no profile yet. Every forced
+    /// refresh (reopening, Sync now) tries again; this says why the account looks empty.
+    private var setupMessage: String? {
+        guard let profileState, profileState.confirmed == nil, profileState.failureCode != nil else {
+            return nil
+        }
+        return
+            "This account could not finish setting up. Check that this iPhone sets its date and time automatically and that Bark Ranger is up to date, then retry."
+    }
     var isSyncing: Bool { scope.scheduler?.running == true }
     private(set) var tripLibraryMessage: String?
     private(set) var requiresStorageRecovery = false
@@ -149,6 +164,8 @@ struct ScopeOpenFailure: Error {
     private(set) var deletionMessage: String?
     enum CleanupState { case ready, checking, failed }
     private(set) var cleanupState: CleanupState = .ready
+    /// Failed cleanup is a warning with a retry. Account actions pause only while cleanup runs.
+    var isCleaningUp: Bool { cleanupState == .checking }
     init(
         auth: (any AccountAuthenticating)?, directory: URL,
         capabilities: AccountCapabilities = .init(), diagnostics: Diagnostics = Diagnostics(),
@@ -160,41 +177,74 @@ struct ScopeOpenFailure: Error {
         self.directory = directory
         self.nativeProfileConfiguration = nativeProfileConfiguration
     }
-    func start() {
+    func start() { begin(retryingCleanup: false) }
+    /// Cleanup assumes no account is open, so a retry reopens the lifecycle rather than
+    /// running beside whichever account has signed in since the failure.
+    func retryCleanup() async {
+        guard cleanupState == .failed else { return }
+        cleanupState = .checking  // Duplicate taps cannot start a second reopen.
+        await stopAndWait(preservingForeground: true)
+        begin(retryingCleanup: true)
+    }
+    private func begin(retryingCleanup: Bool) {
         guard authTask == nil else { return }
         guard let auth else {
             if !scopeStarted { activate(nil) }
             return
         }
-        let retryingCleanup = cleanupState == .failed
         cleanupState = .checking
         authTask = Task { [weak self] in
-            do {
-                let removed = try await self?.resumeAccountRemoval() == true
-                try Task.checkCancellation()
-                if removed {
-                    self?.deletionMessage =
-                        "Device cleanup finished. Your account deletion was already requested."
-                } else if retryingCleanup {
-                    self?.deletionMessage = nil
-                }
-                self?.cleanupState = .ready
-            } catch {
-                guard !Task.isCancelled else { return }
-                self?.diagnostics.accountFailure(error, at: .removeAccountData)
-                self?.deletionMessage =
-                    "Device cleanup could not finish. Retry cleanup before signing in. Keep the app installed to preserve your other saved data."
-                self?.cleanupState = .failed
-                // A failed task is finished, not an active auth listener. Allow a
-                // deliberate retry (or next foreground) to reopen this same lifecycle.
-                self?.authTask = nil
-                return
-            }
+            await self?.recoverAccountRemoval(retrying: retryingCleanup)
+            guard !Task.isCancelled else { return }
+            // Failed cleanup never gates authentication: guest storage and every other
+            // account still open. Only the deleted owner is refused, in `admitted`.
+            // The listener's first value restores a remembered account; later ones are sign-ins.
+            var restoring = true
             for await identity in auth.changes() {
-                guard !Task.isCancelled else { return }
-                self?.activate(identity)
+                guard !Task.isCancelled, let self else { return }
+                let next = self.admitted(identity)
+                // A finished deletion's notice belongs to the signed-out screen, not to the
+                // next account. A failed cleanup keeps its warning and retry.
+                if !restoring, let next, next.uid != self.identity?.uid, self.cleanupState != .failed {
+                    self.deletionMessage = nil
+                }
+                restoring = false
+                self.activate(next)
             }
         }
+    }
+    private func recoverAccountRemoval(retrying: Bool) async {
+        do {
+            let removed = try await resumeAccountRemoval()
+            try Task.checkCancellation()
+            if removed {
+                deletionMessage = "Device cleanup finished. Your account deletion was already requested."
+            } else if retrying {
+                deletionMessage = nil
+            }
+            cleanupState = .ready
+        } catch {
+            guard !Task.isCancelled else { return }
+            diagnostics.accountFailure(error, at: .removeAccountData)
+            deletionMessage =
+                "Device cleanup could not finish. You can keep using Bark Ranger and sign in to another account. Retry cleanup to finish removing the deleted account from this iPhone."
+            cleanupState = .failed
+        }
+    }
+    /// An accepted deletion is final for its owner. Firebase may still remember that
+    /// account (an earlier sign-out failed, or another device deleted it); it is signed
+    /// out and never reopened.
+    private func admitted(_ next: AccountIdentity?) -> AccountIdentity? {
+        guard let next else { return nil }
+        let fenced = removalRequest(next.uid).map {
+            NativeAccountRemovalFiles.isPending($0, directory: directory)
+        }
+        if next.removedByServer { removal(of: next.uid) } else if fenced != true { return next }
+        do { try auth?.signOut() } catch { diagnostics.accountFailure(error, at: .removeAccountData) }
+        return nil
+    }
+    private func removalRequest(_ uid: String) -> NativeAccountRemovalFiles.Request? {
+        nativeProfileConfiguration.map { .init(project: $0.project, uid: uid) }
     }
     private func activate(_ next: AccountIdentity?, force: Bool = false, openGuest: Bool = true) {
         if !force, scopeStarted, identity?.uid == next?.uid {
@@ -278,6 +328,7 @@ struct ScopeOpenFailure: Error {
     private func openScope(_ next: AccountIdentity?, generation: UUID) async {
         var features: [AccountScope.Feature] = []
         var guestStore: NativeStore?
+        var failures: [ScopeOpenFailure] = []
         do {
             let store: NativeStore
             let project = nativeProfileConfiguration?.project ?? "bark-ranger-ios"
@@ -295,24 +346,31 @@ struct ScopeOpenFailure: Error {
                 guestStore = store
             }
             for (stage, open) in featureOpeners(store: store, identity: next, generation: generation) {
-                guard let feature = try await atStage(stage, open) else {
-                    await AccountScope(features: features, guestStore: guestStore).close()
-                    return
+                do {
+                    guard let feature = try await atStage(stage, open) else {
+                        await AccountScope(features: features, guestStore: guestStore).close()
+                        return
+                    }
+                    features.append(feature)
+                } catch let failure as ScopeOpenFailure where next != nil && isCurrent(generation) {
+                    // Account features are independent: one that cannot open is reported,
+                    // and the ones after it still open.
+                    failures.append(failure)
                 }
-                features.append(feature)
             }
             guard isCurrent(generation) else {
                 await AccountScope(features: features, guestStore: guestStore).close()
                 return
             }
             publish(AccountScope(features: features, guestStore: guestStore), generation: generation)
+            for failure in failures { reportOpenFailure(failure) }
         } catch {
             guard isCurrent(generation) else {
                 await AccountScope(features: features, guestStore: guestStore).close()
                 return
             }
-            // A guest trip failure owns its writer. Account feature failures retain the
-            // healthy earlier features, exactly as before; saved-pin failure retains none.
+            // A guest trip failure owns its writer. A profile or saved-pin failure retains
+            // no features; later account features report their own failures above.
             if let guestStore { await guestStore.close() }
             guard isCurrent(generation) else {
                 await AccountScope(features: features).close()
@@ -339,9 +397,8 @@ struct ScopeOpenFailure: Error {
                         feature, stage: .trips, store: store, generation: generation,
                         start: {
                             if let identity {
-                                try await NativeDraftHandoff.adopt(
-                                    directory: self.directory, project: project, uid: identity.uid,
-                                    into: store)
+                                await self.adoptGuestDrafts(
+                                    project: project, uid: identity.uid, into: store, generation: generation)
                             }
                             try await feature.start()
                         }, close: { await feature.close() },
@@ -397,6 +454,18 @@ struct ScopeOpenFailure: Error {
             }
         }
         return openers
+    }
+    /// The handoff is a recoverable move: drafts it cannot deliver stay claimed for this
+    /// owner in the guest store, so its failure must not cost the account its own trips.
+    private func adoptGuestDrafts(project: String, uid: String, into store: NativeStore, generation: UUID) async {
+        do {
+            try await NativeDraftHandoff.adopt(directory: directory, project: project, uid: uid, into: store)
+        } catch {
+            guard isCurrent(generation) else { return }
+            diagnostics.accountFailure(error, at: .openStore)
+            tripLibraryMessage =
+                "Trips planned before signing in could not be moved into this account yet. They are kept on this iPhone."
+        }
     }
     /// Profile and saved pins are admitted together; failure cannot strand an unobserved writer.
     private func openNativeProfile(_ identity: AccountIdentity, generation: UUID) async throws
@@ -463,6 +532,11 @@ struct ScopeOpenFailure: Error {
             do {
                 for await value in try await feature.store.profileUpdates() {
                     guard let self, !Task.isCancelled, self.owns(generation) else { return }
+                    if value.confirmed?.status == .deleting {
+                        // The server's word, whichever device asked: this account is closing.
+                        self.removal(of: feature.uid)
+                        return
+                    }
                     let previous = self.profileState
                     self.profileState = value
                     self.entitlement.update(value.entitlement, uid: feature.uid)
@@ -504,8 +578,10 @@ struct ScopeOpenFailure: Error {
                     : "Your saved account data could not be opened. It has been kept for recovery."
             }
         default:
+            // Trips open first; their message already covers a wider loss.
             tripLibraryMessage =
-                "Visit or walk storage could not be opened. Your files are retained; your profile and trips are available."
+                tripLibraryMessage
+                ?? "Visit or walk storage could not be opened. Your files are retained; your profile and trips are available."
         }
     }
     func connectivityChanged(_ connected: Bool) {
@@ -557,19 +633,35 @@ struct ScopeOpenFailure: Error {
         scopeStarted = false
     }
 
-    func deleteAccount() async throws {
+    func deleteAccount(appleAuthorizationCode code: String? = nil) async throws {
         guard capabilities.accountManagement, let uid = identity?.uid,
-            let configuration = nativeProfileConfiguration, let remove = configuration.deleteAccount,
-            let auth
+            let remove = nativeProfileConfiguration?.deleteAccount, let auth
         else { throw NativeStore.Failure.unavailable }
-        let store = nativeProfile?.store
-        if let deletionTask { return try await deletionTask.value }
-        // The lifecycle owns completion; dismissing the form cannot cancel accepted cleanup.
-        let task = Task { @MainActor in
+        try await removal(of: uid) {
+            if let code {
+                // Apple first. A revoked account that survives signs in with Apple again and
+                // retries; a deleted account can never revoke, and its code is single-use.
+                try await auth.revokeApple(authorizationCode: code, uid: uid)
+                guard self.identity?.uid == uid else { throw AccountFailure.accountChanged }
+            }
             try await remove(uid)
-            let request = NativeAccountRemovalFiles.Request(project: configuration.project, uid: uid)
+        }.value
+    }
+    /// The lifecycle owns removal: leaving a form or closing a scope cannot cancel it.
+    /// `acceptance` returns once the server accepts this owner's deletion. The server's
+    /// own word (a deleting profile, a missing user) needs none.
+    @discardableResult private func removal(
+        of uid: String, acceptance: @escaping @MainActor () async throws -> Void = {}
+    ) -> Task<Void, any Error> {
+        if let deletionTask { return deletionTask }
+        let store = identity?.uid == uid ? nativeProfile?.store : nil
+        let task = Task { @MainActor in
+            defer { deletionTask = nil }
+            try await acceptance()
+            guard let request = removalRequest(uid), let auth else { throw NativeStore.Failure.unavailable }
             try NativeAccountRemovalFiles.retain(request, directory: directory)
-            guard identity?.uid == uid else { throw AccountFailure.accountChanged }
+            // Cleanup assumes no account is open. Another owner's arrival leaves it to the fence.
+            guard identity == nil || identity?.uid == uid else { throw AccountFailure.accountChanged }
             cleanupState = .checking
             // Deletion closes an account, not the app. The next sign-in must still
             // sync while this scene is foreground (and respect a concurrent background).
@@ -589,23 +681,32 @@ struct ScopeOpenFailure: Error {
             start()
         }
         deletionTask = task
-        defer { deletionTask = nil }
-        try await task.value
+        return task
     }
 
     @discardableResult private func resumeAccountRemoval() async throws -> Bool {
-        let requests = try NativeAccountRemovalFiles.pending(directory: directory)
+        let requests = try NativeAccountRemovalFiles.pending(directory: directory) {
+            diagnostics.accountFailure($0, at: .removeAccountData)
+        }
+        var failure: (any Error)?
         for request in requests {
             try Task.checkCancellation()
-            guard request.project == nativeProfileConfiguration?.project else {
-                throw NativeStore.Failure.wrongScope
-            }
-            try nativeProfileConfiguration?.forgetDeletedIdentity?(request.uid)
-            try await eraseAdditionalAccountData?(request.uid)
-            try Task.checkCancellation()
-            try NativeAccountRemovalFiles.eraseClosedAccount(request, directory: directory)
-            try NativeAccountRemovalFiles.finish(request, directory: directory)
+            // One owner's stuck cleanup must not strand another's; its marker is retained.
+            do { try await completeRemoval(request) } catch is CancellationError {
+                throw CancellationError()
+            } catch { failure = failure ?? error }
         }
+        if let failure { throw failure }
         return !requests.isEmpty
+    }
+    private func completeRemoval(_ request: NativeAccountRemovalFiles.Request) async throws {
+        guard request.project == nativeProfileConfiguration?.project else {
+            throw NativeStore.Failure.wrongScope
+        }
+        try nativeProfileConfiguration?.forgetDeletedIdentity?(request.uid)
+        try await eraseAdditionalAccountData?(request.uid)
+        try Task.checkCancellation()
+        try NativeAccountRemovalFiles.eraseClosedAccount(request, directory: directory)
+        try NativeAccountRemovalFiles.finish(request, directory: directory)
     }
 }

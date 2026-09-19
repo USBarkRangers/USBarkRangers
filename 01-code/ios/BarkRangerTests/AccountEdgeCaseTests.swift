@@ -41,6 +41,19 @@ import Testing
         try await f.close()
     }
 
+    @Test func newAccountWhoseSetupWasRefusedIsToldWhyItLooksEmpty() async throws {
+        let f = try await NativeOfflineAccountFixture.make(signIn: false)
+        let store = try await NativeStore.open(directory: f.directory, project: "demo-bark-native", uid: "new")
+        try await store.stageBootstrap(replacingRefused: false)
+        let sealed = try #require(try await store.nextProfileSubmission())
+        try await store.rejectProfileOperation(sealed.id, code: "invalid")
+        await store.close()
+        f.auth.select("new")
+        try await eventually { f.session.message?.contains("could not finish setting up") == true }
+        #expect(f.session.profileState?.confirmed == nil && f.session.profileState?.conflict == false)
+        try await f.close()
+    }
+
     @Test func alreadyLinkedAppleDoesNotStartAnotherRequest() async throws {
         let f = try await NativeOfflineAccountFixture.make()
         f.auth.select("a", providers: ["password", "apple.com"])

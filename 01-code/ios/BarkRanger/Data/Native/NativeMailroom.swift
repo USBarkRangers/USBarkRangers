@@ -29,6 +29,30 @@ nonisolated enum NativeMailroom {
         "account-deleting", "intent-expired", "forbidden",
     ]
 
+    /// True only when the remote request completed enough to give a definitive bad response
+    /// for this one independent operation or read, and continuing unrelated work cannot cause
+    /// incorrect state to be accepted. The failed step committed nothing: acceptors roll back
+    /// and a cursor moves only with its accepted page.
+    ///
+    /// Never add network or service unavailability, cancellation, an account change, local
+    /// corruption or a storage failure here; those must end the pass. `DecodingError` and
+    /// BarkDomain's validation failure are deliberately absent because local rows raise them
+    /// too; the remote boundary must report a bad reply as `invalidReply` instead. Unknown
+    /// errors are not isolatable.
+    static func isIsolatableRemoteResponseFailure(_ error: any Error) -> Bool {
+        if let server = error as? NativeCallableTransport.ServerFailure {
+            return !["unavailable", "rate-limited"].contains(server.reason)
+        }
+        switch error {
+        // invalidAcknowledgment: the reply contradicts what the store holds. staleRead: the
+        // reply answers a request the store has since moved past. Both were refused whole.
+        case NativeCallableTransport.Failure.invalidReply, NativeProfileCloud.Failure.invalidReply,
+            NativeStore.Failure.invalidAcknowledgment, NativeStore.Failure.staleRead:
+            return true
+        default: return false
+        }
+    }
+
     static func drain(
         store: NativeStore,
         next: @Sendable () async throws -> Delivery?,

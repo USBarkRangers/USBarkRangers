@@ -150,41 +150,51 @@ import Observation
         guard let worker, let cloud = repository.cloud else { return nil }
         try await worker.resume()
         let refresh = refresh || changeScanPending
+        // The library page, each trip's uploads and the change scan share no data. A bad
+        // reply to one must not starve the others; the first is still reported at the end.
+        var steps = NativeIndependentSteps()
         if refresh {
-            let page = try await cloud.library()
-            try Task.checkCancellation()
-            let accepted = try await repository.store.acceptTripLibraryPage(page)
-            try Task.checkCancellation()
-            merge(accepted)
-            if !headLoaded {
-                cursor = page.next
-                hasMore = page.next != nil
-                headLoaded = true
+            try await steps.run {
+                let page = try await cloud.library()
+                try Task.checkCancellation()
+                let accepted = try await repository.store.acceptTripLibraryPage(page)
+                try Task.checkCancellation()
+                merge(accepted)
+                if !headLoaded {
+                    cursor = page.next
+                    hasMore = page.next != nil
+                    headLoaded = true
+                }
             }
         }
         var retryAt: Date?
         for id in try await repository.store.pendingTripIDs() {
             try Task.checkCancellation()
-            if case .retry(let date) = try await worker.synchronize(id) {
-                retryAt = min(retryAt ?? date, date)
+            try await steps.run {
+                if case .retry(let date) = try await worker.synchronize(id) {
+                    retryAt = min(retryAt ?? date, date)
+                }
             }
         }
         // The selected editor alone downloads detail; summary refresh only invalidates stamps.
         if refresh {
             changeScanPending = true
-            for _ in 0..<4 {
-                let query = try await repository.store.tripChangesQuery()
-                let page = try await cloud.changes(query)
-                try Task.checkCancellation()
-                if try await repository.store.acceptTripChanges(page, requested: query) {
-                    if query.since == nil { try await reloadLibraryAfterRebuild(cloud) }
-                    changeScanPending = false
-                    break
+            try await steps.run {
+                for _ in 0..<4 {
+                    let query = try await repository.store.tripChangesQuery()
+                    let page = try await cloud.changes(query)
+                    try Task.checkCancellation()
+                    if try await repository.store.acceptTripChanges(page, requested: query) {
+                        if query.since == nil { try await reloadLibraryAfterRebuild(cloud) }
+                        changeScanPending = false
+                        break
+                    }
                 }
             }
         }
         try await reloadLocal(changes: [.tripDrafts, .pending, .selection])
         localMessage = nil
+        try steps.finish()
         if changeScanPending { return min(retryAt ?? .distantFuture, Date().addingTimeInterval(1)) }
         return retryAt
     }

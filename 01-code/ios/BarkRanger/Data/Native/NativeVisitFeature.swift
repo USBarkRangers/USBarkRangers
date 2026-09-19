@@ -53,35 +53,49 @@ import Observation
     private func synchronize(refresh: Bool) async throws -> Date? {
         guard let worker, let cloud = repository.cloud else { return nil }
         try await worker.resume()
-        let result = try await worker.synchronize()
-        if result.requiresAccessRefresh { refreshAccess() }
+        // Uploads, the progress summary, today's presence signal and the marker scan share no
+        // data. A bad reply to one must not stop the others; the first is reported at the end.
+        var steps = NativeIndependentSteps()
+        var result: NativeMailroom.QueueResult?
+        try await steps.run { result = try await worker.synchronize() }
+        if result?.requiresAccessRefresh == true { refreshAccess() }
         try Task.checkCancellation()
         if refresh {
-            try await repository.store.acceptNativeProgress(cloud.progress())
             scanRequested = true
+            try await steps.run { try await repository.store.acceptNativeProgress(cloud.progress()) }
         }
         if dailyRequested {
-            let today = AchievementPolicy.dayKey(Date(), timeZone: .current)
-            if try await repository.store.nativeProgress()?.lastStreakDay != today {
-                try await repository.store.acceptNativeProgress(
-                    cloud.recordDay(today, timeZone: TimeZone.current.identifier))
+            try await steps.run {
+                let today = AchievementPolicy.dayKey(Date(), timeZone: .current)
+                if try await repository.store.nativeProgress()?.lastStreakDay != today {
+                    try await repository.store.acceptNativeProgress(
+                        cloud.recordDay(today, timeZone: TimeZone.current.identifier))
+                }
             }
+            // Recorded, or definitively refused. A refusal is not repeated on every pass:
+            // this is a current-day signal, and the next foreground asks again. An error
+            // that ends the pass leaves the request standing.
             dailyRequested = false
         }
         if scanRequested {
             // Four bounded pages per turn. Resuming uses the durable exact cursor,
             // not another history download or an always-on collection listener.
-            for _ in 0..<4 {
-                let query = try await repository.store.markerChangesQuery()
-                let page = try await cloud.markers(query)
-                try Task.checkCancellation()
-                if try await repository.store.acceptMarkerChanges(page, requested: query), page.next == nil {
-                    scanRequested = false
-                    break
+            try await steps.run {
+                for _ in 0..<4 {
+                    let query = try await repository.store.markerChangesQuery()
+                    let page = try await cloud.markers(query)
+                    try Task.checkCancellation()
+                    if try await repository.store.acceptMarkerChanges(page, requested: query),
+                        page.next == nil
+                    {
+                        scanRequested = false
+                        break
+                    }
                 }
             }
         }
-        return scanRequested ? Date().addingTimeInterval(1) : result.retryAt
+        try steps.finish()
+        return scanRequested ? Date().addingTimeInterval(1) : result?.retryAt
     }
     func recordActivity() {
         dailyRequested = true

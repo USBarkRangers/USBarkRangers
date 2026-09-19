@@ -42,7 +42,13 @@ actor NativeProgressCloud {
             "version": 1,
             "progress": Self.wire(data), "readTime": Self.wire(stamp),
         ])
-        let snapshot = try JSONDecoder().decode(NativeProgressSnapshot.self, from: bytes)
+        let snapshot: NativeProgressSnapshot
+        do {
+            snapshot = try JSONDecoder().decode(NativeProgressSnapshot.self, from: bytes)
+        } catch is DecodingError {
+            // The server's document has the wrong shape; this is not damaged local storage.
+            throw NativeProfileCloud.Failure.invalidReply
+        }
         try snapshot.validate()
         return snapshot
     }

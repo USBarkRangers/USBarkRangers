@@ -70,58 +70,68 @@ import Observation
     private func synchronize(refresh: Bool) async throws -> Date? {
         guard let worker, let cloud = repository.cloud else { return nil }
         try await worker.resume()
-        let result = try await worker.synchronize()
-        if result.requiresAccessRefresh { refreshAccess() }
+        // Uploads, the current walk state, completed trails and the activity scan share no
+        // data. A bad reply to one must not stop the others; the first is reported at the end.
+        var steps = NativeIndependentSteps()
+        var result: NativeMailroom.QueueResult?
+        try await steps.run { result = try await worker.synchronize() }
+        if result?.requiresAccessRefresh == true { refreshAccess() }
         try Task.checkCancellation()
         if refresh {
-            try await repository.store.acceptNativeExpedition(cloud.current())
             scanRequested = !historyReaders.isEmpty
+            try await steps.run { try await repository.store.acceptNativeExpedition(cloud.current()) }
         }
         if !historyReaders.isEmpty, completionFreshness.isDue(at: Date()) { refreshCompletions = true }
         if refreshCompletions {
             refreshCompletions = false
             do {
-                try await repository.store.acceptNativeCompletedTrails(cloud.completedTrails())
-                try Task.checkCancellation()
-                completionFreshness.accepted(at: Date())
+                let refreshed = try await steps.run {
+                    try await repository.store.acceptNativeCompletedTrails(cloud.completedTrails())
+                    try Task.checkCancellation()
+                    completionFreshness.accepted(at: Date())
+                }
+                if !refreshed { refreshCompletions = true }
             } catch {
                 refreshCompletions = true
                 throw error
             }
         }
         if scanRequested {
-            for _ in 0..<4 {
-                guard !historyReaders.isEmpty else {
-                    scanRequested = false
-                    break
-                }
-                guard let query = try await repository.store.activityChangesQuery() else {
-                    scanRequested = false
-                    break
-                }
-                let page = try await cloud.changes(query)
-                try Task.checkCancellation()
-                if page.needsBootstrap {
+            try await steps.run {
+                for _ in 0..<4 {
                     guard !historyReaders.isEmpty else {
                         scanRequested = false
                         break
                     }
-                    let initial = try await cloud.history()
-                    if try await repository.store.acceptNativeActivityHistory(
-                        initial, after: nil, bootstrap: true)
+                    guard let query = try await repository.store.activityChangesQuery() else {
+                        scanRequested = false
+                        break
+                    }
+                    let page = try await cloud.changes(query)
+                    try Task.checkCancellation()
+                    if page.needsBootstrap {
+                        guard !historyReaders.isEmpty else {
+                            scanRequested = false
+                            break
+                        }
+                        let initial = try await cloud.history()
+                        if try await repository.store.acceptNativeActivityHistory(
+                            initial, after: nil, bootstrap: true)
+                        {
+                            scanRequested = false
+                            break
+                        }
+                    } else if try await repository.store.acceptNativeActivityChanges(
+                        page, requested: query), page.next == nil
                     {
                         scanRequested = false
                         break
                     }
-                } else if try await repository.store.acceptNativeActivityChanges(page, requested: query),
-                    page.next == nil
-                {
-                    scanRequested = false
-                    break
                 }
             }
         }
-        return scanRequested ? Date().addingTimeInterval(1) : result.retryAt
+        try steps.finish()
+        return scanRequested ? Date().addingTimeInterval(1) : result?.retryAt
     }
 
     /// Explicit account refresh may revalidate completions; ordinary outbox wakes do not.

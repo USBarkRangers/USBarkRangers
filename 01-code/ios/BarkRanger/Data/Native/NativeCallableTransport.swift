@@ -76,11 +76,23 @@ actor NativeCallableTransport {
                 }
             #endif
             try check()
-            return try JSONDecoder().decode(type, from: JSONSerialization.data(withJSONObject: reply.data))
+            return try Self.decodeReply(type, from: reply.data)
         } catch {
             try check()
             if let failure = Self.serverFailure(error) { throw failure }
             throw error
+        }
+    }
+    /// A reply that does not have the expected shape is the server's invalid reply. It must
+    /// not leave here as DecodingError, which the rest of the app reads as damaged local storage.
+    nonisolated static func decodeReply<Output: Decodable>(_ type: Output.Type, from object: Any) throws
+        -> Output
+    {
+        guard JSONSerialization.isValidJSONObject(object) else { throw Failure.invalidReply }
+        do {
+            return try JSONDecoder().decode(type, from: JSONSerialization.data(withJSONObject: object))
+        } catch is DecodingError {
+            throw Failure.invalidReply
         }
     }
     nonisolated static func serverFailure(_ error: any Error) -> ServerFailure? {

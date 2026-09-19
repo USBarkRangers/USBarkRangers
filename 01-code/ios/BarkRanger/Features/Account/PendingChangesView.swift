@@ -13,6 +13,15 @@ struct PendingChangesView: View {
     private var scopedItems: [NativeStore.PendingChange] {
         ownerUID == session.nativeProfile?.uid ? items : []
     }
+    private var discardWarning: String {
+        if scopedItems.first(where: { $0.id == review?.rootID })?.resumesWithAccess == true {
+            return "This change can still sync if Premium is restored. Discarding it is permanent."
+                + ((review?.ids.count ?? 0) > 1 ? " Later changes that depend on it are removed too." : "")
+        }
+        return "This also removes later changes that depend on this one."
+            + (review?.retainsTripDraft == true
+                ? " Your trip editor draft is kept; only its queued saves are cancelled." : "")
+    }
 
     var body: some View {
         List {
@@ -89,10 +98,7 @@ struct PendingChangesView: View {
                 }
             }
         } message: {
-            Text(
-                "This also removes later changes that depend on this one."
-                    + (review?.retainsTripDraft == true
-                        ? " Your trip editor draft is kept; only its queued saves are cancelled." : ""))
+            Text(discardWarning)
         }
         .task(id: session.nativeProfile?.uid) {
             items = []

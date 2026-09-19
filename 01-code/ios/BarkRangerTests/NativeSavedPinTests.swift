@@ -205,6 +205,7 @@ struct NativeSavedPinTests {
         #expect(try await store.savedPinValue(a.id).pending)
         let items = try await store.pendingChanges()
         #expect(items.map(\.state) == ["rejected", "queued"] && items.allSatisfy(\.canDiscard))
+        #expect(items.first?.resumesWithAccess == false)
         await store.close()
         // The refusal and its exit survive relaunch.
         let reopened = try await NativeStore.open(directory: directory, project: "demo-bark-native", uid: "a")
@@ -233,9 +234,13 @@ struct NativeSavedPinTests {
         await #expect(throws: NativeStore.Failure.unavailable) {
             try await store.reviewPendingDiscard(sealed.id)
         }
-        // Waiting for renewal is also a refusal the user may give up on.
+        // Expiry never destroys paid work by itself, but the user may give up on it.
+        // The row says it would retry, so the Discard warning can state what is lost.
         try await store.rejectSavedPin(sealed.id, code: "premium-required")
         #expect(try await store.reviewPendingDiscard(sealed.id).ids == [sealed.id])
+        let waiting = try #require(try await store.pendingChanges().first)
+        #expect(waiting.canDiscard && waiting.resumesWithAccess)
+        #expect(waiting.status == "Premium required · will retry if access returns")
         // A refused profile edit keeps its own review; Discard stays never-sent only.
         _ = try await store.stageProfileEdit(.displayName("First"))
         let profile = try #require(try await store.nextProfileSubmission())

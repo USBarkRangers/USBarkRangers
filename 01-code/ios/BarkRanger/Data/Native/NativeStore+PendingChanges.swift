@@ -13,8 +13,11 @@ extension NativeStore {
         let isSavedPin: Bool
         /// Mirrors `reviewPendingDiscard`: never-sent work, or a refused saved pin.
         var canDiscard: Bool { state == "queued" || (state == "rejected" && isSavedPin) }
+        /// Renewal resumes this exact operation. Expiry never destroys paid work by itself;
+        /// only the user's explicit Discard does, so that choice must state what is given up.
+        var resumesWithAccess: Bool { failure == "premium-required" }
         var status: String {
-            if failure == "premium-required" { return "Waiting for Premium renewal" }
+            if resumesWithAccess { return "Premium required · will retry if access returns" }
             if failure == "intent-expired" { return "Older than 45 days · retained for review" }
             switch state {
             case "queued": return "Saved on iPhone · not sent"

@@ -438,6 +438,10 @@ extension NativeStore {
         active.start()
         session.setForeground(true)
         session.connectivityChanged(true)
+        // AccountModel drops every action while the session is still checking device cleanup,
+        // exactly as the disabled buttons do on screen. Creating the account before that
+        // finishes is silently ignored and the fixture then waits for an account forever.
+        try await eventually { session.cleanupState == .ready }
         let account = AccountModel(session: session)
         account.email("\(UUID().uuidString)@native.invalid", password: "NativeOnly123!", create: true)
         await account.action?.value

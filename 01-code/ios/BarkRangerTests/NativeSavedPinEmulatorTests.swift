@@ -37,6 +37,9 @@ import Testing
                     span: .init(latitudeDelta: 10, longitudeDelta: 10)), including: [])
             session.setForeground(true)
             session.connectivityChanged(true)
+            // AccountModel drops every action while the session is still checking device
+            // cleanup; an account created before that finishes is silently ignored.
+            try await eventually { session.cleanupState == .ready }
             account.email(email, password: password, create: true)
             await account.action?.value
             try await eventually {
@@ -74,6 +77,9 @@ import Testing
             #expect(pins.places.isEmpty)
             account.signOut()
             await account.action?.value
+            // The listener clears the identity after the action returns, and email sign-in
+            // is ignored while an identity is still present. Wait, as the first sign-out does.
+            try await eventually { session.identity == nil }
             session.connectivityChanged(false)
             account.email(email, password: password, create: false)
             await account.action?.value

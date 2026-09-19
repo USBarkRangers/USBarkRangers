@@ -87,10 +87,10 @@ extension NativeStore {
             throw error
         }
     }
-    static let expeditionRejectionCodes: Set<String> = [
-        "invalid", "operation-reused", "unsupported-contract", "premium-required", "account-deleting",
-        "intent-expired", "forbidden", "activity-reused", "overlapping-activity", "incomplete-expedition",
-    ]
+    /// The shared command refusals plus the three only the walk handlers can answer.
+    static let expeditionRejectionCodes = NativeMailroom.rejectionCodes.union([
+        "activity-reused", "overlapping-activity", "incomplete-expedition",
+    ])
     func rejectExpeditionOperation(_ id: UUID, code: String) throws {
         try requireOpen()
         guard Self.expeditionRejectionCodes.contains(code), let row = try operation(id),

@@ -131,11 +131,7 @@ extension NativeStore {
 
     func rejectTripOperation(_ id: UUID, code: String) throws {
         try requireOpen()
-        guard
-            [
-                "invalid", "operation-reused", "unsupported-contract", "premium-required", "account-deleting",
-                "intent-expired", "forbidden",
-            ].contains(code), let row = try operation(id),
+        guard NativeMailroom.rejectionCodes.contains(code), let row = try operation(id),
             row.entityKey.hasPrefix("trip:"), row.state == "sealed"
         else { throw Failure.corrupt }
         do {

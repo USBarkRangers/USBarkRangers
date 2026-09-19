@@ -60,6 +60,43 @@ struct NativeMailroomTests {
         await store.close()
     }
 
+    @Test func featureStoresShareTheMailroomRefusalsAndWalksOnlyAddTheirOwn() async throws {
+        #expect(
+            NativeStore.expeditionRejectionCodes.subtracting(NativeMailroom.rejectionCodes)
+                == ["activity-reused", "overlapping-activity", "incomplete-expedition"])
+        #expect(NativeStore.expeditionRejectionCodes.isSuperset(of: NativeMailroom.rejectionCodes))
+        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // Every shared refusal is persisted by a feature store; each needs its own sealed head.
+        for code in NativeMailroom.rejectionCodes.sorted() {
+            let store = try await NativeStore.open(
+                directory: directory, project: "demo-bark-native", uid: code)
+            try await store.seedPremium()
+            _ = try await store.stageProfileEdit(.displayName("Refused"))
+            let profile = try #require(try await store.nextProfileSubmission())
+            try await store.rejectProfileOperation(profile.id, code: code)
+            #expect(try await store.profileView().failureCode == code)
+            await store.close()
+        }
+        // A reason the mailroom does not list is never written as a refusal: the row stays sealed.
+        let store = try await NativeStore.open(directory: directory, project: "demo-bark-native", uid: "trip")
+        try await store.seedPremium()
+        let trip = Trip(id: "refused-trip", name: "Refused", days: [.init(id: "day", stops: [])])
+        try await store.acceptTripSnapshot(nativeTripSnapshot(trip, revision: 1))
+        var edit = try #require(try await store.cachedTrip(id: trip.id))
+        edit.trip.name = "Renamed"
+        _ = try await store.checkpointNativeDraft(edit, replacing: nil)
+        _ = try await store.stageTripSave(edit)
+        let command = try #require(try await store.nextTripSubmission(id: trip.id))
+        await #expect(throws: NativeStore.Failure.corrupt) {
+            try await store.rejectTripOperation(command.id, code: "activity-reused")
+        }
+        #expect(try await store.nextTripSubmission(id: trip.id) == command)
+        try await store.rejectTripOperation(command.id, code: "intent-expired")
+        #expect(try await store.tripQueueState(trip.id).needsDecision)
+        await store.close()
+    }
+
     @Test func malformedAcknowledgmentIsRetainedWithoutAnAutomaticRetryLoop() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

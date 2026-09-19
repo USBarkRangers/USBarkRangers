@@ -486,7 +486,8 @@ struct ScopeOpenFailure: Error {
             let pins = try await atStage(.savedPins) {
                 let pins = NativeSavedPinFeature(
                     store: feature.store,
-                    cloud: try self.nativeProfileConfiguration?.connectSavedPins?(identity.uid))
+                    cloud: try self.nativeProfileConfiguration?.connectSavedPins?(identity.uid),
+                    refreshAccess: { [weak self] in self?.refreshNativeAccess() })
                 return try await self.registered(
                     pins, stage: .savedPins, store: feature.store, generation: generation,
                     start: { try await pins.start() }, close: { await pins.close() },

@@ -48,13 +48,9 @@ extension NativeStore {
 
     func rejectProfileOperation(_ id: UUID, code: String) throws {
         try requireOpen()
-        let allowed = [
-            "invalid", "operation-reused", "unsupported-contract", "premium-required",
-            "account-deleting", "intent-expired", "forbidden",
-        ]
-        guard allowed.contains(code), let row = try operation(id), row.state == "sealed" else {
-            throw Failure.corrupt
-        }
+        guard NativeMailroom.rejectionCodes.contains(code), let row = try operation(id),
+            row.state == "sealed"
+        else { throw Failure.corrupt }
         do {
             row.state = "rejected"
             row.failureCode = code

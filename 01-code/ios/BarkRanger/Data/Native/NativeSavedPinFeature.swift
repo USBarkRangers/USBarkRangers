@@ -12,9 +12,14 @@ import Observation
     private var observation: Task<Void, Never>?
     private var scanRequested = false
     private var closed = false
-    init(store: NativeStore, cloud: NativeSavedPinCloud?) {
+    private let refreshAccess: @MainActor () -> Void
+    init(
+        store: NativeStore, cloud: NativeSavedPinCloud?,
+        refreshAccess: @escaping @MainActor () -> Void = {}
+    ) {
         self.store = store
         self.cloud = cloud
+        self.refreshAccess = refreshAccess
     }
     func start() async throws {
         sync = NativeFeatureSync(
@@ -49,6 +54,9 @@ import Observation
                     try await store.acceptSavedPinOutcome(outcome)
                 }
             }, reject: { try await store.rejectSavedPin($0, code: $1) }, continueAfterRejection: true)
+        // Same as visits and walks: the server refused access, so stop trusting the local
+        // entitlement now rather than at the next five-minute refresh.
+        if case .blocked(let access) = stop, access { refreshAccess() }
         if refresh { scanRequested = true }
         if scanRequested {
             for _ in 0..<4 {

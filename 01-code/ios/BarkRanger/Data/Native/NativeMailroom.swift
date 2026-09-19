@@ -21,6 +21,9 @@ nonisolated enum NativeMailroom {
     enum Stop: Sendable {
         case idle, yielded, blocked(requiresAccessRefresh: Bool), retry(Date)
     }
+    /// The one definition of the refusals every command can receive (envelope, access,
+    /// receipt). Feature stores check against this same set before persisting a code, so a
+    /// code added here is accepted everywhere; feature-only codes are a union with it.
     static let rejectionCodes: Set<String> = [
         "invalid", "operation-reused", "unsupported-contract", "premium-required",
         "account-deleting", "intent-expired", "forbidden",

@@ -31,6 +31,15 @@ struct AppShellTests {
         #expect(accounts.session.auth == nil)
     }
 
+    /// Without this hook a deletion still reports the device clean, having skipped saved
+    /// places, the route cache and the recorder. The one composition must always install it.
+    @Test func theAppAlwaysInstallsItsAccountEraseHook() throws {
+        let sandbox = AppSandbox()
+        defer { try? sandbox.removeArtifacts() }
+        let composition = sandbox.makeComposition(preview: true)
+        #expect(composition.account.session.eraseAdditionalAccountData != nil)
+    }
+
     @Test func navigationDismissesSheetsWhenChangingDestination() {
         let router = AppRouter(diagnostics: diagnostics)
         router.open(.sheet(.about))

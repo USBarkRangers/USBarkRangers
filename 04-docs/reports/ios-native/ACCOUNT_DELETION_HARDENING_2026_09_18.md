@@ -48,7 +48,9 @@ One small presentation fix rides along: the "Account deletion requested" notice 
 
 - Every non-retryable outcome needs an exit. All six defects were a careful retry path next to a terminal state with none.
 - `NativeProfile.MapStyle` and `NativeProfile.Status` are decoded as closed enums, and the profile and entitlement are read in the same call. Adding a map style or an account status on the server breaks profile and entitlement refresh on every older app version. Loosen the decode in a shipped release first.
-- New account-owned data that lives outside the account's `NativeStore` folder must be added in four places: the folder list in `NativeAccountRemovalFiles.eraseClosedAccount`, the erase closure in `AppComposition`, the collection list in `functions-native/accounts/deletion.js`, and the `resetAccountScope` block described below.
+- Storage ownership decides deletion. Account data kept in the account's `NativeStore`, or under the account's hashed folder that `NativeAccountRemovalFiles.eraseClosedAccount` removes, is erased with no hook, at launch, before any feature object exists. Put new account data there and there is nothing to forget. The `eraseAdditionalAccountData` closure in `AppComposition` is only for what cannot live there: in-memory buffers, shared caches such as the route cache, and stores with their own root such as saved places. `AppShellTests` asserts the composition installs it. On the server, data under `users/{uid}` is deleted automatically; anything outside it must be added to the list in `functions-native/accounts/deletion.js`.
+- Account switching and account deletion stay separate mechanisms: `resetAccountScope` clears temporary screen state, the erase path permanently removes data. No shared protocol.
+- Checked September 18: nothing account-owned is missed by deletion today. `UserDefaults` holds no uid-keyed data, and exports, imported photos and feedback attachments are random-named temp files removed after use.
 
 ## Follow-up the same night: one owner for account switching
 

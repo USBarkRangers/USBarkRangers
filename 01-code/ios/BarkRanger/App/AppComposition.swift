@@ -122,6 +122,10 @@ struct AppComposition {
             store: RecordingStore(directory: accounts.session.directory),
             location: location, motion: PedometerClient(), activity: LiveActivityService())
         let accountProject = accounts.session.nativeProfileConfiguration?.project ?? "bark-ranger-ios"
+        // Account deletion, never account switching (see resetAccountScope below). Most account
+        // data needs no line here: whatever lives in the account's NativeStore, or under the
+        // account's hashed folder beside it, is erased with that folder. This hook is only for
+        // what cannot live there: in-memory buffers, shared caches, stores with their own root.
         accounts.session.eraseAdditionalAccountData = {
             [weak recorder, weak discovery, weak activeTrip] uid in
             guard let recorder, let discovery, let activeTrip else { throw NativeStore.Failure.unavailable }

@@ -73,7 +73,7 @@ actor NativeProfileCloud {
 
     func submit(_ submission: NativeStore.Submission) async throws -> NativeProfileOutcome {
         try check()
-        guard submission.bytes.count <= 400_000 else { throw Failure.invalidReply }
+        try NativeCallableTransport.checkRequest(endpoint: "nativeCommand", bytes: submission.bytes)
         let outcome = try await transport.callBytes(
             "nativeCommand", bytes: submission.bytes, as: NativeProfileOutcome.self)
         try check()

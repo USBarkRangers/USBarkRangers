@@ -19,6 +19,7 @@ import Testing
         NativeCallableTransport.ServerFailure(reason: "unavailable", retryAfterMs: nil),
         NativeCallableTransport.ServerFailure(reason: "rate-limited", retryAfterMs: 60_000),
         NativeCallableTransport.Failure.accountChanged, NativeCallableTransport.Failure.wrongScope,
+        NativeCallableTransport.Failure.invalidRequest,
         NativeProfileCloud.Failure.accountChanged, NativeProfileCloud.Failure.incomplete,
         AccountFailure.accountChanged, NativeSyncAdmission.closed,
         NativeStore.Failure.corrupt, NativeStore.Failure.closed, NativeStore.Failure.wrongScope,
@@ -43,6 +44,27 @@ import Testing
         for error in ending {
             #expect(!NativeMailroom.isIsolatableRemoteResponseFailure(error), "\(error)")
         }
+    }
+
+    @Test func aRequestThePhoneGotWrongIsLocalAndNeverIsolatable() throws {
+        // Nothing reached the server, so none of these may be read as the server's bad reply:
+        // an endpoint this client does not call, an oversized body, a visit selection outside
+        // 1...500, a leaderboard standing asked for another account or before the top five.
+        #expect(throws: NativeCallableTransport.Failure.invalidRequest) {
+            try NativeCallableTransport.checkRequest(endpoint: "someoneElsesFunction", bytes: Data())
+        }
+        #expect(throws: NativeCallableTransport.Failure.invalidRequest) {
+            try NativeCallableTransport.checkRequest(
+                endpoint: "nativeCommand", bytes: Data(count: 400_001))
+        }
+        try NativeCallableTransport.checkRequest(endpoint: "nativeCommand", bytes: Data(count: 400_000))
+        let local: [NativeCallableTransport.Failure] = [.invalidRequest, .accountChanged, .wrongScope]
+        for error in local {
+            #expect(!NativeMailroom.isIsolatableRemoteResponseFailure(error), "\(error)")
+            #expect(!NativeProfileCloud.isTransient(error), "\(error)")
+        }
+        let reply = NativeCallableTransport.Failure.invalidReply
+        #expect(NativeMailroom.isIsolatableRemoteResponseFailure(reply))
     }
 
     @Test func aBareValidationFailureIsNotIsolatableBecauseOnlyLocalDataCanStillRaiseIt() throws {

@@ -44,7 +44,11 @@ actor NativeLeaderboardRepository: LeaderboardReading {
         return value.entries
     }
     func standing(uid: String) async throws -> LeaderboardStanding? {
-        guard uid == self.uid, let snapshot else { throw NativeCallableTransport.Failure.invalidReply }
+        // Local state only: topFive() already validated what the server returned. Another
+        // account's uid means this client belongs to someone else; no snapshot means the
+        // caller asked before a successful topFive().
+        guard uid == self.uid else { throw NativeCallableTransport.Failure.accountChanged }
+        guard let snapshot else { throw NativeCallableTransport.Failure.invalidRequest }
         guard !snapshot.standingUnavailable else { throw URLError(.cannotLoadFromNetwork) }
         return snapshot.standing
     }

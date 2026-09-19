@@ -111,7 +111,10 @@ nonisolated struct NativeVisitCloud: Sendable {
         return value
     }
     func selection(_ references: [NativeVisitReference]) async throws -> NativeVisitSelection {
-        guard (1...500).contains(references.count) else { throw NativeCallableTransport.Failure.invalidReply }
+        // Request input built on the phone; a bad count is local, never the server's reply.
+        guard (1...500).contains(references.count) else {
+            throw NativeCallableTransport.Failure.invalidRequest
+        }
         for reference in references { try reference.validate() }
         let query = SelectionQuery(
             visits: references.map { .init(visitID: $0.visitID, officialPlaceID: $0.officialPlaceID) })

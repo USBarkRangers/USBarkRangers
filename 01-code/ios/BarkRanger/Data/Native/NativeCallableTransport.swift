@@ -6,7 +6,10 @@ import Foundation
 
 /// The callable transport owns SDK values and account-lifetime checks, not feature state.
 actor NativeCallableTransport {
-    enum Failure: Error, Equatable { case wrongScope, accountChanged, invalidReply }
+    /// `invalidReply` means only that the server answered incorrectly; sync isolation relies on
+    /// that. `invalidRequest` is the phone's own fault (an endpoint this client does not call,
+    /// an oversized body, input outside the contract) and must never be reported as a reply.
+    enum Failure: Error, Equatable { case wrongScope, accountChanged, invalidReply, invalidRequest }
     struct ServerFailure: Error {
         let reason: String
         let retryAfterMs: Int?
@@ -51,11 +54,7 @@ actor NativeCallableTransport {
         async throws -> Output
     {
         try check()
-        guard ["nativeCommand", "nativeRead", "nativeDeleteAccount", "nativePurchase"].contains(endpoint),
-            bytes.count <= 400_000
-        else {
-            throw Failure.invalidReply
-        }
+        try Self.checkRequest(endpoint: endpoint, bytes: bytes)
         let callable = functions.httpsCallable(endpoint)
         callable.timeoutInterval = endpoint == "nativePurchase" ? 60 : 30
         do {
@@ -82,6 +81,12 @@ actor NativeCallableTransport {
             if let failure = Self.serverFailure(error) { throw failure }
             throw error
         }
+    }
+    /// Nothing has been sent yet, so a refusal here is local and never an invalid reply.
+    nonisolated static func checkRequest(endpoint: String, bytes: Data) throws {
+        guard ["nativeCommand", "nativeRead", "nativeDeleteAccount", "nativePurchase"].contains(endpoint),
+            bytes.count <= 400_000
+        else { throw Failure.invalidRequest }
     }
     /// A reply that does not have the expected shape is the server's invalid reply. It must
     /// not leave here as DecodingError, which the rest of the app reads as damaged local storage.

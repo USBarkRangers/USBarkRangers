@@ -4,7 +4,7 @@ import Observation
 import SwiftUI
 
 /// A presentation-only input to MapKit. It has no account writes, recorder controls or trip selection.
-@MainActor @Observable final class MapExpeditionOverlay: AccountScoped {
+@MainActor @Observable final class MapExpeditionOverlay {
     private(set) var lines: [[Coordinate]] = []
     private(set) var revision = UUID()
     private(set) var framing: UUID?
@@ -29,7 +29,6 @@ import SwiftUI
         revision = UUID()
         framing = nil
     }
-    func resetScope() { clear() }
     func clear() {
         trail = []
         walk = []

@@ -142,8 +142,15 @@ struct AppComposition {
                 startup: startup, catalog: catalog, network: network, discovery: discovery,
                 settings: settings, diagnostics: diagnostics, account: accounts.session, trips: activeTrip,
                 recorder: recorder, purchases: purchases,
-                // Every model that shows one account's data. A new account feature joins here.
-                accountScoped: [discovery, trips, passport, mapExpedition, expeditions]),
+                resetAccountScope: {
+                    // Every model that shows one account's data. A new account feature adds its line.
+                    discovery.routeDay?.stop()
+                    discovery.cancelPlaceSelection()
+                    trips.resetScope()
+                    passport.resetScope()
+                    mapExpedition.clear()
+                    expeditions.resetScope()
+                }),
             discovery: discovery, settings: settings, account: account, trips: trips, passport: passport,
             expeditions: expeditions, mapExpedition: mapExpedition,
             support: SupportDependencies(

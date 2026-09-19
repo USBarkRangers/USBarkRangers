@@ -149,31 +149,29 @@ struct DiscoveryStateTests {
     }
 
     /// Account switching has one owner. The first value is only a baseline; a real change
-    /// resets every listed model once, in order; a repeat of the same account resets nothing.
-    @Test func accountChangeResetsEveryScopedModelOnceAndNeverAtLaunch() async throws {
+    /// resets once; a repeat of the same account resets nothing.
+    @Test func accountChangeResetsOncePerRealChangeAndNeverAtLaunch() async throws {
         let context = try DiscoveryTestContext()
         defer { context.close() }
         let network = NetworkMonitor(fixedConnection: true)
         let diagnostics = Diagnostics(enabled: false)
-        var resets: [String] = []
-        let first = ScopedProbe { resets.append("first") }
-        let second = ScopedProbe { resets.append("second") }
+        var resets = 0
         let lifecycle = AppLifecycle(
             startup: StartupModel(catalog: context.catalog, network: network, diagnostics: diagnostics),
             catalog: context.catalog, network: network, discovery: context.model,
             settings: SettingsModel(
                 preferences: context.settings, catalog: context.catalog, openSettings: {}),
-            diagnostics: diagnostics, accountScoped: [first, second])
+            diagnostics: diagnostics, resetAccountScope: { resets += 1 })
         await lifecycle.accountChanged(nil)
         await lifecycle.accountChanged(nil)
-        #expect(resets.isEmpty)
+        #expect(resets == 0)
         await lifecycle.accountChanged("a")
-        #expect(resets == ["first", "second"])
+        #expect(resets == 1)
         await lifecycle.accountChanged("a")
-        #expect(resets.count == 2)
+        #expect(resets == 1)
         await lifecycle.accountChanged("b")
         await lifecycle.accountChanged(nil)
-        #expect(resets == ["first", "second", "first", "second", "first", "second"])
+        #expect(resets == 3)
     }
 
     @Test func aRememberedAccountAtLaunchIsABaselineNotAChange() async throws {
@@ -187,7 +185,7 @@ struct DiscoveryStateTests {
             catalog: context.catalog, network: network, discovery: context.model,
             settings: SettingsModel(
                 preferences: context.settings, catalog: context.catalog, openSettings: {}),
-            diagnostics: diagnostics, accountScoped: [ScopedProbe { resets += 1 }])
+            diagnostics: diagnostics, resetAccountScope: { resets += 1 })
         await lifecycle.accountChanged("remembered")
         #expect(resets == 0)
     }
@@ -242,9 +240,3 @@ struct DiscoveryStateTests {
     }
 }
 
-
-@MainActor private final class ScopedProbe: AccountScoped {
-    private let onReset: () -> Void
-    init(_ onReset: @escaping () -> Void) { self.onReset = onReset }
-    func resetScope() { onReset() }
-}

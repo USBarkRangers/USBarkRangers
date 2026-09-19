@@ -5,7 +5,7 @@ import Observation
 
 /// Projects one catalog/filter result into pins and the accessible list; owns selection and locate actions.
 @MainActor @Observable
-final class MapFeatureModel: AccountScoped {
+final class MapFeatureModel {
     struct CameraRequest {
         let id = UUID()
         let region: MKCoordinateRegion
@@ -200,10 +200,6 @@ final class MapFeatureModel: AccountScoped {
         return true
     }
     func dismissPark() { detail.show(nil) }
-    func resetScope() {
-        routeDay?.stop()
-        cancelPlaceSelection()
-    }
     func cancelPlaceSelection() {
         dismissPark()
         placeSearch.cancel()

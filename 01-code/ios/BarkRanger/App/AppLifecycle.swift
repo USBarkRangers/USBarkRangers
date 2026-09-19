@@ -14,7 +14,7 @@ final class AppLifecycle {
     private let trips: ActiveTripSession?
     private let recorder: WalkRecorder?
     private let purchases: PurchaseService?
-    private let accountScoped: [any AccountScoped]
+    private let resetAccountScope: @MainActor () -> Void
     private var observedAccount: String?
     private var observingAccount = false
     private var recordingCheckpoint: Task<Void, Never>?
@@ -27,10 +27,10 @@ final class AppLifecycle {
         startup: StartupModel, catalog: CatalogRepository, network: NetworkMonitor,
         discovery: MapFeatureModel, settings: SettingsModel, diagnostics: Diagnostics,
         account: AccountSession? = nil, trips: ActiveTripSession? = nil, recorder: WalkRecorder? = nil,
-        purchases: PurchaseService? = nil, accountScoped: [any AccountScoped] = []
+        purchases: PurchaseService? = nil, resetAccountScope: @escaping @MainActor () -> Void = {}
     ) {
         self.purchases = purchases
-        self.accountScoped = accountScoped
+        self.resetAccountScope = resetAccountScope
         self.recorder = recorder
         self.trips = trips
         self.account = account
@@ -45,9 +45,7 @@ final class AppLifecycle {
     /// sets the baseline: nothing from another account can be on screen yet. Purchases and
     /// the recorder then load whichever account is current, including at launch.
     func accountChanged(_ uid: String?) async {
-        if observingAccount, observedAccount != uid {
-            for model in accountScoped { model.resetScope() }
-        }
+        if observingAccount, observedAccount != uid { resetAccountScope() }
         observingAccount = true
         observedAccount = uid
         purchases?.activate()

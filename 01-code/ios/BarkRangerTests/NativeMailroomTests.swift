@@ -97,6 +97,135 @@ struct NativeMailroomTests {
         await store.close()
     }
 
+    private func pin(_ id: String) throws -> SavedPlace {
+        try #require(
+            SavedPlace(
+                stop: .init(
+                    id: "stop-" + id, placeIdentity: .custom(id), name: "Place " + id,
+                    coordinate: Coordinate(latitude: 41, longitude: -81)), subtitle: "Ohio",
+                savedAt: Date(timeIntervalSince1970: 1_800_000_000)))
+    }
+    /// What the drain tried to send, in order. A class because the drain's closures escape.
+    private final class Attempts: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [NativeStore.Submission] = []
+        func add(_ value: NativeStore.Submission) -> Int {
+            lock.withLock {
+                values.append(value)
+                return values.count
+            }
+        }
+        var all: [NativeStore.Submission] { lock.withLock { values } }
+    }
+    /// Two unrelated saved pins, a then b, and a drain whose replies the test scripts by order.
+    private func drainPins(
+        _ store: NativeStore, isolating: Bool, attempts: Attempts,
+        reply: @escaping @Sendable (Int, NativeStore.Submission) async throws -> Void
+    ) async throws -> NativeMailroom.Stop {
+        try await NativeMailroom.drain(
+            store: store,
+            next: {
+                guard let command = try await store.nextSavedPinSubmission() else { return nil }
+                return .init(command: command) {
+                    try await reply(attempts.add(command), command)
+                }
+            }, reject: { try await store.rejectSavedPin($0, code: $1) }, continueAfterRejection: true,
+            isolatingRemoteResponseFailures: isolating)
+    }
+
+    @Test func aBadReplyDefersOnlyItsOperationWhileAnUnrelatedPinStillDelivers() async throws {
+        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try await NativeStore.open(directory: directory, project: "demo-bark-native", uid: "a")
+        try await store.seedPremium()
+        let a = try pin("a")
+        let b = try pin("b")
+        let confirmedB = NativeSavedPin(id: b.id, revision: 1, saved: true, place: try b.nativeValue)
+        try await store.saveSavedPin(a)
+        try await store.saveSavedPin(b)
+        let attempts = Attempts()
+        // The first fault is still thrown, but only after the lane had nothing more to send.
+        await #expect(throws: NativeCallableTransport.Failure.invalidReply) {
+            try await drainPins(store, isolating: true, attempts: attempts) { order, command in
+                if order == 1 { throw NativeCallableTransport.Failure.invalidReply }
+                try await store.acceptSavedPinOutcome(
+                    .init(
+                        version: 1, operationID: command.id, status: "accepted",
+                        confirmation: confirmedB, revisions: .init(savedPin: 1)))
+            }
+        }
+        let sent = attempts.all
+        #expect(sent.count == 2)
+        #expect(try await store.savedPinValue(b.id).pending == false)
+        // Outcome unknown: sealed and durable with the same bytes, never rejected, backed off.
+        let waiting = try await store.pendingChanges()
+        #expect(waiting.map(\.state) == ["sealed"] && waiting.first?.id == sent.first?.id)
+        #expect(try await store.nextSavedPinSubmission() == nil)
+        #expect(try #require(try await store.savedPinRetryAt()) > Date())
+        let later = try #require(try await store.nextSavedPinSubmission(now: .distantFuture))
+        #expect(later.id == sent[0].id && later.bytes == sent[0].bytes && later.attempts == 1)
+        await store.close()
+    }
+
+    @Test func aLaneWideStopIsStillReportedAndLocalFaultsStillEndTheLaneAtOnce() async throws {
+        let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func lane(_ uid: String) async throws -> NativeStore {
+            let store = try await NativeStore.open(
+                directory: directory, project: "demo-bark-native", uid: uid)
+            try await store.seedPremium()
+            try await store.saveSavedPin(pin("a"))
+            try await store.saveSavedPin(pin("b"))
+            return store
+        }
+        // Service unreachable after an isolated bad reply: reported as a retry, as before.
+        var store = try await lane("retry")
+        var attempts = Attempts()
+        var stop = try await drainPins(store, isolating: true, attempts: attempts) { order, _ in
+            if order == 1 { throw NativeCallableTransport.Failure.invalidReply }
+            throw URLError(.notConnectedToInternet)
+        }
+        if case .retry = stop {} else { Issue.record("Expected a retry stop, got \(stop)") }
+        #expect(attempts.all.count == 2)
+        await store.close()
+        // Access refused after an isolated bad reply: the access stop wins so it is refreshed.
+        store = try await lane("access")
+        attempts = Attempts()
+        stop = try await drainPins(store, isolating: true, attempts: attempts) { order, _ in
+            if order == 1 { throw NativeCallableTransport.Failure.invalidReply }
+            throw NativeCallableTransport.ServerFailure(reason: "premium-required", retryAfterMs: nil)
+        }
+        if case .blocked(let access) = stop { #expect(access) } else { Issue.record("Expected blocked") }
+        await store.close()
+        // A local fault is never isolated: thrown at once, not deferred, nothing else is sent.
+        let localFaults: [any Error] = [
+            NativeStore.Failure.corrupt, NativeCallableTransport.Failure.invalidRequest,
+        ]
+        for fault in localFaults {
+            store = try await lane("local-\(fault)")
+            attempts = Attempts()
+            await #expect(throws: (any Error).self) {
+                try await drainPins(store, isolating: true, attempts: attempts) { _, _ in throw fault }
+            }
+            let sent = attempts.all
+            #expect(sent.count == 1)
+            #expect(try await store.nextSavedPinSubmission() == sent.first)
+            await store.close()
+        }
+        // A lane that does not opt in is unchanged: the bad reply ends it, still due, no backoff.
+        store = try await lane("chain")
+        attempts = Attempts()
+        await #expect(throws: NativeCallableTransport.Failure.invalidReply) {
+            try await drainPins(store, isolating: false, attempts: attempts) { _, _ in
+                throw NativeCallableTransport.Failure.invalidReply
+            }
+        }
+        let sent = attempts.all
+        #expect(sent.count == 1)
+        #expect(try await store.nextSavedPinSubmission() == sent.first)
+        await store.close()
+    }
+
     @Test func malformedAcknowledgmentIsRetainedWithoutAnAutomaticRetryLoop() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

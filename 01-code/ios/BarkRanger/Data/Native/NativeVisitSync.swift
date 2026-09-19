@@ -16,7 +16,7 @@ actor NativeVisitSync {
             let stop = try await NativeMailroom.drain(
                 store: self.store, next: { try await self.next() },
                 reject: { try await self.store.rejectVisitOperation($0, code: $1) },
-                continueAfterRejection: true)
+                continueAfterRejection: true, isolatingRemoteResponseFailures: true)
             return try await self.result(stop)
         }
     }

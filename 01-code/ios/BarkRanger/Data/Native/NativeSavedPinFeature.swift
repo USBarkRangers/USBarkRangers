@@ -44,32 +44,42 @@ import Observation
     private func synchronize(refresh: Bool) async throws -> Date? {
         guard let cloud else { return nil }
         let store = store
-        let stop = try await NativeMailroom.drain(
-            store: store,
-            next: {
-                guard let command = try await store.nextSavedPinSubmission() else { return nil }
-                return .init(command: command) {
-                    let outcome = try await cloud.submit(command)
-                    try Task.checkCancellation()
-                    try await store.acceptSavedPinOutcome(outcome)
-                }
-            }, reject: { try await store.rejectSavedPin($0, code: $1) }, continueAfterRejection: true)
+        // Uploads and the change scan share no data; a bad reply to one must not stop the
+        // other. The first is still reported at the end.
+        var steps = NativeIndependentSteps()
+        var stop: NativeMailroom.Stop?
+        try await steps.run {
+            stop = try await NativeMailroom.drain(
+                store: store,
+                next: {
+                    guard let command = try await store.nextSavedPinSubmission() else { return nil }
+                    return .init(command: command) {
+                        let outcome = try await cloud.submit(command)
+                        try Task.checkCancellation()
+                        try await store.acceptSavedPinOutcome(outcome)
+                    }
+                }, reject: { try await store.rejectSavedPin($0, code: $1) },
+                continueAfterRejection: true, isolatingRemoteResponseFailures: true)
+        }
         // Same as visits and walks: the server refused access, so stop trusting the local
         // entitlement now rather than at the next five-minute refresh.
         if case .blocked(let access) = stop, access { refreshAccess() }
         if refresh { scanRequested = true }
         if scanRequested {
-            for _ in 0..<4 {
-                let query = try await store.savedPinChangesQuery()
-                let page = try await cloud.changes(query)
-                try Task.checkCancellation()
-                try await store.acceptSavedPinChanges(page, requested: query)
-                if page.next == nil {
-                    scanRequested = false
-                    break
+            try await steps.run {
+                for _ in 0..<4 {
+                    let query = try await store.savedPinChangesQuery()
+                    let page = try await cloud.changes(query)
+                    try Task.checkCancellation()
+                    try await store.acceptSavedPinChanges(page, requested: query)
+                    if page.next == nil {
+                        scanRequested = false
+                        break
+                    }
                 }
             }
         }
+        try steps.finish()
         if scanRequested { return Date().addingTimeInterval(1) }
         switch stop {
         case .retry(let date): return date
